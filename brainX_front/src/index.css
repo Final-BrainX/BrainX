@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-primary:   #0f0f1a;
+    --bg-card:      #1a1a2e;
+    --bg-hover:     #22223b;
+    --border-color: #2d2d4e;
+    --text-primary: #f1f5f9;
+    --text-muted:   #94a3b8;
+    --accent:       #6366f1;
+    --accent-glow:  rgba(99, 102, 241, 0.3);
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html, body, #root {
+    height: 100%;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: 'DM Sans', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg-primary); }
+  ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #4a4a7a; }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-brand-500 hover:bg-brand-600 text-white font-medium px-4 py-2 rounded-lg
+           transition-all duration-200 flex items-center gap-2 disabled:opacity-50
+           disabled:cursor-not-allowed active:scale-95;
+  }
+  .btn-ghost {
+    @apply text-slate-400 hover:text-white hover:bg-surface-hover px-3 py-2 rounded-lg
+           transition-all duration-200 flex items-center gap-2;
+  }
+  .card {
+    @apply bg-surface-card border border-surface-border rounded-xl p-4;
+  }
+  .input-base {
+    @apply w-full bg-surface-card border border-surface-border text-slate-100
+           rounded-lg px-3 py-2.5 placeholder-slate-500 outline-none text-sm
+           focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30
+           transition-all duration-200;
+  }
+  .sidebar-item {
+    @apply flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-400
+           hover:text-white hover:bg-surface-hover cursor-pointer transition-all duration-150
+           select-none;
+  }
+  .sidebar-item.active {
+    @apply text-white bg-brand-500/20 text-brand-300;
+  }
+}
+
+/* CodeMirror 다크 테마 오버라이드 */
+.cm-editor {
+  background: transparent !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 14px;
+}
+.cm-scroller { overflow: auto; }
+.cm-content { padding: 16px 0; }
+.cm-focused { outline: none !important; }
+
+/* 마크다운 렌더링 */
+.markdown-body {
+  @apply text-slate-300 leading-relaxed;
+}
+.markdown-body h1 { @apply text-2xl font-bold text-white mb-4 mt-6; }
+.markdown-body h2 { @apply text-xl font-semibold text-white mb-3 mt-5; }
+.markdown-body h3 { @apply text-lg font-medium text-slate-100 mb-2 mt-4; }
+.markdown-body p  { @apply mb-3; }
+.markdown-body ul, .markdown-body ol { @apply mb-3 pl-5; }
+.markdown-body li { @apply mb-1; }
+.markdown-body code {
+  @apply bg-surface-hover text-brand-300 px-1.5 py-0.5 rounded text-sm font-mono;
+}
+.markdown-body pre {
+  @apply bg-surface-card border border-surface-border rounded-lg p-4 mb-4 overflow-x-auto;
+}
+.markdown-body blockquote {
+  @apply border-l-4 border-brand-500 pl-4 text-slate-400 italic my-4;
+}
+.markdown-body a { @apply text-brand-400 hover:text-brand-300 underline; }
+.markdown-body hr { @apply border-surface-border my-6; }

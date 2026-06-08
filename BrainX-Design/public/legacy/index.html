@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ko" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BrainX — 내 지식의 우주를 탐험하는 AI 두뇌</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-jp.min.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        colors: {
+          bg:       'rgb(var(--bg) / <alpha-value>)',
+          bg2:      'rgb(var(--bg2) / <alpha-value>)',
+          surface:  'rgb(var(--surface) / <alpha-value>)',
+          surface2: 'rgb(var(--surface2) / <alpha-value>)',
+          primary:  'rgb(var(--primary) / <alpha-value>)',
+          accent:   'rgb(var(--accent) / <alpha-value>)',
+          cyan:     'rgb(var(--cyan) / <alpha-value>)',
+          txt:      'rgb(var(--txt) / <alpha-value>)',
+          txt2:     'rgb(var(--txt2) / <alpha-value>)',
+          txt3:     'rgb(var(--txt3) / <alpha-value>)',
+          line:     'rgb(var(--border) / <alpha-value>)',
+        },
+        fontFamily: {
+          sans: ['Pretendard Variable', 'Pretendard', 'system-ui', 'sans-serif'],
+          display: ['Space Grotesk', 'Pretendard Variable', 'sans-serif'],
+          mono: ['JetBrains Mono', 'monospace'],
+        },
+        boxShadow: {
+          glow: '0 0 0 1px rgb(var(--primary) / 0.25), 0 8px 40px -8px rgb(var(--primary) / 0.35)',
+          glowv: '0 0 0 1px rgb(var(--accent) / 0.25), 0 8px 40px -8px rgb(var(--accent) / 0.35)',
+          soft: '0 10px 40px -12px rgba(2,6,23,0.55)',
+        },
+      }
+    }
+  }
+</script>
+<style>
+  :root {
+    --bg: 11 16 32;          /* #0B1020 */
+    --bg2: 15 23 42;         /* #0F172A */
+    --surface: 17 24 39;     /* #111827 */
+    --surface2: 30 41 59;    /* #1E293B */
+    --primary: 59 130 246;   /* #3B82F6 */
+    --accent: 139 92 246;    /* #8B5CF6 */
+    --cyan: 34 211 238;      /* #22D3EE */
+    --txt: 248 250 252;      /* #F8FAFC */
+    --txt2: 148 163 184;     /* #94A3B8 */
+    --txt3: 100 116 139;     /* #64748B */
+    --border: 51 65 85;      /* #334155 */
+    --glass: 255 255 255;
+    --glass-a: 0.045;
+    color-scheme: dark;
+  }
+  html.light {
+    --bg: 244 247 253;
+    --bg2: 255 255 255;
+    --surface: 255 255 255;
+    --surface2: 241 245 249;
+    --primary: 37 99 235;
+    --accent: 124 58 237;
+    --cyan: 6 182 212;
+    --txt: 15 23 42;
+    --txt2: 71 85 105;
+    --txt3: 148 163 184;
+    --border: 226 232 240;
+    --glass: 15 23 42;
+    --glass-a: 0.025;
+    color-scheme: light;
+  }
+  * { -webkit-font-smoothing: antialiased; }
+  html, body { margin: 0; background: rgb(var(--bg)); color: rgb(var(--txt)); }
+  body { font-family: 'Pretendard Variable', Pretendard, system-ui, sans-serif; overflow: hidden; }
+  ::selection { background: rgb(var(--primary) / 0.3); }
+  /* scrollbars */
+  .scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+  .scroll::-webkit-scrollbar-thumb { background: rgb(var(--border) / 0.8); border-radius: 99px; border: 3px solid transparent; background-clip: content-box; }
+  .scroll::-webkit-scrollbar-thumb:hover { background: rgb(var(--txt3) / 0.9); background-clip: content-box; }
+  .scroll::-webkit-scrollbar-track { background: transparent; }
+
+  .glass {
+    background: linear-gradient(180deg, rgb(var(--glass) / calc(var(--glass-a) + 0.02)), rgb(var(--glass) / var(--glass-a)));
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    border: 1px solid rgb(var(--border) / 0.6);
+  }
+  .card {
+    background: rgb(var(--surface) / 0.7);
+    border: 1px solid rgb(var(--border) / 0.55);
+    backdrop-filter: blur(12px);
+  }
+  html.light .card { background: rgb(var(--surface) / 0.85); box-shadow: 0 8px 30px -18px rgba(15,23,42,0.25); }
+
+  .aurora { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+  .aurora b {
+    position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.5;
+    animation: drift 22s ease-in-out infinite;
+  }
+  .aurora b:nth-child(1){ width: 46vw; height: 46vw; left: -8vw; top: -12vw; background: rgb(var(--primary)); opacity:.28; }
+  .aurora b:nth-child(2){ width: 40vw; height: 40vw; right: -10vw; top: -6vw; background: rgb(var(--accent)); opacity:.25; animation-delay:-6s; }
+  .aurora b:nth-child(3){ width: 34vw; height: 34vw; left: 30vw; bottom: -18vw; background: rgb(var(--cyan)); opacity:.16; animation-delay:-12s; }
+  html.light .aurora b { opacity: .18 !important; }
+  @keyframes drift {
+    0%,100% { transform: translate(0,0) scale(1); }
+    33% { transform: translate(4vw,3vh) scale(1.08); }
+    66% { transform: translate(-3vw,-2vh) scale(.96); }
+  }
+  @media (prefers-reduced-motion: reduce) { .aurora b { animation: none; } }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(rgb(var(--border) / 0.18) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(var(--border) / 0.18) 1px, transparent 1px);
+    background-size: 44px 44px;
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, #000 40%, transparent 100%);
+            mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, #000 40%, transparent 100%);
+  }
+
+  .gradient-text {
+    background: linear-gradient(100deg, rgb(var(--txt)) 0%, rgb(var(--primary)) 55%, rgb(var(--accent)) 100%);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .neon-line { box-shadow: 0 0 0 1px rgb(var(--primary) / 0.3), 0 0 22px -2px rgb(var(--primary) / 0.45); }
+
+  .fade-up { animation: fadeUp .5s cubic-bezier(.22,1,.36,1) both; }
+  @keyframes fadeUp { from { transform: translateY(12px); } to { transform:none; } }
+  .stream-caret::after { content:'▍'; margin-left:1px; animation: blink 1s steps(2) infinite; color: rgb(var(--primary)); }
+  @keyframes blink { 50% { opacity: 0; } }
+  .shimmer { background: linear-gradient(90deg, rgb(var(--surface2) / .5) 25%, rgb(var(--border) / .55) 37%, rgb(var(--surface2) / .5) 63%); background-size: 400% 100%; animation: sh 1.4s ease infinite; }
+  @keyframes sh { 0%{ background-position: 100% 0 } 100%{ background-position: 0 0 } }
+
+  [data-route] { animation: routeIn .45s cubic-bezier(.22,1,.36,1) both; }
+  @keyframes routeIn { from { transform: translateY(8px); } to { transform:none; } }
+  @media (prefers-reduced-motion: reduce){ .fade-up,[data-route]{ animation: none !important; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="app/data.jsx"></script>
+<script type="text/babel" src="app/ui.jsx"></script>
+<script type="text/babel" src="app/shell.jsx"></script>
+<script type="text/babel" src="app/landing.jsx"></script>
+<script type="text/babel" src="app/home.jsx"></script>
+<script type="text/babel" src="app/graph.jsx"></script>
+<script type="text/babel" src="app/notes.jsx"></script>
+<script type="text/babel" src="app/chat.jsx"></script>
+<script type="text/babel" src="app/pages.jsx"></script>
+<script type="text/babel" src="app/app.jsx"></script>
+</body>
+</html>
