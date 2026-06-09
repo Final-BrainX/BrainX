@@ -1,0 +1,29 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: knowledge-workspace-service
+  datasource:
+    url: jdbc:mysql://localhost:3306/brainx_workspace?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true
+    username: root
+    password: 1234
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQL8Dialect
+
+jwt:
+  secret: ${JWT_SECRET:brainx-identity-service-secret-key-must-be-at-least-256-bits-long-for-hs256}
+
+identity-service:
+  base-url: ${IDENTITY_SERVICE_URL:http://localhost:8081}
+
+logging:
+  level:
+    com.brainx: DEBUG
