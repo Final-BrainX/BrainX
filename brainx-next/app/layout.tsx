@@ -20,7 +20,10 @@ const mono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "BrainX",
-  description: "AI 기반 지식 관리 플랫폼"
+  description: "AI 기반 지식 관리 플랫폼",
+  icons: {
+    icon: "/favicon.ico"
+  }
 };
 
 const themeScript = `(() => {

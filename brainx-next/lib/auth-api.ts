@@ -101,6 +101,7 @@ export function saveAuthSession(session: Partial<AuthSession>) {
     next: session.next ?? null
   };
   window.localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(normalized));
+  window.dispatchEvent(new Event("brainx-auth-session-changed"));
 }
 
 export function readAuthSession() {
@@ -116,6 +117,7 @@ export function readAuthSession() {
 export function clearAuthSession() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(AUTH_SESSION_KEY);
+  window.dispatchEvent(new Event("brainx-auth-session-changed"));
 }
 
 export async function requestEmailVerification(email: string, purpose: EmailVerificationPurpose) {

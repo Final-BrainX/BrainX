@@ -1,6 +1,6 @@
 "use client";
 
-import { readAuthSession, saveAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { clearAuthSession, readAuthSession, saveAuthSession, type ApiResponse } from "@/lib/auth-api";
 
 export type MyProfile = {
   userId: string;
@@ -11,6 +11,7 @@ export type MyProfile = {
   security: {
     twoFactorEnabled: boolean;
     linkedProviders: string[];
+    hasPassword?: boolean;
   };
   consents: {
     termsRequired: boolean;
@@ -30,6 +31,13 @@ export type ConsentPayload = {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
+export class AuthRequiredError extends Error {
+  constructor(message = "로그인이 만료되었습니다. 다시 로그인해 주세요.") {
+    super(message);
+    this.name = "AuthRequiredError";
+  }
+}
+
 function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
   return response.message ?? response.error?.message ?? fallback;
 }
@@ -37,7 +45,7 @@ function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
 async function authedRequest<T>(path: string, init?: RequestInit) {
   const session = readAuthSession();
   if (!session?.accessToken) {
-    throw new Error("로그인이 필요합니다.");
+    throw new AuthRequiredError("로그인이 필요합니다.");
   }
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -50,6 +58,10 @@ async function authedRequest<T>(path: string, init?: RequestInit) {
   });
 
   const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
+  if (response.status === 401 || response.status === 403) {
+    clearAuthSession();
+    throw new AuthRequiredError();
+  }
   if (!payload) {
     throw new Error("서버 응답을 읽을 수 없습니다.");
   }

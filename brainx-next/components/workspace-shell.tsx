@@ -259,6 +259,9 @@ function TopBar() {
 
   useEffect(() => {
     setSession(readAuthSession());
+    const syncSession = () => setSession(readAuthSession());
+    window.addEventListener("brainx-auth-session-changed", syncSession);
+    return () => window.removeEventListener("brainx-auth-session-changed", syncSession);
   }, []);
 
   return (
@@ -277,11 +280,7 @@ function TopBar() {
           </button>
           <div className="mx-1 hidden h-6 w-px bg-line/60 md:block" />
           <button type="button" onClick={() => router.push("/mypage")} className="flex h-10 items-center gap-2.5 rounded-xl px-2.5 transition-colors hover:bg-surface2/60">
-            {session?.profileImageUrl ? (
-              <img src={session.profileImageUrl} alt="프로필" className="h-8 w-8 rounded-full object-cover" />
-            ) : (
-              <Avatar name={displayName} size={32} />
-            )}
+            <Avatar name={displayName} size={32} imageUrl={session?.profileImageUrl} />
             <div className="hidden text-left leading-tight sm:block">
               <div className="max-w-[120px] truncate text-[13px] font-semibold text-txt">{displayName}</div>
               <div className="text-[11px] text-txt3">{session?.role ?? "Free 플랜"}</div>

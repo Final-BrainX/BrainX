@@ -14,6 +14,7 @@ import {
   Copy,
   CreditCard,
   Eye,
+  EyeOff,
   FileText,
   FileUp,
   Filter,
@@ -25,6 +26,7 @@ import {
   Languages,
   Link2,
   LockKeyhole,
+  LogOut,
   LayoutDashboard,
   Maximize2,
   MessageSquare,
@@ -88,7 +90,9 @@ export type IconName =
   | "rewrite"
   | "summarize"
   | "eye"
+  | "eyeOff"
   | "lock"
+  | "logout"
   | "copy"
   | "arrowL"
   | "brain"
@@ -136,7 +140,9 @@ const ICONS: Record<IconName, ComponentType<{ size?: number; className?: string;
   rewrite: PencilLine,
   summarize: FileText,
   eye: Eye,
+  eyeOff: EyeOff,
   lock: LockKeyhole,
+  logout: LogOut,
   copy: Copy,
   arrowL: ArrowLeft,
   brain: Brain,
@@ -277,16 +283,30 @@ export function Card({
   );
 }
 
-export function Avatar({ name = "연우", size = 36, ring }: { name?: string; size?: number; ring?: boolean }) {
+export function Avatar({
+  name = "연우",
+  size = 36,
+  ring,
+  imageUrl
+}: {
+  name?: string;
+  size?: number;
+  ring?: boolean;
+  imageUrl?: string | null;
+}) {
   return (
     <div
       style={{ width: size, height: size }}
       className={cx(
-        "rounded-full grid place-items-center font-semibold text-white shrink-0 bg-gradient-to-br from-primary to-accent",
+        "rounded-full grid place-items-center overflow-hidden font-semibold text-white shrink-0 bg-gradient-to-br from-primary to-accent",
         ring ? "ring-2 ring-primary/40 ring-offset-2 ring-offset-bg" : ""
       )}
     >
-      <span style={{ fontSize: size * 0.4 }}>{name[0]}</span>
+      {imageUrl ? (
+        <img src={imageUrl} alt="프로필" className="h-full w-full object-cover" />
+      ) : (
+        <span style={{ fontSize: size * 0.4 }}>{name[0]}</span>
+      )}
     </div>
   );
 }

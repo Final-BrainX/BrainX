@@ -8,6 +8,8 @@ import { useBrainX } from "@/components/brainx-provider";
 import { Icon, ThemeToggle } from "@/components/brainx-ui";
 import { HeroConstellation } from "@/components/public/landing-screen";
 
+const OAUTH_LINK_INTENT_KEY = "brainx_oauth_link_intent_v1";
+
 export function Field({
   label,
   type = "text",
@@ -72,6 +74,7 @@ export function SocialButtons() {
 
   const handleOAuth = async (provider: OAuthProvider, name: string) => {
     try {
+      window.localStorage.removeItem(OAUTH_LINK_INTENT_KEY);
       const data = await getOAuthAuthorization(provider);
       window.location.href = data.authorizationUrl;
     } catch (error) {

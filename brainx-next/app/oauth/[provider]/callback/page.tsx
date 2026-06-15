@@ -4,9 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { completeOAuthLogin, type OAuthProvider } from "@/lib/auth-api";
+import { AuthRequiredError, linkSocialAccount } from "@/lib/user-api";
 import { useBrainX } from "@/components/brainx-provider";
 
 const PROVIDERS = new Set(["kakao", "google", "apple", "naver"]);
+const OAUTH_LINK_INTENT_KEY = "brainx_oauth_link_intent_v1";
 
 export default function OAuthCallbackPage() {
   const params = useParams<{ provider: string }>();
@@ -32,6 +34,39 @@ export default function OAuthCallbackPage() {
     }
 
     let mounted = true;
+    const linkIntent = (() => {
+      if (typeof window === "undefined") return null;
+      try {
+        const raw = window.localStorage.getItem(OAUTH_LINK_INTENT_KEY);
+        return raw ? (JSON.parse(raw) as { provider?: string; state?: string; returnTo?: string }) : null;
+      } catch {
+        return null;
+      }
+    })();
+
+    if (linkIntent?.provider === provider && linkIntent.state === state) {
+      setMessage("소셜 계정을 연결하는 중입니다.");
+      linkSocialAccount(provider, code)
+        .then(() => {
+          if (!mounted) return;
+          window.localStorage.removeItem(OAUTH_LINK_INTENT_KEY);
+          pushToast("소셜 계정이 연결되었습니다.", "ok");
+          router.replace(linkIntent?.returnTo ?? "/mypage");
+        })
+        .catch((error) => {
+          if (!mounted) return;
+          window.localStorage.removeItem(OAUTH_LINK_INTENT_KEY);
+          const nextMessage = error instanceof Error ? error.message : "소셜 계정 연결에 실패했습니다.";
+          setMessage(nextMessage);
+          pushToast(nextMessage, "err");
+          router.replace(error instanceof AuthRequiredError ? "/login" : linkIntent?.returnTo ?? "/mypage");
+        });
+
+      return () => {
+        mounted = false;
+      };
+    }
+
     completeOAuthLogin(provider, code, state)
       .then((data) => {
         if (!mounted) return;

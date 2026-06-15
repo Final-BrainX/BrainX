@@ -74,7 +74,7 @@ export function SettingsScreen() {
   const saveProfile = async () => {
     setSavingProfile(true);
     try {
-      const data = await updateMyProfile({ nickname, profileImageAssetId: profileImageUrl || null });
+      const data = await updateMyProfile({ nickname, profileImageAssetId: profileImageUrl });
       setProfile((current) => current ? { ...current, nickname: data.nickname, profileImageUrl: data.profileImageUrl } : current);
       pushToast("프로필이 저장되었습니다.", "ok");
     } catch (error) {

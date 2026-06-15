@@ -255,8 +255,27 @@ public class AuthService {
                     .build();
         }
 
-        if (userRepository.existsByEmail(profile.email())) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "이미 가입된 이메일입니다.");
+        User existingUser = userRepository.findByEmail(profile.email()).orElse(null);
+        if (existingUser != null) {
+            oAuthAccountRepository.save(OAuthAccount.builder()
+                    .user(existingUser)
+                    .provider(provider)
+                    .providerUserId(profile.providerUserId())
+                    .build());
+
+            AuthTokenResponse token = issueAuthTokenResponse(existingUser, null);
+            return OAuthCallbackResponse.builder()
+                    .userId(existingUser.getUserId())
+                    .email(existingUser.getEmail())
+                    .nickname(existingUser.getNickname())
+                    .profileImageUrl(existingUser.getProfileImageUrl())
+                    .accessToken(token.accessToken())
+                    .refreshToken(token.refreshToken())
+                    .tokenType(token.tokenType())
+                    .accountLinked(true)
+                    .isNewUser(false)
+                    .next(null)
+                    .build();
         }
 
         String onboardingToken = "onb_" + UUID.randomUUID().toString().replace("-", "");

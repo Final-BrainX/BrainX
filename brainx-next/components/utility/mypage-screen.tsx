@@ -7,21 +7,50 @@ import { useRouter } from "next/navigation";
 import { useBrainX } from "@/components/brainx-provider";
 import { Icon } from "@/components/brainx-ui";
 import type { BrainXNote } from "@/lib/brainx-data";
+import { getOAuthAuthorization, logout, type OAuthProvider } from "@/lib/auth-api";
 import {
   cancelAccountDeletion,
   changeMyPassword,
   getMyProfile,
-  linkSocialAccount,
   requestAccountDeletion,
   unlinkSocialAccount,
   updateMyConsents,
   updateMyProfile,
+  AuthRequiredError,
   type ConsentPayload,
   type MyProfile
 } from "@/lib/user-api";
 
 const COVER_KEY = "brainx_profile_cover_v1";
+const OAUTH_LINK_INTENT_KEY = "brainx_oauth_link_intent_v1";
 const PROVIDERS = ["google", "kakao", "naver"] as const;
+type SocialProvider = (typeof PROVIDERS)[number];
+const SOCIAL_PROVIDERS: Record<SocialProvider, { name: string; mark: string; color: string; bg: string; border: string; text: string }> = {
+  google: {
+    name: "Google",
+    mark: "G",
+    color: "#4285F4",
+    bg: "#ffffff",
+    border: "#dfe5f2",
+    text: "#1f2937"
+  },
+  kakao: {
+    name: "Kakao",
+    mark: "K",
+    color: "#000000",
+    bg: "#FEE500",
+    border: "#f0d700",
+    text: "#191919"
+  },
+  naver: {
+    name: "Naver",
+    mark: "N",
+    color: "#ffffff",
+    bg: "#03C75A",
+    border: "#03b653",
+    text: "#ffffff"
+  }
+};
 const TOKEN_LIMIT = 20000;
 const TOKEN_USED = 12800;
 const TOKEN_USAGE_PERCENT = Math.round((TOKEN_USED / TOKEN_LIMIT) * 100);
@@ -40,14 +69,6 @@ const ACTIVITY_FILTERS: { id: ActivityPeriod; label: string }[] = [
 
 function displayName(profile: MyProfile | null) {
   return profile?.nickname?.trim() || profile?.email?.split("@")[0] || "BrainX 사용자";
-}
-
-function handleText(profile: MyProfile | null) {
-  const source = displayName(profile)
-    .toLowerCase()
-    .replace(/[^a-z0-9가-힣]+/gi, "_")
-    .replace(/^_+|_+$/g, "");
-  return `@${source || "brainx_user"}`;
 }
 
 function readImageFile(event: ChangeEvent<HTMLInputElement>, onLoad: (value: string) => void) {
@@ -81,7 +102,14 @@ function formatToken(value: number) {
   return value >= 1000 ? `${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)}K` : value.toLocaleString();
 }
 
-function ContributionGrid({ usagePercent }: { usagePercent: number }) {
+function dateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function ContributionGrid({ notes }: { notes: BrainXNote[] }) {
   const weekCount = 52;
   const weekStep = 17;
   const cellSize = 13;
@@ -95,31 +123,35 @@ function ContributionGrid({ usagePercent }: { usagePercent: number }) {
     { label: "수", row: 3 },
     { label: "금", row: 5 }
   ];
-  const monthLabels = [
-    { label: "8월", week: 0 },
-    { label: "9월", week: 4 },
-    { label: "10월", week: 9 },
-    { label: "11월", week: 13 },
-    { label: "12월", week: 18 },
-    { label: "1월", week: 22 },
-    { label: "2월", week: 27 },
-    { label: "3월", week: 31 },
-    { label: "4월", week: 35 },
-    { label: "5월", week: 40 },
-    { label: "6월", week: 44 },
-    { label: "7월", week: 48 }
-  ];
+  const today = new Date();
+  const startDate = new Date(today);
+  startDate.setDate(today.getDate() - (weekCount * 7 - 1));
   const totalCells = weekCount * 7;
-  const targetFilledCells = Math.round((totalCells * usagePercent) / 100);
-  let filledCells = 0;
   const colors = ["#ebedf0", "#d9f7e3", "#9be9a8", "#40c463", "#30a14e"];
+  const noteCountsByDate = notes.reduce<Record<string, number>>((counts, note) => {
+    const targetDate = new Date(note.updatedAt || note.createdAt);
+    if (Number.isNaN(targetDate.getTime())) return counts;
+    const key = dateKey(targetDate);
+    counts[key] = (counts[key] ?? 0) + 1;
+    return counts;
+  }, {});
+  const monthLabels = Array.from({ length: weekCount }).reduce<{ label: string; week: number }[]>((labels, _, week) => {
+    const date = new Date(startDate);
+    date.setDate(startDate.getDate() + week * 7);
+    const label = `${date.getMonth() + 1}월`;
+    if (week === 0 || labels[labels.length - 1]?.label !== label) {
+      labels.push({ label, week });
+    }
+    return labels;
+  }, []);
+  const rangeLabel = `${startDate.getFullYear()}년 ${startDate.getMonth() + 1}월 - ${today.getFullYear()}년 ${today.getMonth() + 1}월`;
 
   return (
     <div className="scroll overflow-x-auto rounded-[6px] border border-[#d0d7de] bg-white px-4 py-4">
       <div className="mx-auto" style={{ width: `${graphWidth}px` }}>
         <div className="mb-3 flex items-center justify-between text-[12px] text-[#57606a]">
-          <span>2025년 8월 - 2026년 7월</span>
-          <span>AI 토큰 사용 기준</span>
+          <span>{rangeLabel}</span>
+          <span>노트 작성/저장 기준</span>
         </div>
 
         <div
@@ -132,7 +164,7 @@ function ContributionGrid({ usagePercent }: { usagePercent: number }) {
           <div />
           <div className="relative mb-2 h-4 text-[12px] text-[#24292f]" style={{ width: `${gridWidth}px` }}>
             {monthLabels.map((month) => (
-              <span key={month.label} className="absolute top-0" style={{ left: `${month.week * weekStep}px` }}>
+              <span key={`${month.label}-${month.week}`} className="absolute top-0" style={{ left: `${month.week * weekStep}px` }}>
                 {month.label}
               </span>
             ))}
@@ -155,13 +187,14 @@ function ContributionGrid({ usagePercent }: { usagePercent: number }) {
             }}
           >
             {Array.from({ length: totalCells }).map((_, index) => {
-              const deterministic = (index * 37 + Math.floor(index / 7) * 19 + (index % 7) * 11) % 100;
-              const active = filledCells < targetFilledCells && deterministic < Math.min(96, usagePercent + 24);
-              if (active) filledCells += 1;
-              const intensity = active ? ((deterministic + index) % 4) + 1 : 0;
+              const cellDate = new Date(startDate);
+              cellDate.setDate(startDate.getDate() + index);
+              const count = noteCountsByDate[dateKey(cellDate)] ?? 0;
+              const intensity = Math.min(4, count);
               return (
                 <span
                   key={index}
+                  title={`${dateKey(cellDate)} · ${count}개 노트`}
                   className="rounded-[3px] outline outline-1 outline-white"
                   style={{ width: `${cellSize}px`, height: `${cellSize}px`, backgroundColor: colors[intensity] }}
                 />
@@ -171,7 +204,7 @@ function ContributionGrid({ usagePercent }: { usagePercent: number }) {
 
           <div />
           <div className="mt-4 flex items-center justify-between text-[12px] text-[#57606a]">
-            <span>토큰 사용량은 활동일 기준으로 표시됩니다</span>
+            <span>노트를 작성하거나 저장한 날짜를 기준으로 표시됩니다</span>
             <div className="flex items-center gap-1">
               <span>적음</span>
               <div className="flex gap-[3px]">
@@ -321,20 +354,67 @@ function calculateWritingStreak(notes: BrainXNote[]) {
   return streak;
 }
 
+function resampleChartPoints(points: { label: string; value: number }[], length: number) {
+  if (points.length === length) return points;
+  if (points.length === 0) return Array.from({ length }, () => ({ label: "", value: 0 }));
+
+  return Array.from({ length }).map((_, index) => {
+    const sourcePosition = length <= 1 ? 0 : (index / (length - 1)) * (points.length - 1);
+    const leftIndex = Math.floor(sourcePosition);
+    const rightIndex = Math.min(points.length - 1, leftIndex + 1);
+    const progress = sourcePosition - leftIndex;
+    const value = points[leftIndex].value + (points[rightIndex].value - points[leftIndex].value) * progress;
+    return { label: points[leftIndex].label, value };
+  });
+}
+
 function ActivityLineChart({ points }: { points: { label: string; value: number }[] }) {
+  const [animatedPoints, setAnimatedPoints] = useState(points);
+  const previousPointsRef = useRef(points);
+  const pointSignature = points.map((point) => `${point.label}:${point.value}`).join("|");
   const width = 640;
   const height = 210;
   const padding = { top: 18, right: 18, bottom: 34, left: 34 };
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
-  const maxValue = Math.max(1, ...points.map((point) => point.value));
-  const coordinates = points.map((point, index) => {
-    const x = padding.left + (innerWidth / Math.max(1, points.length - 1)) * index;
+  const maxValue = Math.max(1, ...points.map((point) => point.value), ...animatedPoints.map((point) => point.value));
+  const coordinates = animatedPoints.map((point, index) => {
+    const x = padding.left + (innerWidth / Math.max(1, animatedPoints.length - 1)) * index;
     const y = padding.top + innerHeight - (point.value / maxValue) * innerHeight;
     return { ...point, x, y };
   });
   const path = coordinates.map((point) => `${point.x},${point.y}`).join(" ");
-  const labelStep = Math.max(1, Math.ceil(points.length / 6));
+  const labelStep = Math.max(1, Math.ceil(animatedPoints.length / 6));
+
+  useEffect(() => {
+    const fromPoints = resampleChartPoints(previousPointsRef.current, points.length);
+    const duration = 460;
+    let frame = 0;
+    let startTime = 0;
+
+    const animate = (timestamp: number) => {
+      if (!startTime) startTime = timestamp;
+      const elapsed = timestamp - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+
+      setAnimatedPoints(
+        points.map((point, index) => ({
+          ...point,
+          value: fromPoints[index].value + (point.value - fromPoints[index].value) * eased
+        }))
+      );
+
+      if (progress < 1) {
+        frame = window.requestAnimationFrame(animate);
+      } else {
+        previousPointsRef.current = points;
+      }
+    };
+
+    frame = window.requestAnimationFrame(animate);
+    return () => window.cancelAnimationFrame(frame);
+  }, [pointSignature, points]);
 
   return (
     <div className="overflow-x-auto">
@@ -471,6 +551,70 @@ function ModalSection({ title, children }: { title: string; children: React.Reac
   );
 }
 
+function hasEmailPassword(profile: MyProfile | null) {
+  if (!profile) return true;
+  if (typeof profile.security.hasPassword === "boolean") return profile.security.hasPassword;
+  return profile.security.linkedProviders.length === 0;
+}
+
+function PasswordInput({
+  placeholder,
+  value,
+  visible,
+  onChange,
+  onToggle
+}: {
+  placeholder: string;
+  value: string;
+  visible: boolean;
+  onChange: (value: string) => void;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="relative">
+      <input
+        type={visible ? "text" : "password"}
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-10 w-full rounded-xl border border-neutral-300 px-3 pr-11 text-[14px] outline-none transition focus:border-neutral-900"
+      />
+      <button
+        type="button"
+        onClick={onToggle}
+        className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900"
+        aria-label={visible ? "비밀번호 숨기기" : "비밀번호 보기"}
+      >
+        <Icon name={visible ? "eyeOff" : "eye"} size={17} />
+      </button>
+    </div>
+  );
+}
+
+function ImageActionMenu({
+  className = "",
+  onChoose,
+  onDelete
+}: {
+  className?: string;
+  onChoose: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div
+      onClick={(event) => event.stopPropagation()}
+      className={`absolute z-40 w-32 overflow-hidden rounded-2xl border border-neutral-200 bg-white p-1.5 text-neutral-950 shadow-[0_14px_35px_rgb(0_0_0/0.18)] ${className}`}
+    >
+      <button type="button" onClick={onChoose} className="h-9 w-full rounded-xl px-3 text-left text-[13px] font-medium hover:bg-neutral-100">
+        사진 선택
+      </button>
+      <button type="button" onClick={onDelete} className="h-9 w-full rounded-xl px-3 text-left text-[13px] font-medium text-red-600 hover:bg-red-50">
+        삭제
+      </button>
+    </div>
+  );
+}
+
 function ConsentToggle({
   label,
   checked,
@@ -516,8 +660,10 @@ function AccountSettingsModal({
   const [nickname, setNickname] = useState(displayName(profile));
   const [profileImage, setProfileImage] = useState(profile?.profileImageUrl ?? "");
   const [coverDraft, setCoverDraft] = useState(coverImage);
+  const [imageMenuOpen, setImageMenuOpen] = useState<"cover" | "profile" | null>(null);
   const [passwords, setPasswords] = useState({ currentPassword: "", newPassword: "", newPasswordConfirm: "" });
-  const [socialForm, setSocialForm] = useState({ provider: "google", oauthCode: "" });
+  const [passwordSectionOpen, setPasswordSectionOpen] = useState(false);
+  const [visiblePasswords, setVisiblePasswords] = useState({ currentPassword: false, newPassword: false, newPasswordConfirm: false });
   const [consents, setConsents] = useState<ConsentPayload>({
     termsRequired: profile?.consents.termsRequired ?? true,
     privacyRequired: profile?.consents.privacyRequired ?? true,
@@ -530,7 +676,7 @@ function AccountSettingsModal({
   const saveProfile = async () => {
     setSavingProfile(true);
     try {
-      const saved = await updateMyProfile({ nickname: nickname.trim(), profileImageAssetId: profileImage || null });
+      const saved = await updateMyProfile({ nickname: nickname.trim(), profileImageAssetId: profileImage });
       onProfileChange({
         ...(profile as MyProfile),
         nickname: saved.nickname,
@@ -541,6 +687,7 @@ function AccountSettingsModal({
         window.localStorage.setItem(COVER_KEY, coverDraft);
       }
       pushToast("프로필이 저장되었습니다.", "ok");
+      onClose();
     } catch (error) {
       pushToast(error instanceof Error ? error.message : "프로필 저장에 실패했습니다.", "err");
     } finally {
@@ -552,26 +699,42 @@ function AccountSettingsModal({
     try {
       await changeMyPassword(passwords);
       setPasswords({ currentPassword: "", newPassword: "", newPasswordConfirm: "" });
+      setVisiblePasswords({ currentPassword: false, newPassword: false, newPasswordConfirm: false });
+      setPasswordSectionOpen(false);
       pushToast("비밀번호가 변경되었습니다.", "ok");
     } catch (error) {
       pushToast(error instanceof Error ? error.message : "비밀번호 변경에 실패했습니다.", "err");
     }
   };
 
-  const submitSocialLink = async () => {
+  const startSocialLink = async (provider: SocialProvider) => {
     try {
-      const data = await linkSocialAccount(socialForm.provider, socialForm.oauthCode);
-      onProfileChange({
-        ...(profile as MyProfile),
-        security: {
-          ...(profile as MyProfile).security,
-          linkedProviders: Array.from(new Set([...(profile?.security.linkedProviders ?? []), data.provider]))
-        }
-      });
-      setSocialForm((current) => ({ ...current, oauthCode: "" }));
-      pushToast("소셜 계정이 연결되었습니다.", "ok");
+      const data = await getOAuthAuthorization(provider as OAuthProvider);
+      window.localStorage.setItem(OAUTH_LINK_INTENT_KEY, JSON.stringify({ provider, state: data.state, returnTo: "/mypage" }));
+      window.location.href = data.authorizationUrl;
     } catch (error) {
-      pushToast(error instanceof Error ? error.message : "소셜 계정 연결에 실패했습니다.", "err");
+      window.localStorage.removeItem(OAUTH_LINK_INTENT_KEY);
+      pushToast(error instanceof Error ? error.message : "소셜 계정 연결을 시작할 수 없습니다.", "err");
+    }
+  };
+
+  const chooseImage = (target: "cover" | "profile") => {
+    setImageMenuOpen(null);
+    if (target === "cover") {
+      coverInputRef.current?.click();
+    } else {
+      profileInputRef.current?.click();
+    }
+  };
+
+  const deleteImage = (target: "cover" | "profile") => {
+    setImageMenuOpen(null);
+    if (target === "cover") {
+      setCoverDraft("");
+      if (coverInputRef.current) coverInputRef.current.value = "";
+    } else {
+      setProfileImage("");
+      if (profileInputRef.current) profileInputRef.current.value = "";
     }
   };
 
@@ -621,6 +784,7 @@ function AccountSettingsModal({
   };
 
   const name = nickname || displayName(profile);
+  const canChangePassword = hasEmailPassword(profile);
 
   if (typeof document === "undefined") return null;
 
@@ -647,27 +811,56 @@ function AccountSettingsModal({
         </div>
 
         <div className="scroll max-h-[calc(88svh-68px)] overflow-y-auto">
-          <div className="relative h-[154px] bg-[linear-gradient(120deg,#91b5f7_0%,#ef9bdb_52%,#f38a62_100%)]">
+          <div
+            onClick={() => setImageMenuOpen((current) => current === "cover" ? null : "cover")}
+            className="relative z-0 h-[154px] cursor-pointer bg-[linear-gradient(120deg,#91b5f7_0%,#ef9bdb_52%,#f38a62_100%)]"
+          >
             {coverDraft ? <img src={coverDraft} alt="배경 이미지" className="h-full w-full object-cover" /> : null}
             <button
               type="button"
-              onClick={() => coverInputRef.current?.click()}
+              onClick={(event) => {
+                event.stopPropagation();
+                setImageMenuOpen((current) => current === "cover" ? null : "cover");
+              }}
               className="absolute left-1/2 top-1/2 grid h-12 w-12 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-black/45 text-white backdrop-blur"
               aria-label="배경사진 변경"
             >
               <Icon name="upload" size={19} />
             </button>
+            {imageMenuOpen === "cover" ? (
+              <ImageActionMenu
+                className="left-1/2 top-[calc(50%+32px)] -translate-x-1/2"
+                onChoose={() => chooseImage("cover")}
+                onDelete={() => deleteImage("cover")}
+              />
+            ) : null}
             <input ref={coverInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => readImageFile(event, setCoverDraft)} />
-            <div className="absolute -bottom-14 left-6">
+            <div
+              onClick={(event) => {
+                event.stopPropagation();
+                setImageMenuOpen((current) => current === "profile" ? null : "profile");
+              }}
+              className="absolute -bottom-14 left-6 z-20 cursor-pointer"
+            >
               <ProfileAvatar name={name} imageUrl={profileImage || null} size={112} />
               <button
                 type="button"
-                onClick={() => profileInputRef.current?.click()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setImageMenuOpen((current) => current === "profile" ? null : "profile");
+                }}
                 className="absolute right-0 top-2 grid h-9 w-9 place-items-center rounded-full border-2 border-white bg-black text-white shadow"
                 aria-label="프로필 사진 변경"
               >
                 <Icon name="upload" size={15} />
               </button>
+              {imageMenuOpen === "profile" ? (
+                <ImageActionMenu
+                  className="left-full top-0 ml-3"
+                  onChoose={() => chooseImage("profile")}
+                  onDelete={() => deleteImage("profile")}
+                />
+              ) : null}
             </div>
             <input ref={profileInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => readImageFile(event, setProfileImage)} />
           </div>
@@ -695,34 +888,92 @@ function AccountSettingsModal({
             <div className="mb-3 flex flex-wrap gap-2">
               {PROVIDERS.map((provider) => {
                 const linked = profile?.security.linkedProviders.includes(provider) ?? false;
+                const social = SOCIAL_PROVIDERS[provider];
                 return (
                   <button
                     key={provider}
                     type="button"
-                    onClick={() => linked ? removeSocialLink(provider) : setSocialForm((current) => ({ ...current, provider }))}
-                    className={`rounded-full border px-3 py-2 text-[13px] ${linked ? "border-black bg-black text-white" : "border-neutral-300 bg-white text-neutral-700"}`}
+                    onClick={() => linked ? removeSocialLink(provider) : startSocialLink(provider)}
+                    className="inline-flex h-12 items-center gap-2.5 rounded-[18px] border px-4 text-[14px] font-medium transition hover:-translate-y-0.5 hover:shadow-sm"
+                    style={{
+                      borderColor: linked ? social.border : "#d4d4d4",
+                      backgroundColor: linked ? social.bg : "#ffffff",
+                      color: linked ? social.text : "#404040"
+                    }}
                   >
-                    {provider} {linked ? "연결됨" : "미연결"}
+                    <span
+                      className="grid h-8 w-8 place-items-center rounded-full text-[13px] font-bold"
+                      style={{
+                        backgroundColor: linked ? "rgb(255 255 255 / 0.28)" : social.bg,
+                        color: social.color,
+                        border: `1px solid ${social.border}`
+                      }}
+                    >
+                      {social.mark}
+                    </span>
+                    <span>{social.name}</span>
+                    <span className="ml-1 text-[12px] opacity-70">{linked ? "연결됨" : "연결하기"}</span>
                   </button>
                 );
               })}
             </div>
-            <div className="grid gap-2 sm:grid-cols-[120px_1fr_auto]">
-              <select value={socialForm.provider} onChange={(event) => setSocialForm((current) => ({ ...current, provider: event.target.value }))} className="h-10 rounded-xl border border-neutral-300 px-3 text-[14px]">
-                {PROVIDERS.map((provider) => <option key={provider} value={provider}>{provider}</option>)}
-              </select>
-              <input value={socialForm.oauthCode} onChange={(event) => setSocialForm((current) => ({ ...current, oauthCode: event.target.value }))} placeholder="OAuth code" className="h-10 rounded-xl border border-neutral-300 px-3 text-[14px]" />
-              <button type="button" onClick={submitSocialLink} disabled={!socialForm.oauthCode.trim()} className="h-10 rounded-xl bg-black px-4 text-[14px] font-medium text-white disabled:opacity-40">연결</button>
-            </div>
+            <p className="text-[13px] leading-5 text-neutral-500">연결된 소셜 계정으로 로그인해도 현재 BrainX 계정으로 들어옵니다.</p>
           </ModalSection>
 
           <ModalSection title="비밀번호 변경">
-            <div className="grid gap-2">
-              <input type="password" placeholder="현재 비밀번호" value={passwords.currentPassword} onChange={(event) => setPasswords((current) => ({ ...current, currentPassword: event.target.value }))} className="h-10 rounded-xl border border-neutral-300 px-3 text-[14px]" />
-              <input type="password" placeholder="새 비밀번호" value={passwords.newPassword} onChange={(event) => setPasswords((current) => ({ ...current, newPassword: event.target.value }))} className="h-10 rounded-xl border border-neutral-300 px-3 text-[14px]" />
-              <input type="password" placeholder="새 비밀번호 확인" value={passwords.newPasswordConfirm} onChange={(event) => setPasswords((current) => ({ ...current, newPasswordConfirm: event.target.value }))} className="h-10 rounded-xl border border-neutral-300 px-3 text-[14px]" />
-              <button type="button" onClick={submitPassword} className="mt-1 h-10 rounded-xl border border-neutral-300 bg-white px-4 text-[14px] font-medium hover:border-black">비밀번호 저장</button>
-            </div>
+            {canChangePassword ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setPasswordSectionOpen((open) => !open)}
+                  className="flex h-11 w-full items-center justify-between rounded-xl border border-neutral-300 bg-white px-4 text-left text-[15px] font-medium transition hover:border-neutral-900"
+                  aria-expanded={passwordSectionOpen}
+                >
+                  <span>비밀번호 변경</span>
+                  <Icon name="chevD" size={18} className={`transition ${passwordSectionOpen ? "rotate-180" : ""}`} />
+                </button>
+                {passwordSectionOpen ? (
+                  <div className="mt-3 grid gap-2 rounded-xl bg-neutral-50 p-3">
+                    <PasswordInput
+                      placeholder="현재 비밀번호 입력"
+                      value={passwords.currentPassword}
+                      visible={visiblePasswords.currentPassword}
+                      onChange={(value) => setPasswords((current) => ({ ...current, currentPassword: value }))}
+                      onToggle={() => setVisiblePasswords((current) => ({ ...current, currentPassword: !current.currentPassword }))}
+                    />
+                    <PasswordInput
+                      placeholder="새 비밀번호 입력"
+                      value={passwords.newPassword}
+                      visible={visiblePasswords.newPassword}
+                      onChange={(value) => setPasswords((current) => ({ ...current, newPassword: value }))}
+                      onToggle={() => setVisiblePasswords((current) => ({ ...current, newPassword: !current.newPassword }))}
+                    />
+                    <PasswordInput
+                      placeholder="새 비밀번호 확인"
+                      value={passwords.newPasswordConfirm}
+                      visible={visiblePasswords.newPasswordConfirm}
+                      onChange={(value) => setPasswords((current) => ({ ...current, newPasswordConfirm: value }))}
+                      onToggle={() => setVisiblePasswords((current) => ({ ...current, newPasswordConfirm: !current.newPasswordConfirm }))}
+                    />
+                    <button
+                      type="button"
+                      onClick={submitPassword}
+                      disabled={!passwords.currentPassword || !passwords.newPassword || !passwords.newPasswordConfirm}
+                      className="mt-1 h-10 rounded-xl bg-black px-4 text-[14px] font-medium text-white transition hover:bg-neutral-800 disabled:opacity-40"
+                    >
+                      비밀번호저장
+                    </button>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-4">
+                <p className="text-[15px] font-medium text-neutral-950">소셜 로그인 계정은 비밀번호가 없습니다.</p>
+                <p className="mt-1.5 text-[14px] leading-6 text-neutral-600">
+                  이메일 비밀번호 로그인을 사용하려면 비밀번호를 새로 설정해 주세요.
+                </p>
+              </div>
+            )}
           </ModalSection>
 
           <ModalSection title="개인정보 동의 수정">
@@ -758,6 +1009,7 @@ export function MyPageScreen() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [coverImage, setCoverImage] = useState("");
   const [activityPeriod, setActivityPeriod] = useState<ActivityPeriod>("week");
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -770,7 +1022,8 @@ export function MyPageScreen() {
         if (mounted) setProfile(data);
       })
       .catch((error) => {
-        pushToast(error instanceof Error ? error.message : "내 정보를 불러오지 못했습니다.", "err");
+        const isAuthError = error instanceof AuthRequiredError;
+        pushToast(isAuthError ? error.message : error instanceof Error ? error.message : "내 정보를 불러오지 못했습니다.", "err");
         router.replace("/login");
       })
       .finally(() => {
@@ -783,16 +1036,27 @@ export function MyPageScreen() {
   }, [pushToast, router]);
 
   const name = displayName(profile);
-  const linkedCount = profile?.security.linkedProviders.length ?? 0;
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await logout();
+      pushToast("로그아웃되었습니다.", "ok");
+      router.replace("/login");
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : "로그아웃에 실패했습니다.", "err");
+      setLoggingOut(false);
+    }
+  };
 
   return (
     <div data-route className="min-h-full bg-[#fbfaf8] text-neutral-950">
       <div className="mx-auto max-w-[1100px] px-5 pb-16 pt-8 md:px-8 md:pt-10">
         <section className="relative">
-          <div className="h-[220px] overflow-hidden rounded-[28px] bg-[linear-gradient(120deg,#a9c5fb_0%,#eba2df_48%,#f48d68_100%)] md:h-[274px]">
+          <div className="relative z-0 h-[220px] overflow-hidden rounded-[28px] bg-[linear-gradient(120deg,#a9c5fb_0%,#eba2df_48%,#f48d68_100%)] md:h-[274px]">
             {coverImage ? <img src={coverImage} alt="배경 이미지" className="h-full w-full object-cover" /> : null}
           </div>
-          <div className="-mt-24 px-6 md:px-9">
+          <div className="relative z-20 -mt-24 px-6 md:px-9">
             <ProfileAvatar name={name} imageUrl={profile?.profileImageUrl} size={150} />
           </div>
 
@@ -800,22 +1064,25 @@ export function MyPageScreen() {
             <div>
               <p className="mb-2 text-[14px] font-medium text-neutral-500">내 페이지</p>
             <h1 className="text-[38px] font-bold tracking-tight md:text-[44px]">{loading ? "불러오는 중" : name}</h1>
-            <div className="mt-4 flex flex-wrap items-center gap-2 text-[16px] text-neutral-600">
-              <span>{handleText(profile)}</span>
-              <span>·</span>
-              <span>{profile?.email ?? "로그인 사용자"}</span>
-                <span>·</span>
-                <span>소셜 {linkedCount}개 연결</span>
-              </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setSettingsOpen(true)}
-              className="inline-flex h-12 items-center gap-2 rounded-full border border-neutral-300 bg-white px-5 text-[15px] font-medium transition hover:border-neutral-900"
-            >
-              계정 설정 <Icon name="settings" size={16} />
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(true)}
+                className="inline-flex h-12 items-center gap-2 rounded-full border border-neutral-300 bg-white px-5 text-[15px] font-medium transition hover:border-neutral-900"
+              >
+                계정 설정 <Icon name="settings" size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                disabled={loggingOut}
+                className="inline-flex h-12 items-center gap-2 rounded-full border border-red-200 bg-white px-5 text-[15px] font-medium text-red-600 transition hover:border-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                로그아웃 <Icon name="logout" size={16} />
+              </button>
+            </div>
           </div>
         </section>
 
@@ -823,31 +1090,12 @@ export function MyPageScreen() {
 
         <section className="mt-12">
           <h2 className="mb-5 text-[20px] font-semibold">
-            지난 1년 동안 {name}님이 사용하신 토큰
+            지난 1년 동안 <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">{name}</span>님이 작성하신 노트
           </h2>
-          <ContributionGrid usagePercent={TOKEN_USAGE_PERCENT} />
+          <ContributionGrid notes={notes} />
 
           <div className="mt-5">
             <TokenUsageCard />
-          </div>
-
-          <div className="mt-9 grid gap-x-20 gap-y-8 sm:grid-cols-2">
-            <div>
-              <p className="text-[15px] text-neutral-600">연간 사용량</p>
-              <p className="mt-1 text-[20px] font-semibold">{formatToken(TOKEN_USED)} tokens</p>
-            </div>
-            <div>
-              <p className="text-[15px] text-neutral-600">사용률</p>
-              <p className="mt-1 text-[20px] font-semibold">{TOKEN_USAGE_PERCENT}%</p>
-            </div>
-            <div>
-              <p className="text-[15px] text-neutral-600">남은 토큰</p>
-              <p className="mt-1 text-[20px] font-semibold">{formatToken(TOKEN_LIMIT - TOKEN_USED)} tokens</p>
-            </div>
-            <div>
-              <p className="text-[15px] text-neutral-600">월 제공량</p>
-              <p className="mt-1 text-[20px] font-semibold">{formatToken(TOKEN_LIMIT)} tokens</p>
-            </div>
           </div>
         </section>
       </div>

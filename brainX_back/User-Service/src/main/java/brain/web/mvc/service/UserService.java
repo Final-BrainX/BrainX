@@ -76,9 +76,9 @@ public class UserService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "닉네임은 2자 이상 20자 이하로 입력해주세요.");
         }
 
-        String profileImageUrl = StringUtils.hasText(request.profileImageAssetId())
-                ? request.profileImageAssetId().trim()
-                : user.getProfileImageUrl();
+        String profileImageUrl = request.profileImageAssetId() == null
+                ? user.getProfileImageUrl()
+                : request.profileImageAssetId().trim();
         user.updateProfile(nickname, profileImageUrl);
 
         return ProfileUpdateResponse.builder()
