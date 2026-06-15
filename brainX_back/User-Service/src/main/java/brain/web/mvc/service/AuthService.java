@@ -325,6 +325,12 @@ public class AuthService {
         return issueAuthTokenResponse(user, null);
     }
 
+    public OAuthAccountInfo resolveOAuthAccount(String rawProvider, String code) {
+        String provider = normalizeProvider(rawProvider);
+        OAuthProfile profile = fetchOAuthProfile(provider, oauthConfig(provider), code);
+        return new OAuthAccountInfo(provider, profile.providerUserId());
+    }
+
     private AuthTokenResponse issueAuthTokenResponse(User user, String next) {
         String accessToken = jwtTokenProvider.createAccessToken(user);
         RefreshToken refreshToken = saveRefreshToken(user, jwtTokenProvider.createRefreshToken(user));
@@ -543,5 +549,8 @@ public class AuthService {
     }
 
     private record PendingOAuthSignup(String provider, OAuthProfile profile) {
+    }
+
+    public record OAuthAccountInfo(String provider, String providerUserId) {
     }
 }

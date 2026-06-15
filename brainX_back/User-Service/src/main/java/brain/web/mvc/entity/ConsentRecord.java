@@ -54,4 +54,12 @@ public class ConsentRecord {
             consentedAt = LocalDateTime.now();
         }
     }
+
+    public void update(boolean termsRequired, boolean privacyRequired, boolean marketingOptional, boolean behaviorAnalyticsOptional) {
+        this.termsRequired = termsRequired;
+        this.privacyRequired = privacyRequired;
+        this.marketingOptional = marketingOptional;
+        this.behaviorAnalyticsOptional = behaviorAnalyticsOptional;
+        this.consentedAt = LocalDateTime.now();
+    }
 }

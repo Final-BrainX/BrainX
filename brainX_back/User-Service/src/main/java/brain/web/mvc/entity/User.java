@@ -37,7 +37,7 @@ public class User {
     @Column(length = 60)
     private String nickname;
 
-    @Column(name = "profile_image_url", length = 1000)
+    @Column(name = "profile_image_url", columnDefinition = "TEXT")
     private String profileImageUrl;
 
     @Enumerated(EnumType.STRING)
@@ -49,6 +49,12 @@ public class User {
 
     @Column(nullable = false)
     private boolean twoFactorEnabled;
+
+    @Column(name = "deletion_reason", length = 500)
+    private String deletionReason;
+
+    @Column(name = "deletion_scheduled_at")
+    private LocalDateTime deletionScheduledAt;
 
     @Column(nullable = false)
     private LocalDateTime createdAt;
@@ -71,6 +77,34 @@ public class User {
 
     public void verifyEmail() {
         this.emailVerified = true;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void updateProfile(String nickname, String profileImageUrl) {
+        this.nickname = nickname;
+        this.profileImageUrl = profileImageUrl;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void changePassword(String password) {
+        this.password = password;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void configureTwoFactor(boolean enabled) {
+        this.twoFactorEnabled = enabled;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void requestDeletion(String reason, LocalDateTime deletionScheduledAt) {
+        this.deletionReason = reason;
+        this.deletionScheduledAt = deletionScheduledAt;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void cancelDeletion() {
+        this.deletionReason = null;
+        this.deletionScheduledAt = null;
         this.updatedAt = LocalDateTime.now();
     }
 }
