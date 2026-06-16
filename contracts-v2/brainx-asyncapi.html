@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BrainX AsyncAPI v2</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/@asyncapi/react-component@latest/styles/default.min.css"
+    />
+    <style>
+      html,
+      body,
+      #asyncapi {
+        min-height: 100%;
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="asyncapi"></div>
+    <script src="https://unpkg.com/@asyncapi/react-component@latest/browser/standalone/index.js"></script>
+    <script>
+      AsyncApiStandalone.render(
+        {
+          schema: {
+            url: "./brainx-asyncapi.ssot.yaml",
+            options: { method: "GET" },
+          },
+          config: {
+            show: {
+              sidebar: true,
+            },
+          },
+        },
+        document.getElementById("asyncapi"),
+      );
+    </script>
+  </body>
+</html>
