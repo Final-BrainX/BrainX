@@ -28,10 +28,15 @@ export const metadata: Metadata = {
 
 const themeScript = `(() => {
   try {
-    const theme = localStorage.getItem('brainx_theme_v1') || 'dark';
+    const preference = localStorage.getItem('brainx_theme_v1') || 'dark';
+    const theme = preference === 'system'
+      ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+      : preference;
+    const language = localStorage.getItem('brainx_language_v1') || 'ko';
     document.documentElement.classList.toggle('light', theme === 'light');
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.style.colorScheme = theme;
+    document.documentElement.lang = language;
   } catch (error) {}
 })();`;
 

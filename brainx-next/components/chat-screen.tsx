@@ -11,7 +11,7 @@ function renderText(text: string) {
   return text.split("\n").map((line, index) => {
     if (!line.trim()) return <div key={index} className="h-2" />;
     const html = line.replace(/\*\*(.+?)\*\*/g, '<b class="text-txt font-semibold">$1</b>');
-    return <p key={index} className="text-[14.5px] leading-[1.75] text-txt2" dangerouslySetInnerHTML={{ __html: html }} />;
+    return <p key={index} className="text-[16.5px] leading-[1.75] text-txt2" dangerouslySetInnerHTML={{ __html: html }} />;
   });
 }
 
@@ -87,7 +87,7 @@ export function ChatScreen() {
           </Btn>
         </div>
         <div className="scroll flex-1 overflow-y-auto px-2">
-          <div className="px-2 py-1.5 text-[11px] font-semibold text-txt3">최근 대화</div>
+          <div className="px-2 py-1.5 text-[13px] font-semibold text-txt3">최근 대화</div>
           {sessions.map((session) => (
             <button
               key={session.id}
@@ -95,9 +95,9 @@ export function ChatScreen() {
               onClick={() => setActive(session.id)}
               className={cx("mb-1 w-full rounded-xl p-2.5 text-left", active === session.id ? "bg-surface2/80" : "hover:bg-surface2/50")}
             >
-              <div className="truncate text-[13px] font-medium text-txt">{session.title}</div>
-              <div className="mt-0.5 truncate text-[11px] text-txt3">{session.preview}</div>
-              <div className="mt-1 text-[10.5px] text-txt3">{session.when}</div>
+              <div className="truncate text-[15px] font-medium text-txt">{session.title}</div>
+              <div className="mt-0.5 truncate text-[13px] text-txt3">{session.preview}</div>
+              <div className="mt-1 text-[12.5px] text-txt3">{session.when}</div>
             </button>
           ))}
         </div>
@@ -105,17 +105,17 @@ export function ChatScreen() {
 
       <div className="relative flex min-w-0 flex-1 flex-col">
         <div className="flex h-14 items-center gap-3 border-b border-line/50 px-5">
-          <div className="flex items-center gap-2 text-[14px] font-semibold">
+          <div className="flex items-center gap-2 text-[16px] font-semibold">
             <Icon name="chat" size={17} className="text-primary" />
             내 노트 기반 AI 챗
           </div>
-          <div className="text-[12px] text-txt3">{selectedSession?.title ?? "새 대화"}</div>
+          <div className="text-[14px] text-txt3">{selectedSession?.title ?? "새 대화"}</div>
           <div className="flex-1" />
           <div className="relative">
             <button
               type="button"
               onClick={() => setModelOpen((current) => !current)}
-              className="flex h-9 items-center gap-2 rounded-xl border border-line/60 bg-surface/60 px-3 text-[13px] hover:border-primary/50"
+              className="flex h-9 items-center gap-2 rounded-xl border border-line/60 bg-surface/60 px-3 text-[15px] hover:border-primary/50"
             >
               <span className="h-2 w-2 rounded-full bg-cyan" />
               {model.name}
@@ -134,8 +134,8 @@ export function ChatScreen() {
                     className={cx("flex h-10 w-full items-center justify-between rounded-lg px-3 text-left", model.id === item.id ? "bg-surface2/70" : "hover:bg-surface2/50")}
                   >
                     <div>
-                      <div className="text-[13px] font-medium text-txt">{item.name}</div>
-                      <div className="text-[11px] text-txt3">{item.sub}</div>
+                      <div className="text-[15px] font-medium text-txt">{item.name}</div>
+                      <div className="text-[13px] text-txt3">{item.sub}</div>
                     </div>
                     {model.id === item.id ? <Icon name="check" size={15} className="text-primary" /> : null}
                   </button>
@@ -151,13 +151,13 @@ export function ChatScreen() {
               <div className="mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br from-primary to-accent shadow-glow">
                 <Icon name="brain" size={30} className="text-white" />
               </div>
-              <h2 className="mb-2 text-[22px] font-bold tracking-tight">내 노트를 기반으로 질문해보세요</h2>
-              <p className="mb-7 text-[14px] text-txt2">BrainX는 당신이 쌓은 13개의 노트를 근거로 답하고, 항상 출처를 함께 보여줍니다.</p>
+              <h2 className="mb-2 text-[24px] font-bold tracking-tight">내 노트를 기반으로 질문해보세요</h2>
+              <p className="mb-7 text-[16px] text-txt2">BrainX는 당신이 쌓은 13개의 노트를 근거로 답하고, 항상 출처를 함께 보여줍니다.</p>
               <div className="grid w-full gap-2">
                 {suggestions.map((question) => (
                   <button key={question} type="button" onClick={() => ask(question)} className="card group flex items-center gap-3 rounded-xl p-3.5 text-left transition-colors hover:border-primary/45">
                     <Icon name="sparkle" size={16} className="shrink-0 text-accent" />
-                    <span className="flex-1 text-[13.5px] text-txt2 group-hover:text-txt">{question}</span>
+                    <span className="flex-1 text-[15.5px] text-txt2 group-hover:text-txt">{question}</span>
                     <Icon name="arrowL" size={15} className="rotate-180 text-txt3" />
                   </button>
                 ))}
@@ -177,14 +177,14 @@ export function ChatScreen() {
                   <div className={cx("min-w-0 flex flex-col", message.role === "user" ? "items-end" : "")}>
                     <div className={cx("rounded-2xl px-4 py-3", message.role === "user" ? "bg-primary text-white" : "card")}>
                       {message.role === "user" ? (
-                        <p className="text-[14.5px] leading-relaxed">{message.text}</p>
+                        <p className="text-[16.5px] leading-relaxed">{message.text}</p>
                       ) : (
                         <div className={message.streaming ? "stream-caret" : ""}>{renderText(message.text)}</div>
                       )}
                     </div>
                     {message.role === "ai" && message.sources && !message.streaming ? (
                       <div className="mt-2.5 w-full">
-                        <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-txt3">
+                        <div className="mb-1.5 flex items-center gap-1.5 text-[13px] font-semibold text-txt3">
                           <Icon name="link" size={12} />
                           근거 노트 {message.sources.length}
                         </div>
@@ -192,8 +192,8 @@ export function ChatScreen() {
                           {message.sources.map((source, sourceIndex) => (
                             <button key={source.id} type="button" onClick={() => router.push(`/notes/${source.id}`)} className="card flex items-center gap-2 rounded-xl px-3 h-9 hover:border-primary/45 transition-colors">
                               <span className="h-2 w-2 rounded-full" style={{ background: `rgb(${clusterById(source.cluster).color})` }} />
-                              <span className="max-w-[160px] truncate text-[12.5px] text-txt2">{source.title}</span>
-                              <span className="text-[10px] font-mono text-txt3">[{sourceIndex + 1}]</span>
+                              <span className="max-w-[160px] truncate text-[14.5px] text-txt2">{source.title}</span>
+                              <span className="text-[12px] font-mono text-txt3">[{sourceIndex + 1}]</span>
                             </button>
                           ))}
                         </div>
@@ -220,13 +220,13 @@ export function ChatScreen() {
                   }
                 }}
                 placeholder="내 노트에게 질문하기…  (Shift+Enter 줄바꿈)"
-                className="max-h-32 flex-1 resize-none bg-transparent px-2 py-2 text-[14.5px] text-txt outline-none placeholder:text-txt3"
+                className="max-h-32 flex-1 resize-none bg-transparent px-2 py-2 text-[16.5px] text-txt outline-none placeholder:text-txt3"
               />
               <button type="button" onClick={() => ask(input)} disabled={!input.trim() || streaming} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-white hover:brightness-110 disabled:opacity-40">
                 <Icon name="send" size={17} />
               </button>
             </div>
-            <p className="mt-2 text-center text-[11px] text-txt3">
+            <p className="mt-2 text-center text-[13px] text-txt3">
               BrainX는 당신의 노트만 근거로 답합니다 · {model.name}
             </p>
           </div>
@@ -234,12 +234,12 @@ export function ChatScreen() {
       </div>
 
       <div className="hidden w-72 shrink-0 flex-col border-l border-line/50 bg-bg2/30 lg:flex">
-        <div className="flex items-center gap-2 border-b border-line/50 p-4 text-[13px] font-semibold text-txt2">
+        <div className="flex items-center gap-2 border-b border-line/50 p-4 text-[15px] font-semibold text-txt2">
           <Icon name="doc" size={15} />
           참조·유사 노트
         </div>
         <div className="scroll flex-1 space-y-2.5 overflow-y-auto p-3">
-          <div className="px-1 text-[11px] text-txt3">이 대화와 관련도 높은 노트</div>
+          <div className="px-1 text-[13px] text-txt3">이 대화와 관련도 높은 노트</div>
           {[
             { note: noteById(notes, "n2"), relevance: 96 },
             { note: noteById(notes, "n3"), relevance: 84 },
@@ -252,9 +252,9 @@ export function ChatScreen() {
               <button key={note.id} type="button" onClick={() => router.push(`/notes/${note.id}`)} className="card w-full rounded-xl p-3 text-left hover:border-primary/45 transition-colors">
                 <div className="mb-1.5 flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full" style={{ background: `rgb(${clusterById(note.cluster).color})` }} />
-                  <span className="flex-1 truncate text-[13px] font-medium text-txt">{note.title}</span>
+                  <span className="flex-1 truncate text-[15px] font-medium text-txt">{note.title}</span>
                 </div>
-                <p className="mb-2 line-clamp-2 text-[11.5px] text-txt3">{note.summary}</p>
+                <p className="mb-2 line-clamp-2 text-[13.5px] text-txt3">{note.summary}</p>
                 <RelevanceBar value={item.relevance} />
               </button>
             );

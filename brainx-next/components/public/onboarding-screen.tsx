@@ -4,11 +4,13 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 
 import { INTERESTS } from "@/lib/brainx-data";
+import { EMPTY_CONSENTS, requiredConsentsAccepted, type ConsentState } from "@/lib/legal";
 import { cx } from "@/lib/utils";
 import { completeOnboarding, readAuthSession } from "@/lib/auth-api";
 import { useBrainX } from "@/components/brainx-provider";
 import { Btn, Card, Icon, ThemeToggle } from "@/components/brainx-ui";
 import { Field } from "@/components/public/auth-shared";
+import { LegalConsents } from "@/components/public/legal-consents";
 
 export function OnboardingScreen() {
   const router = useRouter();
@@ -18,6 +20,7 @@ export function OnboardingScreen() {
   const [profileImageUrl, setProfileImageUrl] = useState("");
   const [onboardingToken, setOnboardingToken] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const [consents, setConsents] = useState<ConsentState>(EMPTY_CONSENTS);
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -66,6 +69,11 @@ export function OnboardingScreen() {
       setStep(0);
       return;
     }
+    if (!requiredConsentsAccepted(consents)) {
+      pushToast("필수 약관에 동의해 주세요.", "err");
+      setStep(2);
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -73,7 +81,8 @@ export function OnboardingScreen() {
         onboardingToken,
         nickname: nick.trim(),
         profileImageUrl: profileImageUrl.trim() || null,
-        interests: selected
+        interests: selected,
+        consents
       });
       pushToast("온보딩이 완료되었습니다.", "ok");
       router.push("/home");
@@ -92,15 +101,15 @@ export function OnboardingScreen() {
       </div>
       <Card glow className="relative w-full max-w-lg p-8">
         <div className="mb-7 flex items-center gap-2">
-          {[0, 1, 2].map((index) => (
+          {[0, 1, 2, 3].map((index) => (
             <div key={index} className={cx("h-1.5 flex-1 rounded-full transition-colors", index <= step ? "bg-primary" : "bg-surface2")} />
           ))}
         </div>
 
         {step === 0 ? (
           <>
-            <h1 className="mb-1.5 text-[24px] font-bold tracking-tight">프로필을 확인해 주세요</h1>
-            <p className="mb-6 text-[14px] text-txt2">소셜 계정에서 가져온 이름과 프로필 사진을 자유롭게 수정할 수 있습니다.</p>
+            <h1 className="mb-1.5 text-[26px] font-bold tracking-tight">어떻게 불러드릴까요?</h1>
+            <p className="mb-6 text-[16px] text-txt2">프로필은 나중에 언제든 바꿀 수 있어요.</p>
             <div className="mb-5 flex items-center gap-4">
               {profileImageUrl ? (
                 <img src={profileImageUrl} alt="프로필 이미지" className="h-16 w-16 shrink-0 rounded-2xl object-cover" />
@@ -131,8 +140,8 @@ export function OnboardingScreen() {
 
         {step === 1 ? (
           <>
-            <h1 className="mb-1.5 text-[24px] font-bold tracking-tight">관심 분야를 알려주세요</h1>
-            <p className="mb-6 text-[14px] text-txt2">AI가 노트를 더 자연스럽게 연결하고 추천할 수 있게 도와줍니다.</p>
+            <h1 className="mb-1.5 text-[26px] font-bold tracking-tight">관심 분야를 알려주세요</h1>
+            <p className="mb-6 text-[16px] text-txt2">AI가 노트를 더 똑똑하게 연결하고 추천해요.</p>
             <div className="mb-6 flex flex-wrap gap-2">
               {INTERESTS.map((interest) => (
                 <button
@@ -140,7 +149,7 @@ export function OnboardingScreen() {
                   type="button"
                   onClick={() => toggle(interest)}
                   className={cx(
-                    "h-9 rounded-full border px-4 text-[13.5px] font-medium transition-all",
+                    "h-9 rounded-full border px-4 text-[15.5px] font-medium transition-all",
                     selected.includes(interest) ? "border-primary bg-primary text-white" : "border-line text-txt2 hover:border-primary/50"
                   )}
                 >
@@ -161,23 +170,44 @@ export function OnboardingScreen() {
 
         {step === 2 ? (
           <>
+            <div className="mb-5 grid h-14 w-14 place-items-center rounded-2xl bg-primary/15 text-primary">
+              <Icon name="shield" size={26} />
+            </div>
+            <h1 className="mb-1.5 text-[24px] font-bold tracking-tight">약관에 동의해 주세요</h1>
+            <p className="mb-5 text-[14px] leading-relaxed text-txt2">
+              소셜 계정으로 새 BrainX 계정을 만들기 전에 서비스 이용과 개인정보 처리에 대한 동의가 필요합니다.
+            </p>
+            <LegalConsents value={consents} onChange={setConsents} disabled={submitting} className="mb-6" />
+            <div className="flex gap-2">
+              <Btn variant="soft" onClick={() => setStep(1)} disabled={submitting}>
+                이전
+              </Btn>
+              <Btn variant="primary" size="lg" className="flex-1" disabled={!requiredConsentsAccepted(consents)} onClick={() => setStep(3)}>
+                다음
+              </Btn>
+            </div>
+          </>
+        ) : null}
+
+        {step === 3 ? (
+          <>
             <div className="mb-5 grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-primary to-accent shadow-glow">
               <Icon name="sparkle" size={26} className="text-white" />
             </div>
-            <h1 className="mb-1.5 text-[24px] font-bold tracking-tight">회원가입을 완료할 준비가 됐어요</h1>
-            <p className="mb-6 text-[14px] leading-relaxed text-txt2">
-              완료 버튼을 누르면 소셜 계정 정보, 수정한 프로필, 관심 분야가 저장되고 BrainX 계정이 최종 생성됩니다.
+            <h1 className="mb-1.5 text-[26px] font-bold tracking-tight">AI 개인화 준비 완료</h1>
+            <p className="mb-6 text-[16px] leading-relaxed text-txt2">
+              이제 노트를 쓰면 BrainX가 자동으로 정리·연결하고, 필요할 때 근거 있는 답을 찾아드릴게요. 첫 노트를 함께 시작해요.
             </p>
             <div className="mb-6 space-y-2.5 rounded-xl bg-surface2/40 p-4">
-              {["프로필 정보 저장", "관심 분야 저장", "BrainX 계정 생성 및 로그인"].map((item) => (
-                <div key={item} className="flex items-center gap-2.5 text-[13.5px] text-txt2">
+              {["관심 분야 기반 자동 태깅", "노트 간 AI 연결 추천", "내 자료 기반 RAG 챗봇"].map((item) => (
+                <div key={item} className="flex items-center gap-2.5 text-[15.5px] text-txt2">
                   <Icon name="check" size={16} className="text-cyan" />
                   {item}
                 </div>
               ))}
             </div>
             <div className="flex gap-2">
-              <Btn variant="soft" onClick={() => setStep(1)} disabled={submitting}>
+              <Btn variant="soft" onClick={() => setStep(2)} disabled={submitting}>
                 이전
               </Btn>
               <Btn variant="primary" size="lg" className="flex-1" icon="bolt" disabled={submitting} onClick={handleComplete}>

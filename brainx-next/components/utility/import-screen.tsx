@@ -100,8 +100,8 @@ export function ImportScreen() {
           <Badge color="34 211 238" dot className="mb-2.5">
             가져오기 · 노트 동기화
           </Badge>
-          <h1 className="text-[27px] font-bold tracking-tight">외부 지식 가져오기</h1>
-          <p className="mt-1.5 max-w-2xl text-[14px] text-txt2">
+          <h1 className="text-[29px] font-bold tracking-tight">외부 지식 가져오기</h1>
+          <p className="mt-1.5 max-w-2xl text-[16px] text-txt2">
             Notion, Obsidian, PDF, 웹 클립을 BrainX 노트로 변환합니다. 현재 로컬 미리보기 기준으로 동작합니다.
           </p>
         </div>
@@ -114,8 +114,8 @@ export function ImportScreen() {
         <Card glow className="overflow-hidden p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <div className="text-[12px] text-txt3">선택된 소스</div>
-              <div className="mt-1 flex items-center gap-2 text-[18px] font-bold tracking-tight">
+              <div className="text-[14px] text-txt3">선택된 소스</div>
+              <div className="mt-1 flex items-center gap-2 text-[20px] font-bold tracking-tight">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ background: `rgb(${selectedSource.color})` }} />
                 {selectedSource.label}
               </div>
@@ -126,7 +126,7 @@ export function ImportScreen() {
           </div>
           <div className="grid gap-4 md:grid-cols-[0.95fr_1.05fr]">
             <div className="rounded-2xl border border-line/60 bg-surface2/40 p-4">
-              <div className="mb-3 flex items-center gap-2 text-[12px] font-semibold text-txt3">
+              <div className="mb-3 flex items-center gap-2 text-[14px] font-semibold text-txt3">
                 <Icon name="upload" size={14} />
                 업로드 대기열
               </div>
@@ -145,8 +145,8 @@ export function ImportScreen() {
                       <Icon name={item.icon} size={18} />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[13px] font-medium text-txt">{item.label}</span>
-                      <span className="block truncate text-[11.5px] text-txt3">{item.sub}</span>
+                      <span className="block text-[15px] font-medium text-txt">{item.label}</span>
+                      <span className="block truncate text-[13.5px] text-txt3">{item.sub}</span>
                     </span>
                   </button>
                 ))}
@@ -155,13 +155,13 @@ export function ImportScreen() {
 
             <div className="rounded-2xl border border-line/60 bg-surface2/40 p-4">
               <div className="mb-3 flex items-center justify-between">
-                <div className="text-[12px] font-semibold text-txt3">진행 상태</div>
-                <span className="text-[12px] font-mono text-txt2">{progress}%</span>
+                <div className="text-[14px] font-semibold text-txt3">진행 상태</div>
+                <span className="text-[14px] font-mono text-txt2">{progress}%</span>
               </div>
               <div className="mb-3 h-3 rounded-full bg-surface2">
                 <div className="h-full rounded-full bg-gradient-to-r from-primary to-accent transition-all duration-300" style={{ width: `${progress}%` }} />
               </div>
-              <p className="text-[13px] leading-relaxed text-txt2">
+              <p className="text-[15px] leading-relaxed text-txt2">
                 {running
                   ? "분석 중입니다. 헤더 구조와 연결, 요약을 차례대로 생성하는 중이에요."
                   : "준비가 완료되면 가져오기를 눌러 로컬 미리보기를 갱신합니다."}
@@ -170,12 +170,12 @@ export function ImportScreen() {
               <div className="mt-4 space-y-2">
                 {IMPORT_STEPS.map((step, index) => (
                   <div key={step.title} className="flex items-start gap-3 rounded-xl bg-surface/50 p-3">
-                    <div className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/15 text-[12px] font-semibold text-primary">
+                    <div className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/15 text-[14px] font-semibold text-primary">
                       {index + 1}
                     </div>
                     <div>
-                      <div className="text-[13px] font-medium text-txt">{step.title}</div>
-                      <div className="mt-0.5 text-[11.5px] leading-relaxed text-txt3">{step.desc}</div>
+                      <div className="text-[15px] font-medium text-txt">{step.title}</div>
+                      <div className="mt-0.5 text-[13.5px] leading-relaxed text-txt3">{step.desc}</div>
                     </div>
                   </div>
                 ))}
@@ -209,8 +209,8 @@ export function ImportScreen() {
                   </div>
                   <Icon name="chevR" size={16} className="text-txt3" />
                 </div>
-                <div className="text-[14px] font-semibold text-txt">{item.label}</div>
-                <div className="mt-1 text-[11.5px] leading-relaxed text-txt3">{item.sub}</div>
+                <div className="text-[16px] font-semibold text-txt">{item.label}</div>
+                <div className="mt-1 text-[13.5px] leading-relaxed text-txt3">{item.sub}</div>
               </button>
             ))}
           </div>
@@ -228,8 +228,8 @@ export function ImportScreen() {
                   <Icon name="import" size={17} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-medium text-txt">{job.source}</div>
-                  <div className="text-[11.5px] text-txt3">{job.files} · {job.when}</div>
+                  <div className="truncate text-[15px] font-medium text-txt">{job.source}</div>
+                  <div className="text-[13.5px] text-txt3">{job.files} · {job.when}</div>
                 </div>
                 <Badge className="!h-5">{job.status}</Badge>
               </div>

@@ -113,8 +113,8 @@ function Toggle({ on, onChange, size = 'md' }) {
   return (
     <button onClick={() => onChange(!on)} style={{ width: w, height: h }}
       className={`relative rounded-full transition-colors duration-300 ${on ? 'bg-primary' : 'bg-surface2 border border-line'}`}>
-      <span style={{ width: k, height: k, transform: `translateX(${on ? w - k - 4 : 4}px)` }}
-        className="absolute top-1/2 -translate-y-1/2 left-0 rounded-full bg-white shadow transition-transform duration-300"></span>
+      <span style={{ width: k, height: k, left: on ? w - k - 4 : 4 }}
+        className="absolute top-1/2 -translate-y-1/2 rounded-full bg-white shadow transition-all duration-300"></span>
     </button>
   );
 }

@@ -60,7 +60,7 @@ function MarkdownToolbar({ onInsert }: { onInsert: (snippet: string) => void }) 
   return (
     <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-line/60 bg-surface2/50 p-2">
       {items.map((item) => (
-        <button key={item.label} type="button" onClick={() => onInsert(item.value)} className="grid h-8 min-w-8 place-items-center rounded-lg px-2 text-[13px] font-semibold text-txt2 hover:bg-surface2/70 hover:text-txt">
+        <button key={item.label} type="button" onClick={() => onInsert(item.value)} className="grid h-8 min-w-8 place-items-center rounded-lg px-2 text-[15px] font-semibold text-txt2 hover:bg-surface2/70 hover:text-txt">
           {item.label}
         </button>
       ))}
@@ -89,12 +89,12 @@ function UploadModal({
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
       <Card glow className="fade-up relative w-full max-w-md p-6" onClick={(event) => event.stopPropagation()}>
         <div className="mb-1 flex items-start justify-between">
-          <h2 className="text-[18px] font-bold tracking-tight">파일을 어떻게 처리할까요?</h2>
+          <h2 className="text-[20px] font-bold tracking-tight">파일을 어떻게 처리할까요?</h2>
           <button type="button" onClick={onClose} className="text-txt3 hover:text-txt">
             <Icon name="x" size={18} />
           </button>
         </div>
-        <p className="mb-5 text-[13px] text-txt2">업로드한 파일의 처리 방식을 선택하세요.</p>
+        <p className="mb-5 text-[15px] text-txt2">업로드한 파일의 처리 방식을 선택하세요.</p>
         <div className="space-y-2.5">
           {options.map((option) => (
             <button
@@ -107,8 +107,8 @@ function UploadModal({
                 <Icon name={option.icon} size={19} />
               </div>
               <div>
-                <div className="mb-0.5 text-[14px] font-semibold text-txt">{option.title}</div>
-                <div className="text-[12.5px] leading-relaxed text-txt2">{option.desc}</div>
+                <div className="mb-0.5 text-[16px] font-semibold text-txt">{option.title}</div>
+                <div className="text-[14.5px] leading-relaxed text-txt2">{option.desc}</div>
               </div>
             </button>
           ))}
@@ -139,7 +139,7 @@ function NoteRow({
       type="button"
       onClick={() => onSelect(note.id)}
       className={cx(
-        "group relative flex h-8 w-full items-center gap-2 rounded-lg pr-2 text-left text-[13px] transition-colors",
+        "group relative flex h-8 w-full items-center gap-2 rounded-lg pr-2 text-left text-[15px] transition-colors",
         indent ? "pl-7" : "pl-2.5",
         active ? "bg-surface2/80 text-txt" : "text-txt2 hover:bg-surface2/50"
       )}
@@ -329,7 +329,7 @@ export function NoteEditorScreen({ initialNoteId }: { initialNoteId: string }) {
           </Btn>
           <div className="flex h-9 items-center gap-2 rounded-lg border border-line/50 bg-surface2/50 px-2.5 focus-within:border-primary/50">
             <Icon name="search" size={15} className="text-txt3" />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="노트 검색" className="flex-1 bg-transparent text-[13px] text-txt outline-none placeholder:text-txt3" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="노트 검색" className="flex-1 bg-transparent text-[15px] text-txt outline-none placeholder:text-txt3" />
           </div>
         </div>
 
@@ -338,7 +338,7 @@ export function NoteEditorScreen({ initialNoteId }: { initialNoteId: string }) {
             filteredNotes.length ? (
               filteredNotes.map((note) => <NoteRow key={note.id} id={note.id} active={note.id === current.id} onSelect={(id) => router.push(`/notes/${id}`)} />)
             ) : (
-              <p className="px-3 py-6 text-center text-[12px] text-txt3">검색 결과가 없어요</p>
+              <p className="px-3 py-6 text-center text-[14px] text-txt3">검색 결과가 없어요</p>
             )
           ) : (
             CLUSTERS.map((cluster) => {
@@ -346,7 +346,7 @@ export function NoteEditorScreen({ initialNoteId }: { initialNoteId: string }) {
               if (!clusterNotes.length) return null;
               return (
                 <div key={cluster.id} className="mb-1">
-                  <div className="flex h-8 items-center gap-2 px-2 text-[12px] text-txt3">
+                  <div className="flex h-8 items-center gap-2 px-2 text-[14px] text-txt3">
                     <Icon name="folder" size={14} />
                     <span className="flex-1">{cluster.label}</span>
                     <span className="font-mono">{clusterNotes.length}</span>
@@ -363,12 +363,12 @@ export function NoteEditorScreen({ initialNoteId }: { initialNoteId: string }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center gap-3 border-b border-line/50 px-5 py-2.5">
-          <div className={cx("flex items-center gap-1.5 text-[12px]", saveLabel.color)}>
+          <div className={cx("flex items-center gap-1.5 text-[14px]", saveLabel.color)}>
             <Icon name={saveLabel.icon} size={14} className={cx(saveLabel.spin ? "animate-spin" : "")} />
             {saveLabel.label}
           </div>
           <div className="flex-1" />
-          <button type="button" onClick={() => setUploadOpen(true)} className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12px] text-txt2 hover:bg-surface2/60 hover:text-txt">
+          <button type="button" onClick={() => setUploadOpen(true)} className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[14px] text-txt2 hover:bg-surface2/60 hover:text-txt">
             <Icon name="upload" size={14} />
             업로드
           </button>
@@ -379,7 +379,7 @@ export function NoteEditorScreen({ initialNoteId }: { initialNoteId: string }) {
               ["md", "MD"]
             ] as const
           ).map(([kind, label]) => (
-            <button key={kind} type="button" onClick={() => exportNote(kind)} className="h-8 rounded-lg px-2.5 text-[12px] text-txt2 hover:bg-surface2/60 hover:text-txt">
+            <button key={kind} type="button" onClick={() => exportNote(kind)} className="h-8 rounded-lg px-2.5 text-[14px] text-txt2 hover:bg-surface2/60 hover:text-txt">
               {label}
             </button>
           ))}
@@ -398,9 +398,9 @@ export function NoteEditorScreen({ initialNoteId }: { initialNoteId: string }) {
               value={current.title}
               onChange={handleTitleChange}
               placeholder="제목 없는 노트"
-              className="mb-3 w-full bg-transparent text-[32px] font-bold tracking-tight text-txt outline-none placeholder:text-txt3/50"
+              className="mb-3 w-full bg-transparent text-[34px] font-bold tracking-tight text-txt outline-none placeholder:text-txt3/50"
             />
-            <div className="mb-6 flex items-center gap-2 text-[12px] text-txt3">
+            <div className="mb-6 flex items-center gap-2 text-[14px] text-txt3">
               <Badge color={folder.color} dot className="!h-6">
                 {folder.label}
               </Badge>
@@ -427,11 +427,11 @@ export function NoteEditorScreen({ initialNoteId }: { initialNoteId: string }) {
               onFocus={() => setSlashOpen(false)}
               placeholder="여기에 입력하세요.  ‘/’ 를 눌러 명령어를, [[ ]] 로 다른 노트를 연결하세요."
               spellCheck="false"
-              className="min-h-[52vh] w-full resize-none bg-transparent text-[15px] leading-[1.85] text-txt2 outline-none placeholder:text-txt3/60"
+              className="min-h-[52vh] w-full resize-none bg-transparent text-[17px] leading-[1.85] text-txt2 outline-none placeholder:text-txt3/60"
               style={{ whiteSpace: "pre-wrap" }}
             />
 
-            <div className="mt-3 rounded-xl border border-line/60 bg-surface2/50 p-3 text-[13px] text-txt2">
+            <div className="mt-3 rounded-xl border border-line/60 bg-surface2/50 p-3 text-[15px] text-txt2">
               <span className="font-semibold text-txt">/</span> 명령어: 요약, 체크리스트, 코드블록, AI로 이어쓰기
             </div>
           </div>
@@ -441,7 +441,7 @@ export function NoteEditorScreen({ initialNoteId }: { initialNoteId: string }) {
       <div className="hidden w-72 shrink-0 flex-col border-l border-line/50 bg-bg2/30 lg:flex">
         <div className="scroll flex-1 space-y-5 overflow-y-auto p-4">
           <div>
-            <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-txt3">
+            <div className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-txt3">
               <Icon name="summarize" size={13} />
               목차
             </div>
@@ -451,19 +451,19 @@ export function NoteEditorScreen({ initialNoteId }: { initialNoteId: string }) {
                   <div
                     key={heading.id}
                     style={{ paddingLeft: (heading.level - 1) * 12 + 8 }}
-                    className="flex h-7 cursor-pointer items-center truncate rounded-lg pr-2 text-[12.5px] text-txt2 hover:bg-surface2/50 hover:text-primary"
+                    className="flex h-7 cursor-pointer items-center truncate rounded-lg pr-2 text-[14.5px] text-txt2 hover:bg-surface2/50 hover:text-primary"
                   >
                     {heading.text}
                   </div>
                 ))
               ) : (
-                <p className="px-2 text-[12px] text-txt3"># 으로 제목을 추가하면 목차가 생겨요</p>
+                <p className="px-2 text-[14px] text-txt3"># 으로 제목을 추가하면 목차가 생겨요</p>
               )}
             </div>
           </div>
 
           <div>
-            <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-txt3">
+            <div className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-txt3">
               <Icon name="link" size={13} />
               연결 · 백링크
             </div>
@@ -478,29 +478,29 @@ export function NoteEditorScreen({ initialNoteId }: { initialNoteId: string }) {
                     className="flex w-full items-center gap-2 rounded-lg bg-surface2/40 p-2.5 text-left transition-colors hover:bg-surface2/70"
                   >
                     <Icon name="link" size={13} className="shrink-0 text-cyan" />
-                    <span className="flex-1 truncate text-[12.5px] font-medium text-txt">{title}</span>
-                    {!linked ? <span className="text-[10px] text-txt3">새로 만들기</span> : null}
+                    <span className="flex-1 truncate text-[14.5px] font-medium text-txt">{title}</span>
+                    {!linked ? <span className="text-[12px] text-txt3">새로 만들기</span> : null}
                   </button>
                 );
               })}
               {backlinks.map((backlink) => (
                 <button key={backlink.id} type="button" onClick={() => router.push(`/notes/${backlink.id}`)} className="w-full rounded-lg bg-surface2/40 p-2.5 text-left transition-colors hover:bg-surface2/70">
-                  <div className="flex items-center gap-1.5 truncate text-[12.5px] font-medium text-txt">
+                  <div className="flex items-center gap-1.5 truncate text-[14.5px] font-medium text-txt">
                     <Icon name="arrowL" size={12} className="text-txt3" />
                     {backlink.title}
                   </div>
                 </button>
               ))}
-              {!wikiLinks.length && !backlinks.length ? <p className="px-2 text-[12px] text-txt3">[[노트명]] 으로 다른 노트를 연결해보세요</p> : null}
+              {!wikiLinks.length && !backlinks.length ? <p className="px-2 text-[14px] text-txt3">[[노트명]] 으로 다른 노트를 연결해보세요</p> : null}
             </div>
           </div>
 
           <div className="rounded-xl border border-accent/20 bg-accent/[0.07] p-3">
-            <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-accent">
+            <div className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-accent">
               <Icon name="sparkle" size={13} />
               AI 연결 제안
             </div>
-            <p className="mb-2.5 text-[12.5px] leading-relaxed text-txt2">
+            <p className="mb-2.5 text-[14.5px] leading-relaxed text-txt2">
               이 노트는 <b className="text-txt">「벡터 데이터베이스 비교」</b>와 강하게 연관돼요.
             </p>
             <Btn variant="soft" size="sm" icon="link" className="w-full" onClick={() => pushToast("새 연결을 추가했어요", "ok")}>
@@ -510,13 +510,13 @@ export function NoteEditorScreen({ initialNoteId }: { initialNoteId: string }) {
         </div>
 
         <div className="flex h-[40%] flex-col border-t border-line/50">
-          <div className="flex items-center gap-1.5 px-4 py-2.5 text-[11px] font-semibold text-txt3">
+          <div className="flex items-center gap-1.5 px-4 py-2.5 text-[13px] font-semibold text-txt3">
             <Icon name="chat" size={13} />
             인라인 AI
           </div>
           <div className="scroll flex-1 space-y-2.5 overflow-y-auto px-3">
             {aiMessages.map((message, index) => (
-              <div key={`${message.role}-${index}`} className={cx("rounded-xl p-2.5 text-[12.5px] leading-relaxed", message.role === "user" ? "ml-6 bg-primary/15 text-txt" : "mr-2 bg-surface2/50 text-txt2")}>
+              <div key={`${message.role}-${index}`} className={cx("rounded-xl p-2.5 text-[14.5px] leading-relaxed", message.role === "user" ? "ml-6 bg-primary/15 text-txt" : "mr-2 bg-surface2/50 text-txt2")}>
                 <span className={message.streaming ? "stream-caret" : ""}>{message.text}</span>
               </div>
             ))}
@@ -529,7 +529,7 @@ export function NoteEditorScreen({ initialNoteId }: { initialNoteId: string }) {
                 if (event.key === "Enter") sendAi();
               }}
               placeholder="이 노트에 질문…"
-              className="h-9 flex-1 rounded-lg border border-line/50 bg-surface2/60 px-3 text-[12.5px] text-txt outline-none placeholder:text-txt3 focus:border-primary/50"
+              className="h-9 flex-1 rounded-lg border border-line/50 bg-surface2/60 px-3 text-[14.5px] text-txt outline-none placeholder:text-txt3 focus:border-primary/50"
             />
             <button type="button" onClick={sendAi} className="grid h-9 w-9 place-items-center rounded-lg bg-primary text-white hover:brightness-110">
               <Icon name="send" size={15} />
@@ -543,7 +543,7 @@ export function NoteEditorScreen({ initialNoteId }: { initialNoteId: string }) {
       {slashOpen ? (
         <div className="fade-up fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
           <div className="glass w-[480px] rounded-xl p-1.5 shadow-soft">
-            <div className="px-2 py-1 text-[10.5px] uppercase tracking-wide text-txt3">블록</div>
+            <div className="px-2 py-1 text-[12.5px] uppercase tracking-wide text-txt3">블록</div>
             {[
               { icon: "summarize" as const, label: "제목 1", ins: "# " },
               { icon: "summarize" as const, label: "제목 2", ins: "## " },
@@ -558,7 +558,7 @@ export function NoteEditorScreen({ initialNoteId }: { initialNoteId: string }) {
                   insertSnippet(item.ins);
                   setSlashOpen(false);
                 }}
-                className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] text-txt2 hover:bg-surface2/60 hover:text-txt"
+                className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[15px] text-txt2 hover:bg-surface2/60 hover:text-txt"
               >
                 <Icon name={item.icon} size={15} className="text-txt3" />
                 {item.label}

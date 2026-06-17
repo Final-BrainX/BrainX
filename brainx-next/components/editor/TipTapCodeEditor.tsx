@@ -757,8 +757,8 @@ function CodeBlockNodeView({ node, updateAttributes }: NodeViewProps) {
 // ── Main editor component ─────────────────────────────────────────────────
 
 export default function TipTapCodeEditor() {
-  const { theme } = useBrainX();
-  const isLight = theme === "light";
+  const { effectiveTheme } = useBrainX();
+  const isLight = effectiveTheme === "light";
   const [activeGroupIdx, setActiveGroupIdx] = useState(0);
   const [debugMode, setDebugMode] = useState<"none" | "html" | "json">("none");
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving">("saved");

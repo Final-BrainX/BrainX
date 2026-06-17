@@ -10,19 +10,15 @@ import { cx } from "@/lib/utils";
 import { readAuthSession, type AuthSession } from "@/lib/auth-api";
 
 const NAV = [
-  { id: "home", label: "홈", icon: "home" as const, path: "/home" },
-  { id: "notes", label: "노트", icon: "notes" as const, path: "/notes/n1" },
-  { id: "graph", label: "마인드맵", icon: "graph" as const, path: "/graph" },
-  { id: "chat", label: "AI 챗", icon: "chat" as const, path: "/chat" },
-  { id: "import", label: "가져오기", icon: "import" as const, path: "/import" },
-  { id: "mypage", label: "내 페이지", icon: "dash" as const, path: "/mypage" }
+  { id: "home", labelKey: "nav.home" as const, icon: "home" as const, path: "/home" },
+  { id: "notes", labelKey: "nav.notes" as const, icon: "notes" as const, path: "/notes/n1" },
+  { id: "graph", labelKey: "nav.graph" as const, icon: "graph" as const, path: "/graph" },
+  { id: "chat", labelKey: "nav.chat" as const, icon: "chat" as const, path: "/chat" },
+  { id: "import", labelKey: "nav.import" as const, icon: "import" as const, path: "/import" }
 ];
 
 const NAV2 = [
-  { id: "billing", label: "플랜·결제", icon: "bill" as const, path: "/billing" },
-  { id: "settings", label: "설정", icon: "settings" as const, path: "/settings" },
-  { id: "support", label: "문의하기", icon: "chat" as const, path: "/support" },
-  { id: "admin", label: "관리자", icon: "shield" as const, path: "/admin" }
+  { id: "admin", labelKey: "nav.admin" as const, icon: "shield" as const, path: "/admin" }
 ];
 
 function isActive(pathname: string, path: string) {
@@ -35,7 +31,7 @@ function SearchBar() {
   const [filter, setFilter] = useState("최신순");
   const [semantic, setSemantic] = useState(false);
   const [open, setOpen] = useState(false);
-  const { pushToast } = useBrainX();
+  const { pushToast, t } = useBrainX();
   const options = ["최신순", "오래된순", "제목 기준", "내용 기준", "기간 검색"];
 
   return (
@@ -56,13 +52,13 @@ function SearchBar() {
             }
           }}
           placeholder={semantic ? '의미로 검색… "어텐션이 왜 작동하는지"' : "노트·메모·자료 검색"}
-          className="flex-1 bg-transparent text-sm text-txt outline-none placeholder:text-txt3"
+          className="flex-1 bg-transparent text-[16px] text-txt outline-none placeholder:text-txt3"
         />
         <button
           type="button"
           onClick={() => setSemantic((current) => !current)}
           className={cx(
-            "flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium whitespace-nowrap transition-all",
+            "flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[14px] font-medium whitespace-nowrap transition-all",
             semantic ? "border-accent bg-accent text-white" : "border-line/60 bg-surface2/60 text-txt2 hover:text-txt"
           )}
         >
@@ -72,7 +68,7 @@ function SearchBar() {
           <button
             type="button"
             onClick={() => setOpen((current) => !current)}
-            className="flex h-7 items-center gap-1 rounded-lg px-2 text-[12px] whitespace-nowrap text-txt2 hover:bg-surface2/60 hover:text-txt"
+            className="flex h-7 items-center gap-1 rounded-lg px-2 text-[14px] whitespace-nowrap text-txt2 hover:bg-surface2/60 hover:text-txt"
           >
             <Icon name="filter" size={13} /> {filter} <Icon name="chevD" size={12} />
           </button>
@@ -90,7 +86,7 @@ function SearchBar() {
                     setOpen(false);
                   }}
                   className={cx(
-                    "flex h-9 w-full items-center justify-between rounded-lg px-3 text-left text-[13px]",
+                    "flex h-9 w-full items-center justify-between rounded-lg px-3 text-left text-[15px]",
                     item === filter ? "bg-surface2/60 text-primary" : "text-txt2 hover:bg-surface2/50 hover:text-txt"
                   )}
                 >
@@ -132,7 +128,7 @@ function MobileNavButton({
         router.push(path);
       }}
       className={cx(
-        "flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-medium whitespace-nowrap transition-colors",
+        "flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-[14px] font-medium whitespace-nowrap transition-colors",
         active ? "border-primary/40 bg-primary/10 text-txt" : "border-line/50 bg-surface2/40 text-txt2 hover:bg-surface2/70 hover:text-txt"
       )}
     >
@@ -176,9 +172,9 @@ function SidebarItem({
     >
       {active ? <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-gradient-to-b from-primary to-accent" /> : null}
       <Icon name={icon} size={19} className={active ? "text-primary" : ""} />
-      {!collapsed ? <span className="text-[14px] font-medium whitespace-nowrap">{label}</span> : null}
+      {!collapsed ? <span className="text-[16px] font-medium whitespace-nowrap">{label}</span> : null}
       {collapsed ? (
-        <span className="pointer-events-none absolute left-full ml-3 z-50 whitespace-nowrap rounded-lg border border-line/60 bg-surface2 px-2 py-1 text-xs text-txt opacity-0 shadow-soft group-hover:opacity-100">
+        <span className="pointer-events-none absolute left-full ml-3 z-50 whitespace-nowrap rounded-lg border border-line/60 bg-surface2 px-2 py-1 text-[14px] text-txt opacity-0 shadow-soft group-hover:opacity-100">
           {label}
         </span>
       ) : null}
@@ -188,7 +184,7 @@ function SidebarItem({
 
 function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
   const router = useRouter();
-  const { sidebarCollapsed, setSidebarCollapsed, notes } = useBrainX();
+  const { sidebarCollapsed, setSidebarCollapsed, notes, t } = useBrainX();
 
   return (
     <aside
@@ -202,7 +198,7 @@ function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
           <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-primary via-accent to-cyan shadow-glow">
             <Icon name="brain" size={20} className="text-white" strokeWidth={1.6} />
           </div>
-          {!sidebarCollapsed ? <span className="text-[19px] font-bold tracking-tight text-txt font-display">BrainX</span> : null}
+          {!sidebarCollapsed ? <span className="text-[21px] font-bold tracking-tight text-txt font-display">BrainX</span> : null}
         </button>
       </div>
 
@@ -214,18 +210,18 @@ function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
 
       <nav className="scroll flex-1 space-y-1 overflow-y-auto px-3">
         {NAV.map((item) => (
-          <SidebarItem key={item.id} {...item} collapsed={sidebarCollapsed} onMyPageClick={onOpenSettings} />
+          <SidebarItem key={item.id} {...item} label={t(item.labelKey)} collapsed={sidebarCollapsed} onMyPageClick={onOpenSettings} />
         ))}
         <div className="my-3 mx-1 h-px bg-line/50" />
         {NAV2.map((item) => (
-          <SidebarItem key={item.id} {...item} collapsed={sidebarCollapsed} />
+          <SidebarItem key={item.id} {...item} label={t(item.labelKey)} collapsed={sidebarCollapsed} />
         ))}
       </nav>
 
       {!sidebarCollapsed ? (
         <div className="m-3 rounded-2xl glass p-3.5">
           <div className="mb-2 flex items-center justify-between">
-            <span className="text-[12px] font-semibold text-txt">Free 플랜</span>
+            <span className="text-[14px] font-semibold text-txt">Free 플랜</span>
             <Badge color="139 92 246" className="!h-5">
               Pro 추천
             </Badge>
@@ -233,7 +229,7 @@ function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
           <div className="mb-1.5 h-1.5 overflow-hidden rounded-full bg-surface2">
             <div className="h-full rounded-full bg-gradient-to-r from-primary to-accent" style={{ width: `${Math.min(64 + notes.length, 92)}%` }} />
           </div>
-          <p className="text-[11px] text-txt3">토큰 12.8K / 20K · 이번 달</p>
+          <p className="text-[13px] text-txt3">토큰 12.8K / 20K · 이번 달</p>
           <Btn variant="soft" size="sm" className="mt-3 w-full" onClick={() => router.push("/billing")}>
             업그레이드
           </Btn>
@@ -261,17 +257,16 @@ function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
 }
 
 function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
-  const { pushToast } = useBrainX();
+  const { pushToast, t } = useBrainX();
   const router = useRouter();
   const [session, setSession] = useState<AuthSession | null>(null);
   const displayName = session?.nickname?.trim() || session?.email?.split("@")[0] || "사용자";
   const mobileNav = [
-    { label: "홈", icon: "home" as const, path: "/home" },
-    { label: "노트", icon: "notes" as const, path: "/notes/n1" },
-    { label: "그래프", icon: "graph" as const, path: "/graph" },
-    { label: "챗", icon: "chat" as const, path: "/chat" },
-    { label: "가져오기", icon: "import" as const, path: "/import" },
-    { label: "내 페이지", icon: "dash" as const, path: "/mypage" }
+    { label: t("nav.home"), icon: "home" as const, path: "/home" },
+    { label: t("nav.notes"), icon: "notes" as const, path: "/notes/n1" },
+    { label: t("nav.graph"), icon: "graph" as const, path: "/graph" },
+    { label: t("nav.chat"), icon: "chat" as const, path: "/chat" },
+    { label: t("nav.import"), icon: "import" as const, path: "/import" }
   ];
 
   useEffect(() => {
@@ -299,8 +294,8 @@ function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
           <button type="button" onClick={onOpenSettings} className="flex h-10 items-center gap-2.5 rounded-xl px-2.5 transition-colors hover:bg-surface2/60">
             <Avatar name={displayName} size={32} imageUrl={session?.profileImageUrl} />
             <div className="hidden text-left leading-tight sm:block">
-              <div className="max-w-[120px] truncate text-[13px] font-semibold text-txt">{displayName}</div>
-              <div className="text-[11px] text-txt3">{session?.role ?? "Free 플랜"}</div>
+              <div className="text-[13px] font-semibold text-txt">김연우</div>
+              <div className="text-[11px] text-txt3">Free 플랜</div>
             </div>
           </button>
         </div>

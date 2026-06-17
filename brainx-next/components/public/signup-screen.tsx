@@ -3,13 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { cx } from "@/lib/utils";
+import { EMPTY_CONSENTS, requiredConsentsAccepted, type ConsentState } from "@/lib/legal";
 import { requestEmailVerification, signupWithEmail, verifyEmailCode } from "@/lib/auth-api";
 import { useBrainX } from "@/components/brainx-provider";
 import { Btn, Icon } from "@/components/brainx-ui";
 import { AuthShell, Field } from "@/components/public/auth-shared";
+import { LegalConsents } from "@/components/public/legal-consents";
 
-type AgreementKey = "tos" | "priv" | "mkt" | "beh";
 type VerificationStatus = "idle" | "sent" | "checking" | "verified" | "invalid";
 
 export function SignupScreen() {
@@ -22,19 +22,7 @@ export function SignupScreen() {
   const [sendingCode, setSendingCode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus>("idle");
-  const [agree, setAgree] = useState<Record<AgreementKey, boolean>>({
-    tos: false,
-    priv: false,
-    mkt: false,
-    beh: false
-  });
-
-  const terms: Array<{ key: AgreementKey; label: string }> = [
-    { key: "tos", label: "[필수] 서비스 이용약관" },
-    { key: "priv", label: "[필수] 개인정보 처리방침" },
-    { key: "mkt", label: "[선택] 마케팅 정보 수신" },
-    { key: "beh", label: "[선택] 행동 데이터 분석 동의" }
-  ];
+  const [consents, setConsents] = useState<ConsentState>(EMPTY_CONSENTS);
 
   const codeVerified = verificationStatus === "verified";
   const canSendCode = email.trim().length > 0 && !sendingCode;
@@ -44,8 +32,7 @@ export function SignupScreen() {
     verificationStatus !== "checking" &&
     !submitting;
   const canProceed =
-    agree.tos &&
-    agree.priv &&
+    requiredConsentsAccepted(consents) &&
     email.trim().length > 0 &&
     verificationCode.trim().length > 0 &&
     password.length > 0 &&
@@ -106,10 +93,10 @@ export function SignupScreen() {
         password,
         passwordConfirm,
         consents: {
-          termsRequired: agree.tos,
-          privacyRequired: agree.priv,
-          marketingOptional: agree.mkt,
-          behaviorAnalyticsOptional: agree.beh
+          termsRequired: consents.termsRequired,
+          privacyRequired: consents.privacyRequired,
+          marketingOptional: consents.marketingOptional,
+          behaviorAnalyticsOptional: consents.behaviorAnalyticsOptional
         }
       });
       pushToast("회원가입이 완료되었습니다.", "ok");
@@ -123,27 +110,12 @@ export function SignupScreen() {
 
   return (
     <AuthShell>
-      <h1 className="mb-1.5 text-[26px] font-bold tracking-tight">BrainX 시작하기</h1>
-      <p className="mb-7 text-[14px] text-txt2">이메일 인증 후 무료로 계정을 만들 수 있습니다.</p>
-      <Field
-        label="이메일"
-        type="email"
-        placeholder="you@brainx.app"
-        value={email}
-        onChange={(event) => handleEmailChange(event.target.value)}
-        autoComplete="email"
-        disabled={submitting}
-      />
-      <div className="mb-1 flex items-end gap-2">
-        <div className="min-w-0 flex-1 [&>label]:mb-1">
-          <Field
-            label="인증 코드"
-            placeholder="6자리 숫자"
-            value={verificationCode}
-            onChange={(event) => handleCodeChange(event.target.value)}
-            autoComplete="one-time-code"
-            disabled={submitting}
-          />
+      <h1 className="mb-1.5 text-[28px] font-bold tracking-tight">두뇌를 깨우는 1분</h1>
+      <p className="mb-7 text-[16px] text-txt2">무료로 BrainX를 시작하세요.</p>
+      <Field label="이메일" type="email" placeholder="you@brainx.app" />
+      <div className="mb-4 flex items-end gap-2">
+        <div className="flex-1">
+          <Field label="인증 코드" placeholder="6자리 숫자" />
         </div>
         <Btn variant="soft" className="mb-1 px-3" disabled={!canSendCode || submitting} onClick={handleSendCode}>
           {sendingCode ? "전송 중..." : "코드 전송"}
@@ -179,31 +151,11 @@ export function SignupScreen() {
         autoComplete="new-password"
         disabled={submitting}
       />
-      <div className="my-4 space-y-1 rounded-xl bg-surface2/40 p-3">
-        {terms.map((term) => (
-          <button
-            key={term.key}
-            type="button"
-            onClick={() => setAgree((current) => ({ ...current, [term.key]: !current[term.key] }))}
-            className="flex h-8 w-full items-center gap-2.5 text-left"
-            disabled={submitting}
-          >
-            <span
-              className={cx(
-                "grid h-5 w-5 place-items-center rounded-md border",
-                agree[term.key] ? "border-primary bg-primary text-white" : "border-line"
-              )}
-            >
-              {agree[term.key] ? <Icon name="check" size={13} /> : null}
-            </span>
-            <span className="text-[13px] text-txt2">{term.label}</span>
-          </button>
-        ))}
-      </div>
+      <LegalConsents value={consents} onChange={setConsents} disabled={submitting} className="my-4" />
       <Btn variant="primary" size="lg" className="w-full" disabled={!canProceed} onClick={handleSignup}>
         {submitting ? "가입 중..." : "가입하고 시작하기"}
       </Btn>
-      <p className="mt-6 text-center text-[13px] text-txt2">
+      <p className="mt-6 text-center text-[15px] text-txt2">
         이미 계정이 있으신가요?{" "}
         <button type="button" onClick={() => router.push("/login")} className="font-medium text-primary">
           로그인

@@ -106,7 +106,11 @@ public class AuthRequests {
 
             String profileImageUrl,
 
-            List<String> interests
+            List<String> interests,
+
+            @Valid
+            @NotNull(message = "약관 동의 정보는 필수입니다.")
+            ConsentRequest consents
     ) {
     }
 }

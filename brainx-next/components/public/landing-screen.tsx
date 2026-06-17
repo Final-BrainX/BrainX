@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 import { CLUSTERS, PRICING } from "@/lib/brainx-data";
+import { startDemoSession } from "@/lib/auth-api";
 
 import { cx } from "@/lib/utils";
 
@@ -123,14 +124,19 @@ function FeatureCard({
       <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl" style={{ background: `rgb(${color} / 0.14)`, color: `rgb(${color})` }}>
         <Icon name={icon} size={24} />
       </div>
-      <h3 className="mb-2 text-[17px] font-semibold text-txt">{title}</h3>
-      <p className="text-[14px] leading-relaxed text-txt2">{desc}</p>
+      <h3 className="mb-2 text-[19px] font-semibold text-txt">{title}</h3>
+      <p className="text-[16px] leading-relaxed text-txt2">{desc}</p>
     </Card>
   );
 }
 
 export function LandingScreen() {
   const router = useRouter();
+
+  const enterDemo = () => {
+    startDemoSession();
+    router.push("/home");
+  };
 
   const features = [
     {
@@ -166,9 +172,9 @@ export function LandingScreen() {
           <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-primary via-accent to-cyan shadow-glow">
             <Icon name="brain" size={20} className="text-white" />
           </div>
-          <span className="text-[20px] font-bold tracking-tight font-display">BrainX</span>
+          <span className="text-[22px] font-bold tracking-tight font-display">BrainX</span>
         </div>
-        <nav className="ml-10 hidden items-center gap-1 text-sm text-txt2 md:flex">
+        <nav className="ml-10 hidden items-center gap-1 text-[16px] text-txt2 md:flex">
           {["기능", "마인드맵", "요금제"].map((item) => (
             <a key={item} href="#" className="flex h-9 items-center rounded-lg px-3 hover:bg-surface2/50 hover:text-txt">
               {item}
@@ -181,7 +187,7 @@ export function LandingScreen() {
           <Btn variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => router.push("/login")}>
             로그인
           </Btn>
-          <Btn variant="primary" size="sm" onClick={() => router.push("/home")}>
+          <Btn variant="primary" size="sm" onClick={enterDemo}>
             무료로 시작
           </Btn>
         </div>
@@ -192,22 +198,22 @@ export function LandingScreen() {
           <Badge color="139 92 246" dot className="mb-6">
             AI 기반 개인 지식 관리 · BrainX
           </Badge>
-          <h1 className="mb-5 text-[40px] font-bold leading-[1.08] tracking-tight md:text-[54px]">
+          <h1 className="mb-5 text-[42px] font-bold leading-[1.08] tracking-tight md:text-[56px]">
             내 지식의 우주를 탐험하는<br />
             <span className="gradient-text">AI 두뇌, BrainX</span>
           </h1>
-          <p className="mb-8 max-w-md text-[17px] leading-relaxed text-txt2">
+          <p className="mb-8 max-w-md text-[19px] leading-relaxed text-txt2">
             노트, 메모, 자료를 저장하면 AI가 정리하고 연결하며, 필요한 순간 답을 찾아줍니다. 적기만 하세요. 연결과 정리는 AI가 합니다.
           </p>
           <div className="flex flex-wrap items-center gap-3">
-            <Btn variant="primary" size="lg" icon="bolt" onClick={() => router.push("/home")}>
+            <Btn variant="primary" size="lg" icon="bolt" onClick={enterDemo}>
               무료로 시작하기
             </Btn>
-            <Btn variant="outline" size="lg" icon="eye" onClick={() => router.push("/graph")}>
+            <Btn variant="outline" size="lg" icon="eye" onClick={enterDemo}>
               데모 보기
             </Btn>
           </div>
-          <div className="mt-9 flex items-center gap-6 text-[13px] text-txt3">
+          <div className="mt-9 flex items-center gap-6 text-[15px] text-txt3">
             <span className="flex items-center gap-1.5">
               <Icon name="check" size={15} className="text-cyan" /> 신용카드 불필요
             </span>
@@ -221,7 +227,7 @@ export function LandingScreen() {
           <Card className="relative aspect-[5/4] overflow-hidden p-2" glow>
             <div className="absolute left-4 top-4 z-10 flex items-center gap-2">
               <span className="flex h-2 w-2 rounded-full bg-cyan animate-pulse" />
-              <span className="text-[12px] font-medium text-txt2">실시간 지식 그래프 · 13 노트 연결됨</span>
+              <span className="text-[14px] font-medium text-txt2">실시간 지식 그래프 · 13 노트 연결됨</span>
             </div>
             <HeroConstellation />
             <div className="absolute bottom-4 left-4 right-4 z-10 flex items-center justify-between">
@@ -240,7 +246,7 @@ export function LandingScreen() {
       <section className="mx-auto max-w-[1180px] px-6 py-16 md:px-10">
         <div className="mb-12 text-center">
           <Badge className="mb-4">핵심 기능</Badge>
-          <h2 className="text-[32px] font-bold tracking-tight md:text-[40px]">
+          <h2 className="text-[34px] font-bold tracking-tight md:text-[42px]">
             저장 그 이상, <span className="gradient-text">생각을 연결</span>합니다
           </h2>
         </div>
@@ -277,10 +283,10 @@ export function LandingScreen() {
               <Badge color={item.color} dot className="mb-4">
                 {item.tag}
               </Badge>
-              <h3 className="mb-3 text-[19px] font-semibold leading-snug text-txt">{item.title}</h3>
-              <p className="text-[14px] leading-relaxed text-txt2">{item.desc}</p>
+              <h3 className="mb-3 text-[21px] font-semibold leading-snug text-txt">{item.title}</h3>
+              <p className="text-[16px] leading-relaxed text-txt2">{item.desc}</p>
               {index === 2 ? (
-                <Btn variant="outline" size="sm" icon="arrowL" className="mt-5 [&_svg]:rotate-180" onClick={() => router.push("/home")}>
+                <Btn variant="outline" size="sm" icon="arrowL" className="mt-5 [&_svg]:rotate-180" onClick={enterDemo}>
                   지금 경험하기
                 </Btn>
               ) : null}
@@ -292,11 +298,11 @@ export function LandingScreen() {
       <section className="mx-auto max-w-[1180px] px-6 py-16 md:px-10">
         <div className="mb-10 text-center">
           <Badge className="mb-4">요금제</Badge>
-          <h2 className="mb-6 text-[32px] font-bold tracking-tight md:text-[40px]">생각의 크기에 맞춰</h2>
+          <h2 className="mb-6 text-[34px] font-bold tracking-tight md:text-[42px]">생각의 크기에 맞춰</h2>
           <div className="inline-flex items-center gap-3 rounded-xl p-1 glass">
-            <div className="h-9 rounded-lg bg-surface2 px-4 text-sm font-medium text-txt">월간</div>
-            <div className="flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-medium text-txt2">
-              연간 <span className="text-[11px] text-cyan">-20%</span>
+            <div className="h-9 rounded-lg bg-surface2 px-4 text-[16px] font-medium text-txt">월간</div>
+            <div className="flex h-9 items-center gap-2 rounded-lg px-4 text-[16px] font-medium text-txt2">
+              연간 <span className="text-[13px] text-cyan">-20%</span>
             </div>
           </div>
         </div>
@@ -304,18 +310,18 @@ export function LandingScreen() {
           {PRICING.map((plan) => (
             <Card key={plan.id} glow={plan.best} className={cx("relative p-7", plan.best && "border-primary/50")}>
               {plan.best ? <Badge color="59 130 246" className="absolute -top-3 left-1/2 -translate-x-1/2">가장 인기</Badge> : null}
-              <div className="mb-1 text-[15px] font-semibold text-txt2">{plan.name}</div>
+              <div className="mb-1 text-[17px] font-semibold text-txt2">{plan.name}</div>
               <div className="mb-1 flex items-end gap-1">
-                <span className="text-[34px] font-bold tracking-tight">₩{plan.yr.toLocaleString()}</span>
-                <span className="mb-1.5 text-sm text-txt3">/월</span>
+                <span className="text-[36px] font-bold tracking-tight">₩{plan.yr.toLocaleString()}</span>
+                <span className="mb-1.5 text-[16px] text-txt3">/월</span>
               </div>
-              <p className="mb-5 text-[13px] text-txt3">{plan.tag}</p>
+              <p className="mb-5 text-[15px] text-txt3">{plan.tag}</p>
               <Btn variant={plan.best ? "primary" : "soft"} className="mb-5 w-full" onClick={() => router.push("/billing")}>
                 {plan.cta}
               </Btn>
               <ul className="space-y-2.5">
                 {plan.feats.map((feature) => (
-                  <li key={feature} className="flex items-start gap-2.5 text-[13.5px] text-txt2">
+                  <li key={feature} className="flex items-start gap-2.5 text-[15.5px] text-txt2">
                     <Icon name="check" size={16} className="mt-0.5 shrink-0 text-cyan" />
                     {feature}
                   </li>
@@ -330,9 +336,9 @@ export function LandingScreen() {
         <Card glow className="relative overflow-hidden border-primary/40 p-12 text-center">
           <div className="absolute inset-0 grid-bg opacity-40" />
           <div className="relative">
-            <h2 className="mb-4 text-[30px] font-bold tracking-tight md:text-[38px]">머릿속 우주를 정리할 시간</h2>
+            <h2 className="mb-4 text-[32px] font-bold tracking-tight md:text-[40px]">머릿속 우주를 정리할 시간</h2>
             <p className="mx-auto mb-7 max-w-md text-txt2">지금 첫 노트를 쓰면, BrainX가 나머지를 연결합니다.</p>
-            <Btn variant="primary" size="lg" icon="bolt" onClick={() => router.push("/home")}>
+            <Btn variant="primary" size="lg" icon="bolt" onClick={enterDemo}>
               무료로 시작하기
             </Btn>
           </div>
@@ -340,7 +346,7 @@ export function LandingScreen() {
       </section>
 
       <footer className="mx-auto max-w-[1180px] border-t border-line/40 px-6 py-10 md:px-10">
-        <div className="flex flex-col items-center justify-between gap-4 text-sm text-txt3 md:flex-row">
+        <div className="flex flex-col items-center justify-between gap-4 text-[16px] text-txt3 md:flex-row">
           <div className="flex items-center gap-2.5">
             <div className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-primary to-accent">
               <Icon name="brain" size={16} className="text-white" />

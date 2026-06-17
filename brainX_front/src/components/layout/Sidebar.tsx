@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Brain, Search, FileText, FolderOpen, Star, Clock, Network,
-  Settings, LogOut, Plus, ChevronRight, ChevronDown, Folder, Loader2, Hash
+  Settings, LogOut, Plus, ChevronRight, ChevronDown, Folder, Loader2, Hash, ArrowDownUp
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '../../store/authStore'
@@ -90,6 +90,9 @@ export default function Sidebar() {
         </button>
         <button onClick={() => navigate('/graph')} className={`sidebar-item w-full text-left ${location.pathname === '/graph' ? 'active' : ''}`}>
           <Network className="w-4 h-4" /> 지식 그래프
+        </button>
+        <button onClick={() => navigate('/import-export')} className={`sidebar-item w-full text-left ${location.pathname === '/import-export' ? 'active' : ''}`}>
+          <ArrowDownUp className="w-4 h-4" /> 가져오기/내보내기
         </button>
       </nav>
 

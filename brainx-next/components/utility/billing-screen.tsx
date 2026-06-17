@@ -38,19 +38,19 @@ export function BillingScreen() {
           <Badge color="234 179 8" dot className="mb-2.5">
             플랜 · 결제
           </Badge>
-          <h1 className="text-[27px] font-bold tracking-tight">요금제와 사용량</h1>
-          <p className="mt-1.5 max-w-2xl text-[14px] text-txt2">
+          <h1 className="text-[29px] font-bold tracking-tight">요금제와 사용량</h1>
+          <p className="mt-1.5 max-w-2xl text-[16px] text-txt2">
             현재는 mock 결제 화면이며, 실제 결제는 연결되어 있지 않습니다. 노트 수와 사용량을 기준으로 플랜을 살펴봅니다.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <ThemeToggle />
           <div className="inline-flex items-center rounded-xl border border-line/60 bg-surface2/50 p-1">
-            <button type="button" onClick={() => setAnnual(false)} className={cx("h-9 rounded-lg px-4 text-[13px]", annual ? "text-txt2" : "bg-surface text-txt")}>
+            <button type="button" onClick={() => setAnnual(false)} className={cx("h-9 rounded-lg px-4 text-[15px]", annual ? "text-txt2" : "bg-surface text-txt")}>
               월간
             </button>
-            <button type="button" onClick={() => setAnnual(true)} className={cx("h-9 rounded-lg px-4 text-[13px]", annual ? "bg-surface text-txt" : "text-txt2")}>
-              연간 <span className="ml-1 text-[11px] text-cyan">-20%</span>
+            <button type="button" onClick={() => setAnnual(true)} className={cx("h-9 rounded-lg px-4 text-[15px]", annual ? "bg-surface text-txt" : "text-txt2")}>
+              연간 <span className="ml-1 text-[13px] text-cyan">-20%</span>
             </button>
           </div>
         </div>
@@ -71,12 +71,12 @@ export function BillingScreen() {
               return (
                 <Card key={plan.id} glow={plan.best} className={cx("relative p-5", plan.best && "border-primary/50")}>
                   {plan.best ? <Badge color="59 130 246" className="absolute -top-3 left-1/2 -translate-x-1/2">추천</Badge> : null}
-                  <div className="mb-1 text-[15px] font-semibold text-txt2">{plan.name}</div>
+                  <div className="mb-1 text-[17px] font-semibold text-txt2">{plan.name}</div>
                   <div className="mb-1 flex items-end gap-1">
-                    <span className="text-[30px] font-bold tracking-tight text-txt">₩{price.toLocaleString()}</span>
-                    <span className="mb-1.5 text-sm text-txt3">/월</span>
+                    <span className="text-[32px] font-bold tracking-tight text-txt">₩{price.toLocaleString()}</span>
+                    <span className="mb-1.5 text-[16px] text-txt3">/월</span>
                   </div>
-                  <p className="mb-4 text-[12.5px] text-txt3">{plan.tag}</p>
+                  <p className="mb-4 text-[14.5px] text-txt3">{plan.tag}</p>
                   <Btn
                     variant={plan.best ? "primary" : "soft"}
                     className="mb-4 w-full"
@@ -86,7 +86,7 @@ export function BillingScreen() {
                   </Btn>
                   <ul className="space-y-2">
                     {plan.feats.map((feature) => (
-                      <li key={feature} className="flex items-start gap-2.5 text-[12.5px] text-txt2">
+                      <li key={feature} className="flex items-start gap-2.5 text-[14.5px] text-txt2">
                         <Icon name="check" size={14} className="mt-0.5 shrink-0 text-cyan" />
                         {feature}
                       </li>
@@ -103,7 +103,7 @@ export function BillingScreen() {
             <div className="space-y-3">
               {usage.map((item) => (
                 <div key={item.label}>
-                  <div className="mb-1.5 flex items-center justify-between text-[12px] text-txt2">
+                  <div className="mb-1.5 flex items-center justify-between text-[14px] text-txt2">
                     <span>{item.label}</span>
                     <span className="font-mono text-txt3">{item.value}%</span>
                   </div>
@@ -121,12 +121,12 @@ export function BillingScreen() {
                     <Icon name="bill" size={16} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-medium text-txt">{invoice.date}</div>
-                    <div className="text-[11.5px] text-txt3">{invoice.plan} · {invoice.status}</div>
+                    <div className="text-[15px] font-medium text-txt">{invoice.date}</div>
+                    <div className="text-[13.5px] text-txt3">{invoice.plan} · {invoice.status}</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-[13px] font-semibold text-txt">{invoice.amount}</div>
-                    <div className="text-[11px] text-txt3">세금계산서</div>
+                    <div className="text-[15px] font-semibold text-txt">{invoice.amount}</div>
+                    <div className="text-[13px] text-txt3">세금계산서</div>
                   </div>
                 </div>
               ))}

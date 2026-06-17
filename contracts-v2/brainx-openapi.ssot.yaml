@@ -652,6 +652,83 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security: []
+  /api/v1/auth/onboarding/complete:
+    post:
+      operationId: completeOnboarding
+      summary: OAuth 신규 가입 온보딩 완료
+      tags:
+      - Identity & Access
+      x-producer-service: identity-access
+      x-visibility: public
+      x-consumers:
+      - id: web.onboarding
+        type: frontend
+        description: Onboarding profile and consent flow
+      x-produces-events:
+      - UserRegistered
+      - OAuthAccountLinked
+      - ConsentRecorded
+      - UserProfileUpdated
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      description: OAuth 신규 가입자는 온보딩 완료 시 프로필, 관심사, 필수/선택 동의를 함께 제출한다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OnboardingCompleteRequest'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/AuthTokenData'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security: []
   /api/v1/users/me:
     get:
       operationId: getMyProfile

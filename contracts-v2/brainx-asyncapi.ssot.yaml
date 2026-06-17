@@ -115,7 +115,7 @@ channels:
     messages:
       CheckoutSessionCreated:
         $ref: '#/components/messages/CheckoutSessionCreated'
-    description: 'Channel for CheckoutSessionCreated. Producer: Commerce-Service. Consumers: Admin-Service.'
+    description: 'Channel for CheckoutSessionCreated. Producer: Commerce-Service. Consumers: Admin-Service, Admin-Service.'
     x-producer-service: Commerce-Service
     x-consumer-services:
     - Admin-Service
@@ -151,7 +151,8 @@ channels:
     messages:
       ConsentRecorded:
         $ref: '#/components/messages/ConsentRecorded'
-    description: 'Channel for ConsentRecorded. Producer: User-Service. Consumers: Commerce-Service, Admin-Service.'
+    description: 'Channel for ConsentRecorded. Producer: User-Service. Consumers: Commerce-Service, Admin-Service,
+      Admin-Service.'
     x-producer-service: User-Service
     x-consumer-services:
     - Commerce-Service
@@ -243,7 +244,7 @@ channels:
     messages:
       ExternalToolCalled:
         $ref: '#/components/messages/ExternalToolCalled'
-    description: 'Channel for ExternalToolCalled. Producer: Ingestion-Service. Consumers: Admin-Service.'
+    description: 'Channel for ExternalToolCalled. Producer: Ingestion-Service. Consumers: Admin-Service, Admin-Service.'
     x-producer-service: Ingestion-Service
     x-consumer-services:
     - Admin-Service
@@ -358,7 +359,7 @@ channels:
     messages:
       IntegrationConnected:
         $ref: '#/components/messages/IntegrationConnected'
-    description: 'Channel for IntegrationConnected. Producer: Ingestion-Service. Consumers: Admin-Service.'
+    description: 'Channel for IntegrationConnected. Producer: Ingestion-Service. Consumers: Admin-Service, Admin-Service.'
     x-producer-service: Ingestion-Service
     x-consumer-services:
     - Admin-Service
@@ -509,7 +510,7 @@ channels:
     messages:
       OAuthAccountLinked:
         $ref: '#/components/messages/OAuthAccountLinked'
-    description: 'Channel for OAuthAccountLinked. Producer: User-Service. Consumers: Admin-Service.'
+    description: 'Channel for OAuthAccountLinked. Producer: User-Service. Consumers: Admin-Service, Admin-Service.'
     x-producer-service: User-Service
     x-consumer-services:
     - Admin-Service
@@ -600,7 +601,8 @@ channels:
     messages:
       ShareLinkChanged:
         $ref: '#/components/messages/ShareLinkChanged'
-    description: 'Channel for ShareLinkChanged. Producer: Workspace-Service. Consumers: User-Service, Admin-Service.'
+    description: 'Channel for ShareLinkChanged. Producer: Workspace-Service. Consumers: User-Service, Admin-Service,
+      Admin-Service.'
     x-producer-service: Workspace-Service
     x-consumer-services:
     - User-Service
@@ -610,7 +612,8 @@ channels:
     messages:
       ShareLinkCreated:
         $ref: '#/components/messages/ShareLinkCreated'
-    description: 'Channel for ShareLinkCreated. Producer: Workspace-Service. Consumers: User-Service, Admin-Service.'
+    description: 'Channel for ShareLinkCreated. Producer: Workspace-Service. Consumers: User-Service, Admin-Service,
+      Admin-Service.'
     x-producer-service: Workspace-Service
     x-consumer-services:
     - User-Service
@@ -681,7 +684,7 @@ channels:
     messages:
       UserDeletionCancelled:
         $ref: '#/components/messages/UserDeletionCancelled'
-    description: 'Channel for UserDeletionCancelled. Producer: User-Service. Consumers: User-Service,
+    description: 'Channel for UserDeletionCancelled. Producer: User-Service. Consumers: User-Service, User-Service,
       Commerce-Service.'
     x-producer-service: User-Service
     x-consumer-services:
@@ -692,7 +695,7 @@ channels:
     messages:
       UserDeletionRequested:
         $ref: '#/components/messages/UserDeletionRequested'
-    description: 'Channel for UserDeletionRequested. Producer: User-Service. Consumers: User-Service,
+    description: 'Channel for UserDeletionRequested. Producer: User-Service. Consumers: User-Service, User-Service,
       Commerce-Service, Workspace-Service, Ingestion-Service, AI-Service.'
     x-producer-service: User-Service
     x-consumer-services:
@@ -706,7 +709,7 @@ channels:
     messages:
       UserLoggedIn:
         $ref: '#/components/messages/UserLoggedIn'
-    description: 'Channel for UserLoggedIn. Producer: User-Service. Consumers: Admin-Service.'
+    description: 'Channel for UserLoggedIn. Producer: User-Service. Consumers: Admin-Service, Admin-Service.'
     x-producer-service: User-Service
     x-consumer-services:
     - Admin-Service
@@ -715,7 +718,7 @@ channels:
     messages:
       UserLoggedOut:
         $ref: '#/components/messages/UserLoggedOut'
-    description: 'Channel for UserLoggedOut. Producer: User-Service. Consumers: Admin-Service.'
+    description: 'Channel for UserLoggedOut. Producer: User-Service. Consumers: Admin-Service, Admin-Service.'
     x-producer-service: User-Service
     x-consumer-services:
     - Admin-Service
@@ -3572,6 +3575,7 @@ components:
       additionalProperties: false
     ConsentRecordedPayload:
       type: object
+      description: Consent snapshot recorded during email signup or OAuth onboarding completion.
       properties:
         userId:
           type: string
@@ -3650,6 +3654,19 @@ components:
           nullable: true
         profileImageAssetId:
           type: string
+          nullable: true
+        language:
+          type: string
+          enum:
+          - ko
+          - en
+          nullable: true
+        theme:
+          type: string
+          enum:
+          - dark
+          - light
+          - system
           nullable: true
       required:
       - userId

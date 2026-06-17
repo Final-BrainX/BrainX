@@ -3,17 +3,17 @@
 @tailwind utilities;
 
 :root {
-  --bg: 11 16 32;
-  --bg2: 15 23 42;
-  --surface: 17 24 39;
-  --surface2: 30 41 59;
-  --primary: 59 130 246;
-  --accent: 139 92 246;
-  --cyan: 34 211 238;
-  --txt: 248 250 252;
-  --txt2: 148 163 184;
-  --txt3: 100 116 139;
-  --border: 51 65 85;
+  --bg: 10 12 26;
+  --bg2: 13 18 38;
+  --surface: 22 28 46;
+  --surface2: 36 46 68;
+  --primary: 99 160 255;
+  --accent: 188 150 255;
+  --cyan: 56 226 245;
+  --txt: 242 246 255;
+  --txt2: 188 204 228;
+  --txt3: 145 170 210;
+  --border: 58 76 110;
   --font-sans: "Pretendard Variable", "Apple SD Gothic Neo", "Noto Sans KR", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color-scheme: dark;
 }
@@ -31,6 +31,21 @@ html.light {
   --txt3: 148 163 184;
   --border: 226 232 240;
   color-scheme: light;
+}
+
+.universe-theme {
+  --bg: 10 12 26;
+  --bg2: 13 18 38;
+  --surface: 22 28 46;
+  --surface2: 36 46 68;
+  --primary: 99 160 255;
+  --accent: 188 150 255;
+  --cyan: 56 226 245;
+  --txt: 242 246 255;
+  --txt2: 188 204 228;
+  --txt3: 145 170 210;
+  --border: 58 76 110;
+  color-scheme: dark;
 }
 
 * {
@@ -89,20 +104,22 @@ a {
 }
 
 .glass {
-  background: linear-gradient(180deg, rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.04));
+  background-color: rgb(var(--surface) / 0.9);
+  background-image: linear-gradient(180deg, rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.02));
   backdrop-filter: blur(16px) saturate(140%);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
-  border: 1px solid rgb(var(--border) / 0.6);
+  border: 1px solid rgb(var(--border) / 0.3);
+  box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.2);
 }
 
 .card {
-  background: rgb(var(--surface) / 0.7);
+  background: rgb(var(--surface) / 1);
   border: 1px solid rgb(var(--border) / 0.55);
   backdrop-filter: blur(12px);
 }
 
 html.light .card {
-  background: rgb(var(--surface) / 0.85);
+  background: rgb(var(--surface) / 1);
   box-shadow: 0 8px 30px -18px rgba(15, 23, 42, 0.25);
 }
 
@@ -164,11 +181,11 @@ html.light .aurora b {
 }
 
 .fade-up {
-  animation: fadeUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: fadeUp 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 [data-route] {
-  animation: routeIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: routeIn 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .stream-caret::after {
@@ -256,6 +273,61 @@ html.light .aurora b {
   100% {
     background-position: 0 0;
   }
+}
+
+/* Planet Node Styles */
+.planet-halo {
+  background: rgb(var(--node-color) / 0.1);
+  transform: scale(2.6);
+  transition: transform 0.15s;
+}
+
+.planet-atmosphere {
+  background: radial-gradient(circle, rgb(var(--node-color) / 0.4) 0%, rgb(var(--node-color) / 0.12) 50%, transparent 72%);
+  filter: blur(5px);
+  transition: opacity 0.15s;
+}
+
+.planet-body-2d {
+  background: rgb(var(--node-color));
+  border: var(--stroke-width) solid rgb(255 255 255 / 0.6);
+  transition: border 0.15s, box-shadow 0.15s;
+}
+
+.planet-body-2d-active {
+  box-shadow: 0 0 12px rgb(var(--node-color) / 0.6);
+}
+
+.planet-body-universe {
+  background: radial-gradient(ellipse at 32% 26%,
+    rgba(255,255,255,0.95) 0%,
+    rgb(var(--node-color)) 20%,
+    rgb(var(--node-color)) 60%,
+    rgba(50, 0, 216, 0.7) 100%
+  );
+  border: var(--stroke-width) solid rgb(var(--node-color) / 0.85);
+  box-shadow: inset -8px -8px 16px rgba(0,0,0,0.33),
+              inset 3px 3px 8px rgba(255,255,255,0.2),
+              0 0 var(--glow-size) rgb(var(--node-color) / 0.3);
+  transition: border 0.15s, box-shadow 0.15s;
+}
+
+.planet-highlight {
+  top: 6%;
+  left: 12%;
+  width: 48%;
+  height: 40%;
+  background: radial-gradient(ellipse at 38% 32%, rgba(255,255,255,0.82) 0%, rgba(255,255,255,0.18) 50%, transparent 100%);
+  filter: blur(0.5px);
+}
+
+.planet-rim-light {
+  bottom: 4%;
+  right: 8%;
+  width: 35%;
+  height: 22%;
+  background: radial-gradient(ellipse, rgb(var(--node-color) / 0.5) 0%, transparent 100%);
+  filter: blur(2px);
 }
 
 @media (prefers-reduced-motion: reduce) {

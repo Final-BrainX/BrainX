@@ -25,15 +25,15 @@ function NoteCard({
       <div className="mb-2.5 flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: `rgb(${cluster.color})` }} />
-          <span className="truncate text-[11.5px] text-txt3">{cluster.label}</span>
+          <span className="truncate text-[13.5px] text-txt3">{cluster.label}</span>
         </div>
         {note.isFavorite ? <Icon name="star" size={15} className="shrink-0 text-yellow-400" fill="currentColor" strokeWidth={0} /> : null}
       </div>
-      <h3 className="mb-2 line-clamp-2 text-[15px] font-semibold leading-snug text-txt transition-colors group-hover:text-primary">
+      <h3 className="mb-2 line-clamp-2 text-[17px] font-semibold leading-snug text-txt transition-colors group-hover:text-primary">
         {note.title}
       </h3>
-      {!compact ? <p className="mb-3 line-clamp-2 text-[13px] leading-relaxed text-txt2">{note.summary}</p> : null}
-      <div className="flex items-center justify-between text-[11.5px] text-txt3">
+      {!compact ? <p className="mb-3 line-clamp-2 text-[15px] leading-relaxed text-txt2">{note.summary}</p> : null}
+      <div className="flex items-center justify-between text-[13.5px] text-txt3">
         <span className="flex items-center gap-1">
           <Icon name="clock" size={13} />
           {note.updated}
@@ -84,9 +84,9 @@ export function HomeScreen() {
     <div data-route className="mx-auto max-w-[1180px] px-6 py-7 md:px-8">
       <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="mb-1 text-[13px] text-txt3">2026년 6월 8일 일요일 · 오전</p>
-          <h1 className="text-[26px] font-bold tracking-tight">좋은 아침이에요, 연우님 🌿</h1>
-          <p className="mt-1.5 text-[14px] text-txt2">
+          <p className="mb-1 text-[15px] text-txt3">2026년 6월 8일 일요일 · 오전</p>
+          <h1 className="text-[28px] font-bold tracking-tight">좋은 아침이에요, 연우님 🌿</h1>
+          <p className="mt-1.5 text-[16px] text-txt2">
             오늘 <b className="text-txt">3개</b>의 노트가 새로 연결되었고, AI가 <b className="text-accent">2개의 인사이트</b>를 발견했어요.
           </p>
         </div>
@@ -112,8 +112,8 @@ export function HomeScreen() {
               <Icon name={stat.icon} size={20} />
             </div>
             <div>
-              <div className="text-[22px] font-bold leading-none tracking-tight">{stat.value}</div>
-              <div className="mt-1 text-[12px] whitespace-nowrap text-txt3">{stat.label}</div>
+              <div className="text-[24px] font-bold leading-none tracking-tight">{stat.value}</div>
+              <div className="mt-1 text-[14px] whitespace-nowrap text-txt3">{stat.label}</div>
             </div>
           </Card>
         ))}
@@ -127,8 +127,8 @@ export function HomeScreen() {
               <button key={note.id} type="button" onClick={() => router.push(`/notes/${note.id}`)} className="flex w-full items-center gap-3 rounded-xl p-3 text-left transition-colors hover:bg-surface2/50">
                 <span className="h-2 w-2 rounded-full" style={{ background: `rgb(${clusterById(note.cluster).color})` }} />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[14px] font-medium text-txt">{note.title}</div>
-                  <div className="truncate text-[12px] text-txt3">{note.summary}</div>
+                  <div className="truncate text-[16px] font-medium text-txt">{note.title}</div>
+                  <div className="truncate text-[14px] text-txt3">{note.summary}</div>
                 </div>
                 <RelevanceBar value={rel} />
               </button>
@@ -163,13 +163,13 @@ export function HomeScreen() {
             <Card key={`${item.a.id}-${item.b.id}`} hover className="relative overflow-hidden p-5">
               <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-accent opacity-40 blur-2xl" />
               <div className="relative mb-3 flex items-center gap-3">
-                <div className="flex-1 truncate rounded-lg bg-surface2/60 px-3 py-2 text-[13px] font-medium text-txt">{item.a.title}</div>
+                <div className="flex-1 truncate rounded-lg bg-surface2/60 px-3 py-2 text-[15px] font-medium text-txt">{item.a.title}</div>
                 <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent/15 text-accent">
                   <Icon name="link" size={15} />
                 </div>
-                <div className="flex-1 truncate rounded-lg bg-surface2/60 px-3 py-2 text-[13px] font-medium text-txt">{item.b.title}</div>
+                <div className="flex-1 truncate rounded-lg bg-surface2/60 px-3 py-2 text-[15px] font-medium text-txt">{item.b.title}</div>
               </div>
-              <p className="relative mb-3.5 text-[13px] leading-relaxed text-txt2">
+              <p className="relative mb-3.5 text-[15px] leading-relaxed text-txt2">
                 <span className="font-medium text-accent">왜? </span>
                 {item.why}
               </p>

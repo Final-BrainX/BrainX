@@ -85,11 +85,17 @@ export function SupportScreen() {
           <Badge color="99 102 241" dot className="mb-2.5">
             고객 지원
           </Badge>
+<<<<<<< HEAD
           <h1 className="text-[27px] font-bold tracking-tight text-txt">문의하기</h1>
           <p className="mt-1.5 max-w-2xl text-[14px] text-txt2">문의 작성과 처리 상태를 한 곳에서 확인하세요.</p>
+=======
+          <h1 className="text-[29px] font-bold tracking-tight">지원 센터</h1>
+          <p className="mt-1.5 max-w-2xl text-[16px] text-txt2">FAQ, 문의, 상태를 한 곳에 모아둔 mock 지원 화면입니다.</p>
+>>>>>>> 4a3f3ce90ebe3972ec6a16e6c3f125625c33e8bb
         </div>
       </div>
 
+<<<<<<< HEAD
       <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
         <SectionCard title="문의 작성" sub="접수된 문의는 내 문의 내역에 바로 반영됩니다.">
           <div className="space-y-4">
@@ -134,6 +140,55 @@ export function SupportScreen() {
                 className="w-full resize-none rounded-xl border border-line/60 bg-surface2/50 px-3.5 py-3 text-[14px] text-txt outline-none focus:border-primary/60"
               />
             </label>
+=======
+      <div className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
+        <div className="grid gap-4">
+          <SectionCard title="자주 묻는 질문" sub="검색어로 FAQ를 좁혀볼 수 있습니다.">
+            <label className="mb-4 block">
+              <div className="mb-1.5 text-[14px] font-medium text-txt2">질문 검색</div>
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="예: 공유 링크, PDF, 환각"
+                className="h-11 w-full rounded-xl border border-line/60 bg-surface2/50 px-3.5 text-[16px] text-txt outline-none focus:border-primary/60"
+              />
+            </label>
+            <div className="space-y-2">
+              {filteredFaq.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setOpen((current) => (current === item.id ? "" : item.id))}
+                  className="w-full rounded-xl border border-line/50 bg-surface2/40 p-4 text-left transition-colors hover:border-primary/35"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-[16px] font-medium text-txt">{item.question}</div>
+                    <Icon name={open === item.id ? "chevD" : "chevR"} size={16} className="text-txt3" />
+                  </div>
+                  {open === item.id ? <div className="mt-2 text-[15px] leading-relaxed text-txt2">{item.answer}</div> : null}
+                </button>
+              ))}
+            </div>
+          </SectionCard>
+
+          <SectionCard title="지원 채널" sub="운영 상태와 응답 기대치를 안내합니다.">
+            <div className="space-y-2.5">
+              {SUPPORT_CHANNELS.map((channel) => (
+                <div key={channel.name} className="flex items-center gap-3 rounded-xl bg-surface2/40 px-3 py-3">
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/14 text-primary">
+                    <Icon name={channel.icon} size={18} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[15px] font-medium text-txt">{channel.name}</div>
+                    <div className="truncate text-[13.5px] text-txt3">{channel.value}</div>
+                  </div>
+                  <Badge>{channel.desc}</Badge>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+        </div>
+>>>>>>> 4a3f3ce90ebe3972ec6a16e6c3f125625c33e8bb
 
             <Btn variant="primary" icon="send" className="w-full" disabled={submitting} onClick={submitInquiry}>
               {submitting ? "접수 중" : "문의 접수"}
@@ -160,6 +215,7 @@ export function SupportScreen() {
             <div className="grid min-h-[320px] place-items-center text-[13px] text-txt3">문의 내역을 불러오는 중입니다.</div>
           ) : filtered.length ? (
             <div className="space-y-3">
+<<<<<<< HEAD
               {filtered.map((item) => {
                 const status = STATUS_LABEL[item.status] ?? STATUS_LABEL.RECEIVED;
                 return (
@@ -183,6 +239,83 @@ export function SupportScreen() {
             <EmptyState icon="chat" title="문의 내역이 없습니다" desc="궁금한 점이나 문제가 생기면 문의를 남겨 주세요." />
           )}
         </SectionCard>
+=======
+              <label className="block">
+                <div className="mb-1.5 text-[14px] font-medium text-txt2">카테고리</div>
+                <select
+                  value={category}
+                  onChange={(event) => setCategory(event.target.value)}
+                  className="h-11 w-full rounded-xl border border-line/60 bg-surface2/50 px-3.5 text-[16px] text-txt outline-none"
+                >
+                  {["계정", "결제", "가져오기", "버그", "기능 요청"].map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <div className="mb-1.5 text-[14px] font-medium text-txt2">제목</div>
+                <input
+                  value={subject}
+                  onChange={(event) => setSubject(event.target.value)}
+                  placeholder="예: 공유 링크가 열리지 않아요"
+                  className="h-11 w-full rounded-xl border border-line/60 bg-surface2/50 px-3.5 text-[16px] text-txt outline-none focus:border-primary/60"
+                />
+              </label>
+              <label className="block">
+                <div className="mb-1.5 text-[14px] font-medium text-txt2">내용</div>
+                <textarea
+                  value={message}
+                  onChange={(event) => setMessage(event.target.value)}
+                  rows={6}
+                  placeholder="문제가 재현되는 과정을 적어주세요."
+                  className="w-full rounded-xl border border-line/60 bg-surface2/50 px-3.5 py-3 text-[16px] text-txt outline-none focus:border-primary/60"
+                />
+              </label>
+              <div className="flex gap-2">
+                <Btn
+                  variant="primary"
+                  icon="send"
+                  className="flex-1"
+                  onClick={() => {
+                    if (!subject.trim() || !message.trim()) {
+                      pushToast("제목과 내용을 먼저 입력하세요");
+                      return;
+                    }
+                    pushToast(`${category} 문의를 접수했어요`, "ok");
+                    setSubject("");
+                    setMessage("");
+                  }}
+                >
+                  보내기
+                </Btn>
+                <Btn variant="soft" icon="copy" onClick={() => pushToast("문의 양식을 복사했어요")}>
+                  복사
+                </Btn>
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard title="진행 중인 티켓" sub="지원 흐름을 설명하는 목업 데이터입니다.">
+            <div className="space-y-2.5">
+              {[
+                { title: "PDF 가져오기 지연", state: "해결 중", tone: "234 179 8" },
+                { title: "공유 링크 만료 시점", state: "안내 완료", tone: "34 211 238" },
+                { title: "모바일 편집 버그", state: "검토 중", tone: "244 114 182" }
+              ].map((ticket) => (
+                <div key={ticket.title} className="flex items-center justify-between rounded-xl bg-surface2/40 px-3 py-2.5">
+                  <div className="min-w-0">
+                    <div className="text-[15px] font-medium text-txt">{ticket.title}</div>
+                    <div className="text-[13.5px] text-txt3">답변 예정: 24시간 이내</div>
+                  </div>
+                  <Badge color={ticket.tone} dot>{ticket.state}</Badge>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+        </div>
+>>>>>>> 4a3f3ce90ebe3972ec6a16e6c3f125625c33e8bb
       </div>
     </div>
   );

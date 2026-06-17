@@ -19,8 +19,10 @@ import {
   seedNotes,
   updateNoteDerived
 } from "@/lib/brainx-data";
+import { translate, type I18nKey, type LanguageCode } from "@/lib/i18n";
 
-type ThemeMode = "dark" | "light";
+export type ThemeMode = "dark" | "light" | "system";
+export type EffectiveTheme = "dark" | "light";
 type SaveStatus = "saving" | "saved" | "error";
 type ToastKind = "info" | "ok" | "err";
 
@@ -34,6 +36,10 @@ type BrainXContextValue = {
   hydrated: boolean;
   theme: ThemeMode;
   setTheme: Dispatch<SetStateAction<ThemeMode>>;
+  effectiveTheme: EffectiveTheme;
+  language: LanguageCode;
+  setLanguage: Dispatch<SetStateAction<LanguageCode>>;
+  t: (key: I18nKey) => string;
   notes: BrainXNote[];
   setNotes: Dispatch<SetStateAction<BrainXNote[]>>;
   createNote: (folderId?: ClusterId) => BrainXNote;
@@ -48,6 +54,7 @@ type BrainXContextValue = {
 
 const NOTES_KEY = "brainx_notes_v1";
 const THEME_KEY = "brainx_theme_v1";
+const LANGUAGE_KEY = "brainx_language_v1";
 const SIDEBAR_KEY = "brainx_sidebar_collapsed_v1";
 
 const BrainXContext = createContext<BrainXContextValue | null>(null);
@@ -70,7 +77,17 @@ function writeJson(key: string, value: unknown) {
 function readTheme(): ThemeMode {
   if (typeof window === "undefined") return "dark";
   const stored = window.localStorage.getItem(THEME_KEY);
-  return stored === "light" ? "light" : "dark";
+  return stored === "light" || stored === "system" ? stored : "dark";
+}
+
+function readLanguage(): LanguageCode {
+  if (typeof window === "undefined") return "ko";
+  return window.localStorage.getItem(LANGUAGE_KEY) === "en" ? "en" : "ko";
+}
+
+function getSystemTheme(): EffectiveTheme {
+  if (typeof window === "undefined") return "dark";
+  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }
 
 function readSidebarCollapsed() {
@@ -88,6 +105,8 @@ function readNotes(): BrainXNote[] {
 export function BrainXProvider({ children }: { children: ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>("dark");
+  const [effectiveTheme, setEffectiveTheme] = useState<EffectiveTheme>("dark");
+  const [language, setLanguage] = useState<LanguageCode>("ko");
   const [notes, setNotes] = useState<BrainXNote[]>(() => seedNotes());
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -100,9 +119,11 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const nextTheme = readTheme();
+    const nextLanguage = readLanguage();
     const nextSidebarCollapsed = readSidebarCollapsed();
     const nextNotes = readNotes();
     setTheme(nextTheme);
+    setLanguage(nextLanguage);
     setSidebarCollapsed(nextSidebarCollapsed);
     setNotes(nextNotes);
     setHydrated(true);
@@ -124,15 +145,36 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!hydrated) return;
+    const applyTheme = () => {
+      const nextEffectiveTheme = theme === "system" ? getSystemTheme() : theme;
+      setEffectiveTheme(nextEffectiveTheme);
+      document.documentElement.classList.toggle("light", nextEffectiveTheme === "light");
+      document.documentElement.classList.toggle("dark", nextEffectiveTheme === "dark");
+      document.documentElement.style.colorScheme = nextEffectiveTheme;
+    };
+
     try {
-      document.documentElement.classList.toggle("light", theme === "light");
-      document.documentElement.classList.toggle("dark", theme === "dark");
-      document.documentElement.style.colorScheme = theme;
+      applyTheme();
       window.localStorage.setItem(THEME_KEY, theme);
     } catch {
       // ignore storage issues
     }
+
+    const media = window.matchMedia("(prefers-color-scheme: light)");
+    if (theme !== "system") return;
+    media.addEventListener("change", applyTheme);
+    return () => media.removeEventListener("change", applyTheme);
   }, [hydrated, theme]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      document.documentElement.lang = language;
+      window.localStorage.setItem(LANGUAGE_KEY, language);
+    } catch {
+      // ignore storage issues
+    }
+  }, [hydrated, language]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -167,11 +209,17 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
     }, 3000);
   }, []);
 
+  const t = useCallback((key: I18nKey) => translate(language, key), [language]);
+
   const value = useMemo<BrainXContextValue>(
     () => ({
       hydrated,
       theme,
       setTheme,
+      effectiveTheme,
+      language,
+      setLanguage,
+      t,
       notes,
       setNotes,
       createNote,
@@ -186,6 +234,9 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
     [
       hydrated,
       theme,
+      effectiveTheme,
+      language,
+      t,
       notes,
       createNote,
       updateNote,

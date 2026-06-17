@@ -35,12 +35,12 @@ function loadSavedBlocks(): Block[] | undefined {
 }
 
 export default function BlockNoteEditor({ fontSize, onFontSizeChange }: BlockNoteEditorProps) {
-  const { theme } = useBrainX();
+  const { effectiveTheme } = useBrainX();
   const [title, setTitle] = useState("");
   const [showJson, setShowJson] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving">("saved");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isLight = theme === "light";
+  const isLight = effectiveTheme === "light";
 
   const editor = useCreateBlockNote({
     initialContent: loadSavedBlocks(),

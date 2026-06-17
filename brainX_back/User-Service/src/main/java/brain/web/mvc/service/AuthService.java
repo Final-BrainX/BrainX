@@ -149,7 +149,7 @@ public class AuthService {
                 .build());
 
         saveConsents(user, request.consents());
-        return issueAuthTokenResponse(user, "ONBOARDING");
+        return issueAuthTokenResponse(user, "HOME");
     }
 
     @Transactional
@@ -322,13 +322,7 @@ public class AuthService {
                 .twoFactorEnabled(false)
                 .build());
 
-        consentRecordRepository.save(ConsentRecord.builder()
-                .user(user)
-                .termsRequired(true)
-                .privacyRequired(true)
-                .marketingOptional(false)
-                .behaviorAnalyticsOptional(false)
-                .build());
+        saveConsents(user, request.consents());
 
         oAuthAccountRepository.save(OAuthAccount.builder()
                 .user(user)

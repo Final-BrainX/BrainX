@@ -45,6 +45,9 @@ export const noteApi = {
   getBacklinks: (noteId: string) =>
     workspaceApi.get<ApiResponse<Backlink[]>>(`/v1/notes/${noteId}/backlinks`),
 
+  getLinks: (noteId: string) =>
+    workspaceApi.get<ApiResponse<NoteLink[]>>(`/v1/notes/${noteId}/links`),
+
   createLink: (noteId: string, data: { targetNoteId?: string; targetTitle?: string; createIfMissing?: boolean }) =>
     workspaceApi.post<ApiResponse<NoteLink>>(`/v1/notes/${noteId}/links`, data),
 

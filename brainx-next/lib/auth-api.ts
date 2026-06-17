@@ -59,6 +59,19 @@ type OAuthCallbackData = AuthSession & {
 
 const AUTH_SESSION_KEY = "brainx_auth_session_v1";
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+export const DEMO_AUTH_SESSION: AuthSession = {
+  accessToken: "demo-access-token",
+  refreshToken: "demo-refresh-token",
+  tokenType: "Bearer",
+  userId: "usr_demo",
+  email: "demo@brainx.local",
+  nickname: "BrainX Demo",
+  profileImageUrl: null,
+  role: "ROLE_USER",
+  requires2fa: false,
+  onboardingToken: null,
+  next: "HOME"
+};
 
 function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
   return response.message ?? response.error?.message ?? fallback;
@@ -120,6 +133,15 @@ export function clearAuthSession() {
   window.dispatchEvent(new Event("brainx-auth-session-changed"));
 }
 
+export function startDemoSession() {
+  saveAuthSession(DEMO_AUTH_SESSION);
+  return DEMO_AUTH_SESSION;
+}
+
+export function isDemoSession(session: AuthSession | null = readAuthSession()) {
+  return session?.accessToken === DEMO_AUTH_SESSION.accessToken || session?.userId === DEMO_AUTH_SESSION.userId;
+}
+
 export async function requestEmailVerification(email: string, purpose: EmailVerificationPurpose) {
   return request<EmailVerificationData>("/api/v1/auth/email-verifications", {
     method: "POST",
@@ -160,6 +182,10 @@ export async function loginLocal(email: string, password: string) {
 
 export async function logout() {
   const session = readAuthSession();
+  if (isDemoSession(session)) {
+    clearAuthSession();
+    return;
+  }
   await request<null>("/api/v1/auth/logout", {
     method: "POST",
     body: JSON.stringify({ refreshToken: session?.refreshToken ?? "" })
@@ -169,6 +195,11 @@ export async function logout() {
 
 export async function refreshToken() {
   const session = readAuthSession();
+  if (isDemoSession(session)) {
+    const demoSession = { ...DEMO_AUTH_SESSION, ...session };
+    saveAuthSession(demoSession);
+    return demoSession;
+  }
   const data = await request<AuthSession>("/api/v1/auth/token/refresh", {
     method: "POST",
     body: JSON.stringify({ refreshToken: session?.refreshToken ?? "" })
@@ -197,6 +228,7 @@ export async function completeOnboarding(payload: {
   nickname: string;
   profileImageUrl?: string | null;
   interests: string[];
+  consents: SignupConsents;
 }) {
   const data = await request<AuthSession>("/api/v1/auth/onboarding/complete", {
     method: "POST",
