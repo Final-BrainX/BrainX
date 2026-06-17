@@ -3679,9 +3679,15 @@ components:
         changedAt:
           type: string
           format: date-time
+        changeReason:
+          type: string
+          enum:
+          - USER_CHANGE
+          - TEMPORARY_PASSWORD_ISSUED
       required:
       - userId
       - changedAt
+      - changeReason
       additionalProperties: false
     TwoFactorConfiguredPayload:
       type: object

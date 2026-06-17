@@ -47,6 +47,55 @@ tags:
 security:
 - bearerAuth: []
 paths:
+  /api/v1/auth/email-availability:
+    get:
+      operationId: checkEmailAvailability
+      summary: 이메일 중복 확인
+      tags:
+      - Identity & Access
+      x-producer-service: identity-access
+      x-visibility: public
+      x-consumers:
+      - id: web.auth.signup
+        type: frontend
+        description: Signup and email verification pages
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: email
+        in: query
+        required: true
+        schema:
+          type: string
+          format: email
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/EmailAvailabilityData'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security: []
   /api/v1/auth/email-verifications:
     post:
       operationId: requestEmailVerification
@@ -164,6 +213,82 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/EmailVerificationVerifiedData'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security: []
+  /api/v1/auth/password/temporary:
+    post:
+      operationId: issueTemporaryPassword
+      summary: 임시 비밀번호 발급
+      tags:
+      - Identity & Access
+      x-producer-service: identity-access
+      x-visibility: public
+      x-consumers:
+      - id: web.auth.login
+        type: frontend
+        description: Login and password recovery pages
+      x-produces-events:
+      - PasswordChanged
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      description: PASSWORD_CHANGE 목적의 이메일 인증 코드 확인 후 임시 비밀번호를 발급하고 이메일로 발송한다. 임시 비밀번호 원문은 API 응답에 포함하지 않는다.
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TemporaryPasswordIssueRequest'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/TemporaryPasswordIssueData'
         '400':
           description: Bad request
           content:
@@ -8245,6 +8370,18 @@ components:
       - email
       - expiresAt
       additionalProperties: false
+    EmailAvailabilityData:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        available:
+          type: boolean
+      required:
+      - email
+      - available
+      additionalProperties: false
     EmailVerificationVerifyRequest:
       type: object
       properties:
@@ -8274,6 +8411,30 @@ components:
       required:
       - verified
       - email
+      additionalProperties: false
+    TemporaryPasswordIssueRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        verificationCode:
+          type: string
+      required:
+      - email
+      - verificationCode
+      additionalProperties: false
+    TemporaryPasswordIssueData:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        issued:
+          type: boolean
+      required:
+      - email
+      - issued
       additionalProperties: false
     ConsentFlags:
       type: object

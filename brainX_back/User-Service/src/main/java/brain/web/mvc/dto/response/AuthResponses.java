@@ -22,6 +22,13 @@ public class AuthResponses {
     }
 
     @Builder
+    public record EmailAvailabilityResponse(
+            String email,
+            boolean available
+    ) {
+    }
+
+    @Builder
     public record AuthTokenResponse(
             String userId,
             String email,
@@ -33,6 +40,13 @@ public class AuthResponses {
             String tokenType,
             boolean requires2fa,
             String next
+    ) {
+    }
+
+    @Builder
+    public record TemporaryPasswordIssueResponse(
+            String email,
+            boolean issued
     ) {
     }
 

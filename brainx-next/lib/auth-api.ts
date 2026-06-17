@@ -41,9 +41,19 @@ type EmailVerificationData = {
   expiresAt: string;
 };
 
+type EmailAvailabilityData = {
+  email: string;
+  available: boolean;
+};
+
 type EmailVerificationCheckData = {
   verified: boolean;
   email: string;
+};
+
+type TemporaryPasswordIssueData = {
+  email: string;
+  issued: boolean;
 };
 
 type OAuthAuthorizeData = {
@@ -149,10 +159,23 @@ export async function requestEmailVerification(email: string, purpose: EmailVeri
   });
 }
 
+export async function checkEmailAvailability(email: string) {
+  return request<EmailAvailabilityData>(`/api/v1/auth/email-availability?email=${encodeURIComponent(email)}`, {
+    method: "GET"
+  });
+}
+
 export async function verifyEmailCode(email: string, verificationCode: string, purpose: EmailVerificationPurpose) {
   return request<EmailVerificationCheckData>("/api/v1/auth/email-verifications/verify", {
     method: "POST",
     body: JSON.stringify({ email, verificationCode, purpose })
+  });
+}
+
+export async function issueTemporaryPassword(email: string, verificationCode: string) {
+  return request<TemporaryPasswordIssueData>("/api/v1/auth/password/temporary", {
+    method: "POST",
+    body: JSON.stringify({ email, verificationCode })
   });
 }
 

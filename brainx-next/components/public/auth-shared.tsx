@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, type ReactNode } from "react";
+import { useId, type ChangeEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
 import { getOAuthAuthorization, type OAuthProvider } from "@/lib/auth-api";
@@ -29,20 +29,24 @@ export function Field({
   disabled?: boolean;
   autoComplete?: string;
 }) {
+  const inputId = useId();
+
   return (
-    <label className="mb-4 block">
+    <div className="mb-4">
       <div className="mb-1.5 flex items-center justify-between text-[14.5px] font-medium text-txt2">
-        <span>{label}</span>
+        <label htmlFor={inputId}>{label}</label>
         {right}
       </div>
       <input
+        id={inputId}
         type={type}
         placeholder={placeholder}
         value={value}
         onChange={onChange}
+        disabled={disabled}
         className="h-11 w-full rounded-xl border border-line/60 bg-surface/60 px-3.5 text-[16px] text-txt outline-none transition-colors placeholder:text-txt3 focus:border-primary/60 focus:bg-surface"
       />
-    </label>
+    </div>
   );
 }
 

@@ -4,9 +4,12 @@ import brain.web.mvc.dto.request.AuthRequests.ConsentRequest;
 import brain.web.mvc.dto.request.AuthRequests.EmailSignupRequest;
 import brain.web.mvc.dto.request.AuthRequests.LoginRequest;
 import brain.web.mvc.dto.request.AuthRequests.OnboardingCompleteRequest;
+import brain.web.mvc.dto.request.AuthRequests.TemporaryPasswordIssueRequest;
 import brain.web.mvc.dto.response.AuthResponses.AuthTokenResponse;
+import brain.web.mvc.dto.response.AuthResponses.EmailAvailabilityResponse;
 import brain.web.mvc.dto.response.AuthResponses.OAuthAuthorizeResponse;
 import brain.web.mvc.dto.response.AuthResponses.OAuthCallbackResponse;
+import brain.web.mvc.dto.response.AuthResponses.TemporaryPasswordIssueResponse;
 import brain.web.mvc.dto.response.AuthResponses.TokenRefreshResponse;
 import brain.web.mvc.entity.ConsentRecord;
 import brain.web.mvc.entity.OAuthAccount;
@@ -152,6 +155,15 @@ public class AuthService {
         return issueAuthTokenResponse(user, "HOME");
     }
 
+    @Transactional(readOnly = true)
+    public EmailAvailabilityResponse checkEmailAvailability(String rawEmail) {
+        String email = normalizeEmail(rawEmail);
+        return EmailAvailabilityResponse.builder()
+                .email(email)
+                .available(!userRepository.existsByEmail(email))
+                .build();
+    }
+
     @Transactional
     public AuthTokenResponse login(LoginRequest request) {
         String email = normalizeEmail(request.email());
@@ -172,6 +184,27 @@ public class AuthService {
         }
 
         return issueAuthTokenResponse(user, null);
+    }
+
+    @Transactional
+    public TemporaryPasswordIssueResponse issueTemporaryPassword(TemporaryPasswordIssueRequest request) {
+        String email = normalizeEmail(request.email());
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "존재하지 않는 이메일입니다."));
+
+        emailVerificationService.verifyPasswordChangeCode(email, request.verificationCode());
+
+        String temporaryPassword = generateTemporaryPassword();
+        user.changePassword(passwordEncoder.encode(temporaryPassword));
+        if (!user.isEmailVerified()) {
+            user.verifyEmail();
+        }
+        emailVerificationService.sendTemporaryPasswordMail(email, temporaryPassword);
+
+        return TemporaryPasswordIssueResponse.builder()
+                .email(email)
+                .issued(true)
+                .build();
     }
 
     @Transactional
@@ -401,6 +434,10 @@ public class AuthService {
     private String defaultNickname(String email) {
         int at = email.indexOf('@');
         return at > 0 ? email.substring(0, at) : "BrainX 사용자";
+    }
+
+    private String generateTemporaryPassword() {
+        return "Bx1!" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
     }
 
     private OAuthConfig oauthConfig(String provider) {

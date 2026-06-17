@@ -8,12 +8,15 @@ import brain.web.mvc.dto.request.AuthRequests.LogoutRequest;
 import brain.web.mvc.dto.request.AuthRequests.OAuthCallbackRequest;
 import brain.web.mvc.dto.request.AuthRequests.OnboardingCompleteRequest;
 import brain.web.mvc.dto.request.AuthRequests.RefreshTokenRequest;
+import brain.web.mvc.dto.request.AuthRequests.TemporaryPasswordIssueRequest;
 import brain.web.mvc.dto.response.ApiResponse;
 import brain.web.mvc.dto.response.AuthResponses.AuthTokenResponse;
+import brain.web.mvc.dto.response.AuthResponses.EmailAvailabilityResponse;
 import brain.web.mvc.dto.response.AuthResponses.EmailVerificationCheckResponse;
 import brain.web.mvc.dto.response.AuthResponses.EmailVerificationResponse;
 import brain.web.mvc.dto.response.AuthResponses.OAuthAuthorizeResponse;
 import brain.web.mvc.dto.response.AuthResponses.OAuthCallbackResponse;
+import brain.web.mvc.dto.response.AuthResponses.TemporaryPasswordIssueResponse;
 import brain.web.mvc.dto.response.AuthResponses.TokenRefreshResponse;
 import brain.web.mvc.entity.EmailVerification;
 import brain.web.mvc.service.AuthService;
@@ -27,6 +30,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -35,6 +39,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
     private final AuthService authService;
     private final EmailVerificationService emailVerificationService;
+
+    @GetMapping("/email-availability")
+    public ResponseEntity<ApiResponse<EmailAvailabilityResponse>> checkEmailAvailability(
+            @RequestParam String email
+    ) {
+        EmailAvailabilityResponse response = authService.checkEmailAvailability(email);
+        String message = response.available() ? "사용 가능한 이메일입니다." : "이미 가입된 이메일입니다.";
+        return ResponseEntity.ok(ApiResponse.success(response, message));
+    }
 
     @PostMapping("/email-verifications")
     public ResponseEntity<ApiResponse<EmailVerificationResponse>> requestEmailVerification(
@@ -84,6 +97,14 @@ public class AuthController {
         AuthTokenResponse response = authService.login(request);
         String message = response.requires2fa() ? "2단계 인증이 필요합니다." : "로그인 성공";
         return ResponseEntity.ok(ApiResponse.success(response, message));
+    }
+
+    @PostMapping("/password/temporary")
+    public ResponseEntity<ApiResponse<TemporaryPasswordIssueResponse>> issueTemporaryPassword(
+            @Valid @RequestBody TemporaryPasswordIssueRequest request
+    ) {
+        TemporaryPasswordIssueResponse response = authService.issueTemporaryPassword(request);
+        return ResponseEntity.ok(ApiResponse.success(response, "임시 비밀번호를 이메일로 발송했습니다."));
     }
 
     @PostMapping("/logout")
