@@ -129,6 +129,14 @@ public class NoteController {
         return ResponseEntity.ok(ApiResponse.success(noteService.getBacklinks(auth.getName(), noteId)));
     }
 
+    // GET /v1/notes/{noteId}/links
+    @GetMapping("/notes/{noteId}/links")
+    public ResponseEntity<ApiResponse<List<NoteLinkResponse>>> getLinks(
+            Authentication auth,
+            @PathVariable String noteId) {
+        return ResponseEntity.ok(ApiResponse.success(noteService.getOutgoingLinks(auth.getName(), noteId)));
+    }
+
     // POST /v1/notes/{noteId}/links
     @PostMapping("/notes/{noteId}/links")
     public ResponseEntity<ApiResponse<NoteLinkResponse>> createLink(

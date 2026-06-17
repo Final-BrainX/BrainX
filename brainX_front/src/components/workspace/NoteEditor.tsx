@@ -24,6 +24,7 @@ export default function NoteEditor() {
   const [tagInput, setTagInput] = useState('')
   const [tags, setTags] = useState<string[]>([])
   const [backlinks, setBacklinks] = useState<Backlink[]>([])
+  const [outgoingLinks, setOutgoingLinks] = useState<NoteLink[]>([])
   const [showLinkPanel, setShowLinkPanel] = useState(false)
   const [linkQuery, setLinkQuery] = useState('')
   const [showLinkSuggestions, setShowLinkSuggestions] = useState(false)
@@ -38,6 +39,7 @@ export default function NoteEditor() {
       setTags(activeNote.note.tags || [])
       versionRef.current = activeNote.version
       fetchBacklinks(activeNote.note.noteId)
+      fetchOutgoingLinks(activeNote.note.noteId)
     }
   }, [activeNote?.note.noteId])
 
@@ -45,6 +47,13 @@ export default function NoteEditor() {
     try {
       const res = await noteApi.getBacklinks(noteId)
       if (res.data.data) setBacklinks(res.data.data)
+    } catch {}
+  }
+
+  const fetchOutgoingLinks = async (noteId: string) => {
+    try {
+      const res = await noteApi.getLinks(noteId)
+      if (res.data.data) setOutgoingLinks(res.data.data)
     } catch {}
   }
 
@@ -235,10 +244,10 @@ export default function NoteEditor() {
             className={`btn-ghost text-xs ${showLinkPanel ? 'text-brand-400' : ''}`}
           >
             <Link2 className="w-3.5 h-3.5" />
-            백링크
-            {backlinks.length > 0 && (
+            연결 노트
+            {(backlinks.length + outgoingLinks.length) > 0 && (
               <span className="bg-brand-500/30 text-brand-300 px-1 rounded text-xs">
-                {backlinks.length}
+                {backlinks.length + outgoingLinks.length}
               </span>
             )}
           </button>
@@ -303,31 +312,65 @@ export default function NoteEditor() {
           </div>
         </div>
 
-        {/* 백링크 사이드 패널 */}
+        {/* 연결 노트 사이드 패널 */}
         {showLinkPanel && (
           <div className="w-60 border-l border-surface-border bg-surface flex-shrink-0 overflow-y-auto animate-slide-up">
-            <div className="p-4">
-              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <Link2 className="w-3 h-3" /> 백링크
-              </h3>
-              {backlinks.length === 0 ? (
-                <p className="text-xs text-slate-600">이 노트를 링크한 노트가 없습니다</p>
-              ) : (
-                <div className="space-y-1">
-                  {backlinks.map(bl => (
-                    <button
-                      key={bl.noteId}
-                      onClick={() => selectNote(bl.noteId)}
-                      className="w-full text-left text-xs text-slate-400 hover:text-white hover:bg-surface-hover rounded-lg px-2 py-1.5 transition-colors flex items-center gap-2"
-                    >
-                      <Edit3 className="w-3 h-3 text-brand-400 flex-shrink-0" />
-                      <span className="truncate">{bl.title}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+            <div className="p-4 space-y-4">
+              {/* 이 노트에서 연결 (아웃링크) */}
+              <div>
+                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Link2 className="w-3 h-3" /> 이 노트에서 연결
+                  {outgoingLinks.length > 0 && (
+                    <span className="bg-brand-500/20 text-brand-400 px-1.5 rounded text-[10px] ml-auto">{outgoingLinks.length}</span>
+                  )}
+                </h3>
+                {outgoingLinks.length === 0 ? (
+                  <p className="text-xs text-slate-600">연결된 노트가 없습니다</p>
+                ) : (
+                  <div className="space-y-1">
+                    {outgoingLinks.map(link => (
+                      <button
+                        key={link.linkId}
+                        onClick={() => selectNote(link.targetNoteId)}
+                        className="w-full text-left text-xs text-slate-400 hover:text-white hover:bg-surface-hover rounded-lg px-2 py-1.5 transition-colors flex items-center gap-2"
+                      >
+                        <Edit3 className="w-3 h-3 text-brand-400 flex-shrink-0" />
+                        <span className="truncate">{link.targetTitle}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-              <div className="mt-4 p-2 bg-surface-hover rounded-lg">
+              <div className="h-px bg-surface-border" />
+
+              {/* 이 노트를 언급한 (백링크) */}
+              <div>
+                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Link2 className="w-3 h-3" /> 이 노트를 언급한
+                  {backlinks.length > 0 && (
+                    <span className="bg-brand-500/20 text-brand-400 px-1.5 rounded text-[10px] ml-auto">{backlinks.length}</span>
+                  )}
+                </h3>
+                {backlinks.length === 0 ? (
+                  <p className="text-xs text-slate-600">이 노트를 링크한 노트가 없습니다</p>
+                ) : (
+                  <div className="space-y-1">
+                    {backlinks.map(bl => (
+                      <button
+                        key={bl.noteId}
+                        onClick={() => selectNote(bl.noteId)}
+                        className="w-full text-left text-xs text-slate-400 hover:text-white hover:bg-surface-hover rounded-lg px-2 py-1.5 transition-colors flex items-center gap-2"
+                      >
+                        <Edit3 className="w-3 h-3 text-brand-400 flex-shrink-0" />
+                        <span className="truncate">{bl.title}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-2 bg-surface-hover rounded-lg">
                 <p className="text-xs text-slate-500 leading-relaxed">
                   <span className="text-brand-400 font-mono">[[ </span>
                   를 입력하면 다른 노트와 연결할 수 있습니다

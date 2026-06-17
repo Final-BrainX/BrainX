@@ -7,6 +7,8 @@ import SignupPage from './pages/SignupPage'
 import WorkspacePage from './pages/WorkspacePage'
 import SettingsPage from './pages/SettingsPage'
 import GraphPage from './pages/GraphPage'
+import ImportExportPage from './pages/ImportExportPage'
+import NotionCallbackPage from './pages/NotionCallbackPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore(s => s.isAuthenticated)
@@ -40,6 +42,8 @@ export default function App() {
         <Route path="/" element={<PrivateRoute><WorkspacePage /></PrivateRoute>} />
         <Route path="/graph" element={<PrivateRoute><GraphPage /></PrivateRoute>} />
         <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
+        <Route path="/import-export" element={<PrivateRoute><ImportExportPage /></PrivateRoute>} />
+        <Route path="/import/notion/callback" element={<PrivateRoute><NotionCallbackPage /></PrivateRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

@@ -1,0 +1,44 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: ingestion-service
+  datasource:
+    url: jdbc:mysql://localhost:3306/brainx_ingestion?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true
+    username: root
+    password: admin
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQL8Dialect
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 100MB
+      max-request-size: 100MB
+
+jwt:
+  secret: ${JWT_SECRET:brainx-identity-service-secret-key-must-be-at-least-256-bits-long-for-hs256}
+
+notion:
+  client-id: ${NOTION_CLIENT_ID}
+  client-secret: ${NOTION_CLIENT_SECRET}
+  oauth-url: https://api.notion.com/v1/oauth/authorize
+  token-url: https://api.notion.com/v1/oauth/token
+  redirect-uri: http://localhost:5173/import/notion/callback
+
+workspace-service:
+  base-url: http://localhost:8082
+
+cdn:
+  base-url: ${CDN_BASE_URL:https://cdn.brainx.com}
+
+logging:
+  level:
+    com.brainx: DEBUG

@@ -57,6 +57,7 @@ public class AuthService {
 
         emailVerificationRepository.save(verification);
         emailService.sendVerificationCode(request.getEmail(), code);
+        log.info("===== [DEV] 이메일 인증코드: {} / 이메일: {} =====", code, request.getEmail());
 
         return EmailVerificationResponse.builder()
                 .verificationId(verification.getVerificationId())

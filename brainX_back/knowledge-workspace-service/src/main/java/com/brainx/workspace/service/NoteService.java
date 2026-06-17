@@ -284,6 +284,19 @@ public class NoteService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<NoteLinkResponse> getOutgoingLinks(String userId, String noteId) {
+        noteRepository.findByNoteIdAndUserId(noteId, userId)
+                .orElseThrow(() -> BrainXException.notFound("노트를 찾을 수 없습니다"));
+        return noteLinkRepository.findBySourceNoteNoteId(noteId).stream()
+                .map(link -> NoteLinkResponse.builder()
+                        .linkId(link.getLinkId())
+                        .targetNoteId(link.getTargetNote().getNoteId())
+                        .targetTitle(link.getTargetTitle())
+                        .build())
+                .toList();
+    }
+
     // ---- 그래프 ----
 
     @Transactional(readOnly = true)
