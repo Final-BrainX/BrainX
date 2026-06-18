@@ -122,6 +122,17 @@ public class IngestionResponse {
 
     @Getter
     @Builder
+    public static class PublishJobResponse {
+        private String publishJobId;
+        private String status;
+        private String clipboardContent;
+        private String clipboardContentType;
+        private String openUrl;
+        private String error;
+    }
+
+    @Getter
+    @Builder
     public static class ExportJobStatusResponse {
         private String exportJobId;
         private String status;

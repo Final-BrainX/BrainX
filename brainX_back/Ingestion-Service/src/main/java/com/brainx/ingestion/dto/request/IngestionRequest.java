@@ -50,4 +50,15 @@ public class IngestionRequest {
         private String format;
         private String clientType = "WEB";
     }
+
+    @Getter
+    @NoArgsConstructor
+    public static class PublishJobRequest {
+        @NotBlank(message = "noteId는 필수입니다")
+        private String noteId;
+        @NotBlank(message = "platform은 필수입니다")
+        private String platform;
+        private String templateId;
+        private String noteContent;
+    }
 }

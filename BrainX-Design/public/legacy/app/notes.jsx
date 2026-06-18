@@ -256,6 +256,34 @@ function Editor({ noteId, push }) {
     else if (fmt === 'share') { const url = `https://brainx.app/share/${selected.id}`; if (navigator.clipboard) navigator.clipboard.writeText(url); push('공유 링크를 복사했어요 · 30일 유효', 'ok'); }
   };
 
+  const doPublish = async (platform) => {
+    if (!selected) return;
+    const noteContent = `# ${selected.title}\n\n${selected.markdown}`;
+    push('변환 중…');
+    try {
+      const res = await window.ingestionApi.publish.create({
+        noteId: selected.id,
+        platform,
+        noteContent,
+      });
+      const { clipboardContent, clipboardContentType, openUrl } = res.data;
+      if (clipboardContent && navigator.clipboard) {
+        if (clipboardContentType === 'text/html') {
+          const blob = new Blob([clipboardContent], { type: 'text/html' });
+          const plain = new Blob([clipboardContent.replace(/<[^>]+>/g, '')], { type: 'text/plain' });
+          await navigator.clipboard.write([new ClipboardItem({ 'text/html': blob, 'text/plain': plain })]);
+        } else {
+          await navigator.clipboard.writeText(clipboardContent);
+        }
+      }
+      if (openUrl) window.open(openUrl, '_blank');
+      const label = platform === 'tistory' ? '티스토리' : platform === 'notion' ? 'Notion' : '';
+      push(label ? `${label} 글쓰기 탭을 열었어요. Ctrl+V로 붙여넣기 하세요!` : '클립보드에 복사됐어요', 'ok');
+    } catch (e) {
+      push('발행 준비에 실패했습니다: ' + (e.message || ''), 'error');
+    }
+  };
+
   const saveLabel = {
     saving: { t: '저장 중…', c: 'text-txt3', i: 'refresh', spin: true },
     saved: { t: '저장됨', c: 'text-cyan', i: 'check' },
@@ -318,6 +346,9 @@ function Editor({ noteId, push }) {
           {[['pdf', 'PDF'], ['txt', 'TXT'], ['md', 'MD']].map(([k, l]) => (
             <button key={k} onClick={() => doExport(k)} className="h-8 px-2.5 rounded-lg text-[12px] text-txt2 hover:text-txt hover:bg-surface2/60">{l}</button>
           ))}
+          <button onClick={() => doPublish('tistory')} className="h-8 px-2.5 rounded-lg text-[12px] font-medium text-orange-400 hover:text-orange-300 hover:bg-orange-400/10 flex items-center gap-1.5 border border-orange-400/30">
+            <Icon name="globe" size={14} /> 티스토리
+          </button>
           <Btn variant="soft" size="sm" icon="globe" onClick={() => doExport('share')}>공유 링크</Btn>
         </div>
 

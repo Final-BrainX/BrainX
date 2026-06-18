@@ -56,11 +56,18 @@ public class ImportService {
                 .build();
         integrationAccountRepository.save(pending);
 
+        String encodedRedirectUri;
+        try {
+            encodedRedirectUri = java.net.URLEncoder.encode(notionRedirectUri, "UTF-8");
+        } catch (java.io.UnsupportedEncodingException e) {
+            encodedRedirectUri = notionRedirectUri;
+        }
+
         String authorizationUrl = notionOauthUrl
                 + "?client_id=" + notionClientId
                 + "&response_type=code"
                 + "&owner=user"
-                + "&redirect_uri=" + notionRedirectUri
+                + "&redirect_uri=" + encodedRedirectUri
                 + "&state=" + state;
 
         log.info("Notion OAuth URL 생성: userId={}, state={}", userId, state);

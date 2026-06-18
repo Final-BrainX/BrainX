@@ -19,6 +19,9 @@ const NAV = [
 ];
 
 const NAV2 = [
+  { id: "billing", labelKey: "nav.billing" as const, icon: "bill" as const, path: "/billing" },
+  { id: "settings", labelKey: "nav.settings" as const, icon: "settings" as const, path: "/settings" },
+  { id: "support", labelKey: "nav.support" as const, icon: "chat" as const, path: "/support" },
   { id: "admin", labelKey: "nav.admin" as const, icon: "shield" as const, path: "/admin" }
 ];
 
@@ -270,7 +273,8 @@ function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
     { label: t("nav.notes"), icon: "notes" as const, path: "/notes/n1" },
     { label: t("nav.graph"), icon: "graph" as const, path: "/graph" },
     { label: t("nav.chat"), icon: "chat" as const, path: "/chat" },
-    { label: t("nav.import"), icon: "import" as const, path: "/import" }
+    { label: t("nav.import"), icon: "import" as const, path: "/import" },
+    { label: t("nav.mypage"), icon: "dash" as const, path: "/mypage" }
   ];
 
   useEffect(() => {
@@ -334,8 +338,8 @@ function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
           <button type="button" onClick={onOpenSettings} className="flex h-10 items-center gap-2.5 rounded-xl px-2.5 transition-colors hover:bg-surface2/60">
             <Avatar name={displayName} size={32} imageUrl={displayImageUrl} />
             <div className="hidden text-left leading-tight sm:block">
-              <div className="text-[13px] font-semibold text-txt">{displayName}</div>
-              <div className="text-[11px] text-txt3">Free 플랜</div>
+              <div className="max-w-[120px] truncate text-[13px] font-semibold text-txt">{displayName}</div>
+              <div className="text-[11px] text-txt3">{session?.role ?? "Free 플랜"}</div>
             </div>
           </button>
         </div>

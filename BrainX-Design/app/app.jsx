@@ -3,6 +3,38 @@ function App() {
   const [theme, setTheme] = useTheme();
   const [semantic, setSemantic] = useState(false);
   const [toasts, push] = useToasts();
+  const [notionCallbackProcessing, setNotionCallbackProcessing] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    const error = params.get('error');
+    if (!code && !state && !error) return;
+
+    window.history.replaceState({}, '', window.location.pathname);
+
+    if (error) {
+      sessionStorage.setItem('notionCallbackError', 'Notion 연동이 거부되었습니다.');
+      navigate('/import');
+      return;
+    }
+
+    if (code && state) {
+      setNotionCallbackProcessing(true);
+      window.ingestionApi.notion.callback(code, state)
+        .then(data => {
+          sessionStorage.setItem('notionIntegrationId', data.data.integrationAccountId);
+        })
+        .catch(() => {
+          sessionStorage.setItem('notionCallbackError', 'Notion 연동에 실패했습니다.');
+        })
+        .finally(() => {
+          setNotionCallbackProcessing(false);
+          navigate('/import');
+        });
+    }
+  }, []);
 
   // route parsing
   const seg = route.split('/').filter(Boolean); // e.g. ['notes','n1']
@@ -40,6 +72,17 @@ function App() {
       <AppShell route={route} theme={theme} setTheme={setTheme} semantic={semantic} setSemantic={setSemantic} push={push}>
         {inner}
       </AppShell>
+    );
+  }
+
+  if (notionCallbackProcessing) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-bg text-txt">
+        <div className="text-center space-y-4">
+          <div className="w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-[14px] text-txt2">Notion 연동 처리 중...</p>
+        </div>
+      </div>
     );
   }
 
