@@ -20,3 +20,9 @@ brainX_back/User-Service/src/main/resources/application.yaml
 # OS
 .DS_Store
 Thumbs.db
+
+# Build outputs
+**/bin/
+**/build/
+**/target/
+*.class
