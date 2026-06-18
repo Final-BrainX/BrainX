@@ -7,7 +7,8 @@ info:
 
     Revision policy:
 
-    - Public/client API remains under /api/v1.
+    - Public/client API remains under /api/v1, except the currently implemented
+      Ingestion publish helper which is exposed at /v1/publish-jobs.
 
     - Service-to-service synchronous APIs are explicitly isolated under /internal/v1.
 
@@ -17,7 +18,7 @@ info:
 
     - Token usage recording is event-first via AsyncAPI; no public REST command is exposed.
 
-    - Publish jobs return 202 Accepted when status is PENDING.
+    - Publish jobs currently return 200 OK with clipboard-ready content.
 
     - Operation-level consumer metadata is expressed through x-consumers.
 
@@ -1535,14 +1536,10 @@ paths:
       - id: web.support
         type: frontend
         description: User support center
-      x-produces-events:
-      - SupportTicketCreated
-      - NotificationRequested
+      x-produces-events: []
       x-internal-sync-calls: []
       x-async-boundary: false
       description: 기존 /support/inquiries와 /support/tickets 중복을 tickets로 통합한다.
-      parameters:
-      - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -1615,19 +1612,6 @@ paths:
       x-produces-events: []
       x-internal-sync-calls: []
       x-async-boundary: false
-      parameters:
-      - $ref: '#/components/parameters/Page'
-      - $ref: '#/components/parameters/Size'
-      - name: status
-        in: query
-        required: false
-        schema:
-          type: string
-          enum:
-          - OPEN
-          - IN_PROGRESS
-          - RESOLVED
-          - CLOSED
       responses:
         '200':
           description: Success
@@ -4745,7 +4729,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
-  /api/v1/publish-jobs:
+  /v1/publish-jobs:
     post:
       operationId: requestPublishJob
       summary: 발행 작업 요청
@@ -4757,17 +4741,10 @@ paths:
       - id: web.note-editor
         type: frontend
         description: Markdown/WYSIWYG note editor
-      x-produces-events:
-      - PublishJobRequested
-      x-internal-sync-calls:
-      - targetService: knowledge-workspace
-        operationId: getNoteSnapshotInternal
-        reason: publisher needs authoritative note snapshot
-        required: true
-      x-async-boundary: true
-      description: 원 명세의 200/PENDING을 202 Accepted로 수정했다.
-      parameters:
-      - $ref: '#/components/parameters/IdempotencyKey'
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      description: Currently implemented as a synchronous clipboard publishing helper. The service receives noteContent and returns converted clipboard content immediately.
       requestBody:
         required: true
         content:
@@ -4775,7 +4752,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PublishJobCreateRequest'
       responses:
-        '202':
+        '200':
           description: Success
           content:
             application/json:
@@ -9874,9 +9851,12 @@ components:
         templateId:
           type: string
           nullable: true
+        noteContent:
+          type: string
       required:
       - noteId
       - platform
+      - noteContent
       additionalProperties: false
     PublishJobData:
       type: object
@@ -9885,6 +9865,22 @@ components:
           type: string
         status:
           $ref: '#/components/schemas/JobStatus'
+        clipboardContent:
+          type: string
+          nullable: true
+        clipboardContentType:
+          type: string
+          nullable: true
+          enum:
+          - text/markdown
+          - text/html
+        openUrl:
+          type: string
+          format: uri
+          nullable: true
+        error:
+          type: string
+          nullable: true
       required:
       - publishJobId
       - status
