@@ -112,7 +112,7 @@ BrainX/
 현재 구현된 API 클라이언트 파일:
 
 - `lib/auth-api.ts`: 이메일 인증, 회원가입, 로그인, 로그아웃, 토큰 갱신, OAuth, 온보딩
-- `lib/support-api.ts`: 문의 목록/생성
+- `lib/support-api.ts`: 문의 목록/생성/상세 조회
 - `lib/user-api.ts`: 사용자 계정/마이페이지 계열 API
 
 새 프론트 API 코드는 화면 컴포넌트에 직접 fetch를 흩뿌리지 말고 `lib/*-api.ts` 계층에 먼저 둡니다.
@@ -143,7 +143,8 @@ BrainX/
 
 ### Service Boundary Rules
 
-- Browser/external client는 `/api/v1/**` public API만 호출합니다.
+- Browser/external client는 `/api/v1/**` public API를 기준으로 호출합니다.
+- 현재 Ingestion-Service의 publish helper는 구현 기준으로 `/v1/publish-jobs`를 사용합니다. 이 엔드포인트는 `noteContent`를 받아 즉시 clipboard-ready content를 반환하는 동기 API입니다.
 - Service-to-service 동기 호출은 `/internal/v1/**` 하위로 분리합니다.
 - 서비스 간 상태 전파는 가능하면 이벤트 기반으로 처리합니다.
 - Workspace-Service는 노트 원장의 authoritative source입니다.
@@ -160,7 +161,7 @@ API와 이벤트 계약의 기준은 `contracts-v2`입니다.
 - `contracts-v2/brainx-ssot-readme.md`: SSOT 구성과 검증 방법
 - `contracts-v2/brainx-asyncapi.html`: AsyncAPI 문서 산출물
 
-공통 public prefix는 `/api/v1`입니다. 인증은 Access Token Bearer 방식과 Refresh Token/HttpOnly Secure Cookie 전략을 기준으로 합니다. AI 응답 스트리밍은 SSE를 기준으로 둡니다.
+공통 public prefix는 `/api/v1`입니다. 단, 현재 구현된 Ingestion publish helper는 `/v1/publish-jobs`입니다. 인증은 Access Token Bearer 방식과 Refresh Token/HttpOnly Secure Cookie 전략을 기준으로 합니다. AI 응답 스트리밍은 SSE를 기준으로 둡니다.
 
 공통 응답 기본형:
 
@@ -172,7 +173,7 @@ API와 이벤트 계약의 기준은 `contracts-v2`입니다.
 }
 ```
 
-공통 에러 상세형:
+공통 에러 상세형. `traceId`와 `details`는 서비스 구현에 따라 optional입니다.
 
 ```json
 {
@@ -200,6 +201,8 @@ API와 이벤트 계약의 기준은 `contracts-v2`입니다.
   "tenantId": "ten_...",
   "userId": "usr_...",
   "correlationId": "req_...",
+  "causationId": null,
+  "idempotencyKey": null,
   "payload": {}
 }
 ```
