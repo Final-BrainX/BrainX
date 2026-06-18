@@ -276,7 +276,7 @@ export default function RightSidebar({ activeNote, allNotes, onCollapse, pending
       ) : (
       <>
       {/* ── 스크롤 영역 ────────────────────────────── */}
-      <div className="scroll flex-1 space-y-2.5 overflow-y-auto p-3">
+      <div className="scroll-thin flex-1 space-y-2.5 overflow-y-auto p-3">
 
         {/* 1. 목차 */}
         <SideCard
@@ -392,7 +392,7 @@ export default function RightSidebar({ activeNote, allNotes, onCollapse, pending
         {chatOpen && (
           <div className="flex flex-col" style={{ height: "200px" }}>
             {/* 메시지 목록 */}
-            <div className="scroll flex-1 space-y-2 overflow-y-auto p-3">
+            <div className="scroll-thin flex-1 space-y-2 overflow-y-auto p-3">
               {aiMessages.map((msg, i) => (
                 <div
                   key={`${msg.role}-${i}`}

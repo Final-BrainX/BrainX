@@ -26,6 +26,8 @@ export interface NoteTab {
   id: string;
   kind: "note";
   noteId: string;
+  /** 고정된 탭은 "다른 탭 닫기"/"모두 닫기"에서 제외된다 */
+  pinned?: boolean;
 }
 
 /** Obsidian 스타일 빈 시작 탭 — 새 파일 생성하기/파일로 이동하기/닫기 */
@@ -35,6 +37,11 @@ export interface StartTab {
 }
 
 export type Tab = NoteTab | StartTab;
+
+/** 사이드바 노트 드래그 vs 탭 드래그를 구분 — 드롭 위치별 동작(교체/탭추가/분할/재정렬)을 결정하는 데 사용 */
+export type DragPayload =
+  | { kind: "note"; noteId: string }
+  | { kind: "tab"; paneId: string; tabId: string; noteId: string };
 
 export interface PaneTabsState {
   tabs: Tab[];

@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { cx } from "@/lib/utils";
-import { PaneLeaf, MockNote, Tab } from "@/lib/notes/noteTypes";
+import { PaneLeaf, MockNote, Tab, DragPayload } from "@/lib/notes/noteTypes";
 import { DropZone } from "@/lib/notes/paneUtils";
 import TabBar from "./TabBar";
 import NoteEditor, { type EditMode, type AiActionType, type NoteEditorHandle } from "./NoteEditor";
@@ -17,12 +17,11 @@ interface Props {
   tabs: Tab[];
   activeTabId: string;
   isActive: boolean;
-  totalLeaves: number;
-  dragNoteId: string | null;
+  dragPayload: DragPayload | null;
   mode: EditMode;
-  onModeChange: (paneId: string, mode: EditMode) => void;
+  saveSignal: number;
+  onModeChange: (tabId: string, mode: EditMode) => void;
   onActivate: () => void;
-  onClose: () => void;
   onDrop: (zone: DropZone, noteId: string) => void;
   onTitleChange: (noteId: string, newTitle: string) => void;
   onContentChange: (noteId: string, newContentHtml: string) => void;
@@ -35,6 +34,17 @@ interface Props {
   quickSwitcherOpen: boolean;
   onQuickSwitcherSelect: (noteId: string) => void;
   onQuickSwitcherClose: () => void;
+  onReplaceActiveTab: (noteId: string) => void;
+  onAddNoteTab: (noteId: string, targetIndex?: number) => void;
+  onReorderTab: (tabId: string, targetIndex: number) => void;
+  onMoveTabToPane: (sourcePaneId: string, sourceTabId: string, noteId: string, targetIndex?: number) => void;
+  onTabDragStart: (tabId: string, noteId: string) => void;
+  onTabDragEnd: () => void;
+  onCloseOtherTabs: (tabId: string) => void;
+  onCloseAllTabs: () => void;
+  onTogglePinTab: (tabId: string) => void;
+  onSplitTabRight: (tabId: string) => void;
+  onSplitTabDown: (tabId: string) => void;
 }
 
 export default function EditorPanel({
@@ -45,12 +55,11 @@ export default function EditorPanel({
   tabs,
   activeTabId,
   isActive,
-  totalLeaves,
-  dragNoteId,
+  dragPayload,
   mode,
+  saveSignal,
   onModeChange,
   onActivate,
-  onClose,
   onDrop,
   onTitleChange,
   onContentChange,
@@ -63,8 +72,19 @@ export default function EditorPanel({
   quickSwitcherOpen,
   onQuickSwitcherSelect,
   onQuickSwitcherClose,
+  onReplaceActiveTab,
+  onAddNoteTab,
+  onReorderTab,
+  onMoveTabToPane,
+  onTabDragStart,
+  onTabDragEnd,
+  onCloseOtherTabs,
+  onCloseAllTabs,
+  onTogglePinTab,
+  onSplitTabRight,
+  onSplitTabDown,
 }: Props) {
-  const [hoverZone, setHoverZone] = useState<DropZone | null>(null);
+  const [hoverZone, setHoverZone] = useState<DropZone | "replace" | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<NoteEditorHandle>(null);
 
@@ -73,11 +93,24 @@ export default function EditorPanel({
   const [titleDraft, setTitleDraft] = useState(note?.title ?? "");
   const titleInputRef = useRef<HTMLInputElement>(null);
 
-  // note 교체 시 초기화
+  // note 교체 시 초기화 — 방금 생성된 빈 새 노트("새 노트" + 빈 본문)는 곧바로 제목 편집 상태로 연다
   useEffect(() => {
     setTitleDraft(note?.title ?? "");
-    setIsEditingTitle(false);
-  }, [note?.id, note?.title]);
+    const isFreshNote = !!note && note.content.trim() === "" && note.title === "새 노트";
+    setIsEditingTitle(isFreshNote);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note?.id]);
+
+  // Ctrl+S(saveSignal) — 활성 패널이면 제목 편집 중인 내용을 커밋하고 본문 디바운스를 즉시 플러시
+  const prevSaveSignalRef = useRef(saveSignal);
+  useEffect(() => {
+    if (saveSignal === prevSaveSignalRef.current) return;
+    prevSaveSignalRef.current = saveSignal;
+    if (!isActive) return;
+    if (isEditingTitle) commitTitle();
+    editorRef.current?.flushPendingSave();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveSignal]);
 
   // 제목 입력창 포커스
   useEffect(() => {
@@ -122,6 +155,10 @@ export default function EditorPanel({
   }
 
   const isEdit = mode === "edit";
+  /* "교체"는 이 패널이 비어있을 때만 적용된다 — 빈 시작 화면(start 탭)뿐 아니라, "+"로 막 생성된
+     본문이 비어있는 노트 탭(kind는 "note"지만 content==="")도 "빈 탭"으로 취급한다. 실제 내용이
+     있는 노트가 열려 있으면 항상 기존처럼 좌/우/상/하 분할(zone) 동작을 유지한다. */
+  const isEmptyTarget = activeTab.kind === "start" || !note || note.content.trim() === "";
 
   return (
     <div
@@ -132,37 +169,60 @@ export default function EditorPanel({
         transition: "border-color 0.15s",
       }}
     >
-      {/* ── 탭 바 (탭 목록 + 모드 토글 + 패널 닫기) */}
+      {/* ── 탭 바 (탭 목록 + 현재 활성 탭의 읽기/편집 모드 토글) */}
       <TabBar
+        paneId={node.id}
         tabs={tabs}
         activeTabId={activeTabId}
         notes={allNotes}
         mode={mode}
+        dragPayload={dragPayload}
         showModeToggle={activeTab.kind === "note"}
-        showCloseButton={totalLeaves > 1}
+        isPaneFocused={isActive}
         onTabActivate={(tabId) => { onActivate(); onTabActivate(tabId); }}
         onTabClose={onTabClose}
         onNewTab={onNewTab}
         onModeToggle={() => {
           if (isEdit && isEditingTitle) commitTitle();
-          onModeChange(node.id, isEdit ? "read" : "edit");
+          onModeChange(activeTabId, isEdit ? "read" : "edit");
         }}
-        onClosePanel={onClose}
+        onAddNoteTab={onAddNoteTab}
+        onReorderTab={onReorderTab}
+        onMoveTabToPane={onMoveTabToPane}
+        onTabDragStart={onTabDragStart}
+        onTabDragEnd={onTabDragEnd}
+        onCloseOtherTabs={onCloseOtherTabs}
+        onCloseAllTabs={onCloseAllTabs}
+        onTogglePinTab={onTogglePinTab}
+        onSplitTabRight={onSplitTabRight}
+        onSplitTabDown={onSplitTabDown}
       />
 
       {/* ── 콘텐츠 */}
       {activeTab.kind === "start" || !note ? (
-        <EmptyNoteStartPage
-          onCreateNote={onCreateNoteInTab}
-          onGoToFile={onOpenQuickSwitcher}
-          onCloseTab={() => onTabClose(activeTab.id)}
-        />
+        // QuickSwitcher가 떠 있을 때는 그 뒤로 Welcome Screen의 버튼이 반투명 배경을 통해
+        // 겹쳐 보이지 않도록 숨긴다(두 기능이 동시에 보이는 것처럼 느껴지는 문제 방지)
+        !quickSwitcherOpen && (
+          <EmptyNoteStartPage
+            onCreateNote={onCreateNoteInTab}
+            onGoToFile={onOpenQuickSwitcher}
+          />
+        )
       ) : (
         <div
-          className="scroll flex-1 overflow-y-auto"
+          className="scroll-thin flex-1 overflow-y-auto"
           style={{ background: "rgb(var(--surface))" }}
+          onClick={(e) => {
+            // 빈 배경(패딩 영역)을 클릭해도 본문에 포커스 — 에디터 영역 어디를 클릭해도 작성 가능해야 함
+            if (isEdit && e.target === e.currentTarget) editorRef.current?.focusEnd();
+          }}
         >
-          <div className="px-8 py-7">
+          <div
+            className="px-8 py-7"
+            onClick={(e) => {
+              if (isEdit && e.target === e.currentTarget) editorRef.current?.focusEnd();
+            }}
+          >
             {/* 노트 제목: 편집 모드에서는 클릭 → 인라인 input */}
             {isEdit && isEditingTitle ? (
               <input
@@ -179,7 +239,7 @@ export default function EditorPanel({
                   }
                   if (e.key === "Escape") { cancelTitle(); }
                 }}
-                onClick={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); onActivate(); }}
                 className="mb-1.5 w-full bg-transparent text-[22px] font-bold leading-tight tracking-tight text-txt outline-none"
                 placeholder="제목 입력..."
               />
@@ -190,8 +250,11 @@ export default function EditorPanel({
                   isEdit && "cursor-text hover:text-primary/90 transition-colors"
                 )}
                 onClick={(e) => {
+                  // 읽기 모드에서는 stopPropagation을 하지 않으므로 클릭이 그대로 버블링되어
+                  // 바깥 wrapper의 onClick={onActivate}가 자연스럽게 패널을 활성화한다.
                   if (!isEdit) return;
                   e.stopPropagation();
+                  onActivate();
                   setTitleDraft(note.title);
                   setIsEditingTitle(true);
                 }}
@@ -217,19 +280,12 @@ export default function EditorPanel({
 
             <NoteEditor
               ref={editorRef}
-              paneId={node.id}
               note={note}
               mode={mode}
-              onModeChange={onModeChange}
+              onActivate={onActivate}
               onContentChange={onContentChange}
               onAiAction={onAiAction}
             />
-
-            {isEdit && (
-              <p className="mt-4 text-[11px] text-txt3" style={{ opacity: 0.45 }}>
-                # 제목 · - 목록 · &gt; 인용 · **굵게** · `코드` · ``` 코드블록 · 텍스트 선택 → 버블 툴바
-              </p>
-            )}
           </div>
         </div>
       )}
@@ -242,28 +298,45 @@ export default function EditorPanel({
         />
       )}
 
-      {/* ── DnD 오버레이 */}
-      {dragNoteId !== null && (
+      {/* ── DnD 오버레이 — 사이드바 노트 드래그는 본문에 드롭하면 "교체", 탭 드래그는 기존처럼 "분할" */}
+      {dragPayload && (
         <div
           ref={overlayRef}
           className="absolute inset-0 z-10"
           style={{ top: 36 }}
           onDragOver={(e) => {
             e.preventDefault();
-            e.dataTransfer.dropEffect = "copy";
-            const z = getZone(e);
-            if (z !== hoverZone) setHoverZone(z);
+            // dropEffect는 드래그 시작 쪽이 선언한 effectAllowed와 맞아야 한다 — 사이드바 노트는
+            // "copy"(NotesExplorer/FolderTree), 탭은 "copyMove"(TabBar)로 선언되어 있다. 여기서
+            // isEmptyTarget 여부와 무관하게 항상 같은 규칙으로 맞춰야 일부 브라우저에서 drop이
+            // 무시되는 effectAllowed/dropEffect 불일치를 피할 수 있다.
+            e.dataTransfer.dropEffect = dragPayload.kind === "note" ? "copy" : "move";
+            if (isEmptyTarget) {
+              if (hoverZone !== "replace") setHoverZone("replace");
+            } else {
+              const z = getZone(e);
+              if (z !== hoverZone) setHoverZone(z);
+            }
           }}
           onDragLeave={() => setHoverZone(null)}
           onDrop={(e) => {
             e.preventDefault();
-            const noteId = e.dataTransfer.getData("text/plain");
-            const zone = getZone(e);
             setHoverZone(null);
-            if (noteId) onDrop(zone, noteId);
+            if (isEmptyTarget) {
+              if (dragPayload.kind === "tab") {
+                // 탭을 빈 시작 화면에 드롭 → 그 자리를 교체하면서 원래 패널에서는 제거(이동, 복제 아님)
+                onMoveTabToPane(dragPayload.paneId, dragPayload.tabId, dragPayload.noteId);
+              } else {
+                onReplaceActiveTab(dragPayload.noteId);
+              }
+            } else {
+              const zone = getZone(e);
+              onDrop(zone, dragPayload.noteId);
+            }
           }}
         >
-          {hoverZone && <SplitPreviewOverlay zone={hoverZone} />}
+          {hoverZone === "replace" && <ReplacePreviewOverlay />}
+          {hoverZone && hoverZone !== "replace" && <SplitPreviewOverlay zone={hoverZone} />}
         </div>
       )}
     </div>
@@ -326,5 +399,20 @@ function SplitPreviewOverlay({ zone }: { zone: DropZone }) {
         {SPLIT_LABEL[zone]}
       </div>
     </div>
+  );
+}
+
+/* ── 교체 미리보기 오버레이 — 영역 강조만, 텍스트 안내 없음(드롭 가능 영역만 알리면 충분) */
+function ReplacePreviewOverlay() {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: "rgb(var(--primary) / 0.1)",
+        pointerEvents: "none",
+        border: "1.5px dashed rgb(var(--primary) / 0.5)",
+      }}
+    />
   );
 }

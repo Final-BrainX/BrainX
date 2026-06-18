@@ -50,7 +50,7 @@ export default function QuickSwitcher({ notes, onSelect, onClose }: Props) {
             className="flex-1 bg-transparent text-[13px] text-txt outline-none placeholder:text-txt3"
           />
         </div>
-        <div className="scroll max-h-[320px] overflow-y-auto py-1">
+        <div className="scroll-thin max-h-[320px] overflow-y-auto py-1">
           {filtered.length === 0 ? (
             <p className="px-3 py-4 text-center text-[12px] text-txt3">검색 결과가 없습니다</p>
           ) : (

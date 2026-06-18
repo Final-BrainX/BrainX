@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { Search, Star, ChevronDown, ChevronRight, FileText, Folder, Check, Clock, Plus } from "lucide-react";
 import { cx } from "@/lib/utils";
 import { MockFolder, MockNote, SortOption } from "@/lib/notes/noteTypes";
@@ -148,6 +148,23 @@ export default function NotesExplorer({
   );
   const [favExpanded, setFavExpanded] = useState(true);
 
+  /* 새 폴더(루트) 생성 — 즐겨찾기 바로 아래에 배치해 탐색기 맨 아래까지 내려가지 않아도
+     쉽게 찾을 수 있게 한다 */
+  const [creatingRootFolder, setCreatingRootFolder] = useState(false);
+  const [rootFolderName, setRootFolderName] = useState("");
+  const rootFolderInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (creatingRootFolder) rootFolderInputRef.current?.focus();
+  }, [creatingRootFolder]);
+
+  const commitRootFolder = useCallback(() => {
+    const name = rootFolderName.trim();
+    if (name) onCreateFolder(null, name);
+    setRootFolderName("");
+    setCreatingRootFolder(false);
+  }, [rootFolderName, onCreateFolder]);
+
   const favFolders = useMemo(() => folders.filter((f) => f.favorite), [folders]);
 
   const filtered = useMemo(() => {
@@ -225,7 +242,7 @@ export default function NotesExplorer({
       </div>
 
       {/* ── 콘텐츠 ──────────────────────────────────── */}
-      <div className="scroll flex-1 overflow-y-auto py-2">
+      <div className="scroll-thin flex-1 overflow-y-auto py-2">
 
         {isSearching ? (
           /* 검색 중: 폴더 무시하고 평면 리스트로 표시 */
@@ -341,6 +358,36 @@ export default function NotesExplorer({
             {(favNotes.length > 0 || favFolders.length > 0) && (
               <div className="mx-3 my-2 border-t border-line/30" />
             )}
+
+            {/* 새 폴더(루트) — 즐겨찾기 바로 아래, 폴더/노트 목록보다 위에 배치 */}
+            <div className="px-2 pb-1">
+              {creatingRootFolder ? (
+                <div className="flex h-7 items-center gap-1.5 px-1.5">
+                  <Folder size={13} className="shrink-0 text-yellow-400/60" />
+                  <input
+                    ref={rootFolderInputRef}
+                    value={rootFolderName}
+                    onChange={(e) => setRootFolderName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitRootFolder();
+                      if (e.key === "Escape") { setCreatingRootFolder(false); setRootFolderName(""); }
+                    }}
+                    onBlur={commitRootFolder}
+                    placeholder="폴더 이름..."
+                    className="flex-1 rounded border border-primary/40 bg-surface px-1.5 py-0.5 text-[12px] text-txt outline-none"
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setCreatingRootFolder(true)}
+                  className="flex h-7 w-full items-center gap-1.5 rounded-md px-1.5 text-[11px] text-txt3 transition-colors hover:bg-surface2/40 hover:text-txt2"
+                >
+                  <Plus size={12} className="shrink-0" />
+                  <span>새 폴더 (루트)</span>
+                </button>
+              )}
+            </div>
 
             {/* 폴더 트리 */}
             <FolderTree

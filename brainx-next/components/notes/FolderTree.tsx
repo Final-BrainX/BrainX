@@ -132,9 +132,6 @@ export default function FolderTree({
   onReorderFolder,
 }: FolderTreeProps) {
   const tree = buildTree(folders, notes, null);
-  const [creatingRoot, setCreatingRoot] = useState(false);
-  const [rootName, setRootName] = useState("");
-  const rootInputRef = useRef<HTMLInputElement>(null);
 
   /* ── 폴더/노트 위치 변경 DnD (별도 그립 핸들 — 기존 노트 드래그-분할과 충돌 없음) ── */
   const [activeDrag, setActiveDrag] = useState<DragActiveData | null>(null);
@@ -194,17 +191,6 @@ export default function FolderTree({
     setOverIndicator(null);
   }, []);
 
-  useEffect(() => {
-    if (creatingRoot) rootInputRef.current?.focus();
-  }, [creatingRoot]);
-
-  const commitRoot = useCallback(() => {
-    const name = rootName.trim();
-    if (name) onCreateFolder(null, name);
-    setRootName("");
-    setCreatingRoot(false);
-  }, [rootName, onCreateFolder]);
-
   return (
     <DndContext
       sensors={sensors}
@@ -237,34 +223,6 @@ export default function FolderTree({
             onDragEnd={onDragEnd}
           />
         ))}
-
-        {/* 루트 폴더 생성 */}
-        {creatingRoot ? (
-          <div className="flex h-7 items-center gap-1.5 px-2">
-            <Folder size={13} className="shrink-0 text-yellow-400/60" />
-            <input
-              ref={rootInputRef}
-              value={rootName}
-              onChange={(e) => setRootName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitRoot();
-                if (e.key === "Escape") { setCreatingRoot(false); setRootName(""); }
-              }}
-              onBlur={commitRoot}
-              placeholder="폴더 이름..."
-              className="flex-1 rounded border border-primary/40 bg-surface px-1.5 py-0.5 text-[12px] text-txt outline-none"
-            />
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setCreatingRoot(true)}
-            className="mt-0.5 flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-[11px] text-txt3 transition-colors hover:bg-surface2/40 hover:text-txt2"
-          >
-            <Plus size={12} className="shrink-0" />
-            <span>새 폴더 (루트)</span>
-          </button>
-        )}
 
         {/* 루트로 이동 드롭존 — 드래그 중에만 표시. useDroppable은 DndContext의
             "자식" 컴포넌트 안에서 호출해야 실제로 그 컨텍스트에 등록된다 (FolderTree
@@ -515,7 +473,6 @@ function FolderNode({
     setRenaming(false);
   }, [renameDraft, item.folder.id, item.folder.name, onRenameFolder]);
 
-  const hasChildren = item.children.length > 0 || item.notes.length > 0;
   const isSelected = selectedFolderId === item.folder.id;
   const indent = depth * 14 + 6;
   const folderColor = item.folder.color ?? DEFAULT_FOLDER_COLOR;
@@ -534,11 +491,6 @@ function FolderNode({
         }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        onClick={() => {
-          if (renaming) return;
-          setExpanded((v) => !v);
-          onSelectFolder(item.folder.id);
-        }}
       >
         <DropIndicatorOverlay indicator={indicator} />
 
@@ -558,40 +510,57 @@ function FolderNode({
           <GripVertical size={11} />
         </button>
 
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center text-txt3">
-          {hasChildren || true ? (
-            expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />
-          ) : (
-            <span className="w-4" />
-          )}
-        </span>
-
-        {expanded
-          ? <FolderOpen size={13} className="shrink-0" style={{ color: folderColor }} />
-          : <Folder size={13} className="shrink-0" style={{ color: folderColor, opacity: 0.85 }} />
-        }
+        {/* 접기/펼치기 — 선택 상태와 완전히 분리된 별도 클릭 영역 */}
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
+          title={expanded ? "접기" : "펼치기"}
+          className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-txt3 transition-colors hover:bg-surface2/70"
+        >
+          {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        </button>
 
         {renaming ? (
-          <input
-            ref={renameInputRef}
-            value={renameDraft}
-            onChange={(e) => setRenameDraft(e.target.value)}
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commitRename();
-              if (e.key === "Escape") { setRenaming(false); setRenameDraft(item.folder.name); }
-            }}
-            onBlur={commitRename}
-            className="flex-1 rounded border border-primary/40 bg-surface px-1 py-0 text-[12px] text-txt outline-none"
-          />
+          <>
+            {expanded
+              ? <FolderOpen size={13} className="shrink-0" style={{ color: folderColor }} />
+              : <Folder size={13} className="shrink-0" style={{ color: folderColor, opacity: 0.85 }} />
+            }
+            <input
+              ref={renameInputRef}
+              value={renameDraft}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRename();
+                if (e.key === "Escape") { setRenaming(false); setRenameDraft(item.folder.name); }
+              }}
+              onBlur={commitRename}
+              className="flex-1 rounded border border-primary/40 bg-surface px-1 py-0 text-[12px] text-txt outline-none"
+            />
+          </>
         ) : (
+          /* 폴더 아이콘 + 이름 — 클릭하면 선택/선택 해제 토글(펼치기 상태와는 무관) */
           <span
-            className={cx(
-              "flex-1 truncate text-[12px] font-medium",
-              isSelected ? "text-txt" : "text-txt2 group-hover:text-txt"
-            )}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelectFolder(isSelected ? null : item.folder.id);
+            }}
+            className="flex min-w-0 flex-1 items-center gap-1.5"
+            title={isSelected ? "클릭하여 선택 해제" : "클릭하여 선택"}
           >
-            {item.folder.name}
+            {expanded
+              ? <FolderOpen size={13} className="shrink-0" style={{ color: folderColor }} />
+              : <Folder size={13} className="shrink-0" style={{ color: folderColor, opacity: 0.85 }} />
+            }
+            <span
+              className={cx(
+                "flex-1 truncate text-[12px] font-medium",
+                isSelected ? "text-txt" : "text-txt2 group-hover:text-txt"
+              )}
+            >
+              {item.folder.name}
+            </span>
           </span>
         )}
 

@@ -736,7 +736,7 @@ editor-lab/split-demo
 → BrainX Split Pane 기능의 기술 검증 페이지`,
   },
   {
-    id: "obsidian-link",
+    id: "knowledge-link",
     title: "Obsidian 링크 구조",
     category: "architecture",
     folderId: "f-arch",
@@ -1046,7 +1046,7 @@ export const MOCK_CONTEXT_DATA: Record<string, MockContextEntry> = {
     connections: ["Neo4j 그래프 설계", "RAG 검색 흐름", "TipTap 에디터 테스트"],
     aiSuggestions: ["멀티테넌시 설계", "검색 인프라 확장", "AI 파이프라인 고도화"],
   },
-  "obsidian-link": {
+  "knowledge-link": {
     backlinks: ["BrainX 아키텍처"],
     connections: ["BrainX 아키텍처", "RAG 검색 흐름"],
     aiSuggestions: ["Obsidian Graph 분석", "양방향 링크 구현", "Vault 마이그레이션"],
