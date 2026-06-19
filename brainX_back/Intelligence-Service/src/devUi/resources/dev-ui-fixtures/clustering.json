@@ -1,0 +1,20 @@
+{
+  "domain": "clustering",
+  "status": "fixture",
+  "job": {
+    "clusterJobId": "cluster-dev-001",
+    "status": "COMPLETED",
+    "clusters": [
+      {
+        "label": "AI 설정과 문체",
+        "noteIds": ["note-204", "note-205"],
+        "keywords": ["style", "tone", "settings"]
+      },
+      {
+        "label": "검색과 RAG",
+        "noteIds": ["note-101", "note-102"],
+        "keywords": ["semantic search", "embedding", "rag"]
+      }
+    ]
+  }
+}

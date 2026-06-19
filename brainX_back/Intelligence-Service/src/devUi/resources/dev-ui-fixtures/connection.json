@@ -1,0 +1,19 @@
+{
+  "domain": "connection",
+  "status": "fixture",
+  "linkSuggestions": [
+    {
+      "sourceNoteId": "note-101",
+      "targetNoteId": "note-204",
+      "reason": "둘 다 AI 응답 스타일과 검색 맥락을 다룬다.",
+      "confidence": 0.88
+    }
+  ],
+  "bridgeConcepts": [
+    {
+      "concept": "문체 기반 검색 랭킹",
+      "from": "style profile",
+      "to": "semantic search"
+    }
+  ]
+}

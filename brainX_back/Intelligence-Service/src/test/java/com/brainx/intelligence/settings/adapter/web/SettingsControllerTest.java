@@ -18,9 +18,9 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.brainx.intelligence.infrastructure.security.SecurityConfig;
@@ -46,16 +46,16 @@ class SettingsControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
-    @MockBean
+    @MockitoBean
     private ListAiModelsUseCase listAiModelsUseCase;
 
-    @MockBean
+    @MockitoBean
     private PutAiModelSettingsUseCase putAiModelSettingsUseCase;
 
-    @MockBean
+    @MockitoBean
     private GetStyleProfileUseCase getStyleProfileUseCase;
 
-    @MockBean
+    @MockitoBean
     private PutStyleProfileUseCase putStyleProfileUseCase;
 
     @Test

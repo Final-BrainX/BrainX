@@ -1,0 +1,20 @@
+{
+  "domain": "assist",
+  "status": "fixture",
+  "inlineAssist": {
+    "noteId": "note-101",
+    "mode": "rewrite",
+    "selectedText": "검색 잘 되게 수정",
+    "deltas": [
+      "검색 품질을 높이기 위해 ",
+      "쿼리 의도와 노트 문맥을 함께 반영하고, ",
+      "근거가 되는 노트 조각을 함께 표시한다."
+    ],
+    "terminalEvent": "completed"
+  },
+  "suggestionDecision": {
+    "suggestionId": "sug-dev-001",
+    "decision": "accept",
+    "result": "note patch requested"
+  }
+}

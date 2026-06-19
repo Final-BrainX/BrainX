@@ -1,0 +1,23 @@
+{
+  "domain": "settings",
+  "mode": "live",
+  "endpoints": [
+    "GET /api/v1/ai/models",
+    "PUT /api/v1/ai/model-settings",
+    "GET /api/v1/users/me/style-profile",
+    "PUT /api/v1/users/me/style-profile"
+  ],
+  "sampleStyleProfile": {
+    "conversationTone": {
+      "speechLevel": "haeyo",
+      "directness": "high"
+    },
+    "writingStyle": {
+      "formality": "business",
+      "sentenceLength": "short"
+    },
+    "assistanceStyle": {
+      "clarificationPolicy": "only_when_blocking"
+    }
+  }
+}

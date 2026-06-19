@@ -13,6 +13,15 @@ spring:
       embedding: ${SPRING_AI_MODEL_EMBEDDING:none}
     openai:
       api-key: ${OPENAI_API_KEY:}
+    vectorstore:
+      qdrant:
+        host: ${QDRANT_HOST:localhost}
+        port: ${QDRANT_GRPC_PORT:6334}
+        api-key: ${QDRANT_API_KEY:}
+        collection-name: ${QDRANT_COLLECTION:brainx_note_search}
+        content-field-name: doc_content
+        use-tls: ${QDRANT_USE_TLS:false}
+        initialize-schema: ${QDRANT_INITIALIZE_SCHEMA:true}
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/intelligence_service}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}

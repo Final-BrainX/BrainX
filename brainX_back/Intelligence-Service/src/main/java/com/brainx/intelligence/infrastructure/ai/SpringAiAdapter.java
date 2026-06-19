@@ -1,5 +1,8 @@
 package com.brainx.intelligence.infrastructure.ai;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.ObjectProvider;
@@ -16,6 +19,8 @@ import reactor.core.publisher.Flux;
  */
 @Component
 public class SpringAiAdapter implements AiChatPort, AiEmbeddingPort {
+
+    private static final int FALLBACK_EMBEDDING_DIMENSIONS = 32;
 
     private final ObjectProvider<ChatClient.Builder> chatClientBuilderProvider;
     private final ObjectProvider<EmbeddingModel> embeddingModelProvider;
@@ -40,7 +45,37 @@ public class SpringAiAdapter implements AiChatPort, AiEmbeddingPort {
 
     @Override
     public AiEmbeddingResponse embed(AiEmbeddingRequest request) {
-        throw new UnsupportedOperationException("Spring AI embedding generation is not implemented yet.");
+        List<String> texts = request.texts() == null ? List.of() : request.texts();
+        List<AiEmbeddingVector> vectors = texts.stream()
+            .map(text -> new AiEmbeddingVector(text, deterministicEmbedding(text)))
+            .toList();
+        return new AiEmbeddingResponse(vectors);
+    }
+
+    private static List<Double> deterministicEmbedding(String text) {
+        double[] values = new double[FALLBACK_EMBEDDING_DIMENSIONS];
+        if (text != null) {
+            int offset = 0;
+            while (offset < text.length()) {
+                int codePoint = text.codePointAt(offset);
+                if (Character.isLetterOrDigit(codePoint)) {
+                    values[Math.floorMod(codePoint, FALLBACK_EMBEDDING_DIMENSIONS)] += 1.0d;
+                }
+                offset += Character.charCount(codePoint);
+            }
+        }
+
+        double norm = 0.0d;
+        for (double value : values) {
+            norm += value * value;
+        }
+        norm = Math.sqrt(norm);
+
+        List<Double> normalized = new ArrayList<>(FALLBACK_EMBEDDING_DIMENSIONS);
+        for (double value : values) {
+            normalized.add(norm == 0.0d ? 0.0d : value / norm);
+        }
+        return normalized;
     }
 
     ObjectProvider<ChatClient.Builder> chatClientBuilderProvider() {

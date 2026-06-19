@@ -1,0 +1,23 @@
+{
+  "domain": "chat",
+  "status": "fixture",
+  "thread": {
+    "threadId": "thread-dev-001",
+    "title": "Knowledge Intelligence 설계 확인",
+    "messages": [
+      {
+        "role": "user",
+        "content": "검색과 요약 흐름을 설명해줘"
+      },
+      {
+        "role": "assistant",
+        "content": "권한 확인 후 read model/vector index에서 후보를 찾고, 필요한 경우 AI 요약을 생성합니다."
+      }
+    ]
+  },
+  "streamPreview": [
+    "권한을 확인하고 ",
+    "관련 노트 조각을 모은 뒤 ",
+    "답변과 근거를 함께 반환합니다."
+  ]
+}

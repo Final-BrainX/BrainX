@@ -2,11 +2,16 @@ plugins {
     id 'java'
     id 'org.springframework.boot' version '3.5.15'
     id 'io.spring.dependency-management' version '1.1.7'
+    id 'com.vaadin' version '24.10.7' apply false
 }
 
 group = 'com.brainx.intelligence'
 version = '0.0.1-SNAPSHOT'
 description = 'intelligence-service'
+
+ext {
+    vaadinVersion = '24.10.7'
+}
 
 java {
     toolchain {
@@ -18,6 +23,24 @@ repositories {
     mavenCentral()
 }
 
+sourceSets {
+    devUi {
+        java {
+            setSrcDirs(['src/devUi/java'])
+        }
+        resources {
+            setSrcDirs(['src/devUi/resources'])
+        }
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath + sourceSets.main.runtimeClasspath
+    }
+}
+
+configurations {
+    devUiCompileOnly.extendsFrom compileOnly
+    devUiAnnotationProcessor.extendsFrom annotationProcessor
+}
+
 dependencies {
     implementation platform('org.springframework.ai:spring-ai-bom:1.1.8')
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
@@ -27,12 +50,16 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
     implementation 'org.springframework.ai:spring-ai-starter-model-openai'
+    implementation 'org.springframework.ai:spring-ai-starter-vector-store-qdrant'
     implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.17'
     compileOnly 'org.projectlombok:lombok'
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
+    developmentOnly 'com.h2database:h2'
     runtimeOnly 'org.postgresql:postgresql'
     annotationProcessor 'org.projectlombok:lombok'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'com.tngtech.archunit:archunit-junit5:1.4.1'
     testImplementation 'io.projectreactor:reactor-test'
     testImplementation 'org.springframework.kafka:spring-kafka-test'
     testImplementation 'org.springframework.security:spring-security-test'
@@ -40,8 +67,32 @@ dependencies {
     testRuntimeOnly 'com.h2database:h2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testAnnotationProcessor 'org.projectlombok:lombok'
+
+    devUiImplementation platform("com.vaadin:vaadin-bom:${vaadinVersion}")
+    devUiImplementation 'com.vaadin:vaadin-spring-boot-starter'
+    devUiRuntimeOnly 'com.h2database:h2'
 }
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs.addAll([
+        '-Xlint:deprecation',
+        '-Xlint:unchecked',
+        '-Werror'
+    ])
+}
+
+tasks.register('bootRunDevUi', org.springframework.boot.gradle.tasks.run.BootRun) {
+    group = 'application'
+    description = 'Runs intelligence-service with the Vaadin domain dev UI on /dev-ui.'
+    mainClass = 'com.brainx.intelligence.IntelligenceServiceApplication'
+    classpath = sourceSets.main.runtimeClasspath + sourceSets.devUi.runtimeClasspath
+    args '--spring.profiles.active=dev-ui'
+    systemProperty 'vaadin.productionMode', 'false'
+    systemProperty 'vaadin.launch-browser', 'false'
+    systemProperty 'vaadin.frontend.frontend.folder', file("$buildDir/vaadin-dev-ui/frontend").absolutePath
+    systemProperty 'spring.devtools.restart.enabled', 'false'
 }

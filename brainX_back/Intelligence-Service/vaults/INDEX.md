@@ -10,6 +10,8 @@
 - `src/main/resources/contracts/README.md`: provider OpenAPI, consumed OpenAPI, AsyncAPI 슬라이스의 역할과 재생성 command를 설명합니다. 이 서비스가 호출하거나 소비하는 외부 계약을 확인할 때 읽습니다.
 - `docs/domain/knowledge-intelligence-domain-flow.md`: 사람을 위한 도메인 문서입니다. 도메인 스토리텔링, 이벤트 스토밍, 컨텍스트 맵 관점으로 서비스 흐름을 설명할 때 참고합니다.
 - `docs/domain/style-profile-input-direction.md`: 사람을 위한 UX/도메인 문서입니다. 사용자 문체 설정 입력 방식, `StyleProfile` 정규화 방향, 대화 말투와 결과물 문체 분리를 논의할 때 참고합니다.
+- `docs/technical/conditional-on-bean.md`: Spring Boot `@ConditionalOnBean`의 의미와 Qdrant adapter 적용 맥락을 확인할 때 참고합니다.
+- `docs/technical/vectorstore-embedding-model.md`: Spring AI Qdrant `VectorStore`가 사용할 embedding model 지정 방식과 로컬 환경변수 설정을 확인할 때 참고합니다.
 
 ## Project Snapshot
 
@@ -29,5 +31,7 @@
 - 기능 구현 순서 질문은 `vaults/agents/domain-implementation-order.md`를 기준으로 답합니다.
 - 도메인 흐름이나 기획자와 공유할 설명은 `docs/domain/knowledge-intelligence-domain-flow.md`를 기준으로 답합니다.
 - 문체 설정 UX나 `StyleProfile` 입력 방향은 `docs/domain/style-profile-input-direction.md`를 기준으로 답합니다.
+- Spring Boot conditional bean 등록이나 Qdrant adapter 조건부 등록은 `docs/technical/conditional-on-bean.md`를 기준으로 답합니다.
+- Qdrant `VectorStore`의 embedding model 지정 방식은 `docs/technical/vectorstore-embedding-model.md`를 기준으로 답합니다.
 - 구현 작업은 target package와 관련 test를 직접 읽고, 계약에서 필요한 schema와 response status를 확인합니다.
 - 문서 작업은 root guide bloat audit을 수행합니다. endpoint 목록이나 긴 절차가 root로 들어가면 vault guide로 옮깁니다.
