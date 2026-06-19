@@ -3,6 +3,7 @@ package com.brainx.intelligence.infrastructure.persistence.jpa.exploration;
 import java.util.Optional;
 
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.brainx.intelligence.exploration.application.port.outbound.NoteSummaryPort;
 import com.brainx.intelligence.exploration.domain.NoteSummary;
@@ -26,5 +27,11 @@ public class ExplorationJpaAdapter implements NoteSummaryPort {
     public NoteSummary save(NoteSummary summary) {
         return noteSummaryJpaRepository.save(NoteSummaryJpaEntity.fromDomain(summary))
             .toDomain();
+    }
+
+    @Override
+    @Transactional
+    public void deleteByUserIdAndNoteId(String userId, String noteId) {
+        noteSummaryJpaRepository.deleteByUserIdAndNoteId(userId, noteId);
     }
 }

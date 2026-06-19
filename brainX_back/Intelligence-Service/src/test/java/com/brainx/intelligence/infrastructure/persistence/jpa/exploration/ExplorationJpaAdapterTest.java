@@ -34,4 +34,16 @@ class ExplorationJpaAdapterTest {
         assertThat(summary.summary()).isEqualTo("AI summary");
         assertThat(summary.source()).isEqualTo(SummarySource.AI);
     }
+
+    @Test
+    void deleteSummaryByUserAndNote() {
+        explorationJpaAdapter.save(NoteSummary.ai("user-1", "note-1", "AI summary"));
+        entityManager.flush();
+
+        explorationJpaAdapter.deleteByUserIdAndNoteId("user-1", "note-1");
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(explorationJpaAdapter.findByUserIdAndNoteId("user-1", "note-1")).isEmpty();
+    }
 }

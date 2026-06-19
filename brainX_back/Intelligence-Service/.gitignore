@@ -40,3 +40,6 @@ out/
 ### Python ###
 __pycache__/
 *.py[cod]
+
+### Local secrets ###
+.brainx-local.properties

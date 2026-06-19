@@ -9,4 +9,6 @@ public interface NoteSummaryPort {
     Optional<NoteSummary> findByUserIdAndNoteId(String userId, String noteId);
 
     NoteSummary save(NoteSummary summary);
+
+    void deleteByUserIdAndNoteId(String userId, String noteId);
 }

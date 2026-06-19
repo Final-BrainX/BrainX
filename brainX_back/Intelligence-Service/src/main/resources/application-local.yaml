@@ -1,4 +1,6 @@
 spring:
+  config:
+    import: optional:file:./.brainx-local.properties
   devtools:
     restart:
       enabled: false

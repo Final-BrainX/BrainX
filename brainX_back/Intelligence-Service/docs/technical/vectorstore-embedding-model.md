@@ -1,6 +1,6 @@
-# Spring AI `VectorStore` embedding model 지정
+# Spring AI `VectorStore` Voyage embedding 지정
 
-이 문서는 Intelligence Service에서 Qdrant `VectorStore`가 어떤 embedding model을 사용하는지, 로컬 실행 시 어떤 설정을 넣어야 하는지 정리한다.
+이 문서는 Intelligence Service에서 Qdrant `VectorStore`가 Voyage AI embedding을 사용하는 방식과 로컬 실행 설정을 정리한다.
 
 ## 현재 책임 분리
 
@@ -11,45 +11,48 @@ ExplorationService
   -> NoteSearchIndexPort
     -> QdrantNoteSearchIndexAdapter
       -> Spring AI VectorStore
-        -> Spring AI EmbeddingModel
+        -> VoyageEmbeddingModel
+        -> Voyage AI /v1/embeddings
         -> Qdrant
 ```
 
-`QdrantNoteSearchIndexAdapter`는 `VectorStore`만 주입받는다. `EmbeddingModel`은 Spring AI Qdrant `VectorStore` auto-configuration 내부에서 사용된다.
+`QdrantNoteSearchIndexAdapter`는 `VectorStore`만 주입받는다. `VectorStore`는 Spring AI Qdrant auto-configuration이 만들고, 그 안에서 Spring AI `EmbeddingModel` bean을 사용한다. 이 프로젝트는 `BRAINX_AI_EMBEDDING_PROVIDER=voyage`일 때 자체 `VoyageEmbeddingModel`을 `@Primary EmbeddingModel` bean으로 등록한다.
 
-```java
-public QdrantNoteSearchIndexAdapter(VectorStore vectorStore) {
-    this.vectorStore = vectorStore;
-}
-```
-
-따라서 이 프로젝트 코드에서 Qdrant adapter에 embedding 구현체를 직접 넣지 않는다. 어떤 embedding provider를 쓸지는 Spring AI 설정으로 결정한다.
+Voyage 호출은 내부 infrastructure adapter 책임이다. 우리 서비스의 public `/api/v1/...` endpoint나 OpenAPI 계약에는 Voyage embedding endpoint를 노출하지 않는다.
 
 ## 기본 설정
 
-`src/main/resources/application.yaml`의 기본값은 다음과 같다.
+`src/main/resources/application.yaml`의 관련 기본값은 다음과 같다.
 
 ```yaml
 spring:
   ai:
     model:
-      chat: ${SPRING_AI_MODEL_CHAT:none}
       embedding: ${SPRING_AI_MODEL_EMBEDDING:none}
-    openai:
-      api-key: ${OPENAI_API_KEY:}
     vectorstore:
       qdrant:
         host: ${QDRANT_HOST:localhost}
         port: ${QDRANT_GRPC_PORT:6334}
         collection-name: ${QDRANT_COLLECTION:brainx_note_search}
         content-field-name: doc_content
-        use-tls: ${QDRANT_USE_TLS:false}
         initialize-schema: ${QDRANT_INITIALIZE_SCHEMA:true}
+
+brainx:
+  ai:
+    embedding:
+      provider: ${BRAINX_AI_EMBEDDING_PROVIDER:none}
+      voyage:
+        api-key: ${VOYAGE_API_KEY:}
+        base-url: ${VOYAGE_BASE_URL:https://api.voyageai.com}
+        model: ${VOYAGE_EMBEDDING_MODEL:voyage-4-lite}
+        dimensions: ${VOYAGE_EMBEDDING_DIMENSIONS:1024}
+        truncation: ${VOYAGE_EMBEDDING_TRUNCATION:true}
+        timeout: ${VOYAGE_EMBEDDING_TIMEOUT:10s}
 ```
 
-`SPRING_AI_MODEL_EMBEDDING` 기본값이 `none`이므로, 아무 설정 없이 실행하면 embedding model bean이 만들어지지 않는다. 그 경우 Qdrant `VectorStore` bean도 준비되지 않을 수 있고, `QdrantNoteSearchIndexAdapter`는 `@ConditionalOnBean(VectorStore.class)` 조건 때문에 등록되지 않는다. 이때는 fallback인 `NoOpNoteSearchIndexAdapter`가 사용된다.
+기본값은 provider `none`이다. 이 상태에서는 Voyage `EmbeddingModel`이 등록되지 않고, Qdrant `VectorStore`도 준비되지 않을 수 있다. `VectorStore`가 없으면 `QdrantNoteSearchIndexAdapter`는 등록되지 않고 `NoOpNoteSearchIndexAdapter`가 fallback으로 사용된다.
 
-## 로컬에서 Qdrant + OpenAI embedding 사용
+## 로컬에서 Qdrant + Voyage 사용
 
 Qdrant를 먼저 실행한다.
 
@@ -57,23 +60,27 @@ Qdrant를 먼저 실행한다.
 docker compose up -d qdrant
 ```
 
-애플리케이션 실행 전에 embedding model과 Qdrant 접속 정보를 환경변수로 지정한다.
+애플리케이션 실행 전에 Voyage와 Qdrant 설정을 환경변수로 지정한다. 실제 API key는 공유되거나 커밋되는 파일에 저장하지 않는다.
 
 ```powershell
-$env:SPRING_AI_MODEL_EMBEDDING = "openai"
-$env:OPENAI_API_KEY = "<openai-api-key>"
+$env:BRAINX_AI_EMBEDDING_PROVIDER = "voyage"
+$env:VOYAGE_API_KEY = "<voyage-api-key>"
+$env:VOYAGE_EMBEDDING_MODEL = "voyage-4-lite"
+$env:VOYAGE_EMBEDDING_DIMENSIONS = "1024"
 $env:QDRANT_HOST = "localhost"
 $env:QDRANT_GRPC_PORT = "6334"
-$env:QDRANT_COLLECTION = "brainx_note_search"
+$env:QDRANT_COLLECTION = "brainx_note_search_voyage_1024"
 ```
 
-OpenAI embedding 모델을 명시하려면 Spring AI OpenAI embedding option을 추가한다.
+로컬에서 환경변수 대신 파일을 써야 하면 project root의 `.brainx-local.properties`를 사용한다. 이 파일은 `.gitignore`에 포함되어야 하며, `local` profile에서만 optional import로 읽는다.
 
-```powershell
-$env:SPRING_AI_OPENAI_EMBEDDING_OPTIONS_MODEL = "text-embedding-3-small"
+```properties
+brainx.ai.embedding.provider=voyage
+brainx.ai.embedding.voyage.api-key=<voyage-api-key>
+spring.ai.vectorstore.qdrant.collection-name=brainx_note_search_voyage_1024
 ```
 
-이후 local profile로 애플리케이션을 실행하면 Spring AI가 `EmbeddingModel`과 Qdrant `VectorStore`를 구성하고, semantic search는 Qdrant adapter를 사용한다.
+이후 local profile로 애플리케이션을 실행한다.
 
 ```powershell
 .\gradlew.bat --no-daemon bootRun --args='--spring.profiles.active=local'
@@ -81,23 +88,27 @@ $env:SPRING_AI_OPENAI_EMBEDDING_OPTIONS_MODEL = "text-embedding-3-small"
 
 ## 설정별 의미
 
-- `SPRING_AI_MODEL_EMBEDDING`: 어떤 embedding provider를 활성화할지 정한다. OpenAI를 쓰려면 `openai`로 둔다.
-- `OPENAI_API_KEY`: OpenAI embedding API 호출에 필요한 key다.
-- `SPRING_AI_OPENAI_EMBEDDING_OPTIONS_MODEL`: OpenAI embedding model 이름이다. 예: `text-embedding-3-small`.
-- `QDRANT_HOST`: Qdrant host다. 로컬 docker compose 기준 `localhost`.
-- `QDRANT_GRPC_PORT`: Spring AI Qdrant `VectorStore`가 사용할 gRPC port다. 로컬 compose 기준 `6334`.
-- `QDRANT_COLLECTION`: Qdrant collection 이름이다.
+- `BRAINX_AI_EMBEDDING_PROVIDER`: embedding provider 선택 값이다. Voyage를 쓰려면 `voyage`로 둔다.
+- `VOYAGE_API_KEY`: Voyage API 호출에 필요한 runtime secret이다. repository에 저장하지 않는다.
+- `VOYAGE_BASE_URL`: Voyage API base URL이다. 기본값은 `https://api.voyageai.com`.
+- `VOYAGE_EMBEDDING_MODEL`: Voyage embedding model 이름이다. 기본값은 `voyage-4-lite`.
+- `VOYAGE_EMBEDDING_DIMENSIONS`: Qdrant collection vector dimension과 맞아야 한다. 기본값은 `1024`.
+- `VOYAGE_EMBEDDING_TRUNCATION`: Voyage가 초과 길이 입력을 truncate할지 정한다. 기본값은 `true`.
+- `QDRANT_COLLECTION`: embedding dimension별로 분리하는 것을 권장한다. Voyage 1024차원 기본값은 `brainx_note_search_voyage_1024`를 사용한다.
 
-## 코드에서 확인할 위치
+## input_type 정책
 
-- `build.gradle`: `spring-ai-starter-model-openai`, `spring-ai-starter-vector-store-qdrant` dependency를 선언한다.
-- `src/main/resources/application.yaml`: embedding provider와 Qdrant 접속 설정을 환경변수로 받는다.
-- `QdrantNoteSearchIndexAdapter`: `VectorStore.add(...)`, `VectorStore.similaritySearch(...)`만 호출한다.
-- `ExplorationService`: query text를 `NoteSearchIndexPort`로 넘기며 embedding vector를 직접 다루지 않는다.
+Voyage는 retrieval 품질을 위해 `input_type`을 구분한다.
+
+- document 저장: `VectorStore.add(...)` -> `VoyageEmbeddingModel.embed(List<Document>, ...)` -> `input_type=document`
+- query 검색: `VectorStore.similaritySearch(...)` -> `VoyageEmbeddingModel.embed(String)` -> `input_type=query`
+- 일반 `EmbeddingModel.call(EmbeddingRequest)` 호출: `input_type=null`
+
+Voyage 공식 API는 `POST https://api.voyageai.com/v1/embeddings`를 사용하며, `input`, `model`, `input_type`, `truncation`, `output_dimension`, `output_dtype`를 request body로 받는다.
 
 ## 주의점
 
-- `test`와 `dev-ui` profile은 외부 Qdrant 없이 context load가 가능해야 하므로 Qdrant auto-configuration을 제외한다.
-- application/domain layer에 `EmbeddingModel`이나 provider별 설정을 직접 주입하지 않는다.
-- Qdrant에 저장되는 document text는 현재 note excerpt가 우선이고, excerpt가 blank면 title을 사용한다.
-- document 저장 시점의 embedding은 `VectorStore.add(...)`에서, 검색 query embedding은 `VectorStore.similaritySearch(...)`에서 Spring AI가 처리한다.
+- Qdrant collection은 생성 시 vector dimension이 고정된다. 기존 collection이 다른 dimension으로 만들어졌다면 새 collection을 쓰거나 기존 collection을 삭제해야 한다.
+- `test`와 `dev-ui` profile은 외부 Qdrant와 Voyage 없이 context load가 가능해야 하므로 기본 provider는 `none`으로 유지한다.
+- application/domain layer에 `EmbeddingModel`, `RestClient`, provider별 설정을 직접 주입하지 않는다.
+- 제공된 API key가 채팅이나 로그에 노출된 적이 있으면 운영 사용 전에 rotation한다.

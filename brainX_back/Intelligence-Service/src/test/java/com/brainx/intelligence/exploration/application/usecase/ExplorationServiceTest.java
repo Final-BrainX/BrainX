@@ -167,6 +167,10 @@ class ExplorationServiceTest {
         }
 
         @Override
+        public void replaceNoteChunks(String userId, String noteId, List<NoteSearchDocument> chunks) {
+        }
+
+        @Override
         public Optional<NoteSummary> findByUserIdAndNoteId(String userId, String noteId) {
             return Optional.ofNullable(summaries.get(userId + "::" + noteId));
         }
@@ -175,6 +179,11 @@ class ExplorationServiceTest {
         public NoteSummary save(NoteSummary summary) {
             summaries.put(summary.userId() + "::" + summary.noteId(), summary);
             return summary;
+        }
+
+        @Override
+        public void deleteByUserIdAndNoteId(String userId, String noteId) {
+            summaries.remove(userId + "::" + noteId);
         }
 
         @Override

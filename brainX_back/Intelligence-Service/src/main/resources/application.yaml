@@ -13,6 +13,9 @@ spring:
       embedding: ${SPRING_AI_MODEL_EMBEDDING:none}
     openai:
       api-key: ${OPENAI_API_KEY:}
+      chat:
+        options:
+          model: ${OPENAI_CHAT_MODEL:gpt-5.4-mini}
     vectorstore:
       qdrant:
         host: ${QDRANT_HOST:localhost}
@@ -33,3 +36,34 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
+
+brainx:
+  events:
+    consumer:
+      enabled: ${BRAINX_EVENTS_CONSUMER_ENABLED:false}
+      group-id: ${BRAINX_EVENTS_CONSUMER_GROUP_ID:intelligence-service}
+  ai:
+    embedding:
+      provider: ${BRAINX_AI_EMBEDDING_PROVIDER:none}
+      voyage:
+        api-key: ${VOYAGE_API_KEY:}
+        base-url: ${VOYAGE_BASE_URL:https://api.voyageai.com}
+        model: ${VOYAGE_EMBEDDING_MODEL:voyage-4-lite}
+        dimensions: ${VOYAGE_EMBEDDING_DIMENSIONS:1024}
+        truncation: ${VOYAGE_EMBEDDING_TRUNCATION:true}
+        timeout: ${VOYAGE_EMBEDDING_TIMEOUT:10s}
+  workspace:
+    base-url: ${BRAINX_WORKSPACE_BASE_URL:http://localhost:8081}
+    service-token: ${BRAINX_WORKSPACE_SERVICE_TOKEN:}
+    timeout: ${BRAINX_WORKSPACE_TIMEOUT:5s}
+  dev:
+    sample-rag:
+      enabled: ${BRAINX_DEV_SAMPLE_RAG_ENABLED:false}
+      command: ${BRAINX_DEV_SAMPLE_RAG_COMMAND:ingest}
+      directory: ${BRAINX_DEV_SAMPLE_RAG_DIRECTORY:sample_notes}
+      user-id: ${BRAINX_DEV_SAMPLE_RAG_USER_ID:sample-user}
+      folder-id: ${BRAINX_DEV_SAMPLE_RAG_FOLDER_ID:sample_notes}
+      query: ${BRAINX_DEV_SAMPLE_RAG_QUERY:}
+      top-k: ${BRAINX_DEV_SAMPLE_RAG_TOP_K:8}
+      max-context-chars: ${BRAINX_DEV_SAMPLE_RAG_MAX_CONTEXT_CHARS:8000}
+      chat-model: ${OPENAI_CHAT_MODEL:gpt-5.4-mini}
