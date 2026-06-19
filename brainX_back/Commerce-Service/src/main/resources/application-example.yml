@@ -2,16 +2,20 @@ server:
   port: ${SERVER_PORT:8084}
 
 spring:
+  config:
+    import:
+    - optional:file:../.env[.properties]
+    - optional:file:../env/commerce-service.env[.properties]
   application:
     name: Commerce-Service
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/brainx_commerce}
     username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD}
+    password: ${DB_PASSWORD:change_me}
     driver-class-name: ${DB_DRIVER:org.postgresql.Driver}
   jpa:
     hibernate:
-      ddl-auto: ${JPA_DDL_AUTO}
+      ddl-auto: ${JPA_DDL_AUTO:update}
     open-in-view: false
     properties:
       hibernate:
@@ -21,14 +25,12 @@ brainx:
   jwt:
     secret: ${JWT_SECRET:replace_with_at_least_32_byte_secret}
   service-token: ${SERVICE_TOKEN:local-service-token}
-  public-base-url: ${PUBLIC_BASE_URL}
+  public-base-url: ${PUBLIC_BASE_URL:http://localhost:3000}
 
 toss:
-  # TEMP: Toss Payments 공식 문서(https://docs.tosspayments.com)에 공개된 샌드박스 테스트 키.
-  # 실서비스 전환 시 본인 가맹점의 실제 클라이언트/시크릿 키로 반드시 교체할 것.
-  client-key: ${TOSS_CLIENT_KEY}
-  secret-key: ${TOSS_SECRET_KEY}
-  confirm-url: ${TOSS_CONFIRM_URL}
+  client-key: ${TOSS_CLIENT_KEY:your_toss_client_key}
+  secret-key: ${TOSS_SECRET_KEY:your_toss_secret_key}
+  confirm-url: ${TOSS_CONFIRM_URL:https://api.tosspayments.com/v1/payments/confirm}
 
 logging:
   level:

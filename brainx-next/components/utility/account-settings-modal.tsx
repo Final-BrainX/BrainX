@@ -1360,6 +1360,11 @@ function UpgradePanel({ billing, onBillingChange }: { billing: "monthly" | "year
   const [subscription, setSubscription] = useState<CommerceSubscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
+  const pendingPlanIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    pendingPlanIdRef.current = pendingPlanId;
+  }, [pendingPlanId]);
 
   const refresh = useCallback(async () => {
     try {
@@ -1428,13 +1433,10 @@ function UpgradePanel({ billing, onBillingChange }: { billing: "monthly" | "year
     const watchClosed = window.setInterval(() => {
       if (popup.closed) {
         window.clearInterval(watchClosed);
-        setPendingPlanId((current) => {
-          if (current === plan.planId) {
-            pushToast("결제가 취소되었습니다.", "err");
-            return null;
-          }
-          return current;
-        });
+        if (pendingPlanIdRef.current === plan.planId) {
+          setPendingPlanId(null);
+          pushToast("결제가 취소되었습니다.", "err");
+        }
       }
     }, 500);
   };

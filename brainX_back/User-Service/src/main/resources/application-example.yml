@@ -3,7 +3,9 @@ server:
 
 spring:
   config:
-    import: optional:file:../.env[.properties]
+    import:
+    - optional:file:../.env[.properties]
+    - optional:file:../env/user-service.env[.properties]
   application:
     name: User-Service
   datasource:

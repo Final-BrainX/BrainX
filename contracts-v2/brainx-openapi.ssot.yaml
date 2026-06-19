@@ -4138,17 +4138,10 @@ paths:
       x-internal-sync-calls: []
       x-async-boundary: false
       x-implementation-note: >
-        Current implementation does not read redirectUri from the request body.
-        The controller takes no request body — redirectUri is fixed in
+        Current implementation accepts no request body. redirectUri is fixed in
         application.yml (notion.redirect-uri). Frontend must use
         window.top.location.href (not iframe navigation) to open the returned
         authorizationUrl, as Notion blocks loading in iframes.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/NotionOAuthAuthorizeRequest'
       responses:
         '200':
           description: Success
