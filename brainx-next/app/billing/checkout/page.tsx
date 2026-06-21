@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { createCheckoutSession } from "@/lib/commerce-api";
 import { notifyOpenerAndClosePayment } from "@/lib/payment-popup";
 
-export default function CheckoutPage() {
+function CheckoutContent() {
   const searchParams = useSearchParams();
   const [message, setMessage] = useState("결제창을 준비하는 중입니다…");
   const [failed, setFailed] = useState(false);
@@ -83,5 +83,13 @@ export default function CheckoutPage() {
         )}
       </div>
     </main>
+  );
+}
+
+export default function CheckoutPage() {
+  return (
+    <Suspense fallback={null}>
+      <CheckoutContent />
+    </Suspense>
   );
 }

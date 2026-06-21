@@ -1128,49 +1128,5 @@ html.light .hljs-addition {
   color: #15803d;
 }
 
-/* BlockNote — light mode: clean white surface (Notion-like) */
-html.light .bn-root[data-color-scheme=light] {
-  --bn-colors-editor-background: #ffffff;
-  --bn-colors-menu-background: #ffffff;
-  --bn-colors-tooltip-background: #f8fafc;
-  --bn-colors-hovered-background: #f1f5f9;
-  --bn-colors-selected-background: #dbeafe;
-  --bn-colors-border: #e2e8f0;
-  --bn-colors-editor-text: #0f172a;
-  --bn-colors-menu-text: #0f172a;
-  --bn-colors-side-menu: #94a3b8;
-}
-
-/* BlockNote — force dark/light surface to match BrainX */
-.bn-container[data-color-scheme] {
-  --bn-colors-editor-background: transparent;
-  --bn-colors-menu-background: rgb(var(--surface));
-  --bn-colors-tooltip-background: rgb(var(--surface2));
-  --bn-colors-hovered-background: rgb(var(--surface2));
-  --bn-colors-selected-background: rgb(var(--primary) / 0.15);
-  --bn-colors-border: rgb(var(--border));
-  --bn-colors-editor-text: rgb(var(--txt));
-  --bn-colors-menu-text: rgb(var(--txt));
-  --bn-colors-tooltip-text: rgb(var(--txt2));
-}
-
-/*
- * BlockNote font-size override.
- *
- * WHY: BlockNote's bundled CSS sets `.bn-default-styles { font-size: 16px }`
- * with a hardcoded pixel value directly on the editor's root element.
- * Because this explicit declaration lives *inside* the shadow of BlockNote's
- * component tree, a Tailwind text-sm / text-base class on a parent wrapper
- * cannot override it — CSS inheritance is broken by the explicit value.
- *
- * FIX: We place a `data-bn-fontsize` attribute on our wrapper div and set a
- * CSS custom property `--bn-fs` on it.  The rule below has higher specificity
- * ([attr + class] beats [class]) and uses !important, so it reliably wins.
- * Heading em-units (3em / 2em / 1.3em) are relative to .bn-default-styles,
- * so they scale proportionally for free.
- */
-[data-bn-fontsize] .bn-default-styles,
-[data-bn-fontsize] .bn-editor {
-  font-size: var(--bn-fs, 16px) !important;
-  transition: font-size 0.15s ease;
-}
+/* BlockNote 관련 CSS는 BlockNote/Mantine 패키지 제거(components/editor/BlockNoteEditor.tsx
+   삭제)와 함께 정리됨 — 더 이상 어떤 페이지에서도 .bn-* 클래스가 렌더링되지 않는다. */

@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { confirmCheckoutSession } from "@/lib/commerce-api";
 import { notifyOpenerAndClosePayment } from "@/lib/payment-popup";
 
-export default function CheckoutSuccessPage() {
+function CheckoutSuccessContent() {
   const searchParams = useSearchParams();
   const [message, setMessage] = useState("결제를 승인하는 중입니다…");
 
@@ -48,5 +48,13 @@ export default function CheckoutSuccessPage() {
     <main className="grid min-h-full place-items-center bg-bg p-6 text-center text-txt">
       <p className="text-[14px] text-txt2">{message}</p>
     </main>
+  );
+}
+
+export default function CheckoutSuccessPage() {
+  return (
+    <Suspense fallback={null}>
+      <CheckoutSuccessContent />
+    </Suspense>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { completeOAuthLogin, type OAuthProvider } from "@/lib/auth-api";
@@ -10,7 +10,7 @@ import { useBrainX } from "@/components/brainx-provider";
 const PROVIDERS = new Set(["kakao", "google", "apple", "naver"]);
 const OAUTH_LINK_INTENT_KEY = "brainx_oauth_link_intent_v1";
 
-export default function OAuthCallbackPage() {
+function OAuthCallbackContent() {
   const params = useParams<{ provider: string }>();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -90,5 +90,13 @@ export default function OAuthCallbackPage() {
     <main className="grid min-h-full place-items-center bg-bg p-6 text-txt">
       <p className="text-[14px] text-txt2">{message}</p>
     </main>
+  );
+}
+
+export default function OAuthCallbackPage() {
+  return (
+    <Suspense fallback={null}>
+      <OAuthCallbackContent />
+    </Suspense>
   );
 }

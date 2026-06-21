@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { completeNotionOAuth, consumeNotionOAuthState, NOTION_OAUTH_MESSAGE_TYPE } from "@/lib/ingestion-api";
@@ -17,7 +17,7 @@ function notifyOpenerAndClose(success: boolean) {
   return true;
 }
 
-export default function NotionCallbackPage() {
+function NotionCallbackContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { pushToast } = useBrainX();
@@ -75,5 +75,13 @@ export default function NotionCallbackPage() {
     <main className="grid min-h-full place-items-center bg-bg p-6 text-txt">
       <p className="text-[14px] text-txt2">{message}</p>
     </main>
+  );
+}
+
+export default function NotionCallbackPage() {
+  return (
+    <Suspense fallback={null}>
+      <NotionCallbackContent />
+    </Suspense>
   );
 }

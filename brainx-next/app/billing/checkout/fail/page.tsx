@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { notifyOpenerAndClosePayment } from "@/lib/payment-popup";
 
-export default function CheckoutFailPage() {
+function CheckoutFailContent() {
   const searchParams = useSearchParams();
   const [message, setMessage] = useState("결제가 취소되었습니다.");
 
@@ -21,5 +21,13 @@ export default function CheckoutFailPage() {
     <main className="grid min-h-full place-items-center bg-bg p-6 text-center text-txt">
       <p className="text-[14px] text-txt2">{message}</p>
     </main>
+  );
+}
+
+export default function CheckoutFailPage() {
+  return (
+    <Suspense fallback={null}>
+      <CheckoutFailContent />
+    </Suspense>
   );
 }

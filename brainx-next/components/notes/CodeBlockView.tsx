@@ -14,6 +14,7 @@ import {
   type BlockAlign,
   type BlockWidthMode,
 } from "./BlockControls";
+import { ensureLanguageRegistered } from "./lowlightSetup";
 
 const ALL_LANGS = [
   { id: "",            label: "Plain Text" },
@@ -90,7 +91,7 @@ const LANG_EXT: Record<string, string> = {
   graphql: ".graphql",
 };
 
-export function CodeBlockView({ node, updateAttributes }: NodeViewProps) {
+export function CodeBlockView({ node, updateAttributes, editor, getPos }: NodeViewProps) {
   const [copied, setCopied]               = useState(false);
   const [filenameCopied, setFilenameCopied] = useState(false);
   const [open, setOpen]                   = useState(false);
@@ -188,6 +189,17 @@ export function CodeBlockView({ node, updateAttributes }: NodeViewProps) {
   function select(id: string) {
     updateAttributes({ language: id });
     setOpen(false);
+    // 기본 9종(lowlightSetup.ts) 밖의 언어는 이 시점에 처음 불러온다. 등록 전까지는
+    // lowlight-plugin의 기존 highlightAuto 폴백이 그대로 적용되어 화면이 깨지지 않고,
+    // 등록이 끝나면 같은 노드에 동일 attrs로 setNodeMarkup을 한 번 더 적용해 — 값은 그대로지만
+    // 새 transaction이 발생하므로 — lowlight-plugin이 이제 막 등록된 그래머로 다시
+    // 하이라이트하도록 강제한다.
+    ensureLanguageRegistered(id, () => {
+      const pos = getPos();
+      if (pos === undefined) return;
+      const current = editor.state.doc.nodeAt(pos);
+      if (current) editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, current.attrs));
+    });
   }
 
   function onLangKeyDown(e: KeyboardEvent) {
@@ -426,74 +438,86 @@ export function CodeBlockView({ node, updateAttributes }: NodeViewProps) {
             >
               {copied ? <Check size={12} /> : <Copy size={12} />}
             </button>
-
-            {/* Mermaid 보기/편집 토글 — 이전에는 미리보기 호버 툴바(우상단)와 코드뷰 하단
-                버튼으로 위치가 서로 달라 어색했다. Obsidian처럼 항상 같은 자리(헤더 우측)에
-                두어 보기↔편집 전환이 위치 이동 없이 일어나게 한다. */}
-            {isMermaid && (
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => updateAttributes({ preview: !effectivePreview })}
-                title={effectivePreview ? "코드 편집" : "다이어그램 보기"}
-                aria-label={effectivePreview ? "Mermaid 코드 편집" : "Mermaid 다이어그램 보기"}
-                className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-txt2 transition-colors hover:bg-surface/70 hover:text-txt"
-              >
-                {effectivePreview ? <Code2 size={12} /> : <Eye size={12} />}
-                <span>{effectivePreview ? "코드" : "미리보기"}</span>
-              </button>
-            )}
           </div>
 
         </div>
       </div>
 
-      {/* ── Mermaid 미리보기(렌더링) ─────────────────────────────────────
-          NodeViewContent(원본 소스)는 항상 DOM에 유지해야 ProseMirror가 내용을 추적할 수
-          있으므로 지우지 않고 display:none으로만 감춘다 — "편집" 토글을 누르면 그대로 보인다. */}
-      {effectivePreview && (
-        <div
-          className="group/cb-mermaid relative"
-          style={{ background: "rgb(var(--surface2) / 0.25)", borderRadius: "0 0 0.75rem 0.75rem" }}
-        >
+      {/* ── Mermaid 작성/미리보기 영역 ────────────────────────────────────
+          보기↔편집 전환 버튼은 헤더(파일명/언어/복사 옆)가 아니라 이 작성칸 자체의 우상단에
+          항상 같은 위치로 띄운다 — 코드 모드든 다이어그램 모드든 같은 좌표(이 relative 컨테이너
+          기준 absolute right-2 top-2)라서 전환해도 버튼이 이동하지 않는다. <pre>/NodeViewContent는
+          isMermaid 여부와 무관하게 항상 이 자리 그대로 렌더링하고(언어를 mermaid로 바꿔도
+          remount되지 않게), 버튼·여백만 isMermaid일 때 조건부로 추가한다. */}
+      <div className="relative">
+        {isMermaid && (
           <div
             contentEditable={false}
-            className="absolute right-2 top-2 z-10 pointer-events-none opacity-0 transition-opacity group-hover/cb-mermaid:pointer-events-auto group-hover/cb-mermaid:opacity-100"
+            className="absolute right-2 top-2 z-10 flex items-center gap-1.5"
           >
-            <BlockSizeToolbar
-              value={{ align, widthMode, widthPercent }}
-              onChange={(next) => updateAttributes(next)}
-            />
-          </div>
-          <div className="flex px-4 py-4" style={{ justifyContent: blockJustify(align) }}>
-            <div style={{ ...blockFrameStyle(widthMode, widthPercent, mermaidNaturalWidth), overflowX: "auto" }}>
-              <div style={blockContentStyle(widthMode, widthPercent, mermaidNaturalWidth)}>
-                <MermaidPreview
-                  code={node.textContent}
-                  targetWidthPx={blockTargetPx(widthMode, widthPercent, mermaidNaturalWidth)}
-                  onNaturalWidth={handleMermaidNaturalWidth}
+            {effectivePreview && (
+              <div className="pointer-events-none opacity-0 transition-opacity group-hover/cb-mermaid:pointer-events-auto group-hover/cb-mermaid:opacity-100">
+                <BlockSizeToolbar
+                  value={{ align, widthMode, widthPercent }}
+                  onChange={(next) => updateAttributes(next)}
                 />
+              </div>
+            )}
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => updateAttributes({ preview: !effectivePreview })}
+              title={effectivePreview ? "코드 편집" : "다이어그램 보기"}
+              aria-label={effectivePreview ? "Mermaid 코드 편집" : "Mermaid 다이어그램 보기"}
+              className="flex items-center gap-1 rounded-md border border-line/50 px-2 py-1 text-[11px] font-medium text-txt2 shadow-soft transition-colors hover:bg-surface2/80 hover:text-txt"
+              style={{ background: "rgb(var(--surface) / 0.92)" }}
+            >
+              {effectivePreview ? <Code2 size={12} /> : <Eye size={12} />}
+              <span>{effectivePreview ? "코드" : "보기"}</span>
+            </button>
+          </div>
+        )}
+
+        {/* 다이어그램 미리보기(렌더링) — 버튼과 안 겹치도록 pt-12로 상단 여유 확보 */}
+        {effectivePreview && (
+          <div
+            className="group/cb-mermaid"
+            style={{ background: "rgb(var(--surface2) / 0.25)", borderRadius: "0 0 0.75rem 0.75rem" }}
+          >
+            <div className="flex px-4 pb-4 pt-12" style={{ justifyContent: blockJustify(align) }}>
+              <div style={{ ...blockFrameStyle(widthMode, widthPercent, mermaidNaturalWidth), overflowX: "auto" }}>
+                <div style={blockContentStyle(widthMode, widthPercent, mermaidNaturalWidth)}>
+                  <MermaidPreview
+                    code={node.textContent}
+                    targetWidthPx={blockTargetPx(widthMode, widthPercent, mermaidNaturalWidth)}
+                    onNaturalWidth={handleMermaidNaturalWidth}
+                  />
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ── 코드 내용(원본 소스) ─────────────────────────────────────── */}
-      <pre
-        style={{
-          margin: 0,
-          padding: "1rem 1.25rem",
-          overflowX: "auto",
-          background: "rgb(var(--surface2) / 0.4)",
-          lineHeight: 1.75,
-          fontSize: "12px",
-          fontFamily: "var(--font-mono, ui-monospace, 'Cascadia Code', monospace)",
-          borderRadius: "0 0 0.75rem 0.75rem",
-          display: effectivePreview ? "none" : "block",
-        }}
-      >
-        <NodeViewContent />
-      </pre>
+        {/* 코드 내용(원본 소스) — NodeViewContent는 항상 DOM에 유지해야 ProseMirror가 내용을
+            추적할 수 있으므로 지우지 않고 display:none으로만 감춘다. Mermaid일 때만 위 버튼과
+            겹치지 않게 paddingTop을 늘린다. */}
+        <pre
+          style={{
+            margin: 0,
+            padding: "1rem 1.25rem",
+            paddingTop: isMermaid ? "3rem" : "1rem",
+            overflowX: "auto",
+            background: "rgb(var(--surface2) / 0.4)",
+            lineHeight: 1.75,
+            fontSize: "12px",
+            fontFamily: "var(--font-mono, ui-monospace, 'Cascadia Code', monospace)",
+            borderRadius: "0 0 0.75rem 0.75rem",
+            display: effectivePreview ? "none" : "block",
+          }}
+        >
+          <NodeViewContent />
+        </pre>
+      </div>
     </NodeViewWrapper>
   );
 }

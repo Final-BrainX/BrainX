@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useLayoutEffect, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 import { createPortal } from "react-dom";
+import dynamic from "next/dynamic";
 import { useEditor, EditorContent, ReactNodeViewRenderer } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
 import { Extension, textblockTypeInputRule } from "@tiptap/core";
@@ -14,7 +15,6 @@ import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { TextStyle } from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
 import Highlight from "@tiptap/extension-highlight";
-import { createLowlight, all } from "lowlight";
 import { Link2, Highlighter, Sparkles, Wand2, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { Table, TableRow, TableHeader, TableCell, TableView } from "@tiptap/extension-table";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
@@ -25,14 +25,18 @@ import { CodeBlockView } from "./CodeBlockView";
 import { QuickSwatchRow, MoreColorPopover, TEXT_COLOR_QUICK, HIGHLIGHT_SWATCHES } from "./ColorPalette";
 import { ImageBlock, insertImageBlockFromFile } from "./ImageBlockNode";
 import { blockWidthPercent, type BlockAlign, type BlockWidthMode } from "./BlockControls";
-import { TableToolbar } from "./TableToolbar";
+// 표를 쓰지 않는 노트에서는 이 작은 플로팅 툴바조차 메인 청크에 묶이지 않도록 분리한다.
+// Table/TableCell 등 TipTap extension 자체는 그대로 유지(동적 등록은 사이드 이펙트 위험이
+// 커서 시도하지 않음) — 여기서 지연시키는 건 순수 React UI뿐이다.
+const TableToolbar = dynamic(() => import("./TableToolbar").then((mod) => mod.TableToolbar), {
+  ssr: false,
+});
 import { activeCellAttrs, updateSelectedCellsAttrs } from "./tableUtils";
 import EditorContextMenu, { type EditorContextTarget } from "./EditorContextMenu";
+import { lowlight } from "./lowlightSetup";
 
 export type EditMode = "read" | "edit";
 export type AiActionType = "summarize" | "rewrite";
-
-const lowlight = createLowlight(all);
 
 /* ── Markdown → HTML (초기 로딩) ─────────────────────────────────────── */
 function escHtml(s: string) {
