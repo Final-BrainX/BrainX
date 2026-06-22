@@ -52,6 +52,7 @@ Public API:
 
 - `GET /api/v1/workspace/sync`
 - `POST /api/v1/notes`
+- `GET /api/v1/notes`
 - `GET /api/v1/notes/{noteId}`
 - `DELETE /api/v1/notes/{noteId}`
 - `PUT /api/v1/notes/{noteId}/content`
@@ -109,3 +110,15 @@ Published event types include:
 ## Version Conflict Rule
 
 `PUT /api/v1/notes/{noteId}/content` requires `baseVersion`. If the client base version differs from the server version, the service returns `409 NOTE_VERSION_CONFLICT` with `serverVersion` and `clientBaseVersion`.
+
+## Local Docker
+
+The service can run from the root backend compose file:
+
+```powershell
+cd C:\Edu\Final\BrainX\brainX_back
+Copy-Item .\env\workspace-service.env.example .\env\workspace-service.env
+docker compose up -d postgres workspace-service
+```
+
+`env/workspace-service.env` points the app container to the shared PostgreSQL container and the logical database `brainx_workspace`.

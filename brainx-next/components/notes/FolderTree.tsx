@@ -73,12 +73,18 @@ interface FolderTreeItem {
   children: FolderTreeItem[];
 }
 
+function noteNewestFirst(a: MockNote, b: MockNote) {
+  const at = Math.max(a.createdAt, a.updatedAt);
+  const bt = Math.max(b.createdAt, b.updatedAt);
+  return bt - at;
+}
+
 function buildTree(folders: MockFolder[], notes: MockNote[], parentId: string | null): FolderTreeItem[] {
   return folders
     .filter((f) => f.parentFolderId === parentId)
     .map((folder) => ({
       folder,
-      notes: notes.filter((n) => n.folderId === folder.id),
+      notes: notes.filter((n) => n.folderId === folder.id).sort(noteNewestFirst),
       children: buildTree(folders, notes, folder.id),
     }));
 }
@@ -133,6 +139,11 @@ export default function FolderTree({
   onReorderFolder,
 }: FolderTreeProps) {
   const tree = buildTree(folders, notes, null);
+  const folderIds = useMemo(() => new Set(folders.map((folder) => folder.id)), [folders]);
+  const rootNotes = useMemo(
+    () => notes.filter((note) => !note.folderId || !folderIds.has(note.folderId)).sort(noteNewestFirst),
+    [notes, folderIds]
+  );
 
   /* ── 폴더/노트 위치 변경 DnD (별도 그립 핸들 — 기존 노트 드래그-분할과 충돌 없음) ── */
   const [activeDrag, setActiveDrag] = useState<DragActiveData | null>(null);
@@ -203,6 +214,20 @@ export default function FolderTree({
       onDragCancel={handleDragCancel}
     >
       <div className="py-1">
+        {rootNotes.map((note) => (
+          <NoteRow
+            key={note.id}
+            note={note}
+            depth={0}
+            isActive={note.id === activeNoteId}
+            activeDrag={activeDrag}
+            overIndicator={overIndicator}
+            onNoteClick={onNoteClick}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+          />
+        ))}
+
         {tree.map((item) => (
           <FolderNode
             key={item.folder.id}
@@ -643,6 +668,20 @@ function FolderNode({
             </div>
           )}
 
+          {item.notes.map((note) => (
+            <NoteRow
+              key={note.id}
+              note={note}
+              depth={depth + 1}
+              isActive={note.id === activeNoteId}
+              activeDrag={activeDrag}
+              overIndicator={overIndicator}
+              onNoteClick={onNoteClick}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+            />
+          ))}
+
           {item.children.map((child) => (
             <FolderNode
               key={child.folder.id}
@@ -660,20 +699,6 @@ function FolderNode({
               onChangeFolderColor={onChangeFolderColor}
               onToggleFolderFavorite={onToggleFolderFavorite}
               onDeleteFolder={onDeleteFolder}
-              onDragStart={onDragStart}
-              onDragEnd={onDragEnd}
-            />
-          ))}
-
-          {item.notes.map((note) => (
-            <NoteRow
-              key={note.id}
-              note={note}
-              depth={depth + 1}
-              isActive={note.id === activeNoteId}
-              activeDrag={activeDrag}
-              overIndicator={overIndicator}
-              onNoteClick={onNoteClick}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
             />

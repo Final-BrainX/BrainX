@@ -19,6 +19,9 @@ public final class WorkspaceDtos {
                                     List<Map<String, Object>> recentActivities) {
     }
 
+    public record NoteListData(List<Map<String, Object>> notes, int totalCount) {
+    }
+
     public record NoteCreateRequest(@NotBlank String title, String markdown, String folderId, List<String> tags) {
     }
 
@@ -26,7 +29,11 @@ public final class WorkspaceDtos {
     }
 
     public record NoteDetailData(String noteId, String title, String markdown, FolderRef folder, List<String> tags,
-                                 int version, Instant createdAt, Instant updatedAt, Permissions permissions) {
+                                 int version, Instant createdAt, Instant updatedAt, Permissions permissions,
+                                 NoteTypography typography) {
+    }
+
+    public record NoteTypography(Integer scalePercent, String fontFamily, Map<String, Integer> overrides) {
     }
 
     public record FolderRef(String folderId, String name) {
@@ -43,10 +50,12 @@ public final class WorkspaceDtos {
                                       Map<String, Object> conflict) {
     }
 
-    public record NoteMetadataPatchRequest(String title, String folderId, List<String> tags, Boolean archived) {
+    public record NoteMetadataPatchRequest(String title, String folderId, List<String> tags, Boolean archived,
+                                           NoteTypography typography, Integer order) {
     }
 
-    public record NoteMetadataData(String noteId, String title, String folderId, List<String> tags, int version) {
+    public record NoteMetadataData(String noteId, String title, String folderId, List<String> tags, int version,
+                                   NoteTypography typography, Integer order) {
     }
 
     public record DeleteNoteData(String noteId, Instant deletedAt, Instant purgeAt) {
@@ -103,8 +112,7 @@ public final class WorkspaceDtos {
     public record FavoriteData(String targetType, String targetId, boolean enabled) {
     }
 
-    public record NoteLinkCreateRequest(String targetNoteId, @NotBlank String targetTitle,
-                                        @NotNull Boolean createIfMissing) {
+    public record NoteLinkCreateRequest(String targetNoteId, String targetTitle, @NotNull Boolean createIfMissing) {
     }
 
     public record NoteLinkData(String linkId, String sourceNoteId, String targetNoteId, String targetTitle) {

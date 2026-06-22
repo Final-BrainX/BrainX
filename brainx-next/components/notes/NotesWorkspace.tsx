@@ -3,11 +3,21 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { Group, Panel, useGroupRef } from "react-resizable-panels";
 import { WikiLinkContext, resolveWikiLinkTitle, type WikiLinkContextValue } from "./WikiLinkContext";
-import { RotateCcw, ChevronLeft } from "lucide-react";
+import { RotateCcw, ChevronLeft, Save } from "lucide-react";
 import { cx } from "@/lib/utils";
 import { MockFolder, MockNote, PaneNode, PaneTabsState, Tab, NotesWorkspaceSession, DragPayload } from "@/lib/notes/noteTypes";
 import type { EditMode, AiActionType } from "./NoteEditor";
 import { MOCK_NOTES, MOCK_FOLDERS } from "@/lib/notes/mockNotes";
+import {
+  USE_MOCK_NOTES,
+  createWorkspaceNote,
+  listFolders,
+  listNotes,
+  updateWorkspaceNoteContent,
+  updateWorkspaceNoteMetadata,
+  workspaceFolderToMock,
+  workspaceNoteToMock,
+} from "@/lib/workspace-api";
 import {
   uid,
   splitNodeAt,
@@ -39,6 +49,8 @@ function makeBlankNote(folderId?: string): MockNote {
     folderId,
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    version: 1,
+    persisted: false,
   };
 }
 
@@ -103,6 +115,28 @@ function readSession(persistKey: string): NotesWorkspaceSession | null {
 /** 호출자가 직접 실패를 처리한다 (백그라운드 자동저장은 무시, 수동 저장은 실패 상태로 노출) */
 function writeSession(persistKey: string, session: NotesWorkspaceSession) {
   window.localStorage.setItem(persistKey, JSON.stringify(session));
+}
+
+function replaceNoteIdInNode(node: PaneNode, oldId: string, newId: string): PaneNode {
+  if (node.type === "leaf") {
+    return node.noteId === oldId ? { ...node, noteId: newId } : node;
+  }
+  return {
+    ...node,
+    children: node.children.map((child) => replaceNoteIdInNode(child, oldId, newId)),
+  };
+}
+
+function replaceNoteIdInTabs(tabsByPane: Record<string, PaneTabsState>, oldId: string, newId: string) {
+  return Object.fromEntries(
+    Object.entries(tabsByPane).map(([paneId, tabsState]) => [
+      paneId,
+      {
+        ...tabsState,
+        tabs: tabsState.tabs.map((tab) => (tab.kind === "note" && tab.noteId === oldId ? { ...tab, noteId: newId } : tab)),
+      },
+    ])
+  ) as Record<string, PaneTabsState>;
 }
 
 export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteChange }: NotesWorkspaceProps) {
@@ -192,11 +226,13 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const [quickSwitcher, setQuickSwitcher] = useState<QuickSwitcherTarget | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [saveSignal, setSaveSignal] = useState(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const aiNonceRef = useRef(0);
   const hydratedRef = useRef(false);
   const prevActiveNoteIdRef = useRef<string | null>(null);
   const prevInitialKeyRef = useRef<string>(initialTab.kind === "note" ? initialTab.noteId : "start");
   const saveStatusTimerRef = useRef<number | null>(null);
+  const effectivePersistKey = USE_MOCK_NOTES ? persistKey : undefined;
   // Ctrl+S 발생 시점의 최신 세션 스냅샷 — 디바운스/렌더 타이밍과 무관하게 항상 최신값을 읽기 위한 ref
   const latestSessionRef = useRef<NotesWorkspaceSession>({
     root: init.root,
@@ -458,7 +494,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     const newNote = makeBlankNote(folderId);
     if (title) newNote.title = title;
     const newTabId = uid();
-    setNotes((prev) => [...prev, newNote]);
+    setNotes((prev) => [newNote, ...prev]);
     setPaneTabs((prev) => {
       const current = prev[paneId];
       const newTab: Tab = { id: newTabId, kind: "note", noteId: newNote.id };
@@ -496,7 +532,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     const active = tabsState?.tabs.find((t) => t.id === tabsState.activeTabId);
     if (active?.kind === "start") {
       const newNote = makeBlankNote(undefined);
-      setNotes((prev) => [...prev, newNote]);
+      setNotes((prev) => [newNote, ...prev]);
       replaceTabWithNote(paneId, active.id, newNote.id);
     } else {
       createNote(undefined, paneId);
@@ -672,11 +708,11 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
 
   // mount 시 1회: 저장된 세션 복원 → initialTab이 note면 그 노트를 활성 패널 탭으로 연다
   useEffect(() => {
-    if (!persistKey) {
+    if (!effectivePersistKey) {
       hydratedRef.current = true;
       return;
     }
-    const saved = readSession(persistKey);
+    const saved = readSession(effectivePersistKey);
     if (saved) {
       // 복원된 세션 위에서, initialTab이 note를 가리키면 그 노트를 활성 패널의 탭으로 연다.
       // (handleNoteClick은 마운트 시점의 stale state를 참조하므로 여기서 saved 값으로 직접 계산한다.)
@@ -702,7 +738,40 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }
     hydratedRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [persistKey]);
+  }, [effectivePersistKey]);
+
+  useEffect(() => {
+    if (USE_MOCK_NOTES) return;
+    let active = true;
+    setLoadError(null);
+    Promise.all([listNotes(), listFolders()])
+      .then(([noteData, folderData]) => {
+        if (!active) return;
+        const nextNotes = noteData.notes.map(workspaceNoteToMock);
+        const nextFolders = folderData.folders.map(workspaceFolderToMock);
+        setNotes(nextNotes);
+        setFolders(nextFolders);
+
+        if (initialTab.kind === "note" && nextNotes.some((note) => note.id === initialTab.noteId)) {
+          handleReplaceActiveTab(state.activeId, initialTab.noteId);
+          return;
+        }
+        if (initialTab.kind === "note" && nextNotes.length > 0) {
+          handleReplaceActiveTab(state.activeId, nextNotes[0].id);
+        }
+      })
+      .catch((error) => {
+        if (active) setLoadError(error instanceof Error ? error.message : "Workspace-Service에서 노트를 불러오지 못했습니다.");
+      })
+      .finally(() => {
+        if (active) hydratedRef.current = true;
+      });
+
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 마운트 후 initialTab이 바뀌면(클라이언트 라우팅으로 다른 노트로 이동) 해당 노트를 연다
   useEffect(() => {
@@ -715,16 +784,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
 
   // 변경 사항을 디바운스 저장 (백그라운드 자동저장 — 실패해도 조용히 무시, 수동 저장이 실패 상태를 노출)
   useEffect(() => {
-    if (!persistKey || !hydratedRef.current) return;
+    if (!effectivePersistKey || !hydratedRef.current) return;
     const handle = window.setTimeout(() => {
       try {
-        writeSession(persistKey, { root: state.root, activeId: state.activeId, paneTabs, notes, folders });
+        writeSession(effectivePersistKey, { root: state.root, activeId: state.activeId, paneTabs, notes, folders });
       } catch {
         // 백그라운드 자동저장 실패는 무시
       }
     }, 350);
     return () => window.clearTimeout(handle);
-  }, [persistKey, state, paneTabs, notes, folders]);
+  }, [effectivePersistKey, state, paneTabs, notes, folders]);
 
   // Ctrl+S가 항상 최신 세션을 즉시 기록할 수 있도록 매 변경마다 ref에 스냅샷 보관
   useEffect(() => {
@@ -741,23 +810,78 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
 
   /* Ctrl+S 수동 저장 — 활성 에디터에 디바운스 중인 본문/제목을 즉시 반영하도록 신호를 보낸 뒤,
      약간의 지연 후 최신 세션 스냅샷을 즉시 localStorage에 기록한다. */
+  const saveActiveNoteToBackend = useCallback(async () => {
+    const noteId = latestSessionRef.current.paneTabs[latestSessionRef.current.activeId]?.tabs.find(
+      (tab) => tab.id === latestSessionRef.current.paneTabs[latestSessionRef.current.activeId]?.activeTabId
+    );
+    if (!noteId || noteId.kind !== "note") {
+      return;
+    }
+
+    const note = latestSessionRef.current.notes.find((item) => item.id === noteId.noteId);
+    if (!note) {
+      return;
+    }
+
+    if (!note.persisted && !note.id.startsWith("note_")) {
+      const created = await createWorkspaceNote(note);
+      let nextVersion = created.version;
+      const savedId = created.noteId;
+      if (note.typography) {
+        const metadata = await updateWorkspaceNoteMetadata({ ...note, id: savedId, version: nextVersion, persisted: true });
+        nextVersion = metadata.version;
+      }
+      setNotes((prev) =>
+        prev.map((item) =>
+          item.id === note.id
+            ? { ...item, id: savedId, version: nextVersion, persisted: true, updatedAt: Date.now() }
+            : item
+        )
+      );
+      setState((prev) => ({ ...prev, root: replaceNoteIdInNode(prev.root, note.id, savedId) }));
+      setPaneTabs((prev) => replaceNoteIdInTabs(prev, note.id, savedId));
+      prevActiveNoteIdRef.current = savedId;
+      onActiveNoteChange?.(savedId);
+      return;
+    }
+
+    const content = await updateWorkspaceNoteContent(note);
+    const metadata = await updateWorkspaceNoteMetadata({ ...note, version: content.version, persisted: true });
+    setNotes((prev) =>
+      prev.map((item) =>
+        item.id === note.id
+          ? { ...item, version: metadata.version, persisted: true, updatedAt: Date.parse(content.savedAt) || Date.now() }
+          : item
+      )
+    );
+  }, [onActiveNoteChange]);
+
   const handleManualSave = useCallback(() => {
     setSaveStatus("saving");
     setSaveSignal((n) => n + 1);
     if (saveStatusTimerRef.current) window.clearTimeout(saveStatusTimerRef.current);
-    saveStatusTimerRef.current = window.setTimeout(() => {
-      if (!persistKey) {
+    saveStatusTimerRef.current = window.setTimeout(async () => {
+      if (!USE_MOCK_NOTES) {
+        try {
+          await saveActiveNoteToBackend();
+          setSaveStatus("saved");
+        } catch {
+          setSaveStatus("error");
+        }
+        return;
+      }
+      if (!effectivePersistKey) {
         setSaveStatus("saved");
         return;
       }
       try {
-        writeSession(persistKey, latestSessionRef.current);
+        writeSession(effectivePersistKey, latestSessionRef.current);
         setSaveStatus("saved");
       } catch {
         setSaveStatus("error");
       }
     }, 250);
-  }, [persistKey]);
+  }, [effectivePersistKey, saveActiveNoteToBackend]);
 
   useEffect(() => {
     return () => {
@@ -881,7 +1005,23 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
               · 노트 클릭 = 현재 탭 교체 · 본문에 드롭 = 교체 · 탭바에 드롭 = 탭 추가
             </span>
             <div className="flex-1" />
+            {loadError ? <span className="text-[11px] font-medium text-red-400">{loadError}</span> : null}
             <SaveStatusBadge status={saveStatus} />
+            <button
+              type="button"
+              onClick={handleManualSave}
+              disabled={saveStatus === "saving" || !activeNote}
+              title="선택된 노트 저장"
+              className={cx(
+                "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                saveStatus === "saving" || !activeNote
+                  ? "cursor-not-allowed border-transparent text-txt3/50"
+                  : "border-primary/30 bg-primary/10 text-primary hover:bg-primary/15"
+              )}
+            >
+              <Save size={12} />
+              <span>저장</span>
+            </button>
             <button
               onClick={handleReset}
               title="레이아웃 초기화"

@@ -35,6 +35,8 @@ export interface MockNote {
   folderId?: string;
   createdAt: number;
   updatedAt: number;
+  version?: number;
+  persisted?: boolean;
   /** 선택 사항 — 설정하지 않은 노트는 기존 기본 스타일을 그대로 사용한다 */
   typography?: NoteTypography;
 }

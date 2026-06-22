@@ -67,6 +67,23 @@ public class WorkspaceService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public NoteListData listNotes(String userId, String folderId, String tag, String q, boolean includeDeleted) {
+        String query = q == null ? null : q.trim().toLowerCase(Locale.ROOT);
+        List<Map<String, Object>> notes = (includeDeleted
+                ? noteRepository.findByUserIdOrderByUpdatedAtDesc(userId)
+                : noteRepository.findByUserIdAndDeletedFalseOrderByUpdatedAtDesc(userId)).stream()
+                .filter(note -> folderId == null || Objects.equals(folderId, note.getFolderId()))
+                .filter(note -> tag == null || note.getTags().contains(tag))
+                .filter(note -> query == null || query.isBlank()
+                        || note.getTitle().toLowerCase(Locale.ROOT).contains(query)
+                        || note.getMarkdown().toLowerCase(Locale.ROOT).contains(query)
+                        || note.getTags().stream().anyMatch(noteTag -> noteTag.toLowerCase(Locale.ROOT).contains(query)))
+                .map(this::noteMap)
+                .toList();
+        return new NoteListData(notes, notes.size());
+    }
+
     public NoteCreatedData createNote(String userId, NoteCreateRequest request) {
         Instant now = Instant.now();
         Note note = new Note(Ids.note(), userId, request.title(), request.markdown(), request.folderId(), request.tags(), now);
@@ -92,7 +109,7 @@ public class WorkspaceService {
         // LazyInitializationException이 나지 않는다.
         List<String> tags = new ArrayList<>(note.getTags());
         return new NoteDetailData(note.getNoteId(), note.getTitle(), note.getMarkdown(), folder, tags, note.getVersion(),
-                note.getCreatedAt(), note.getUpdatedAt(), new Permissions(true, true));
+                note.getCreatedAt(), note.getUpdatedAt(), new Permissions(true, true), typography(note));
     }
 
     public DeleteNoteData deleteNote(String userId, String noteId, String mode) {
@@ -139,7 +156,7 @@ public class WorkspaceService {
     public NoteMetadataData patchMetadata(String userId, String noteId, NoteMetadataPatchRequest request) {
         Note note = note(userId, noteId);
         Instant now = Instant.now();
-        note.patchMetadata(request.title(), request.folderId(), request.tags(), request.archived(), now);
+        note.patchMetadata(request.title(), request.folderId(), request.tags(), request.archived(), typographyJson(request.typography()), now);
         snapshot(note, now);
         activity(userId, note, "updated", now);
         eventPublisher.publish("NoteMetadataChanged", userId, payload(
@@ -149,9 +166,10 @@ public class WorkspaceService {
                 "folderId", request.folderId(),
                 "tags", request.tags(),
                 "archived", request.archived(),
+                "typography", request.typography(),
                 "version", note.getVersion()
         ));
-        return new NoteMetadataData(noteId, note.getTitle(), note.getFolderId(), note.getTags(), note.getVersion());
+        return new NoteMetadataData(noteId, note.getTitle(), note.getFolderId(), note.getTags(), note.getVersion(), typography(note), null);
     }
 
     @Transactional(readOnly = true)
@@ -280,15 +298,18 @@ public class WorkspaceService {
 
     public NoteLinkData createLink(String userId, String sourceNoteId, NoteLinkCreateRequest request) {
         Note source = note(userId, sourceNoteId);
+        if (request.targetNoteId() == null && (request.targetTitle() == null || request.targetTitle().isBlank())) {
+            throw new WorkspaceException(HttpStatus.BAD_REQUEST, "TARGET_NOTE_REQUIRED", "targetNoteId or targetTitle is required.");
+        }
         boolean[] createdTarget = {false};
         Note target = request.targetNoteId() == null
-                ? noteRepository.findFirstByUserIdAndTitleAndDeletedFalse(userId, request.targetTitle())
+                ? noteRepository.findFirstByUserIdAndTitleAndDeletedFalse(userId, request.targetTitle().trim())
                 .orElseGet(() -> {
                     if (!request.createIfMissing()) {
                         return null;
                     }
                     createdTarget[0] = true;
-                    return new Note(Ids.note(), userId, request.targetTitle(), "", null, List.of(), Instant.now());
+                    return new Note(Ids.note(), userId, request.targetTitle().trim(), "", null, List.of(), Instant.now());
                 })
                 : note(userId, request.targetNoteId());
         if (target == null) {
@@ -478,8 +499,8 @@ public class WorkspaceService {
 
     private Map<String, Object> noteMap(Note note) {
         return payload("noteId", note.getNoteId(), "title", note.getTitle(), "markdown", note.getMarkdown(), "folderId", note.getFolderId(),
-                "tags", note.getTags(), "version", note.getVersion(), "createdAt", note.getCreatedAt(), "updatedAt", note.getUpdatedAt(),
-                "deleted", note.isDeleted());
+                "tags", new ArrayList<>(note.getTags()), "version", note.getVersion(), "createdAt", note.getCreatedAt(), "updatedAt", note.getUpdatedAt(),
+                "deleted", note.isDeleted(), "typography", typography(note));
     }
 
     private Map<String, Object> folderMap(Folder folder) {
@@ -511,6 +532,22 @@ public class WorkspaceService {
             return objectMapper.writeValueAsString(value);
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Failed to serialize JSON.", exception);
+        }
+    }
+
+    private String typographyJson(NoteTypography typography) {
+        return typography == null ? null : toJson(typography);
+    }
+
+    private NoteTypography typography(Note note) {
+        String typographyJson = note.getTypographyJson();
+        if (typographyJson == null || typographyJson.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(typographyJson, NoteTypography.class);
+        } catch (JsonProcessingException exception) {
+            return null;
         }
     }
 

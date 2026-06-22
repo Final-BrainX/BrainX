@@ -32,6 +32,16 @@ public class WorkspaceController {
                 .body(ApiResponse.success(workspaceService.createNote(currentUser.userId(), request)));
     }
 
+    @GetMapping("/api/v1/notes")
+    public ApiResponse<NoteListData> listNotes(
+            @RequestParam(required = false) String folderId,
+            @RequestParam(required = false) String tag,
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "false") boolean includeDeleted
+    ) {
+        return ApiResponse.success(workspaceService.listNotes(currentUser.userId(), folderId, tag, q, includeDeleted));
+    }
+
     @GetMapping("/api/v1/notes/{noteId}")
     public ApiResponse<NoteDetailData> getNote(@PathVariable String noteId) {
         return ApiResponse.success(workspaceService.getNote(currentUser.userId(), noteId));

@@ -83,9 +83,15 @@ class WorkspaceServiceCrudTests {
                 });
 
         NoteMetadataData metadata = workspaceService.patchMetadata(USER_ID, first.noteId(),
-                new NoteMetadataPatchRequest("Renamed note", folder.folderId(), List.of("java", "workspace"), false));
+                new NoteMetadataPatchRequest("Renamed note", folder.folderId(), List.of("java", "workspace"), false,
+                        new NoteTypography(110, "Pretendard", Map.of("body", 17, "h1", 32)), null));
         assertThat(metadata.title()).isEqualTo("Renamed note");
         assertThat(metadata.tags()).containsExactly("java", "workspace");
+        assertThat(metadata.typography().scalePercent()).isEqualTo(110);
+
+        NoteListData list = workspaceService.listNotes(USER_ID, folder.folderId(), "workspace", "renamed", false);
+        assertThat(list.totalCount()).isEqualTo(1);
+        assertThat(list.notes().getFirst()).containsEntry("noteId", first.noteId());
 
         NoteTagsData tags = workspaceService.putTags(USER_ID, first.noteId(), new NoteTagsPutRequest(List.of("backend", "ssot")));
         assertThat(tags.tags()).containsExactly("backend", "ssot");

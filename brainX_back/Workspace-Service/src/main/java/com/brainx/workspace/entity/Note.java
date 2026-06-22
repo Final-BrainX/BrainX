@@ -29,6 +29,8 @@ public class Note {
     @Column(columnDefinition = "text", nullable = false)
     private String markdown;
     private String folderId;
+    @Column(columnDefinition = "text")
+    private String typographyJson;
     @ElementCollection
     @CollectionTable(name = "workspace_note_tags", joinColumns = @JoinColumn(name = "note_id"))
     @Column(name = "tag_name")
@@ -64,7 +66,7 @@ public class Note {
         this.updatedAt = now;
     }
 
-    public void patchMetadata(String title, String folderId, List<String> tags, Boolean archived, Instant now) {
+    public void patchMetadata(String title, String folderId, List<String> tags, Boolean archived, String typographyJson, Instant now) {
         if (title != null && !title.isBlank()) {
             this.title = title;
         }
@@ -76,6 +78,9 @@ public class Note {
         }
         if (archived != null) {
             this.archived = archived;
+        }
+        if (typographyJson != null) {
+            this.typographyJson = typographyJson.isBlank() ? null : typographyJson;
         }
         this.version++;
         this.updatedAt = now;

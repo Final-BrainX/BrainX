@@ -2,6 +2,10 @@ server:
   port: ${SERVER_PORT:8082}
 
 spring:
+  config:
+    import:
+    - optional:file:../.env[.properties]
+    - optional:file:../env/workspace-service.env[.properties]
   application:
     name: Workspace-Service
   datasource:
@@ -25,3 +29,4 @@ brainx:
     secret: ${JWT_SECRET:replace_with_at_least_32_byte_secret}
   service-token: ${SERVICE_TOKEN:local-service-token}
   public-base-url: ${PUBLIC_BASE_URL:http://localhost:3000}
+  seed-demo-data: ${SEED_DEMO_DATA:true}

@@ -158,7 +158,7 @@ BrainX/
 | AI-Service | 영진 | 시맨틱 검색, RAG, LLM 호출, AI 추천, 요약, 토큰 사용량 service 처리 | 미구현 |
 | Ingestion-Service | 환유 | 파일 처리, 변환, 가져오기, 내보내기, 외부 연동 | 구현 중 (포트 8083) |
 | Commerce-Service | 환유 | 결제 API, 플랜, 구독/상품 관리 | 구현 중 (포트 8084) — Toss Payments 결제, 플랜 조회/변경/취소 |
-| Workspace-Service | 예진, 진주, 채영 | 노트, 폴더, 링크, 그래프, 지식 워크스페이스 원장 | 미구현 (brainX_back/knowledge-workspace-service는 제거 예정) |
+| Workspace-Service | 예진, 진주, 채영 | 노트, 폴더, 링크, 그래프, 지식 워크스페이스 원장 | 구현 중 (포트 8082) — 노트/폴더/링크/그래프/공유 API |
 
 ### Service Boundary Rules
 
@@ -266,32 +266,44 @@ API와 이벤트 계약의 기준은 `contracts-v2`입니다.
 cd C:\Edu\Final\BrainX\brainX_back
 Copy-Item .env.example .env
 Copy-Item .\env\user-service.env.example .\env\user-service.env
+Copy-Item .\env\workspace-service.env.example .\env\workspace-service.env
 Copy-Item .\env\ingestion-service.env.example .\env\ingestion-service.env
 Copy-Item .\env\commerce-service.env.example .\env\commerce-service.env
-docker compose up -d user-postgres workspace-postgres ingestion-postgres commerce-postgres
+docker compose up -d
 ```
 
 `.env`는 각자 로컬 값만 넣고 Git에 올리지 않습니다. `JWT_SECRET`은 User-Service, Workspace-Service, Ingestion-Service가 같은 값을 사용해야 합니다.
 `env/*.env`도 서비스별 로컬 실행 값이므로 Git에 올리지 않습니다.
+
+DB만 Docker로 띄우려면 `docker compose up -d`를 사용합니다. 백엔드 앱까지 컨테이너로 함께 띄우려면 아래처럼 `apps` 프로필을 사용합니다.
+
+```powershell
+cd C:\Edu\Final\BrainX\brainX_back
+docker compose --profile apps up -d --build
+```
+
+`apps` 프로필은 `User-Service`(8080), `Workspace-Service`(8082), `Ingestion-Service`(8083), `Commerce-Service`(8084)를 모두 실행합니다. 이 방식으로 앱을 띄우면 각 서비스를 로컬 Gradle/IDE에서 따로 실행할 필요는 없습니다. 프론트엔드는 계속 `brainx-next`에서 실행하면 됩니다.
 
 각 서비스는 자기 폴더 기준으로 실행하면 아래 파일을 자동으로 읽습니다.
 
 | Service | 자동 import |
 | --- | --- |
 | User-Service | `../.env`, `../env/user-service.env` |
+| Workspace-Service | Docker 실행 시 `env/workspace-service.env`; 로컬 IDE 실행 시 동일한 값을 Run Configuration에 지정 |
 | Ingestion-Service | `../.env`, `../env/ingestion-service.env` |
 | Commerce-Service | `../.env`, `../env/commerce-service.env` |
 
 `JWT_SECRET`처럼 모든 서비스가 공유하는 값은 `.env`에 두고, `DB_URL`처럼 서비스마다 달라지는 값은 `env/{service}.env`에 둡니다. 같은 이름의 값이 있으면 서비스별 env 파일 값이 우선합니다.
+Docker Compose로 앱을 실행할 때는 각 서비스의 `DB_URL`을 컨테이너 네트워크용 주소인 `postgres:5432`로 자동 덮어씁니다. 그래서 `env/{service}.env`의 `localhost:5432` 값은 로컬 Gradle/IDE 실행용으로 유지해도 됩니다.
 
 기본 DB 접속 정보:
 
 | Service | DB | JDBC URL |
 | --- | --- | --- |
 | User-Service | PostgreSQL | `jdbc:postgresql://localhost:5432/brainx_user` |
-| Workspace-Service | PostgreSQL | `jdbc:postgresql://localhost:5433/brainx_workspace` |
-| Ingestion-Service | PostgreSQL | `jdbc:postgresql://localhost:5434/brainx_ingestion` |
-| Commerce-Service | PostgreSQL | `jdbc:postgresql://localhost:5435/brainx_commerce` |
+| Workspace-Service | PostgreSQL | `jdbc:postgresql://localhost:5432/brainx_workspace` |
+| Ingestion-Service | PostgreSQL | `jdbc:postgresql://localhost:5432/brainx_ingestion` |
+| Commerce-Service | PostgreSQL | `jdbc:postgresql://localhost:5432/brainx_commerce` |
 
 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`는 세 Spring 서비스가 같은 env 이름을 쓰므로, 여러 백엔드를 IDE에서 동시에 실행할 때는 서비스별 Run Configuration에 맞는 DB 값을 따로 넣습니다.
 

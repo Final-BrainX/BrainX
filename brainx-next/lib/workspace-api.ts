@@ -1,8 +1,10 @@
 "use client";
 
 import { clearAuthSession, isDemoSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import type { MockFolder, MockNote, NoteTypography } from "@/lib/notes/noteTypes";
 
 const WORKSPACE_API_BASE_URL = process.env.NEXT_PUBLIC_WORKSPACE_API_BASE_URL ?? "http://localhost:8082";
+export const USE_MOCK_NOTES = process.env.NEXT_PUBLIC_NOTES_USE_MOCK !== "false";
 
 export type NoteDetail = {
   noteId: string;
@@ -13,6 +15,58 @@ export type NoteDetail = {
   version: number;
   createdAt: string;
   updatedAt: string;
+  typography?: NoteTypography | null;
+};
+
+export type WorkspaceNoteItem = {
+  noteId: string;
+  title: string;
+  markdown: string;
+  folderId: string | null;
+  tags: string[];
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  typography?: NoteTypography | null;
+};
+
+export type WorkspaceFolderItem = {
+  folderId: string;
+  name: string;
+  parentFolderId: string | null;
+};
+
+export type NoteCreated = {
+  noteId: string;
+  title: string;
+  folderId: string | null;
+  version: number;
+  createdAt: string;
+};
+
+export type NoteSaveResult = {
+  noteId: string;
+  version: number;
+  savedAt: string;
+  status: "SAVED";
+};
+
+export type NoteMetadataResult = {
+  noteId: string;
+  title: string;
+  folderId: string | null;
+  tags: string[];
+  version: number;
+  typography?: NoteTypography | null;
+};
+
+type NoteListData = {
+  notes: WorkspaceNoteItem[];
+  totalCount: number;
+};
+
+type FolderTreeData = {
+  folders: WorkspaceFolderItem[];
 };
 
 function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
@@ -22,7 +76,7 @@ function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
 async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const session = readAuthSession();
 
-  if (session?.accessToken && isDemoSession(session)) {
+  if (USE_MOCK_NOTES && session?.accessToken && isDemoSession(session)) {
     return demoWorkspaceResponse<T>(path);
   }
 
@@ -67,4 +121,72 @@ function demoWorkspaceResponse<T>(path: string): T {
 
 export async function getNote(noteId: string) {
   return authedRequest<NoteDetail>(`/api/v1/notes/${noteId}`);
+}
+
+export async function listNotes() {
+  return authedRequest<NoteListData>("/api/v1/notes");
+}
+
+export async function listFolders() {
+  return authedRequest<FolderTreeData>("/api/v1/folders/tree");
+}
+
+export async function createWorkspaceNote(note: MockNote) {
+  return authedRequest<NoteCreated>("/api/v1/notes", {
+    method: "POST",
+    body: JSON.stringify({
+      title: note.title,
+      markdown: note.content,
+      folderId: note.folderId ?? null,
+      tags: note.tags
+    })
+  });
+}
+
+export async function updateWorkspaceNoteContent(note: MockNote) {
+  return authedRequest<NoteSaveResult>(`/api/v1/notes/${note.id}/content`, {
+    method: "PUT",
+    body: JSON.stringify({
+      baseVersion: note.version ?? 1,
+      markdown: note.content,
+      clientSavedAt: new Date().toISOString()
+    })
+  });
+}
+
+export async function updateWorkspaceNoteMetadata(note: MockNote) {
+  return authedRequest<NoteMetadataResult>(`/api/v1/notes/${note.id}/metadata`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      title: note.title,
+      folderId: note.folderId ?? null,
+      tags: note.tags,
+      typography: note.typography ?? null
+    })
+  });
+}
+
+export function workspaceNoteToMock(note: WorkspaceNoteItem | NoteDetail): MockNote {
+  const folderId = "folder" in note ? note.folder?.folderId ?? undefined : note.folderId ?? undefined;
+  return {
+    id: note.noteId,
+    title: note.title,
+    content: note.markdown ?? "",
+    tags: note.tags ?? [],
+    category: "backend",
+    folderId,
+    createdAt: Date.parse(note.createdAt) || Date.now(),
+    updatedAt: Date.parse(note.updatedAt) || Date.now(),
+    version: note.version,
+    persisted: true,
+    typography: note.typography ?? undefined
+  };
+}
+
+export function workspaceFolderToMock(folder: WorkspaceFolderItem): MockFolder {
+  return {
+    id: folder.folderId,
+    name: folder.name,
+    parentFolderId: folder.parentFolderId
+  };
 }

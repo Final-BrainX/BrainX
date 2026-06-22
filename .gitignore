@@ -28,6 +28,8 @@ Thumbs.db
 
 # Secrets (로컬 전용, git에 올리지 않음)
 .env
+brainx-next/.env.local
+brainx-next/.env*.local
 brainX_back/.env
 brainX_back/env/*.env
 !brainX_back/env/*.env.example

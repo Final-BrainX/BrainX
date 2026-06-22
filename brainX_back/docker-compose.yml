@@ -1,4 +1,99 @@
 services:
+  user-service:
+    profiles:
+      - apps
+    build:
+      context: ./User-Service
+    container_name: brainx-user-service
+    restart: unless-stopped
+    env_file:
+      - ./.env
+      - ./env/user-service.env
+    environment:
+      SERVER_PORT: "8080"
+      DB_URL: jdbc:postgresql://postgres:5432/${USER_DB_NAME:-brainx_user}
+      DB_USERNAME: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-1234}
+      DB_DRIVER: org.postgresql.Driver
+      JPA_DDL_AUTO: update
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  workspace-service:
+    profiles:
+      - apps
+    build:
+      context: ./Workspace-Service
+    container_name: brainx-workspace-service
+    restart: unless-stopped
+    env_file:
+      - ./.env
+      - ./env/workspace-service.env
+    environment:
+      SERVER_PORT: "8082"
+      DB_URL: jdbc:postgresql://postgres:5432/${WORKSPACE_DB_NAME:-brainx_workspace}
+      DB_USERNAME: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-1234}
+      DB_DRIVER: org.postgresql.Driver
+      JPA_DDL_AUTO: update
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ingestion-service:
+    profiles:
+      - apps
+    build:
+      context: ./Ingestion-Service
+    container_name: brainx-ingestion-service
+    restart: unless-stopped
+    env_file:
+      - ./.env
+      - ./env/ingestion-service.env
+    environment:
+      SERVER_PORT: "8083"
+      DB_URL: jdbc:postgresql://postgres:5432/${INGESTION_DB_NAME:-brainx_ingestion}
+      DB_USERNAME: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-1234}
+      DB_DRIVER: org.postgresql.Driver
+      JPA_DDL_AUTO: update
+      WORKSPACE_SERVICE_URL: http://workspace-service:8082
+    ports:
+      - "8083:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      workspace-service:
+        condition: service_started
+
+  commerce-service:
+    profiles:
+      - apps
+    build:
+      context: ./Commerce-Service
+    container_name: brainx-commerce-service
+    restart: unless-stopped
+    env_file:
+      - ./.env
+      - ./env/commerce-service.env
+    environment:
+      SERVER_PORT: "8084"
+      DB_URL: jdbc:postgresql://postgres:5432/${COMMERCE_DB_NAME:-brainx_commerce}
+      DB_USERNAME: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-1234}
+      DB_DRIVER: org.postgresql.Driver
+      JPA_DDL_AUTO: update
+    ports:
+      - "8084:8084"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres:
     image: postgres:16-alpine
     container_name: brainx-postgres
