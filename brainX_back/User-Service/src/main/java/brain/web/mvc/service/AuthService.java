@@ -152,7 +152,7 @@ public class AuthService {
                 .build());
 
         saveConsents(user, request.consents());
-        return issueAuthTokenResponse(user, "HOME");
+        return issueAuthTokenResponse(user, null);
     }
 
     @Transactional(readOnly = true)

@@ -8,7 +8,7 @@ import remarkGfm from 'remark-gfm'
 import toast from 'react-hot-toast'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { noteApi } from '../../api/workspace'
-import type { Backlink, SaveStatus } from '../../types'
+import type { Backlink, NoteLink, SaveStatus } from '../../types'
 
 type ViewMode = 'edit' | 'preview' | 'split'
 

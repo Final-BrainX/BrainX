@@ -1,70 +1,21 @@
 services:
-  user-postgres:
+  postgres:
     image: postgres:16-alpine
-    container_name: brainx-user-postgres
+    container_name: brainx-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${USER_DB_NAME:-brainx_user}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1234}
+      USER_DB_NAME: ${USER_DB_NAME:-brainx_user}
+      WORKSPACE_DB_NAME: ${WORKSPACE_DB_NAME:-brainx_workspace}
+      INGESTION_DB_NAME: ${INGESTION_DB_NAME:-brainx_ingestion}
+      COMMERCE_DB_NAME: ${COMMERCE_DB_NAME:-brainx_commerce}
     ports:
       - "5432:5432"
     volumes:
-      - brainx_user_postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  workspace-postgres:
-    image: postgres:16-alpine
-    container_name: brainx-workspace-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${WORKSPACE_DB_NAME:-brainx_workspace}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1234}
-    ports:
-      - "5433:5432"
-    volumes:
-      - brainx_workspace_postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  ingestion-postgres:
-    image: postgres:16-alpine
-    container_name: brainx-ingestion-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${INGESTION_DB_NAME:-brainx_ingestion}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1234}
-    ports:
-      - "5434:5432"
-    volumes:
-      - brainx_ingestion_postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  commerce-postgres:
-    image: postgres:16-alpine
-    container_name: brainx-commerce-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${COMMERCE_DB_NAME:-brainx_commerce}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1234}
-    ports:
-      - "5435:5432"
-    volumes:
-      - brainx_commerce_postgres_data:/var/lib/postgresql/data
+      - brainx_postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
@@ -72,7 +23,4 @@ services:
       retries: 5
 
 volumes:
-  brainx_user_postgres_data:
-  brainx_workspace_postgres_data:
-  brainx_ingestion_postgres_data:
-  brainx_commerce_postgres_data:
+  brainx_postgres_data:

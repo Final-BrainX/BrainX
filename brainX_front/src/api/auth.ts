@@ -7,20 +7,26 @@ export const authApi = {
       '/v1/auth/email-verifications', { email, purpose }
     ),
 
+  verifyEmailCode: (email: string, verificationCode: string, purpose: 'signup' | 'passwordChange') =>
+    identityApi.post<ApiResponse<{ verified: boolean; email: string }>>(
+      '/v1/auth/email-verifications/verify', { email, verificationCode, purpose }
+    ),
+
   signup: (data: {
     email: string
-    code: string
+    verificationCode: string
     password: string
+    passwordConfirm: string
     consents: {
       termsRequired: boolean
       privacyRequired: boolean
       marketingOptional: boolean
       behaviorAnalyticsOptional: boolean
     }
-  }) => identityApi.post<ApiResponse<TokenResponse>>('/v1/auth/email-signups', data),
+  }) => identityApi.post<ApiResponse<TokenResponse>>('/v1/auth/signup/email', data),
 
   login: (email: string, password: string) =>
-    identityApi.post<ApiResponse<TokenResponse>>('/v1/auth/login', { email, password }),
+    identityApi.post<ApiResponse<TokenResponse>>('/v1/auth/login/local', { email, password }),
 
   logout: () =>
     identityApi.post<ApiResponse<{ ok: boolean }>>('/v1/auth/logout'),

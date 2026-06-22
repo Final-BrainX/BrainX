@@ -28,7 +28,7 @@ workspaceApi.interceptors.request.use(authInterceptor)
 
 // 공통 응답 인터셉터 (401 → 로그인 페이지)
 // 로그인/회원가입 자체 요청은 제외 (잘못된 비밀번호도 401이므로 리다이렉트 하면 안 됨)
-const AUTH_PATHS = ['/v1/auth/login', '/v1/auth/signup', '/v1/auth/refresh']
+const AUTH_PATHS = ['/v1/auth/login', '/v1/auth/signup', '/v1/auth/token/refresh']
 
 const responseInterceptor = (error: any) => {
   const url: string = error.config?.url ?? ''

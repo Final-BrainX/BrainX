@@ -655,6 +655,7 @@ function AccountSettingsModal({
   onCoverChange: (coverImage: string) => void;
 }) {
   const { pushToast, sidebarCollapsed } = useBrainX();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const profileInputRef = useRef<HTMLInputElement | null>(null);
   const coverInputRef = useRef<HTMLInputElement | null>(null);
   const [nickname, setNickname] = useState(displayName(profile));
@@ -672,6 +673,17 @@ function AccountSettingsModal({
   });
   const [deletionReason, setDeletionReason] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
+
+  useEffect(() => {
+    function closeOnOutsideMouseDown(event: MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node) || dialogRef.current?.contains(target)) return;
+      onClose();
+    }
+
+    document.addEventListener("mousedown", closeOnOutsideMouseDown);
+    return () => document.removeEventListener("mousedown", closeOnOutsideMouseDown);
+  }, [onClose]);
 
   const saveProfile = async () => {
     setSavingProfile(true);
@@ -793,8 +805,13 @@ function AccountSettingsModal({
       className={`fixed bottom-0 right-0 top-0 z-50 flex h-dvh items-center justify-center overflow-y-auto bg-black/62 px-4 py-6 left-0 ${
         sidebarCollapsed ? "md:left-[68px]" : "md:left-[236px]"
       }`}
+      onMouseDown={onClose}
     >
-      <div className="max-h-[88svh] w-full max-w-[628px] overflow-hidden rounded-[26px] bg-white text-neutral-950 shadow-[0_24px_80px_rgb(0_0_0/0.35)]">
+      <div
+        ref={dialogRef}
+        className="max-h-[88svh] w-full max-w-[628px] overflow-hidden rounded-[26px] bg-white text-neutral-950 shadow-[0_24px_80px_rgb(0_0_0/0.35)]"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="flex h-[68px] items-center justify-between border-b border-neutral-200 px-6">
           <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full hover:bg-neutral-100" aria-label="닫기">
             <Icon name="x" size={19} />

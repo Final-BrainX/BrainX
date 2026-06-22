@@ -12,6 +12,11 @@ import {
   readAuthSession,
   type AuthSession,
 } from "@/lib/auth-api";
+import {
+  getMySubscription,
+  PAYMENT_RESULT_MESSAGE_TYPE,
+  type Subscription,
+} from "@/lib/commerce-api";
 import { getMyProfile } from "@/lib/user-api";
 
 const NAV = [
@@ -33,6 +38,15 @@ const NAV2 = [
 function isActive(pathname: string, path: string) {
   if (path === "/notes") return pathname.startsWith("/notes");
   return pathname === path;
+}
+
+function planLabel(subscription: Subscription | null) {
+  if (!subscription || subscription.status === "FREE" || subscription.status === "CANCELLED" || subscription.plan.planId === "free") {
+    return "Free";
+  }
+
+  const name = subscription.plan.name.trim();
+  return name === "무료" ? "Free" : name || "Free";
 }
 
 function SearchBar() {
@@ -343,6 +357,7 @@ function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [profileName, setProfileName] = useState("");
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
+  const [currentPlan, setCurrentPlan] = useState("Free");
 
   useEffect(() => {
     setSession(readAuthSession());
@@ -395,6 +410,45 @@ function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
     session?.profileImageUrl,
   ]);
 
+  useEffect(() => {
+    let active = true;
+
+    const refreshPlan = () => {
+      if (!session?.accessToken) {
+        setCurrentPlan("Free");
+        return;
+      }
+
+      getMySubscription()
+        .then((subscription) => {
+          if (active) setCurrentPlan(planLabel(subscription));
+        })
+        .catch(() => {
+          if (active) setCurrentPlan("Free");
+        });
+    };
+
+    refreshPlan();
+
+    function handlePaymentMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type === PAYMENT_RESULT_MESSAGE_TYPE) refreshPlan();
+    }
+
+    window.addEventListener("focus", refreshPlan);
+    window.addEventListener("brainx-auth-session-changed", refreshPlan);
+    window.addEventListener("brainx-subscription-changed", refreshPlan);
+    window.addEventListener("message", handlePaymentMessage);
+
+    return () => {
+      active = false;
+      window.removeEventListener("focus", refreshPlan);
+      window.removeEventListener("brainx-auth-session-changed", refreshPlan);
+      window.removeEventListener("brainx-subscription-changed", refreshPlan);
+      window.removeEventListener("message", handlePaymentMessage);
+    };
+  }, [session?.accessToken, session?.userId]);
+
   const displayName =
     profileName ||
     session?.nickname?.trim() ||
@@ -434,7 +488,7 @@ function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
                 {displayName}
               </div>
               <div className="text-[11px] text-txt3">
-                {session?.role ?? "Free 플랜"}
+                {currentPlan}
               </div>
             </div>
           </button>

@@ -210,6 +210,15 @@ function initials(name: string) {
   return name.trim().slice(0, 1).toUpperCase() || "U";
 }
 
+function planBadgeLabel(subscription: CommerceSubscription | null) {
+  if (!subscription || subscription.status === "FREE" || subscription.status === "CANCELLED" || subscription.plan.planId === "free") {
+    return "Free";
+  }
+
+  const name = subscription.plan.name.trim();
+  return name === "무료" ? "Free" : name || "Free";
+}
+
 function ModalButton({
   children,
   onClick,
@@ -320,6 +329,7 @@ export function AccountSettingsModal({ open, onClose }: { open: boolean; onClose
   const [mounted, setMounted] = useState(false);
   const [tab, setTab] = useState<TabId>("profile");
   const [profile, setProfile] = useState<MyProfile | null>(() => profileFromSession());
+  const [subscription, setSubscription] = useState<CommerceSubscription | null>(null);
   const [loading, setLoading] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [nickname, setNickname] = useState(() => sessionDisplayName());
@@ -333,9 +343,23 @@ export function AccountSettingsModal({ open, onClose }: { open: boolean; onClose
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [passwords, setPasswords] = useState({ currentPassword: "", newPassword: "", newPasswordConfirm: "" });
   const [billing, setBilling] = useState<"monthly" | "yearly">("monthly");
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const profileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function closeOnOutsideMouseDown(event: MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Node) || dialogRef.current?.contains(target)) return;
+      onClose();
+    }
+
+    document.addEventListener("mousedown", closeOnOutsideMouseDown);
+    return () => document.removeEventListener("mousedown", closeOnOutsideMouseDown);
+  }, [onClose, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -372,11 +396,29 @@ export function AccountSettingsModal({ open, onClose }: { open: boolean; onClose
     };
   }, [open, pushToast, router]);
 
+  useEffect(() => {
+    if (!open) return;
+
+    let active = true;
+    getMySubscription()
+      .then((data) => {
+        if (active) setSubscription(data);
+      })
+      .catch(() => {
+        if (active) setSubscription(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [open]);
+
   const name = displayName(profile);
   const email = displayEmail(profile);
   const profileImageUrl = profile?.profileImageUrl ?? sessionProfileImageUrl();
   const linkedProviders = profile?.security.linkedProviders ?? [];
   const canChangePassword = profile ? profile.security.hasPassword ?? linkedProviders.length === 0 : false;
+  const currentPlanLabel = planBadgeLabel(subscription);
 
   const saveProfile = async () => {
     const nextNickname = nickname.trim();
@@ -574,8 +616,15 @@ export function AccountSettingsModal({ open, onClose }: { open: boolean; onClose
   if (!mounted || !open) return null;
 
   return createPortal(
-    <div className={cx("fixed bottom-0 right-0 top-0 z-[80] flex items-center justify-center bg-[rgba(44,42,38,.55)] p-3 md:p-5", sidebarCollapsed ? "md:left-[68px]" : "md:left-[236px]")}>
-      <div className="flex h-[min(655px,94svh)] w-[min(972px,96vw)] overflow-hidden rounded-[12px] border border-[#ded8cf] bg-white text-[#36332f] shadow-[0_22px_70px_rgba(18,16,14,.25)]">
+    <div
+      className={cx("fixed bottom-0 right-0 top-0 z-[80] flex items-center justify-center bg-[rgba(44,42,38,.55)] p-3 md:p-5", sidebarCollapsed ? "md:left-[68px]" : "md:left-[236px]")}
+      onMouseDown={onClose}
+    >
+      <div
+        ref={dialogRef}
+        className="flex h-[min(655px,94svh)] w-[min(972px,96vw)] overflow-hidden rounded-[12px] border border-[#ded8cf] bg-white text-[#36332f] shadow-[0_22px_70px_rgba(18,16,14,.25)]"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <aside className="hidden w-[240px] shrink-0 flex-col border-r border-[#e5e0d8] bg-[#fbfaf8] px-3 pb-3 pt-5 md:flex">
           <div className="mb-5 flex items-center gap-3 px-2">
             <div className="grid h-[30px] w-[30px] shrink-0 place-items-center overflow-hidden rounded-full bg-[#6454d9] text-[15px] font-bold text-white">
@@ -585,7 +634,7 @@ export function AccountSettingsModal({ open, onClose }: { open: boolean; onClose
               <div className="truncate text-[12px] font-semibold text-[#36332f]">{loading ? "불러오는 중" : name}</div>
               <a className="block truncate text-[11px] leading-4 text-[#4a36aa] underline">{email}</a>
             </div>
-            <span className="rounded-md bg-[#ebe7ff] px-1.5 py-0.5 text-[10px] font-bold text-[#6c55f6]">Pro</span>
+            <span className="rounded-md bg-[#ebe7ff] px-1.5 py-0.5 text-[10px] font-bold text-[#6c55f6]">{currentPlanLabel}</span>
           </div>
 
           {NAV_GROUPS.map((group) => (
@@ -682,7 +731,7 @@ export function AccountSettingsModal({ open, onClose }: { open: boolean; onClose
               {tab === "usage" ? <UsagePanel /> : null}
               {tab === "stats" ? <StatsPanel /> : null}
               {tab === "support" ? <SupportPanel /> : null}
-              {tab === "upgrade" ? <UpgradePanel billing={billing} onBillingChange={setBilling} /> : null}
+              {tab === "upgrade" ? <UpgradePanel billing={billing} onBillingChange={setBilling} onSubscriptionChange={setSubscription} /> : null}
             </div>
           </div>
         </section>
@@ -1354,7 +1403,15 @@ function SupportPanel() {
   );
 }
 
-function UpgradePanel({ billing, onBillingChange }: { billing: "monthly" | "yearly"; onBillingChange: (value: "monthly" | "yearly") => void }) {
+function UpgradePanel({
+  billing,
+  onBillingChange,
+  onSubscriptionChange
+}: {
+  billing: "monthly" | "yearly";
+  onBillingChange: (value: "monthly" | "yearly") => void;
+  onSubscriptionChange?: (subscription: CommerceSubscription | null) => void;
+}) {
   const { pushToast } = useBrainX();
   const [plans, setPlans] = useState<CommercePlan[]>([]);
   const [subscription, setSubscription] = useState<CommerceSubscription | null>(null);
@@ -1371,12 +1428,14 @@ function UpgradePanel({ billing, onBillingChange }: { billing: "monthly" | "year
       const [planList, sub] = await Promise.all([getPlans(), getMySubscription()]);
       setPlans(planList);
       setSubscription(sub);
+      onSubscriptionChange?.(sub);
+      window.dispatchEvent(new CustomEvent("brainx-subscription-changed"));
     } catch (error) {
       pushToast(error instanceof Error ? error.message : "요금제 정보를 불러오지 못했습니다.", "err");
     } finally {
       setLoading(false);
     }
-  }, [pushToast]);
+  }, [onSubscriptionChange, pushToast]);
 
   useEffect(() => {
     void refresh();

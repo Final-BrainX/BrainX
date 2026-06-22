@@ -38,7 +38,16 @@ export default function SignupPage() {
 
   const verifyCode = () => {
     if (code.length !== 6) { toast.error('6자리 코드를 입력하세요'); return }
-    setStep('password')
+    setIsLoading(true)
+    authApi.verifyEmailCode(email, code, 'signup')
+      .then(() => {
+        toast.success('이메일 인증이 완료되었습니다')
+        setStep('password')
+      })
+      .catch((err: any) => {
+        toast.error(err?.response?.data?.error?.message || '인증 실패')
+      })
+      .finally(() => setIsLoading(false))
   }
 
   const validatePassword = () => {
@@ -54,7 +63,7 @@ export default function SignupPage() {
     }
     setIsLoading(true)
     try {
-      await authApi.signup({ email, code, password, consents })
+      await authApi.signup({ email, verificationCode: code, password, passwordConfirm, consents })
       await login(email, password)
       toast.success('가입 완료! BrainX에 오신 걸 환영해요 🚀')
       navigate('/')
