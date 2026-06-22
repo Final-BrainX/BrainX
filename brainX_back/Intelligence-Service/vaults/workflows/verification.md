@@ -2,7 +2,7 @@
 
 ## When To Run
 
-- Java code, Spring configuration, Gradle dependency, OpenAPI contract, generated artifact를 변경하면 관련 Gradle 검증을 실행합니다.
+- Java code, Spring configuration, Gradle dependency, OpenAPI contract, generated artifact를 변경하면 `check` 기준 Gradle 검증을 실행합니다.
 - 문서만 변경한 경우에는 code test를 생략할 수 있습니다. 대신 링크, path, 라우팅 문서가 서로 맞는지 검색으로 확인합니다.
 
 ## Commands
@@ -10,14 +10,25 @@
 Windows PowerShell:
 
 ```powershell
-.\gradlew.bat test
+.\gradlew.bat clean check
 ```
 
 Unix shell:
 
 ```sh
-./gradlew test
+./gradlew clean check
 ```
+
+`check`는 기본 test뿐 아니라 Java compile warning gate와 architecture rule을 함께 실행하는 최종 검증 기준입니다.
+
+## Java Quality Gates
+
+- `JavaCompile`은 `-Xlint:deprecation`, `-Xlint:unchecked`, `-Werror`를 사용합니다. Deprecated API, unchecked operation 같은 compiler warning은 build failure로 처리합니다.
+- Architecture rule은 ArchUnit test로 관리합니다.
+- `..domain..` package는 Spring, JPA, Hibernate, Servlet API에 의존하지 않습니다.
+- `..application..` package는 adapter나 infrastructure package에 의존하지 않습니다.
+- `*JpaEntity`, `*JpaRepository` class는 `..infrastructure.persistence.jpa..` 아래에만 둡니다.
+- Spring Boot의 deprecated `@MockBean`, `@SpyBean`은 금지합니다. Spring Framework의 `@MockitoBean`, `@MockitoSpyBean` 계열을 사용합니다.
 
 OpenAPI 계약을 변경해야 할 때는 먼저 SSOT를 수정한 뒤 로컬 추출 결과를 갱신합니다:
 

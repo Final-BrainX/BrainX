@@ -9,7 +9,15 @@
 - `vaults/durable/INDEX.md`: 반복되는 agent-process correction과 재사용 가능한 개선 규칙을 기록합니다. 같은 지적이 반복되거나 repo-local 운영 규칙으로 남길 내용이 생겼을 때 읽습니다.
 - `src/main/resources/contracts/README.md`: provider OpenAPI, consumed OpenAPI, AsyncAPI 슬라이스의 역할과 재생성 command를 설명합니다. 이 서비스가 호출하거나 소비하는 외부 계약을 확인할 때 읽습니다.
 - `docs/domain/knowledge-intelligence-domain-flow.md`: 사람을 위한 도메인 문서입니다. 도메인 스토리텔링, 이벤트 스토밍, 컨텍스트 맵 관점으로 서비스 흐름을 설명할 때 참고합니다.
+- `docs/domain/consumed-events-domain-map.md`: `AI-Service`가 consumer로 받는 AsyncAPI 이벤트와 Intelligence 도메인 기능 연결을 설명할 때 참고합니다.
 - `docs/domain/style-profile-input-direction.md`: 사람을 위한 UX/도메인 문서입니다. 사용자 문체 설정 입력 방식, `StyleProfile` 정규화 방향, 대화 말투와 결과물 문체 분리를 논의할 때 참고합니다.
+- `docs/technical/conditional-on-bean.md`: Spring Boot `@ConditionalOnBean`의 의미와 Qdrant adapter 적용 맥락을 확인할 때 참고합니다.
+- `docs/technical/ai-model-pricing-and-usage.md`: AI 모델 catalog 비용 필드, availability 결합, token usage/cost estimate 기록 정책을 확인할 때 참고합니다.
+- `docs/technical/consumed-events-implementation-checkpoints.md`: `AI-Service`가 consumer로 받는 이벤트별 구현 체크포인트를 확인할 때 참고합니다.
+- `docs/technical/external-search.md`: OpenAI Responses `web_search` 기반 외부 자료 검색 port, CLI 실행 방법, RAG chat router 연결 방향을 확인할 때 참고합니다.
+- `docs/technical/note-chunking.md`: Workspace note markdown을 chunk 단위 vector index로 변환하는 규칙과 semantic search dedupe 정책을 확인할 때 참고합니다.
+- `docs/technical/sample-notes-rag-cli.md`: `sample_notes` 기반 로컬 RAG CLI 색인/질의 흐름과 retrieval/chat 질의별 출력 capture script 정보를 확인할 때 참고합니다.
+- `docs/technical/vectorstore-embedding-model.md`: Qdrant Java client 직접 연동, Voyage embedding, RAG vector usage/cost 기록 정책을 확인할 때 참고합니다.
 
 ## Project Snapshot
 
@@ -28,6 +36,14 @@
 - API 사양 질문은 먼저 OpenAPI 계약을 확인한 뒤 `vaults/agents/intelligence-service.md`의 일반 구현 규칙과 대조합니다.
 - 기능 구현 순서 질문은 `vaults/agents/domain-implementation-order.md`를 기준으로 답합니다.
 - 도메인 흐름이나 기획자와 공유할 설명은 `docs/domain/knowledge-intelligence-domain-flow.md`를 기준으로 답합니다.
+- AI-Service가 consumer로 받는 이벤트와 도메인 기능 연결은 `docs/domain/consumed-events-domain-map.md`를 기준으로 답합니다.
+- AI-Service consumer 이벤트별 구현 체크포인트는 `docs/technical/consumed-events-implementation-checkpoints.md`를 기준으로 답합니다.
 - 문체 설정 UX나 `StyleProfile` 입력 방향은 `docs/domain/style-profile-input-direction.md`를 기준으로 답합니다.
+- Spring Boot conditional bean 등록이나 Qdrant adapter 조건부 등록은 `docs/technical/conditional-on-bean.md`를 기준으로 답합니다.
+- AI 모델 비용, cached input token, usage event payload, RAG usage cost estimate는 `docs/technical/ai-model-pricing-and-usage.md`를 기준으로 답합니다.
+- 외부 자료 검색 port, OpenAI `web_search` provider, 검색 CLI 실행 방법, RAG chat router 연결 방향은 `docs/technical/external-search.md`를 기준으로 답합니다.
+- 노트 markdown chunking, Qdrant chunk metadata, semantic search note-level dedupe는 `docs/technical/note-chunking.md`를 기준으로 답합니다.
+- `sample_notes` 기반 RAG CLI 실행 방법과 retrieval/chat 질의별 출력 capture 결과 위치는 `docs/technical/sample-notes-rag-cli.md`를 기준으로 답합니다.
+- Qdrant 직접 연동과 Voyage embedding model 지정 방식은 `docs/technical/vectorstore-embedding-model.md`를 기준으로 답합니다.
 - 구현 작업은 target package와 관련 test를 직접 읽고, 계약에서 필요한 schema와 response status를 확인합니다.
 - 문서 작업은 root guide bloat audit을 수행합니다. endpoint 목록이나 긴 절차가 root로 들어가면 vault guide로 옮깁니다.

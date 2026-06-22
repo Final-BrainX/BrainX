@@ -14,7 +14,9 @@ class VendorTokenCostTest {
         VendorTokenCost cost = new VendorTokenCost(null, null);
 
         assertThat(cost.inputCostPer1kTokens()).isNull();
+        assertThat(cost.cachedInputCostPer1kTokens()).isNull();
         assertThat(cost.outputCostPer1kTokens()).isNull();
+        assertThat(cost.currencyCode()).isEqualTo("USD");
     }
 
     @Test
@@ -29,5 +31,17 @@ class VendorTokenCostTest {
         assertThatThrownBy(() -> new VendorTokenCost(null, new BigDecimal("-0.1")))
             .isInstanceOf(SettingsDomainException.class)
             .hasMessageContaining("outputCostPer1kTokens");
+    }
+
+    @Test
+    void rejectsNegativeCachedInputCost() {
+        assertThatThrownBy(() -> new VendorTokenCost(
+            null,
+            new BigDecimal("-0.1"),
+            null,
+            "USD"
+        ))
+            .isInstanceOf(SettingsDomainException.class)
+            .hasMessageContaining("cachedInputCostPer1kTokens");
     }
 }

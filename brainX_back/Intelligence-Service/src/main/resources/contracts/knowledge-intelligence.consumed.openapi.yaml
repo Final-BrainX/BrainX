@@ -385,6 +385,10 @@ components:
       properties:
         noteId:
           type: string
+        documentGroupId:
+          type: string
+          description: Logical document group boundary for this note. If omitted by older Workspace providers, consumers should
+            use default.
         title:
           type: string
         markdown:

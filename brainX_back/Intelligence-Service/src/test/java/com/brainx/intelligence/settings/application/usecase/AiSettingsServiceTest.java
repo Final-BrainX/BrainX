@@ -49,7 +49,12 @@ class AiSettingsServiceTest {
             "gpt-4o-mini",
             "GPT-4o mini",
             "openai",
-            new VendorTokenCost(new BigDecimal("0.150000"), new BigDecimal("0.600000"))
+            new VendorTokenCost(
+                new BigDecimal("0.150000"),
+                new BigDecimal("0.075000"),
+                new BigDecimal("0.600000"),
+                "usd"
+            )
         ));
         ports.addModel(new AiModel(
             "gpt-4o",
@@ -66,7 +71,11 @@ class AiSettingsServiceTest {
             .containsExactly("gpt-4o-mini", "gpt-4o");
         assertThat(result.enabledModels()).containsExactly("gpt-4o");
         assertThat(result.models().getFirst().vendorInputCostPer1kTokens()).isEqualByComparingTo("0.150000");
+        assertThat(result.models().getFirst().vendorCachedInputCostPer1kTokens()).isEqualByComparingTo("0.075000");
         assertThat(result.models().getFirst().vendorOutputCostPer1kTokens()).isEqualByComparingTo("0.600000");
+        assertThat(result.models().getFirst().costCurrency()).isEqualTo("USD");
+        assertThat(result.models().getFirst().enabled()).isFalse();
+        assertThat(result.models().get(1).enabled()).isTrue();
     }
 
     @Test
@@ -178,6 +187,13 @@ class AiSettingsServiceTest {
         @Override
         public boolean existsByModelId(String modelId) {
             return models.stream().anyMatch(model -> model.modelId().equals(modelId));
+        }
+
+        @Override
+        public Optional<AiModel> findByModelId(String modelId) {
+            return models.stream()
+                .filter(model -> model.modelId().equals(modelId))
+                .findFirst();
         }
 
         @Override

@@ -5302,10 +5302,6 @@ paths:
         operationId: checkEntitlementsInternal
         reason: capability/quota must be decided synchronously before model call or job acceptance
         required: true
-      - targetService: knowledge-workspace
-        operationId: getNoteSnapshotInternal
-        reason: only when the operation requires latest authoritative markdown beyond the Intelligence read model
-        required: conditional
       x-async-boundary: false
       requestBody:
         required: true
@@ -5331,7 +5327,7 @@ paths:
 
                     event: done
 
-                    data: {"messageId":"msg_01J..."}
+                    data: {"suggestionId":"sug_01J...","action":"REWRITE","modelId":"gpt-5.4-mini"}
 
 
                     '
@@ -5379,13 +5375,9 @@ paths:
         description: 2D/3D graph and mind map UI
       x-produces-events:
       - AiSuggestionDecisionRecorded
-      x-internal-sync-calls:
-      - targetService: knowledge-workspace
-        operationId: patchNoteContentInternal
-        reason: ACCEPTED decision that changes note content must be applied through Workspace command API
-        required: conditional
+      x-internal-sync-calls: []
       x-async-boundary: false
-      description: Accepted/Rejected/Regenerated 개별 이벤트 대신 AiSuggestionDecisionRecorded 하나로 표준화한다.
+      description: v1은 Workspace patch 없이 Accepted/Rejected/Regenerated 결정을 AiSuggestionDecisionRecorded 이벤트로만 기록한다.
       parameters:
       - name: suggestionId
         in: path
@@ -10299,6 +10291,9 @@ components:
     SemanticSearchRequest:
       type: object
       properties:
+        documentGroupId:
+          type: string
+          description: Logical document group boundary for RAG/search isolation. If omitted, Knowledge Intelligence treats it as default.
         query:
           type: string
         filters:
@@ -10357,6 +10352,12 @@ components:
         selectedText:
           type: string
           nullable: true
+        contextBefore:
+          type: string
+          nullable: true
+        contextAfter:
+          type: string
+          nullable: true
         action:
           type: string
           enum:
@@ -10364,7 +10365,6 @@ components:
           - REWRITE
           - CONTINUE
           - TRANSLATE
-          - SPELLCHECK
         language:
           type: string
           example: ko
@@ -10402,6 +10402,9 @@ components:
     ChatThreadCreateRequest:
       type: object
       properties:
+        documentGroupId:
+          type: string
+          description: Logical document group boundary for this chat thread. If omitted, Knowledge Intelligence treats it as default.
         title:
           type: string
         modelId:
@@ -10415,6 +10418,8 @@ components:
       properties:
         threadId:
           type: string
+        documentGroupId:
+          type: string
         title:
           type: string
         modelId:
@@ -10424,6 +10429,7 @@ components:
           format: date-time
       required:
       - threadId
+      - documentGroupId
       - title
       - modelId
       - createdAt
@@ -10435,6 +10441,7 @@ components:
           type: string
         noteScope:
           type: object
+          description: Optional narrowing scope inside the chat thread documentGroupId. noteScope.documentGroupId must match the thread documentGroupId when supplied.
           additionalProperties: true
         modelId:
           type: string
@@ -10473,9 +10480,19 @@ components:
               vendorInputCostPer1kTokens:
                 type: number
                 nullable: true
+              vendorCachedInputCostPer1kTokens:
+                type: number
+                nullable: true
               vendorOutputCostPer1kTokens:
                 type: number
                 nullable: true
+              costCurrency:
+                type: string
+                nullable: true
+                description: ISO 4217 currency code for vendor token costs.
+              enabled:
+                type: boolean
+                description: Whether the requesting user can select/use this model.
             required:
             - modelId
             - name
@@ -11233,6 +11250,9 @@ components:
       properties:
         noteId:
           type: string
+        documentGroupId:
+          type: string
+          description: Logical document group boundary for this note. If omitted by older Workspace providers, consumers should use default.
         title:
           type: string
         markdown:

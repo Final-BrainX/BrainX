@@ -6,6 +6,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -59,7 +61,10 @@ public class SettingsController {
                 model.name(),
                 model.provider(),
                 model.vendorInputCostPer1kTokens(),
-                model.vendorOutputCostPer1kTokens()
+                model.vendorCachedInputCostPer1kTokens(),
+                model.vendorOutputCostPer1kTokens(),
+                model.costCurrency(),
+                model.enabled()
             ))
             .toList();
 
@@ -117,10 +122,14 @@ public class SettingsController {
     }
 
     private static String userId(Principal principal) {
-        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
-            throw new IllegalArgumentException("Authenticated user is required.");
+        if (principal != null && principal.getName() != null && !principal.getName().isBlank()) {
+            return principal.getName();
         }
-        return principal.getName();
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getName() != null && !authentication.getName().isBlank()) {
+            return authentication.getName();
+        }
+        throw new IllegalArgumentException("Authenticated user is required.");
     }
 
     private static Map<String, Object> nullToEmpty(Map<String, Object> values) {
@@ -139,7 +148,10 @@ public class SettingsController {
         String name,
         String provider,
         BigDecimal vendorInputCostPer1kTokens,
-        BigDecimal vendorOutputCostPer1kTokens
+        BigDecimal vendorCachedInputCostPer1kTokens,
+        BigDecimal vendorOutputCostPer1kTokens,
+        String costCurrency,
+        boolean enabled
     ) {
     }
 

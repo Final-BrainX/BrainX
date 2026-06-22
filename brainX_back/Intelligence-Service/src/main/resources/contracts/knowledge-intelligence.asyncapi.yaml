@@ -1366,6 +1366,9 @@ components:
           type: string
         userId:
           type: string
+        documentGroupId:
+          type: string
+          description: Logical document group boundary. If omitted by older producers, consumers should use default.
         title:
           type: string
         folderId:
@@ -1390,6 +1393,9 @@ components:
           type: string
         userId:
           type: string
+        documentGroupId:
+          type: string
+          description: Logical document group boundary. If omitted by older producers, consumers should use default.
         version:
           type: integer
         markdownHash:
@@ -1411,6 +1417,9 @@ components:
           type: string
         userId:
           type: string
+        documentGroupId:
+          type: string
+          description: Logical document group boundary. If omitted by older producers, consumers should use default.
         title:
           type: string
           nullable: true
@@ -1426,10 +1435,44 @@ components:
           nullable: true
         version:
           type: integer
+        typography:
+          $ref: '#/components/schemas/NoteTypography'
+        order:
+          type: integer
+          nullable: true
       required:
       - noteId
       - userId
       - version
+      additionalProperties: false
+    NoteTypography:
+      type: object
+      nullable: true
+      description: 노트 단위 타이포그래피 설정. OpenAPI NoteTypography와 동일한 구조(이벤트 payload용으로 AsyncAPI 문서에 별도 정의).
+      properties:
+        scalePercent:
+          type: integer
+          nullable: true
+        fontFamily:
+          type: string
+          nullable: true
+        overrides:
+          type: object
+          nullable: true
+          properties:
+            body:
+              type: integer
+              nullable: true
+            h1:
+              type: integer
+              nullable: true
+            h2:
+              type: integer
+              nullable: true
+            h3:
+              type: integer
+              nullable: true
+          additionalProperties: false
       additionalProperties: false
     NoteTrashedPayload:
       type: object
@@ -1438,6 +1481,9 @@ components:
           type: string
         userId:
           type: string
+        documentGroupId:
+          type: string
+          description: Logical document group boundary. If omitted by older producers, consumers should use default.
         deletedAt:
           type: string
           format: date-time
@@ -1457,6 +1503,9 @@ components:
           type: string
         userId:
           type: string
+        documentGroupId:
+          type: string
+          description: Logical document group boundary. If omitted by older producers, consumers should use default.
         deletedAt:
           type: string
           format: date-time
@@ -1498,6 +1547,9 @@ components:
         parentFolderId:
           type: string
           nullable: true
+        order:
+          type: integer
+          nullable: true
       required:
       - folderId
       - userId
@@ -1527,6 +1579,9 @@ components:
       properties:
         userId:
           type: string
+        documentGroupId:
+          type: string
+          description: Logical document group boundary. If omitted by older producers, consumers should use default.
         noteIds:
           type: array
           items:
@@ -1548,6 +1603,9 @@ components:
           type: string
         userId:
           type: string
+        documentGroupId:
+          type: string
+          description: Logical document group boundary. If omitted by older producers, consumers should use default.
         tags:
           type: array
           items:
@@ -1573,6 +1631,14 @@ components:
           enum:
           - MANUAL
           - AI_SUGGESTED
+        anchorText:
+          type: string
+          nullable: true
+          description: OpenAPI NoteLinkData.anchorText 참고.
+        headingAnchor:
+          type: string
+          nullable: true
+          description: OpenAPI NoteLinkData.headingAnchor 참고.
       required:
       - linkId
       - userId
@@ -1621,6 +1687,8 @@ components:
       type: object
       properties:
         userId:
+          type: string
+        documentGroupId:
           type: string
         queryHash:
           type: string
@@ -1682,6 +1750,8 @@ components:
           type: string
         userId:
           type: string
+        documentGroupId:
+          type: string
         modelId:
           type: string
         title:
@@ -1699,6 +1769,8 @@ components:
         messageId:
           type: string
         userId:
+          type: string
+        documentGroupId:
           type: string
         modelId:
           type: string
@@ -1821,11 +1893,35 @@ components:
           nullable: true
         inputTokens:
           type: integer
+        cachedInputTokens:
+          type: integer
+          description: Cached prompt/input tokens included in inputTokens.
+        billableInputTokens:
+          type: integer
+          description: Non-cached prompt/input tokens charged at the regular input rate.
         outputTokens:
           type: integer
+        reasoningTokens:
+          type: integer
+          description: Reasoning tokens included in outputTokens when the provider reports them.
+        totalTokens:
+          type: integer
+        estimatedInputCost:
+          type: number
+          nullable: true
+        estimatedCachedInputCost:
+          type: number
+          nullable: true
+        estimatedOutputCost:
+          type: number
+          nullable: true
         estimatedCost:
           type: number
           nullable: true
+        costCurrency:
+          type: string
+          nullable: true
+          description: ISO 4217 currency code for estimated cost fields.
         causationId:
           type: string
       required:
@@ -1834,7 +1930,11 @@ components:
       - sourceService
       - featureId
       - inputTokens
+      - cachedInputTokens
+      - billableInputTokens
       - outputTokens
+      - reasoningTokens
+      - totalTokens
       - causationId
       additionalProperties: false
 x-ssot:

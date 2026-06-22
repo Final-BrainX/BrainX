@@ -1,0 +1,31 @@
+{
+  "domain": "exploration",
+  "status": "fixture",
+  "semanticSearch": {
+    "query": "최근 작성한 AI 요약 노트 찾아줘",
+    "workspaceId": "workspace-dev",
+    "topK": 5,
+    "results": [
+      {
+        "noteId": "note-101",
+        "title": "RAG 검색 품질 개선 메모",
+        "score": 0.91,
+        "snippet": "검색 결과에는 source note와 token usage context가 함께 필요하다."
+      },
+      {
+        "noteId": "note-204",
+        "title": "문체 프로필 입력 방향",
+        "score": 0.84,
+        "snippet": "대화 말투와 결과물 문체를 분리해 저장한다."
+      }
+    ],
+    "tokenUsage": {
+      "billable": true,
+      "estimatedInputTokens": 680
+    }
+  },
+  "noteSummary": {
+    "noteId": "note-101",
+    "summary": "RAG 검색은 권한 확인, 벡터 검색, 요약된 근거 반환 순서로 구성된다."
+  }
+}

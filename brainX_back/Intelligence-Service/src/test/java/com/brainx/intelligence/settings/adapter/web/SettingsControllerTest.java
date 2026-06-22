@@ -18,9 +18,9 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.brainx.intelligence.infrastructure.security.SecurityConfig;
@@ -46,16 +46,16 @@ class SettingsControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
-    @MockBean
+    @MockitoBean
     private ListAiModelsUseCase listAiModelsUseCase;
 
-    @MockBean
+    @MockitoBean
     private PutAiModelSettingsUseCase putAiModelSettingsUseCase;
 
-    @MockBean
+    @MockitoBean
     private GetStyleProfileUseCase getStyleProfileUseCase;
 
-    @MockBean
+    @MockitoBean
     private PutStyleProfileUseCase putStyleProfileUseCase;
 
     @Test
@@ -67,7 +67,10 @@ class SettingsControllerTest {
                     "GPT-4o mini",
                     "openai",
                     new BigDecimal("0.150000"),
-                    new BigDecimal("0.600000")
+                    new BigDecimal("0.075000"),
+                    new BigDecimal("0.600000"),
+                    "USD",
+                    true
                 )),
                 List.of("gpt-4o-mini"),
                 new AiPricingPolicyView("TOKEN", "", Map.of())
@@ -81,7 +84,10 @@ class SettingsControllerTest {
             .andExpect(jsonPath("$.data.models[0].name").value("GPT-4o mini"))
             .andExpect(jsonPath("$.data.models[0].provider").value("openai"))
             .andExpect(jsonPath("$.data.models[0].vendorInputCostPer1kTokens").value(0.150000))
+            .andExpect(jsonPath("$.data.models[0].vendorCachedInputCostPer1kTokens").value(0.075000))
             .andExpect(jsonPath("$.data.models[0].vendorOutputCostPer1kTokens").value(0.600000))
+            .andExpect(jsonPath("$.data.models[0].costCurrency").value("USD"))
+            .andExpect(jsonPath("$.data.models[0].enabled").value(true))
             .andExpect(jsonPath("$.data.models[0].costPer1kTokens").doesNotExist())
             .andExpect(jsonPath("$.data.enabledModels[0]").value("gpt-4o-mini"))
             .andExpect(jsonPath("$.data.costInfo.billingUnit").value("TOKEN"));

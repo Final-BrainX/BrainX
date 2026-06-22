@@ -46,7 +46,24 @@ public interface AiChatPort {
     record AiTokenUsage(
         Integer promptTokens,
         Integer completionTokens,
-        Integer totalTokens
+        Integer totalTokens,
+        Integer cachedPromptTokens,
+        Integer reasoningTokens
     ) {
+        public AiTokenUsage(
+            Integer promptTokens,
+            Integer completionTokens,
+            Integer totalTokens
+        ) {
+            this(promptTokens, completionTokens, totalTokens, null, null);
+        }
+
+        public boolean hasKnownTokens() {
+            return promptTokens != null
+                || completionTokens != null
+                || totalTokens != null
+                || cachedPromptTokens != null
+                || reasoningTokens != null;
+        }
     }
 }

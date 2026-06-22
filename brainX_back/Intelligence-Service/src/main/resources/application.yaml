@@ -10,9 +10,11 @@ spring:
   ai:
     model:
       chat: ${SPRING_AI_MODEL_CHAT:none}
-      embedding: ${SPRING_AI_MODEL_EMBEDDING:none}
     openai:
       api-key: ${OPENAI_API_KEY:}
+      chat:
+        options:
+          model: ${OPENAI_CHAT_MODEL:gpt-5.4-mini}
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/intelligence_service}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
@@ -24,3 +26,72 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
+
+brainx:
+  events:
+    producer:
+      enabled: ${BRAINX_EVENTS_PRODUCER_ENABLED:false}
+      semantic-search-performed-topic: ${BRAINX_EVENTS_TOPIC_SEMANTIC_SEARCH_PERFORMED:brainx.knowledge.intelligence.semantic-search-performed.v1}
+      token-usage-recorded-requested-topic: ${BRAINX_EVENTS_TOPIC_TOKEN_USAGE_RECORDED_REQUESTED:brainx.knowledge.intelligence.token-usage-recorded-requested.v1}
+      ai-suggestion-created-topic: ${BRAINX_EVENTS_TOPIC_AI_SUGGESTION_CREATED:brainx.knowledge.intelligence.ai-suggestion-created.v1}
+      ai-suggestion-decision-recorded-topic: ${BRAINX_EVENTS_TOPIC_AI_SUGGESTION_DECISION_RECORDED:brainx.knowledge.intelligence.ai-suggestion-decision-recorded.v1}
+    consumer:
+      enabled: ${BRAINX_EVENTS_CONSUMER_ENABLED:false}
+      group-id: ${BRAINX_EVENTS_CONSUMER_GROUP_ID:intelligence-service}
+  assist:
+    default-model: ${OPENAI_CHAT_MODEL:gpt-5.4-mini}
+  external-search:
+    provider: ${BRAINX_EXTERNAL_SEARCH_PROVIDER:none}
+    max-sources: ${BRAINX_EXTERNAL_SEARCH_MAX_SOURCES:8}
+    timeout: ${BRAINX_EXTERNAL_SEARCH_TIMEOUT:20s}
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      model: ${OPENAI_WEB_SEARCH_MODEL:gpt-5.5}
+  ai:
+    embedding:
+      provider: ${BRAINX_AI_EMBEDDING_PROVIDER:none}
+      voyage:
+        api-key: ${VOYAGE_API_KEY:}
+        base-url: ${VOYAGE_BASE_URL:https://api.voyageai.com}
+        model: ${VOYAGE_EMBEDDING_MODEL:voyage-4-lite}
+        dimensions: ${VOYAGE_EMBEDDING_DIMENSIONS:1024}
+        truncation: ${VOYAGE_EMBEDDING_TRUNCATION:true}
+        timeout: ${VOYAGE_EMBEDDING_TIMEOUT:10s}
+  vector:
+    qdrant:
+      enabled: ${BRAINX_VECTOR_QDRANT_ENABLED:true}
+      host: ${QDRANT_HOST:localhost}
+      port: ${QDRANT_GRPC_PORT:6334}
+      api-key: ${QDRANT_API_KEY:}
+      collection-name: ${QDRANT_COLLECTION:brainx_note_search}
+      use-tls: ${QDRANT_USE_TLS:false}
+      initialize-schema: ${QDRANT_INITIALIZE_SCHEMA:true}
+      dimensions: ${VOYAGE_EMBEDDING_DIMENSIONS:1024}
+      timeout: ${QDRANT_TIMEOUT:10s}
+  workspace:
+    base-url: ${BRAINX_WORKSPACE_BASE_URL:http://localhost:8081}
+    service-token: ${BRAINX_WORKSPACE_SERVICE_TOKEN:}
+    timeout: ${BRAINX_WORKSPACE_TIMEOUT:5s}
+  dev:
+    external-search:
+      enabled: ${BRAINX_DEV_EXTERNAL_SEARCH_ENABLED:false}
+      query: ${BRAINX_DEV_EXTERNAL_SEARCH_QUERY:}
+      user-id: ${BRAINX_DEV_EXTERNAL_SEARCH_USER_ID:sample-user}
+      model-id: ${BRAINX_DEV_EXTERNAL_SEARCH_MODEL_ID:}
+      max-sources: ${BRAINX_DEV_EXTERNAL_SEARCH_MAX_SOURCES:0}
+      allowed-domains: ${BRAINX_DEV_EXTERNAL_SEARCH_ALLOWED_DOMAINS:}
+      blocked-domains: ${BRAINX_DEV_EXTERNAL_SEARCH_BLOCKED_DOMAINS:}
+    sample-rag:
+      enabled: ${BRAINX_DEV_SAMPLE_RAG_ENABLED:false}
+      command: ${BRAINX_DEV_SAMPLE_RAG_COMMAND:ingest}
+      directory: ${BRAINX_DEV_SAMPLE_RAG_DIRECTORY:sample_notes}
+      user-id: ${BRAINX_DEV_SAMPLE_RAG_USER_ID:sample-user}
+      document-group-id: ${BRAINX_DEV_SAMPLE_RAG_DOCUMENT_GROUP_ID:default}
+      folder-id: ${BRAINX_DEV_SAMPLE_RAG_FOLDER_ID:sample_notes}
+      query: ${BRAINX_DEV_SAMPLE_RAG_QUERY:}
+      top-k: ${BRAINX_DEV_SAMPLE_RAG_TOP_K:8}
+      min-score: ${BRAINX_DEV_SAMPLE_RAG_MIN_SCORE:0.35}
+      max-chunks-per-note: ${BRAINX_DEV_SAMPLE_RAG_MAX_CHUNKS_PER_NOTE:2}
+      max-context-chars: ${BRAINX_DEV_SAMPLE_RAG_MAX_CONTEXT_CHARS:8000}
+      chat-model: ${OPENAI_CHAT_MODEL:gpt-5.4-mini}

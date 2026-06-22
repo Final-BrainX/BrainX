@@ -28,7 +28,10 @@ public interface ListAiModelsUseCase {
         String name,
         String provider,
         BigDecimal vendorInputCostPer1kTokens,
-        BigDecimal vendorOutputCostPer1kTokens
+        BigDecimal vendorCachedInputCostPer1kTokens,
+        BigDecimal vendorOutputCostPer1kTokens,
+        String costCurrency,
+        boolean enabled
     ) {
     }
 

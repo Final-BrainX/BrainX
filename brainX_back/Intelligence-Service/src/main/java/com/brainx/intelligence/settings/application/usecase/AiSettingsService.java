@@ -1,8 +1,10 @@
 package com.brainx.intelligence.settings.application.usecase;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -60,15 +62,6 @@ public class AiSettingsService implements
     public AiModelsResult listAiModels(ListAiModelsQuery query) {
         String userId = SettingsValidation.requireText(query.userId(), "userId");
         List<AiModel> models = aiModelCatalogPort.findAll();
-        List<AiModelView> modelViews = models.stream()
-            .map(model -> new AiModelView(
-                model.modelId(),
-                model.name(),
-                model.provider(),
-                model.vendorTokenCost().inputCostPer1kTokens(),
-                model.vendorTokenCost().outputCostPer1kTokens()
-            ))
-            .toList();
         List<String> catalogModelIds = models.stream()
             .map(AiModel::modelId)
             .toList();
@@ -77,6 +70,19 @@ public class AiSettingsService implements
         );
         List<String> enabledModels = availabilityPolicy.enabledModelIds().stream()
             .filter(catalogModelIds::contains)
+            .toList();
+        Set<String> enabledModelIds = new LinkedHashSet<>(enabledModels);
+        List<AiModelView> modelViews = models.stream()
+            .map(model -> new AiModelView(
+                model.modelId(),
+                model.name(),
+                model.provider(),
+                model.vendorTokenCost().inputCostPer1kTokens(),
+                model.vendorTokenCost().cachedInputCostPer1kTokens(),
+                model.vendorTokenCost().outputCostPer1kTokens(),
+                model.vendorTokenCost().currencyCode(),
+                enabledModelIds.contains(model.modelId())
+            ))
             .toList();
 
         return new AiModelsResult(modelViews, enabledModels, pricingPolicyView(AiPricingPolicy.defaultTokenPolicy()));

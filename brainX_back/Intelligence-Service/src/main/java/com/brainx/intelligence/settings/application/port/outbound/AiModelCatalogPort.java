@@ -1,6 +1,7 @@
 package com.brainx.intelligence.settings.application.port.outbound;
 
 import java.util.List;
+import java.util.Optional;
 
 import com.brainx.intelligence.settings.domain.AiModel;
 
@@ -10,6 +11,8 @@ import com.brainx.intelligence.settings.domain.AiModel;
 public interface AiModelCatalogPort {
 
     List<AiModel> findAll();
+
+    Optional<AiModel> findByModelId(String modelId);
 
     boolean existsByModelId(String modelId);
 }

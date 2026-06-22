@@ -13,12 +13,15 @@ class AiModelTest {
     void preservesVendorInputAndOutputCost() {
         VendorTokenCost vendorTokenCost = new VendorTokenCost(
             new BigDecimal("0.150000"),
-            new BigDecimal("0.600000")
+            new BigDecimal("0.075000"),
+            new BigDecimal("0.600000"),
+            "usd"
         );
 
         AiModel model = new AiModel("gpt-4o-mini", "GPT-4o mini", "openai", vendorTokenCost);
 
         assertThat(model.vendorTokenCost()).isEqualTo(vendorTokenCost);
+        assertThat(model.vendorTokenCost().currencyCode()).isEqualTo("USD");
     }
 
     @Test

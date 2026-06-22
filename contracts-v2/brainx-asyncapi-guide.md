@@ -552,8 +552,16 @@ TokenUsageRecordedRequestedPayload:
   featureId:
   modelId:
   inputTokens:
+  cachedInputTokens:
+  billableInputTokens:
   outputTokens:
+  reasoningTokens:
+  totalTokens:
+  estimatedInputCost:
+  estimatedCachedInputCost:
+  estimatedOutputCost:
   estimatedCost:
+  costCurrency:
   causationId:
 ```
 

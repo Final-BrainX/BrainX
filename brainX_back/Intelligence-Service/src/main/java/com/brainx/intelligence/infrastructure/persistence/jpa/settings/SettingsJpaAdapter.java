@@ -38,6 +38,12 @@ public class SettingsJpaAdapter implements AiModelCatalogPort, AiModelSettingsPo
     }
 
     @Override
+    public Optional<AiModel> findByModelId(String modelId) {
+        return aiModelJpaRepository.findById(modelId)
+            .map(AiModelJpaEntity::toDomain);
+    }
+
+    @Override
     public boolean existsByModelId(String modelId) {
         return aiModelJpaRepository.existsById(modelId);
     }

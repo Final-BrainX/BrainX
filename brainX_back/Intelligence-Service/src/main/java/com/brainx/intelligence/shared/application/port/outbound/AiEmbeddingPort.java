@@ -11,11 +11,17 @@ public interface AiEmbeddingPort {
 
     record AiEmbeddingRequest(
         String modelId,
-        List<String> texts
+        List<String> texts,
+        InputType inputType
     ) {
+        public AiEmbeddingRequest(String modelId, List<String> texts) {
+            this(modelId, texts, InputType.UNSPECIFIED);
+        }
     }
 
     record AiEmbeddingResponse(
+        String modelId,
+        Integer totalTokens,
         List<AiEmbeddingVector> vectors
     ) {
     }
@@ -24,5 +30,11 @@ public interface AiEmbeddingPort {
         String text,
         List<Double> values
     ) {
+    }
+
+    enum InputType {
+        DOCUMENT,
+        QUERY,
+        UNSPECIFIED
     }
 }

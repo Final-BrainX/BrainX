@@ -1,0 +1,24 @@
+{
+  "domain": "organization",
+  "status": "fixture",
+  "proposal": {
+    "proposalId": "org-dev-001",
+    "folders": [
+      {
+        "name": "AI 기능 설계",
+        "notes": ["note-101", "note-204"]
+      },
+      {
+        "name": "운영/과금",
+        "notes": ["note-310"]
+      }
+    ],
+    "moves": [
+      {
+        "noteId": "note-204",
+        "from": "Inbox",
+        "to": "AI 기능 설계"
+      }
+    ]
+  }
+}

@@ -41,7 +41,9 @@ class SettingsJpaAdapterTest {
             "GPT-4o mini",
             "openai",
             new BigDecimal("0.150000"),
-            new BigDecimal("0.600000")
+            new BigDecimal("0.075000"),
+            new BigDecimal("0.600000"),
+            "usd"
         ));
         entityManager.flush();
         entityManager.clear();
@@ -51,8 +53,11 @@ class SettingsJpaAdapterTest {
         assertThat(models).hasSize(1);
         assertThat(models.getFirst().modelId()).isEqualTo("gpt-4o-mini");
         assertThat(models.getFirst().vendorTokenCost().inputCostPer1kTokens()).isEqualByComparingTo("0.150000");
+        assertThat(models.getFirst().vendorTokenCost().cachedInputCostPer1kTokens()).isEqualByComparingTo("0.075000");
         assertThat(models.getFirst().vendorTokenCost().outputCostPer1kTokens()).isEqualByComparingTo("0.600000");
+        assertThat(models.getFirst().vendorTokenCost().currencyCode()).isEqualTo("USD");
         assertThat(settingsJpaAdapter.existsByModelId("gpt-4o-mini")).isTrue();
+        assertThat(settingsJpaAdapter.findByModelId("gpt-4o-mini")).isPresent();
     }
 
     @Test

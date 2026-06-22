@@ -1,0 +1,20 @@
+{
+  "domain": "insight",
+  "status": "fixture",
+  "report": {
+    "reportId": "insight-dev-001",
+    "status": "COMPLETED",
+    "knowledgeGaps": [
+      "외부 권한 서비스 장애 시 검색 fallback 정책이 아직 명확하지 않다.",
+      "SSE terminal event별 UI 상태 정의가 필요하다."
+    ],
+    "recommendations": [
+      "settings live 화면으로 모델 사용 가능 상태를 먼저 확인한다.",
+      "assist/chat streaming fixture를 실제 SSE 구현 acceptance test로 승격한다."
+    ],
+    "learningSuggestions": [
+      "Spring AI adapter boundary",
+      "Vaadin Flow server-side UI patterns"
+    ]
+  }
+}

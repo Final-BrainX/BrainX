@@ -10,7 +10,6 @@ spring:
   ai:
     model:
       chat: none
-      embedding: none
   datasource:
     url: jdbc:h2:mem:intelligence_service;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
     username: sa
@@ -22,3 +21,8 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.H2Dialect
+
+brainx:
+  vector:
+    qdrant:
+      enabled: false

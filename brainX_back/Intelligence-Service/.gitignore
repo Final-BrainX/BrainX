@@ -1,6 +1,7 @@
 HELP.md
 .gradle
 build/
+src/main/frontend/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
@@ -39,3 +40,6 @@ out/
 ### Python ###
 __pycache__/
 *.py[cod]
+
+### Local secrets ###
+.brainx-local.properties
