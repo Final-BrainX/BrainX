@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { completeOAuthLogin, type OAuthProvider } from "@/lib/auth-api";
@@ -15,6 +15,8 @@ function OAuthCallbackContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { pushToast } = useBrainX();
+  const processedCallbackKeyRef = useRef<string | null>(null);
+  const activeRef = useRef(false);
   const [message, setMessage] = useState("소셜 로그인을 완료하는 중입니다.");
 
   const provider = useMemo(() => {
@@ -33,7 +35,14 @@ function OAuthCallbackContent() {
       return;
     }
 
-    let mounted = true;
+    activeRef.current = true;
+    const callbackKey = `${provider}:${state}:${code}`;
+    if (processedCallbackKeyRef.current === callbackKey) {
+      return () => {
+        activeRef.current = false;
+      };
+    }
+    processedCallbackKeyRef.current = callbackKey;
     const linkIntent = (() => {
       if (typeof window === "undefined") return null;
       try {
@@ -48,13 +57,14 @@ function OAuthCallbackContent() {
       setMessage("소셜 계정을 연결하는 중입니다.");
       linkSocialAccount(provider, code)
         .then(() => {
-          if (!mounted) return;
+          if (!activeRef.current) return;
           window.localStorage.removeItem(OAUTH_LINK_INTENT_KEY);
           pushToast("소셜 계정이 연결되었습니다.", "ok");
           router.replace(linkIntent?.returnTo ?? "/mypage");
         })
         .catch((error) => {
-          if (!mounted) return;
+          if (!activeRef.current) return;
+          processedCallbackKeyRef.current = null;
           window.localStorage.removeItem(OAUTH_LINK_INTENT_KEY);
           const nextMessage = error instanceof Error ? error.message : "소셜 계정 연결에 실패했습니다.";
           setMessage(nextMessage);
@@ -63,18 +73,19 @@ function OAuthCallbackContent() {
         });
 
       return () => {
-        mounted = false;
+        activeRef.current = false;
       };
     }
 
     completeOAuthLogin(provider, code, state)
       .then((data) => {
-        if (!mounted) return;
+        if (!activeRef.current) return;
         pushToast("소셜 로그인이 완료되었습니다.", "ok");
         router.replace(data.next === "ONBOARDING" ? "/onboarding" : "/home");
       })
       .catch((error) => {
-        if (!mounted) return;
+        if (!activeRef.current) return;
+        processedCallbackKeyRef.current = null;
         const nextMessage = error instanceof Error ? error.message : "소셜 로그인에 실패했습니다.";
         setMessage(nextMessage);
         pushToast(nextMessage, "err");
@@ -82,7 +93,7 @@ function OAuthCallbackContent() {
       });
 
     return () => {
-      mounted = false;
+      activeRef.current = false;
     };
   }, [provider, pushToast, router, searchParams]);
 

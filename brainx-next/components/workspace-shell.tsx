@@ -266,7 +266,7 @@ function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
           onClick={() => useGuideStore.getState().resetTutorials()}
           className="group relative grid aspect-square w-full place-items-center rounded-[0.4rem] text-txt3 hover:bg-surface2/50 hover:text-txt transition-colors"
         >
-          <Icon name="help" size={18} />
+          <Icon name="sparkle" size={18} />
           <span 
             className="pointer-events-none absolute left-[calc(100%+12px)] z-50 whitespace-nowrap rounded-[6px] px-2.5 py-1.5 text-[12px] font-medium bg-txt text-bg2 shadow-md opacity-0 transition-opacity duration-200 group-hover:opacity-100"
           >

@@ -9,6 +9,7 @@ import NoteEditor, { type EditMode, type AiActionType, type NoteEditorHandle } f
 import EmptyNoteStartPage from "./EmptyNoteStartPage";
 import QuickSwitcher from "./QuickSwitcher";
 import { TypographyPopover } from "./TypographyPopover";
+import { TYPOGRAPHY_SCALE_MAX, TYPOGRAPHY_SCALE_MIN } from "@/lib/notes/typography";
 
 interface Props {
   node: PaneLeaf;
@@ -90,6 +91,33 @@ export default function EditorPanel({
   const [hoverZone, setHoverZone] = useState<DropZone | "replace" | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<NoteEditorHandle>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  /* Ctrl+마우스휠로 노트 전체 글씨 크기 조절(VS Code의 Mouse Wheel Zoom과 동일한 UX) — 툴바의
+     "서식" 패널이 이미 note.typography.scalePercent로 본문/H1/H2/H3 크기를 함께 조절하므로,
+     같은 상태를 그대로 재사용해 휠 조작과 툴바가 항상 같은 값을 보게 만든다(별도 상태를 두면
+     서로 어긋날 수 있음). 휠 이벤트는 마우스가 올라가 있는 패널의 DOM에만 발생하므로, 분할
+     화면에서 패널별로 분리되는 동작은 추가 처리 없이 자연히 보장된다.
+     React 19의 onWheel은 루트에 passive 리스너로 등록되어 JSX onWheel 안에서 preventDefault가
+     무시된다("Unable to preventDefault inside passive event listener" 경고와 함께 브라우저
+     자체 페이지 확대가 같이 동작해버림) — 그래서 ref + addEventListener("wheel", ..., { passive:
+     false })로 직접 등록해야 ctrl+휠일 때 브라우저 기본 확대를 실제로 막을 수 있다. */
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const handler = (event: WheelEvent) => {
+      if (!event.ctrlKey || !note) return;
+      event.preventDefault();
+      const current = note.typography?.scalePercent ?? 100;
+      const next = Math.min(
+        TYPOGRAPHY_SCALE_MAX,
+        Math.max(TYPOGRAPHY_SCALE_MIN, current + (event.deltaY < 0 ? 5 : -5))
+      );
+      if (next !== current) onTypographyChange(note.id, { ...note.typography, scalePercent: next });
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, [note, onTypographyChange]);
 
   /* ── 제목 편집 상태 ── */
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -213,6 +241,7 @@ export default function EditorPanel({
         )
       ) : (
         <div
+          ref={scrollContainerRef}
           className="scroll-thin flex-1 overflow-y-auto"
           style={{ background: "rgb(var(--surface))" }}
           onClick={(e) => {
@@ -220,8 +249,13 @@ export default function EditorPanel({
             if (isEdit && e.target === e.currentTarget) editorRef.current?.focusEnd();
           }}
         >
+          {/* Obsidian처럼 본문을 패널 중앙의 적당한 폭으로 제한한다 — 텍스트 자체의 정렬은 그대로
+              좌측 정렬(.ProseMirror 기본값)이고, 이 wrapper의 좌우 여백만 중앙 정렬된다. 분할
+              패널에서도 각 패널이 독립적으로 이 wrapper를 가지므로 패널마다 동일하게 적용되고,
+              패널이 max-w보다 좁아지면 mx-auto가 더 이상 여백을 만들지 않아 자연스럽게
+              반응형으로 줄어든다(별도 미디어 쿼리 불필요 — 패널 자체 폭 기준으로 줄어듦). */}
           <div
-            className="px-8 py-7"
+            className="mx-auto max-w-3xl px-8 py-7"
             onClick={(e) => {
               if (isEdit && e.target === e.currentTarget) editorRef.current?.focusEnd();
             }}
