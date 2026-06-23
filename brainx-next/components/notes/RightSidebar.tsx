@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useMemo, useRef, useEffect } from "react";
-import { ChevronRight } from "lucide-react";
 import { CollapseChevron } from "./CollapseChevron";
 import { cx } from "@/lib/utils";
 import { Icon } from "@/components/brainx-ui";
@@ -253,14 +252,6 @@ export default function RightSidebar({ activeNote, allNotes, onCollapse, pending
           <p className="truncate text-[12px] font-semibold text-txt">{activeNote?.title ?? "노트 없음"}</p>
           <p className="text-[10px] text-txt3">컨텍스트 패널</p>
         </div>
-        <button
-          type="button"
-          onClick={onCollapse}
-          title="패널 닫기"
-          className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-txt3 transition-colors hover:bg-surface2/70 hover:text-txt"
-        >
-          <ChevronRight size={14} />
-        </button>
       </div>
 
       {!activeNote ? (
@@ -274,7 +265,7 @@ export default function RightSidebar({ activeNote, allNotes, onCollapse, pending
       ) : (
       <>
       {/* ── 스크롤 영역 ────────────────────────────── */}
-      <div className="scroll-thin flex-1 space-y-2.5 overflow-y-auto p-3">
+      <div className="no-scrollbar flex-1 space-y-2.5 overflow-y-auto p-3">
 
         {/* 1. 목차 */}
         <SideCard
@@ -387,7 +378,7 @@ export default function RightSidebar({ activeNote, allNotes, onCollapse, pending
         {chatOpen && (
           <div className="flex flex-col" style={{ height: "200px" }}>
             {/* 메시지 목록 */}
-            <div className="scroll-thin flex-1 space-y-2 overflow-y-auto p-3">
+            <div className="no-scrollbar flex-1 space-y-2 overflow-y-auto p-3">
               {aiMessages.map((msg, i) => (
                 <div
                   key={`${msg.role}-${i}`}

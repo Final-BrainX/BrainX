@@ -146,6 +146,8 @@ function GraphCanvasFlow({
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<OrbitFlowEdge>([]);
   const [hovered, setHovered] = useState<BrainXNote | null>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isDraggingRef = useRef(false);
+  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   
   const positionsRef = useRef<Record<string, GraphNode>>(settleLayout(notes));
   const raf = useRef(0);
@@ -445,7 +447,8 @@ function GraphCanvasFlow({
 
   // Sync data
   useEffect(() => {
-    const activeId = selectedId || hovered?.id;
+    // 드래그 중에는 드래그중인 노드만 활성 노드로 취급, 선택/hover는 딶엄
+    const activeId = draggingNodeId ?? selectedId ?? hovered?.id;
     const direct = new Set<string>();
     if (activeId) {
       edges.forEach((e) => {
@@ -546,7 +549,7 @@ function GraphCanvasFlow({
     
     setRfNodes(newNodes);
     setRfEdges(newEdges);
-  }, [notes, edges, selectedId, hovered, timeFilter, hiddenClusters, setRfNodes, setRfEdges, theme, bridgeMode]);
+  }, [notes, edges, selectedId, hovered, draggingNodeId, timeFilter, hiddenClusters, setRfNodes, setRfEdges, theme, bridgeMode]);
 
   // Camera zoom on select
   useEffect(() => {
@@ -575,6 +578,7 @@ function GraphCanvasFlow({
         onPaneClick={() => onSelect(null)}
         onNodeMouseEnter={(_, node) => {
           if (node.data.dimmed) return;
+          if (isDraggingRef.current) return;
           if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
           const note = notes.find(n => n.id === node.id);
           if (note) setHovered(note);
@@ -585,6 +589,10 @@ function GraphCanvasFlow({
           }, 150);
         }}
         onNodeDragStart={(_, node) => {
+          isDraggingRef.current = true;
+          setDraggingNodeId(node.id);
+          if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+          setHovered(null);
           const p = positionsRef.current[node.id];
           if (p) {
             p.fx = p.x;
@@ -612,6 +620,8 @@ function GraphCanvasFlow({
           }
         }}
         onNodeDragStop={(_, node) => {
+          isDraggingRef.current = false;
+          setDraggingNodeId(null);
           const p = positionsRef.current[node.id];
           if (p) {
             p.fx = null;

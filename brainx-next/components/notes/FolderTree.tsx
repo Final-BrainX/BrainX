@@ -110,6 +110,7 @@ interface FolderTreeProps {
   onChangeFolderColor: (folderId: string, color: string) => void;
   onToggleFolderFavorite: (folderId: string) => void;
   onDeleteFolder: (folderId: string) => void;
+  onDeleteNote?: (noteId: string) => void;
   onDragStart: (noteId: string) => void;
   onDragEnd: () => void;
   onMoveNoteToFolder: (noteId: string, targetFolderId: string | null) => void;
@@ -131,6 +132,7 @@ export default function FolderTree({
   onChangeFolderColor,
   onToggleFolderFavorite,
   onDeleteFolder,
+  onDeleteNote,
   onDragStart,
   onDragEnd,
   onMoveNoteToFolder,
@@ -225,6 +227,7 @@ export default function FolderTree({
             onNoteClick={onNoteClick}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
+            onDeleteNote={onDeleteNote}
           />
         ))}
 
@@ -245,6 +248,7 @@ export default function FolderTree({
             onChangeFolderColor={onChangeFolderColor}
             onToggleFolderFavorite={onToggleFolderFavorite}
             onDeleteFolder={onDeleteFolder}
+            onDeleteNote={onDeleteNote}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
           />
@@ -429,6 +433,7 @@ interface FolderNodeProps {
   onChangeFolderColor: (folderId: string, color: string) => void;
   onToggleFolderFavorite: (folderId: string) => void;
   onDeleteFolder: (folderId: string) => void;
+  onDeleteNote?: (noteId: string) => void;
   onDragStart: (noteId: string) => void;
   onDragEnd: () => void;
 }
@@ -448,6 +453,7 @@ function FolderNode({
   onChangeFolderColor,
   onToggleFolderFavorite,
   onDeleteFolder,
+  onDeleteNote,
   onDragStart,
   onDragEnd,
 }: FolderNodeProps) {
@@ -582,7 +588,7 @@ function FolderNode({
             }
             <span
               className={cx(
-                "flex-1 truncate text-[14px] font-medium",
+                "flex-1 truncate text-[12px] font-medium",
                 isSelected ? "text-txt" : "text-txt2 group-hover:text-txt"
               )}
             >
@@ -679,6 +685,7 @@ function FolderNode({
               onNoteClick={onNoteClick}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
+              onDeleteNote={onDeleteNote}
             />
           ))}
 
@@ -699,6 +706,7 @@ function FolderNode({
               onChangeFolderColor={onChangeFolderColor}
               onToggleFolderFavorite={onToggleFolderFavorite}
               onDeleteFolder={onDeleteFolder}
+              onDeleteNote={onDeleteNote}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
             />
@@ -719,6 +727,7 @@ function NoteRow({
   onNoteClick,
   onDragStart,
   onDragEnd,
+  onDeleteNote,
 }: {
   note: MockNote;
   depth: number;
@@ -728,6 +737,7 @@ function NoteRow({
   onNoteClick: (id: string) => void;
   onDragStart: (id: string) => void;
   onDragEnd: () => void;
+  onDeleteNote?: (id: string) => void;
 }) {
   const [dragging, setDragging] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -765,7 +775,7 @@ function NoteRow({
         onDragEnd();
       }}
       className={cx(
-        "group relative flex h-7 cursor-pointer select-none items-center gap-1 rounded-md pr-1 text-[13px] transition-colors",
+        "group relative flex h-7 cursor-pointer select-none items-center gap-1 rounded-md pr-1 text-[12px] transition-colors",
         isActive ? "font-medium text-txt" : "text-txt3 hover:text-txt2",
         dragging && "opacity-40"
       )}
@@ -805,6 +815,16 @@ function NoteRow({
         style={{ color: isActive ? "rgb(var(--primary))" : undefined }}
       />
       <span className="flex-1 truncate">{note.title}</span>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (confirm("이 노트를 삭제하시겠습니까?")) onDeleteNote?.(note.id);
+        }}
+        className="shrink-0 p-0.5 opacity-0 group-hover:opacity-100 text-txt3 hover:text-red-400 transition-opacity ml-1"
+        title="노트 삭제"
+      >
+        <Trash2 size={10} />
+      </button>
 
       <HoverInfoCard anchorRef={rowRef} hovered={hovered && !dragging}>
         <p className="mb-1 truncate font-semibold text-txt">{note.title}</p>

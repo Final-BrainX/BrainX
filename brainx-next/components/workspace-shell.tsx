@@ -7,6 +7,7 @@ import { useGuideStore } from "@/lib/use-guide-store";
 import { useBrainX } from "@/components/brainx-provider";
 import { Avatar, Badge, Btn, Icon, ThemeToggle } from "@/components/brainx-ui";
 import { AccountSettingsModal } from "@/components/utility/account-settings-modal";
+import { PanelLeftClose, PanelLeft } from "lucide-react";
 import { cx } from "@/lib/utils";
 import {
   isDemoSession,
@@ -184,15 +185,19 @@ function SidebarItem({
   label,
   path,
   onMyPageClick,
+  notesExplorerOpen,
 }: {
   icon: Parameters<typeof Icon>[0]["name"];
   label: string;
   path: string;
   onMyPageClick?: () => void;
+  notesExplorerOpen?: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [hovered, setHovered] = useState(false);
   const active = isActive(pathname, path);
+  const isNotes = path === "/notes";
 
   return (
     <button
@@ -200,6 +205,10 @@ function SidebarItem({
       onClick={() => {
         if (path === "/mypage") {
           onMyPageClick?.();
+          return;
+        }
+        if (path === "/notes" && pathname.startsWith("/notes")) {
+          window.dispatchEvent(new CustomEvent("brainx-toggle-notes-explorer"));
           return;
         }
         router.push(path);
@@ -213,11 +222,26 @@ function SidebarItem({
           ? "bg-surface2/80 text-txt"
           : "text-txt2 hover:bg-surface2/50 hover:text-txt",
       )}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
       {active ? (
         <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-gradient-to-b from-primary to-accent" />
       ) : null}
-      <Icon name={icon} size={19} className={active ? "text-primary" : ""} />
+      
+      {isNotes && active ? (
+        hovered ? (
+          notesExplorerOpen !== false ? (
+            <PanelLeftClose size={19} className="text-primary" />
+          ) : (
+            <PanelLeft size={19} className="text-primary" />
+          )
+        ) : (
+          <Icon name={icon} size={19} className="text-primary" />
+        )
+      ) : (
+        <Icon name={icon} size={19} className={active ? "text-primary" : ""} />
+      )}
       
       {/* Tooltip on Hover */}
       <span 
@@ -233,7 +257,7 @@ function SidebarItem({
   );
 }
 
-function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
+function Sidebar({ onOpenSettings, notesExplorerOpen }: { onOpenSettings: () => void; notesExplorerOpen?: boolean }) {
   const router = useRouter();
   const { t } = useBrainX();
 
@@ -248,6 +272,7 @@ function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
             {...item}
             label={t(item.labelKey)}
             onMyPageClick={onOpenSettings}
+            notesExplorerOpen={notesExplorerOpen}
           />
         ))}
         <div className="my-3 mx-1 h-px bg-line/50" />
@@ -473,6 +498,21 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [notesExplorerOpen, setNotesExplorerOpen] = useState(true);
+
+  useEffect(() => {
+    const handleExplorerState = (e: Event) => {
+      const customEvent = e as CustomEvent<{ open: boolean }>;
+      if (customEvent.detail) {
+        setNotesExplorerOpen(customEvent.detail.open);
+      } else {
+        // Toggle if no detail
+        setNotesExplorerOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("brainx-toggle-notes-explorer", handleExplorerState);
+    return () => window.removeEventListener("brainx-toggle-notes-explorer", handleExplorerState);
+  }, []);
 
   useEffect(() => {
     if (pathname === "/mypage") {
@@ -485,7 +525,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     <div className="flex h-[100svh] w-full flex-col overflow-hidden">
       <TopBar onOpenSettings={() => setSettingsOpen(true)} />
       <div className="flex min-h-0 flex-1">
-        <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
+        <Sidebar onOpenSettings={() => setSettingsOpen(true)} notesExplorerOpen={notesExplorerOpen} />
         <main className="scroll relative flex-1 min-w-0 overflow-y-auto">
           {children}
         </main>

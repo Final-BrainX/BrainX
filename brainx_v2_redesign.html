@@ -1,0 +1,420 @@
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  
+  .bx { 
+    background: #0E0E14; 
+    color: #fff; 
+    font-family: var(--font-sans);
+    border-radius: 16px;
+    overflow: hidden;
+    min-height: 820px;
+  }
+
+  /* TOP NAV */
+  .nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .nav-left { display: flex; align-items: center; gap: 10px; }
+  .logo-dot { width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg,#7B6FD8,#4ECFB3); display: flex; align-items: center; justify-content: center; font-size: 14px; }
+  .logo-text { font-size: 14px; font-weight: 500; color: #fff; }
+  .nav-badge { font-size: 11px; background: rgba(75,195,172,0.15); color: #4BC3AC; border: 1px solid rgba(75,195,172,0.25); padding: 2px 8px; border-radius: 20px; }
+  .nav-right { display: flex; align-items: center; gap: 8px; }
+  .nav-btn { 
+    font-size: 12px; padding: 6px 14px; border-radius: 8px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.05); 
+    color: rgba(255,255,255,0.7); display: flex; align-items: center; gap: 5px;
+  }
+  .nav-btn-primary {
+    font-size: 12px; padding: 6px 14px; border-radius: 8px; cursor: pointer;
+    border: none; background: #6C63D8; color: #fff; display: flex; align-items: center; gap: 5px;
+  }
+
+  /* GREETING */
+  .greeting {
+    padding: 24px 24px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    display: flex; justify-content: space-between; align-items: flex-end;
+  }
+  .greeting-date { font-size: 11px; color: rgba(255,255,255,0.3); margin-bottom: 6px; letter-spacing: 0.05em; }
+  .greeting-title { font-size: 24px; font-weight: 500; color: #fff; line-height: 1.2; }
+  .greeting-title span { color: #4BC3AC; }
+  .greeting-sub { font-size: 13px; color: rgba(255,255,255,0.4); margin-top: 6px; }
+  .greeting-sub strong { color: rgba(255,255,255,0.6); font-weight: 400; }
+  .pulse-badge {
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(108,99,216,0.15); border: 1px solid rgba(108,99,216,0.3);
+    border-radius: 10px; padding: 8px 14px; font-size: 12px; color: #A89FE8;
+  }
+  .pulse-dot { width: 6px; height: 6px; border-radius: 50%; background: #6C63D8; animation: pulse 2s infinite; flex-shrink: 0; }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.8)} }
+
+  /* STAT ROW */
+  .stat-row {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .stat-item {
+    padding: 16px 20px;
+    border-right: 1px solid rgba(255,255,255,0.06);
+  }
+  .stat-item:last-child { border-right: none; }
+  .stat-val { font-size: 26px; font-weight: 500; color: #fff; line-height: 1; }
+  .stat-val.c-purple { color: #9B8FEE; }
+  .stat-val.c-teal   { color: #4BC3AC; }
+  .stat-val.c-coral  { color: #F0855A; }
+  .stat-val.c-blue   { color: #5BA8F0; }
+  .stat-lbl { font-size: 11px; color: rgba(255,255,255,0.35); margin-top: 4px; letter-spacing: 0.02em; }
+  .stat-bar { height: 2px; background: rgba(255,255,255,0.06); border-radius: 2px; margin-top: 10px; }
+  .stat-bar-fill { height: 100%; border-radius: 2px; }
+
+  /* BODY GRID */
+  .body-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.1fr;
+    min-height: 580px;
+  }
+  .col-left {
+    border-right: 1px solid rgba(255,255,255,0.06);
+    display: flex; flex-direction: column;
+  }
+  .col-right { display: flex; flex-direction: column; }
+
+  /* SECTION HEADER */
+  .sec-header {
+    padding: 18px 20px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .sec-label { display: flex; align-items: center; gap: 7px; }
+  .sec-icon { 
+    width: 26px; height: 26px; border-radius: 7px; 
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+  }
+  .sec-icon.purple { background: rgba(155,143,238,0.15); color: #9B8FEE; }
+  .sec-icon.teal   { background: rgba(75,195,172,0.15);  color: #4BC3AC; }
+  .sec-icon.amber  { background: rgba(240,185,90,0.15);  color: #F0B95A; }
+  .sec-name { font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.85); }
+  .sec-action { font-size: 11px; color: rgba(255,255,255,0.3); cursor: pointer; display: flex; align-items: center; gap: 4px; }
+
+  /* INSIGHT SUMMARY CARD */
+  .insight-body { padding: 16px 20px; }
+  .insight-prose {
+    font-size: 13px; line-height: 1.7; color: rgba(255,255,255,0.5);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;
+  }
+  .insight-prose strong { color: #9B8FEE; font-weight: 500; }
+
+  .tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag { 
+    font-size: 11px; padding: 4px 10px; border-radius: 20px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.45);
+    transition: all 0.15s;
+  }
+  .tag:hover { border-color: rgba(155,143,238,0.5); color: #9B8FEE; }
+  .tag.active { background: rgba(108,99,216,0.2); border-color: rgba(108,99,216,0.5); color: #A89FE8; }
+
+  /* MINI STATS GRID */
+  .mini-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+  .mini-card {
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 10px; padding: 12px 14px;
+  }
+  .mini-val { font-size: 20px; font-weight: 500; color: #fff; }
+  .mini-lbl { font-size: 11px; color: rgba(255,255,255,0.35); margin-top: 3px; }
+  .mini-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-top: 4px; display: inline-block; }
+  .mini-badge.up { background: rgba(75,195,172,0.15); color: #4BC3AC; }
+
+  /* GRAPH MAP */
+  .map-body { padding: 10px 16px 16px; flex: 1; }
+  .graph-wrap { 
+    width: 100%; height: 220px; position: relative;
+    background: rgba(255,255,255,0.015);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px; overflow: hidden;
+  }
+  .graph-wrap svg { width: 100%; height: 100%; }
+
+  /* INSIGHT LIST (right col) */
+  .insight-list { flex: 1; padding: 4px 0; }
+  .insight-entry {
+    padding: 14px 20px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    display: flex; gap: 12px; align-items: flex-start;
+    transition: background 0.15s; cursor: default;
+  }
+  .insight-entry:hover { background: rgba(255,255,255,0.025); }
+  .entry-accent {
+    width: 3px; border-radius: 3px; flex-shrink: 0; margin-top: 3px; align-self: stretch;
+  }
+  .entry-body { flex: 1; }
+  .entry-tag { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 5px; font-weight: 500; }
+  .entry-text { font-size: 13px; color: rgba(255,255,255,0.55); line-height: 1.6; }
+  .entry-text strong { color: rgba(255,255,255,0.85); font-weight: 500; }
+
+  /* RECOMMENDED NOTE */
+  .reco-section { padding: 14px 20px; border-top: 1px solid rgba(255,255,255,0.06); }
+  .reco-card {
+    background: rgba(108,99,216,0.1); border: 1px solid rgba(108,99,216,0.22);
+    border-radius: 10px; padding: 14px 16px;
+    display: flex; align-items: flex-start; gap: 12px;
+  }
+  .reco-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; color: #9B8FEE; }
+  .reco-title { font-size: 12px; color: rgba(255,255,255,0.4); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+  .reco-name { font-size: 14px; font-weight: 500; color: #C5BEFF; margin-bottom: 4px; }
+  .reco-desc { font-size: 12px; color: rgba(255,255,255,0.35); line-height: 1.55; }
+  .reco-btn {
+    margin-top: 10px; font-size: 11px; padding: 5px 12px;
+    border: 1px solid rgba(155,143,238,0.35); border-radius: 6px;
+    background: transparent; color: #9B8FEE; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+  }
+</style>
+
+<div class="bx">
+
+  <!-- NAV -->
+  <div class="nav">
+    <div class="nav-left">
+      <div class="logo-dot">🧠</div>
+      <span class="logo-text">BrainX</span>
+      <span class="nav-badge">Free</span>
+    </div>
+    <div class="nav-right">
+      <button class="nav-btn"><i class="ti ti-message-circle" aria-hidden="true"></i> AI에게 묻기</button>
+      <button class="nav-btn-primary"><i class="ti ti-plus" aria-hidden="true"></i> 새 노트</button>
+    </div>
+  </div>
+
+  <!-- GREETING -->
+  <div class="greeting">
+    <div>
+      <div class="greeting-date">2026년 6월 8일 일요일 · 오전</div>
+      <div class="greeting-title">좋은 아침이에요,<br><span>BrainX Demo</span>님 🌿</div>
+      <div class="greeting-sub">오늘 <strong>3개의 노트</strong>가 새로 연결되었고, AI가 <strong>2개의 인사이트</strong>를 발견했어요.</div>
+    </div>
+    <div class="pulse-badge">
+      <div class="pulse-dot"></div>
+      AI가 지식 그래프를 분석 중이에요
+    </div>
+  </div>
+
+  <!-- STAT ROW -->
+  <div class="stat-row">
+    <div class="stat-item">
+      <div class="stat-val c-purple">13</div>
+      <div class="stat-lbl">전체 노트</div>
+      <div class="stat-bar"><div class="stat-bar-fill" style="width:52%;background:#9B8FEE;opacity:0.6;"></div></div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-val c-teal">21</div>
+      <div class="stat-lbl">AI 연결</div>
+      <div class="stat-bar"><div class="stat-bar-fill" style="width:68%;background:#4BC3AC;opacity:0.6;"></div></div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-val c-coral">12일</div>
+      <div class="stat-lbl">작성 스트릭</div>
+      <div class="stat-bar"><div class="stat-bar-fill" style="width:40%;background:#F0855A;opacity:0.6;"></div></div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-val c-blue">12.8K</div>
+      <div class="stat-lbl">이번 달 토큰</div>
+      <div class="stat-bar"><div class="stat-bar-fill" style="width:85%;background:#5BA8F0;opacity:0.6;"></div></div>
+    </div>
+  </div>
+
+  <!-- MAIN BODY -->
+  <div class="body-grid">
+
+    <!-- LEFT: 지식 인사이트 + 주제 지도 -->
+    <div class="col-left">
+
+      <div class="sec-header">
+        <div class="sec-label">
+          <div class="sec-icon purple"><i class="ti ti-brain" aria-hidden="true"></i></div>
+          <span class="sec-name">나의 지식 인사이트</span>
+        </div>
+        <span class="sec-action">개인 리포트 <i class="ti ti-chevron-right" aria-hidden="true"></i></span>
+      </div>
+
+      <div class="insight-body">
+        <div class="insight-prose">
+          최근 <strong>머신러닝, 프로젝트 아이디어, 독서 기록</strong>을 중심으로 지식을 확장하고 있어요. 총 <strong>13개 노트</strong>와 <strong>21개 연결</strong>이 현재 학습 흐름을 만들고 있어요.
+        </div>
+        <div class="tag-row">
+          <span class="tag active">머신러닝 4</span>
+          <span class="tag active">프로젝트 아이디어 3</span>
+          <span class="tag">독서 기록 3</span>
+          <span class="tag">업무·회의 2</span>
+        </div>
+        <div class="mini-grid">
+          <div class="mini-card">
+            <div class="mini-val">13개</div>
+            <div class="mini-lbl">분석된 노트</div>
+            <div class="mini-badge up">+3 이번 주</div>
+          </div>
+          <div class="mini-card">
+            <div class="mini-val">21개</div>
+            <div class="mini-lbl">지식 연결</div>
+            <div class="mini-badge up">+5 이번 주</div>
+          </div>
+          <div class="mini-card">
+            <div class="mini-val">5개</div>
+            <div class="mini-lbl">핵심 주제군</div>
+          </div>
+          <div class="mini-card">
+            <div class="mini-val">863자</div>
+            <div class="mini-lbl">노트 평균 분량</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec-header" style="margin-top: auto;">
+        <div class="sec-label">
+          <div class="sec-icon teal"><i class="ti ti-chart-bubble" aria-hidden="true"></i></div>
+          <span class="sec-name">주제 지도</span>
+        </div>
+        <span class="sec-action">버블 · 추이 <i class="ti ti-chevron-right" aria-hidden="true"></i></span>
+      </div>
+
+      <div class="map-body">
+        <div class="graph-wrap">
+          <svg viewBox="0 0 320 210" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <radialGradient id="glow-ml" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#9B8FEE" stop-opacity="0.3"/>
+                <stop offset="100%" stop-color="#9B8FEE" stop-opacity="0"/>
+              </radialGradient>
+              <radialGradient id="glow-pj" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#4BC3AC" stop-opacity="0.25"/>
+                <stop offset="100%" stop-color="#4BC3AC" stop-opacity="0"/>
+              </radialGradient>
+              <radialGradient id="glow-bk" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#5BA8F0" stop-opacity="0.22"/>
+                <stop offset="100%" stop-color="#5BA8F0" stop-opacity="0"/>
+              </radialGradient>
+            </defs>
+
+            <!-- glow halos -->
+            <circle cx="155" cy="108" r="55" fill="url(#glow-ml)"/>
+            <circle cx="82"  cy="90"  r="38" fill="url(#glow-pj)"/>
+            <circle cx="247" cy="72"  r="32" fill="url(#glow-bk)"/>
+
+            <!-- edges -->
+            <line x1="155" y1="108" x2="82"  y2="90"  stroke="#9B8FEE" stroke-width="1" stroke-dasharray="4 3" opacity="0.35"/>
+            <line x1="155" y1="108" x2="247" y2="72"  stroke="#9B8FEE" stroke-width="1" stroke-dasharray="4 3" opacity="0.25"/>
+            <line x1="155" y1="108" x2="255" y2="162" stroke="#9B8FEE" stroke-width="0.8" stroke-dasharray="3 3" opacity="0.2"/>
+            <line x1="155" y1="108" x2="65"  y2="168" stroke="#9B8FEE" stroke-width="0.8" stroke-dasharray="3 3" opacity="0.2"/>
+            <line x1="82"  y1="90"  x2="65"  y2="168" stroke="#4BC3AC" stroke-width="0.8" stroke-dasharray="3 3" opacity="0.18"/>
+
+            <!-- nodes -->
+            <!-- 머신러닝 (center/biggest) -->
+            <circle cx="155" cy="108" r="42" fill="rgba(155,143,238,0.12)" stroke="#9B8FEE" stroke-width="1"/>
+            <circle cx="155" cy="108" r="3"  fill="#9B8FEE"/>
+            <text x="155" y="103" text-anchor="middle" font-size="12" font-weight="500" fill="#C5BEFF">머신러닝</text>
+            <text x="155" y="118" text-anchor="middle" font-size="10" fill="rgba(155,143,238,0.6)">4 노트 · 8 연결</text>
+
+            <!-- 프로젝트 아이디어 -->
+            <circle cx="82" cy="90" r="30" fill="rgba(75,195,172,0.1)" stroke="#4BC3AC" stroke-width="0.8"/>
+            <circle cx="82" cy="90" r="2.5" fill="#4BC3AC"/>
+            <text x="82" y="86" text-anchor="middle" font-size="10" font-weight="500" fill="#7DE8D4">프로젝트</text>
+            <text x="82" y="98" text-anchor="middle" font-size="10" font-weight="500" fill="#7DE8D4">아이디어</text>
+
+            <!-- 독서 기록 -->
+            <circle cx="247" cy="72" r="26" fill="rgba(91,168,240,0.1)" stroke="#5BA8F0" stroke-width="0.8"/>
+            <circle cx="247" cy="72" r="2.5" fill="#5BA8F0"/>
+            <text x="247" y="68" text-anchor="middle" font-size="10" font-weight="500" fill="#97C8F7">독서 기록</text>
+            <text x="247" y="80" text-anchor="middle" font-size="9" fill="rgba(91,168,240,0.5)">3 노트</text>
+
+            <!-- 업무·회의 -->
+            <circle cx="255" cy="162" r="20" fill="rgba(240,133,90,0.08)" stroke="#F0855A" stroke-width="0.7"/>
+            <circle cx="255" cy="162" r="2" fill="#F0855A"/>
+            <text x="255" y="158" text-anchor="middle" font-size="9" fill="rgba(240,133,90,0.7)">업무·회의</text>
+            <text x="255" y="170" text-anchor="middle" font-size="8.5" fill="rgba(240,133,90,0.4)">2 노트</text>
+
+            <!-- 생각·일상 -->
+            <circle cx="65" cy="168" r="16" fill="rgba(180,178,169,0.07)" stroke="rgba(180,178,169,0.3)" stroke-width="0.7"/>
+            <circle cx="65" cy="168" r="2" fill="rgba(180,178,169,0.5)"/>
+            <text x="65" y="164" text-anchor="middle" font-size="9" fill="rgba(180,178,169,0.5)">생각·일상</text>
+            <text x="65" y="175" text-anchor="middle" font-size="8" fill="rgba(180,178,169,0.3)">1 노트</text>
+          </svg>
+        </div>
+
+        <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:12px;">
+          <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,0.3);">
+            <div style="width:7px;height:7px;border-radius:50%;background:#9B8FEE;"></div> 머신러닝
+          </div>
+          <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,0.3);">
+            <div style="width:7px;height:7px;border-radius:50%;background:#4BC3AC;"></div> 프로젝트 아이디어
+          </div>
+          <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,0.3);">
+            <div style="width:7px;height:7px;border-radius:50%;background:#5BA8F0;"></div> 독서 기록
+          </div>
+          <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,0.3);">
+            <div style="width:7px;height:7px;border-radius:50%;background:#F0855A;"></div> 업무·회의
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: 인사이트 요약 -->
+    <div class="col-right">
+      <div class="sec-header">
+        <div class="sec-label">
+          <div class="sec-icon amber"><i class="ti ti-sparkles" aria-hidden="true"></i></div>
+          <span class="sec-name">인사이트 요약</span>
+        </div>
+        <span class="sec-action">활동에서 관찰한 패턴 <i class="ti ti-chevron-right" aria-hidden="true"></i></span>
+      </div>
+
+      <div class="insight-list">
+        <div class="insight-entry">
+          <div class="entry-accent" style="background:#9B8FEE; min-height:16px;"></div>
+          <div class="entry-body">
+            <div class="entry-tag" style="color:#9B8FEE;">그래프 허브</div>
+            <div class="entry-text">RAG 관련 노트가 지식 그래프의 중심에 있어요. 특히 <strong>"RAG 파이프라인 설계 노트"</strong>가 여러 주제를 연결하고 있어요.</div>
+          </div>
+        </div>
+        <div class="insight-entry">
+          <div class="entry-accent" style="background:#4BC3AC; min-height:16px;"></div>
+          <div class="entry-body">
+            <div class="entry-tag" style="color:#4BC3AC;">활성 흐름</div>
+            <div class="entry-text">최근 지식 흐름은 <strong>머신러닝, 프로젝트 아이디어, 독서 기록</strong> 영역에 집중되어 있어요.</div>
+          </div>
+        </div>
+        <div class="insight-entry">
+          <div class="entry-accent" style="background:#F0855A; min-height:16px;"></div>
+          <div class="entry-body">
+            <div class="entry-tag" style="color:#F0855A;">연결 부족</div>
+            <div class="entry-text"><strong>"프롬프트 엔지니어링 패턴"</strong> 노트는 연결이 적어요. 관련 노트와 이어주면 지식 그래프가 더 촘촘해져요.</div>
+          </div>
+        </div>
+        <div class="insight-entry">
+          <div class="entry-accent" style="background:#5BA8F0; min-height:16px;"></div>
+          <div class="entry-body">
+            <div class="entry-tag" style="color:#5BA8F0;">성장 기회</div>
+            <div class="entry-text">머신러닝에서 파생되는 세부 개념을 더 정리하면 <strong>학습 흐름이 자연스럽게 이어져요.</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="reco-section">
+        <div style="font-size:11px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px;">다시 보면 좋은 노트</div>
+        <div class="reco-card">
+          <div class="reco-icon"><i class="ti ti-file-text" aria-hidden="true"></i></div>
+          <div style="flex:1;">
+            <div class="reco-title">연결 부족 노트</div>
+            <div class="reco-name">프롬프트 엔지니어링 패턴</div>
+            <div class="reco-desc">연결이 아직 적어요. 관련 개념을 추가하거나 다른 노트와 연결해보세요.</div>
+            <button class="reco-btn"><i class="ti ti-external-link" aria-hidden="true"></i> 노트 열기</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
