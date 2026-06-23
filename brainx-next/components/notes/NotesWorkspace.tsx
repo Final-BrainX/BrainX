@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { Group, Panel, useGroupRef } from "react-resizable-panels";
 import { WikiLinkContext, resolveWikiLinkTitle, type WikiLinkContextValue } from "./WikiLinkContext";
-import { RotateCcw, ChevronLeft, Save } from "lucide-react";
+import { RotateCcw, Save } from "lucide-react";
 import { cx } from "@/lib/utils";
 import { MockFolder, MockNote, PaneNode, PaneTabsState, Tab, NotesWorkspaceSession, DragPayload } from "@/lib/notes/noteTypes";
 import type { EditMode, AiActionType } from "./NoteEditor";
@@ -151,7 +151,14 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   }));
   const [paneTabs, setPaneTabs] = useState<Record<string, PaneTabsState>>(() => init.paneTabs);
   const [dragPayload, setDragPayload] = useState<DragPayload | null>(null);
+  const [explorerOpen, setExplorerOpen] = useState(true);
   const [contextOpen, setContextOpen] = useState(true);
+
+  useEffect(() => {
+    const handleToggle = () => setExplorerOpen((prev) => !prev);
+    window.addEventListener("brainx-toggle-notes-explorer", handleToggle);
+    return () => window.removeEventListener("brainx-toggle-notes-explorer", handleToggle);
+  }, []);
   // 컨텍스트 패널 폭 — Split View(PaneTreeRenderer.tsx)와 동일한 react-resizable-panels
   // Group/Panel/Separator를 재사용해 드래그로 조절 가능하게 한다. 마지막 폭은 localStorage에
   // 저장해 새로고침 후에도 유지(요구사항).
@@ -176,30 +183,21 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   // 계산해 `groupRef.setLayout()`을 호출하는 방식으로 바꿔 라이브러리의 그 내부 계산 경로를
   // 아예 타지 않게 했다 — 신뢰된 이벤트 여부와 무관하게 항상 실제 마우스 이동량만큼 반영된다.
   const [contextPanelSize, setContextPanelSize] = useState<number>(() => {
-    if (typeof window === "undefined") return 22;
+    if (typeof window === "undefined") return 300;
     const saved = Number(window.localStorage.getItem(CONTEXT_PANEL_SIZE_KEY));
-    return Number.isFinite(saved) && saved >= 16 && saved <= 42 ? saved : 22;
+    return Number.isFinite(saved) && saved >= 270 && saved <= 800 ? saved : 300;
   });
   const contextGroupElRef = useRef<HTMLDivElement>(null);
-  const contextGroupRef = useGroupRef();
 
   const handleContextSeparatorMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    const groupEl = contextGroupElRef.current;
-    if (!groupEl) return;
     const startX = e.clientX;
-    const groupWidth = groupEl.getBoundingClientRect().width;
-    const startLayout = contextGroupRef.current?.getLayout();
-    const startContext = startLayout?.["notes-context-panel"] ?? contextPanelSize;
+    const startContext = contextPanelSize;
     let latest = startContext;
 
     const onMove = (ev: MouseEvent) => {
-      const deltaPercent = ((ev.clientX - startX) / groupWidth) * 100;
-      latest = Math.min(42, Math.max(16, startContext - deltaPercent));
-      contextGroupRef.current?.setLayout({
-        "notes-main-panel": 100 - latest,
-        "notes-context-panel": latest,
-      });
+      const deltaX = ev.clientX - startX;
+      latest = Math.max(270, Math.min(800, startContext - deltaX));
       setContextPanelSize(latest);
     };
     const onUp = () => {
@@ -208,12 +206,12 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       try {
         window.localStorage.setItem(CONTEXT_PANEL_SIZE_KEY, String(latest));
       } catch {
-        // localStorage 접근 불가(프라이빗 모드 등) — 이번 세션 폭만 유지
+        // localStorage 접근 불가
       }
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [contextPanelSize, contextGroupRef]);
+  }, [contextPanelSize]);
   // MOCK_NOTES를 가변 상태로 복사 → 제목 수정/새 노트 생성 시 사이드바/헤더/컨텍스트 패널 즉시 반영
   const [notes, setNotes] = useState<MockNote[]>(() => [...MOCK_NOTES]);
   const [folders, setFolders] = useState<MockFolder[]>(() => [...MOCK_FOLDERS]);
@@ -668,6 +666,37 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setSelectedFolderId((prev) => (prev === folderId ? null : prev));
   }, [folders]);
 
+  /* 노트 삭제 — notes 상태에서 제거하고 열려 있는 탭 정리 */
+  const handleDeleteNote = useCallback((noteId: string) => {
+    setNotes((prev) => prev.filter((n) => n.id !== noteId));
+    setPaneTabs((prevByPane) => {
+      const next = { ...prevByPane };
+      Object.keys(next).forEach((paneId) => {
+        const paneState = next[paneId];
+        if (!paneState) return;
+        const noteTabs = paneState.tabs.filter((t) => t.kind === "note" && t.noteId === noteId);
+        if (noteTabs.length === 0) return;
+
+        let newTabs = paneState.tabs.filter((t) => !(t.kind === "note" && t.noteId === noteId));
+        let newActiveTabId = paneState.activeTabId;
+
+        const isActiveTabClosing = noteTabs.some((t) => t.id === paneState.activeTabId);
+        if (isActiveTabClosing) {
+          if (newTabs.length > 0) {
+            const closingIndex = paneState.tabs.findIndex((t) => t.id === paneState.activeTabId);
+            newActiveTabId = (newTabs[closingIndex] ?? newTabs[closingIndex - 1] ?? newTabs[0]).id;
+          } else {
+            const startTabId = uid();
+            newTabs = [{ id: startTabId, kind: "start" }];
+            newActiveTabId = startTabId;
+          }
+        }
+        next[paneId] = { tabs: newTabs, activeTabId: newActiveTabId };
+      });
+      return next;
+    });
+  }, []);
+
   const handleSelectFolder = useCallback((folderId: string | null) => {
     setSelectedFolderId(folderId);
   }, []);
@@ -963,6 +992,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       onCloseAllTabs={handleCloseAllTabs}
       onTogglePinTab={handleTogglePinTab}
       onSplitTab={handleSplitTab}
+      contextOpen={contextOpen}
+      onContextToggle={() => setContextOpen((prev) => !prev)}
     />
   );
 
@@ -972,26 +1003,29 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       <div className="flex h-full overflow-hidden">
 
         {/* ── 좌측: 노트 탐색기 ──────────────────────── */}
-        <NotesExplorer
-          notes={notes}
-          folders={folders}
-          activeNoteId={activeNoteId ?? ""}
-          selectedFolderId={selectedFolderId}
-          onSelectFolder={handleSelectFolder}
-          onNoteClick={handleNoteClick}
-          onCreateFolder={handleCreateFolder}
-          onCreateNote={handleNewNote}
-          onRenameFolder={handleRenameFolder}
-          onChangeFolderColor={handleChangeFolderColor}
-          onToggleFolderFavorite={handleToggleFolderFavorite}
-          onDeleteFolder={handleDeleteFolder}
-          onDragStart={handleSidebarDragStart}
-          onDragEnd={handleDragEnd}
-          onMoveNoteToFolder={handleMoveNoteToFolder}
-          onReorderNote={handleReorderNote}
-          onMoveFolderToParent={handleMoveFolderToParent}
-          onReorderFolder={handleReorderFolder}
-        />
+        {explorerOpen && (
+          <NotesExplorer
+            notes={notes}
+            folders={folders}
+            activeNoteId={activeNoteId ?? ""}
+            selectedFolderId={selectedFolderId}
+            onSelectFolder={handleSelectFolder}
+            onNoteClick={handleNoteClick}
+            onCreateFolder={handleCreateFolder}
+            onCreateNote={handleNewNote}
+            onRenameFolder={handleRenameFolder}
+            onChangeFolderColor={handleChangeFolderColor}
+            onToggleFolderFavorite={handleToggleFolderFavorite}
+            onDeleteFolder={handleDeleteFolder}
+            onDeleteNote={handleDeleteNote}
+            onDragStart={handleSidebarDragStart}
+            onDragEnd={handleDragEnd}
+            onMoveNoteToFolder={handleMoveNoteToFolder}
+            onReorderNote={handleReorderNote}
+            onMoveFolderToParent={handleMoveFolderToParent}
+            onReorderFolder={handleReorderFolder}
+          />
+        )}
 
         {/* ── 중앙: 에디터 영역 ───────────────────────── */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -1042,34 +1076,28 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
               컴포넌트를 그대로 쓴다. */}
           <div className="flex flex-1 overflow-hidden">
             {contextOpen ? (
-              <Group elementRef={contextGroupElRef} groupRef={contextGroupRef} orientation="horizontal" style={{ flex: 1, overflow: "hidden" }}>
-                <Panel id="notes-main-panel" defaultSize={100 - contextPanelSize} minSize="40%" style={{ overflow: "hidden" }}>
+              <>
+                <div className="flex-1 min-w-0 overflow-hidden" ref={contextGroupElRef}>
                   {paneTree}
-                </Panel>
+                </div>
 
-                {/* 라이브러리 내장 Separator 대신 직접 만든 드래그 핸들 — 위 주석 참고(첫 드래그가
-                    실제 마우스 이동량의 일부만 반영되던 버그를 라이브러리의 내부 드래그 경로를
-                    타지 않는 방식으로 피했다). 키보드 접근성(좌우 화살표로 미세 조절)은 직접
-                    구현해 라이브러리 Separator가 제공하던 것을 동등하게 유지한다. */}
+                {/* 우측 패널 리사이즈 핸들 */}
                 <div
                   role="separator"
                   aria-orientation="vertical"
-                  aria-valuenow={Math.round(contextPanelSize)}
-                  aria-valuemin={16}
-                  aria-valuemax={42}
+                  aria-valuenow={contextPanelSize}
+                  aria-valuemin={270}
+                  aria-valuemax={800}
                   tabIndex={0}
                   onMouseDown={handleContextSeparatorMouseDown}
                   onKeyDown={(e) => {
                     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
                     e.preventDefault();
-                    const next = Math.min(42, Math.max(16, contextPanelSize + (e.key === "ArrowLeft" ? 2 : -2)));
-                    contextGroupRef.current?.setLayout({ "notes-main-panel": 100 - next, "notes-context-panel": next });
+                    const next = Math.max(270, Math.min(800, contextPanelSize + (e.key === "ArrowLeft" ? 20 : -20)));
                     setContextPanelSize(next);
                     try {
                       window.localStorage.setItem(CONTEXT_PANEL_SIZE_KEY, String(next));
-                    } catch {
-                      // localStorage 접근 불가 — 이번 세션 폭만 유지
-                    }
+                    } catch {}
                   }}
                   style={{
                     width: 4,
@@ -1082,12 +1110,13 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
                   onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "rgb(var(--line) / 0.35)"; }}
                 />
 
-                <Panel
-                  id="notes-context-panel"
-                  defaultSize={contextPanelSize}
-                  minSize="16%"
-                  maxSize="42%"
-                  style={{ overflow: "hidden" }}
+                <div
+                  style={{
+                    width: contextPanelSize,
+                    minWidth: "min(270px, 100vw)",
+                    flexShrink: 0,
+                    overflow: "hidden",
+                  }}
                 >
                   <RightSidebar
                     key={activeNoteId ?? "start"}
@@ -1097,20 +1126,10 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
                     pendingAiRequest={aiRequest}
                     onAiRequestHandled={() => setAiRequest(null)}
                   />
-                </Panel>
-              </Group>
-            ) : (
-              <>
-                <div className="flex-1 overflow-hidden">{paneTree}</div>
-                <button
-                  type="button"
-                  onClick={() => setContextOpen(true)}
-                  title="컨텍스트 패널 열기"
-                  className="flex w-6 shrink-0 flex-col items-center justify-center border-l border-line/50 bg-bg2/30 text-txt3 transition-colors hover:bg-surface2/50 hover:text-txt"
-                >
-                  <ChevronLeft size={13} />
-                </button>
+                </div>
               </>
+            ) : (
+              <div className="flex-1 overflow-hidden">{paneTree}</div>
             )}
           </div>
         </div>

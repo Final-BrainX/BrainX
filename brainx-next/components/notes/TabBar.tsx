@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState, useCallback } from "react";
-import { X, Plus, Eye, SquarePen, Pin } from "lucide-react";
+import { X, Plus, Eye, SquarePen, Pin, PanelRight, PanelRightClose } from "lucide-react";
 import { cx } from "@/lib/utils";
 import { Tab, MockNote, DragPayload } from "@/lib/notes/noteTypes";
 import type { EditMode } from "./NoteEditor";
@@ -31,6 +31,8 @@ interface TabBarProps {
   onTogglePinTab: (tabId: string) => void;
   onSplitTabRight: (tabId: string) => void;
   onSplitTabDown: (tabId: string) => void;
+  onContextToggle?: () => void;
+  contextOpen?: boolean;
 }
 
 function tabLabel(tab: Tab, notes: MockNote[]): string {
@@ -61,6 +63,8 @@ export default function TabBar({
   onTogglePinTab,
   onSplitTabRight,
   onSplitTabDown,
+  onContextToggle,
+  contextOpen,
 }: TabBarProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<TabContextMenuTarget | null>(null);
@@ -213,23 +217,39 @@ export default function TabBar({
         </button>
       </div>
 
-      {/* 우측 컨트롤: 현재 활성 탭(노트)의 읽기/편집 모드 전환 — 패널 전체 설정이 아니라
-          이 탭 하나의 상태임을 분명히 하기 위해 패널 닫기 등 다른 컨트롤은 두지 않는다 */}
-      {showModeToggle && (
-        <div className="flex shrink-0 items-center gap-0.5 border-l border-line/40 px-1.5">
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onModeToggle(); }}
-            title={mode === "edit" ? "읽기 모드로 전환" : "편집 모드로 전환"}
-            className={cx(
-              "inline-flex h-[22px] w-[22px] items-center justify-center rounded transition-all",
-              mode === "edit"
-                ? "text-primary hover:bg-primary/10"
-                : "text-txt3/60 hover:bg-surface2/70 hover:text-txt"
-            )}
-          >
-            {mode === "edit" ? <SquarePen size={13} /> : <Eye size={13} />}
-          </button>
+      {/* 우측 컨트롤: 읽기/편집 모드 전환 + 컨텍스트 패널 토글 */}
+      {(showModeToggle || onContextToggle) && (
+        <div className="flex shrink-0 items-center border-l border-line/40 px-1.5 gap-0.5">
+          {showModeToggle && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onModeToggle(); }}
+              title={mode === "edit" ? "읽기 모드로 전환" : "편집 모드로 전환"}
+              className={cx(
+                "inline-flex h-[22px] w-[22px] items-center justify-center rounded transition-all",
+                mode === "edit"
+                  ? "text-primary hover:bg-primary/10"
+                  : "text-txt3/60 hover:bg-surface2/70 hover:text-txt"
+              )}
+            >
+              {mode === "edit" ? <SquarePen size={13} /> : <Eye size={13} />}
+            </button>
+          )}
+          {onContextToggle && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onContextToggle(); }}
+              title={contextOpen ? "컨텍스트 패널 닫기" : "컨텍스트 패널 열기"}
+              className={cx(
+                "inline-flex h-[22px] w-[22px] items-center justify-center rounded transition-all",
+                contextOpen
+                  ? "text-primary hover:bg-primary/10"
+                  : "text-txt3/60 hover:bg-surface2/70 hover:text-txt"
+              )}
+            >
+              {contextOpen ? <PanelRightClose size={13} /> : <PanelRight size={13} />}
+            </button>
+          )}
         </div>
       )}
 

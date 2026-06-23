@@ -3,13 +3,15 @@
 import { useEffect, useState } from 'react';
 import { Joyride, STATUS, type Step } from 'react-joyride';
 import { useGuideStore } from '@/lib/use-guide-store';
+import { usePathname } from 'next/navigation';
 
 export function TutorialProvider({ children }: { children: React.ReactNode }) {
   const [isMounted, setIsMounted] = useState(false);
   const [run, setRun] = useState(false);
   const [steps, setSteps] = useState<Step[]>([]);
   
-  const { completedTutorials, completeTutorial, skillLevel, discoveredFeatures } = useGuideStore();
+  const pathname = usePathname();
+  const { completedTutorials, completeTutorial, skillLevel, discoveredFeatures, isManualTrigger, clearManualTrigger } = useGuideStore();
 
   useEffect(() => {
     setIsMounted(true);
@@ -18,8 +20,10 @@ export function TutorialProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isMounted) return;
 
+    const isMainPage = pathname === '/home' || pathname === '/';
+
     // 1. 기본 환영 튜토리얼 (BEGINNER)
-    if (skillLevel === 'BEGINNER' && !completedTutorials.includes('welcome_tour')) {
+    if (isManualTrigger || (isMainPage && skillLevel === 'BEGINNER' && !completedTutorials.includes('welcome_tour'))) {
       setSteps([
         {
           target: 'body',
@@ -69,7 +73,7 @@ export function TutorialProvider({ children }: { children: React.ReactNode }) {
       setRun(true);
     }
 
-  }, [isMounted, completedTutorials, skillLevel, discoveredFeatures]);
+  }, [isMounted, completedTutorials, skillLevel, discoveredFeatures, pathname, isManualTrigger]);
 
   const handleJoyrideCallback = (data: any) => {
     const { status, type } = data;
@@ -78,6 +82,7 @@ export function TutorialProvider({ children }: { children: React.ReactNode }) {
     
     if (finishedStatuses.includes(status)) {
       setRun(false);
+      clearManualTrigger();
       // 어떤 투어를 완료했는지 추론하여 기록
       if (skillLevel === 'BEGINNER' && !completedTutorials.includes('welcome_tour')) {
         completeTutorial('welcome_tour');

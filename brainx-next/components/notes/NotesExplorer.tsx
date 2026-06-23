@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { Search, Star, ChevronDown, FileText, Folder, Check, Clock, Plus } from "lucide-react";
+import { Search, Star, ChevronDown, FileText, Folder, Check, Clock, Plus, Trash2 } from "lucide-react";
 import { CollapseChevron } from "./CollapseChevron";
 import { HoverInfoCard } from "./HoverInfoCard";
 import { cx } from "@/lib/utils";
 import { MockFolder, MockNote, SortOption } from "@/lib/notes/noteTypes";
 import { formatAbsoluteDateTime, formatRelativeTime } from "@/lib/notes/formatDate";
 import FolderTree from "./FolderTree";
+import { Btn } from "@/components/brainx-ui";
 
 /** 즐겨찾기 섹션의 노트 행 — FolderTree.tsx의 NoteRow와 별개 렌더링 경로라 hover 카드도
     똑같이 따로 달아준다(요구사항: 탐색기 어디서든 hover 정보가 보여야 함). */
@@ -18,6 +19,7 @@ function FavNoteRow({
   onDragStart,
   onDragEnd,
   onToggleFavorite,
+  onDeleteNote,
 }: {
   note: MockNote;
   isActive: boolean;
@@ -25,6 +27,7 @@ function FavNoteRow({
   onDragStart: (id: string) => void;
   onDragEnd: () => void;
   onToggleFavorite: (id: string) => void;
+  onDeleteNote?: (id: string) => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
@@ -43,13 +46,23 @@ function FavNoteRow({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       className={cx(
-        "group relative flex h-7 cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 text-[13px] transition-colors",
+        "group relative flex h-7 cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 text-[12px] transition-colors",
         isActive ? "font-medium text-txt" : "text-txt2 hover:text-txt"
       )}
       style={{ background: isActive ? "rgb(var(--primary) / 0.12)" : undefined }}
     >
       <FileText size={11} className="shrink-0" style={{ color: "#f59e0b" }} />
       <span className="flex-1 truncate">{note.title}</span>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (confirm("이 노트를 삭제하시겠습니까?")) onDeleteNote?.(note.id);
+        }}
+        className="shrink-0 p-0.5 opacity-0 group-hover:opacity-100 text-txt3 hover:text-red-400 transition-opacity"
+        title="노트 삭제"
+      >
+        <Trash2 size={10} />
+      </button>
       <button
         onClick={(e) => { e.stopPropagation(); onToggleFavorite(note.id); }}
         className="shrink-0 p-0.5 opacity-100"
@@ -94,7 +107,7 @@ function FavFolderRow({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       className={cx(
-        "group relative flex h-7 cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 text-[14px] transition-colors",
+        "group relative flex h-7 cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 text-[12px] transition-colors",
         isSelected ? "font-medium text-txt" : "text-txt2 hover:text-txt"
       )}
       style={{ background: isSelected ? "rgb(var(--primary) / 0.12)" : undefined }}
@@ -227,6 +240,7 @@ interface Props {
   onChangeFolderColor: (folderId: string, color: string) => void;
   onToggleFolderFavorite: (folderId: string) => void;
   onDeleteFolder: (folderId: string) => void;
+  onDeleteNote?: (noteId: string) => void;
   onDragStart: (noteId: string) => void;
   onDragEnd: () => void;
   onMoveNoteToFolder: (noteId: string, targetFolderId: string | null) => void;
@@ -249,6 +263,7 @@ export default function NotesExplorer({
   onChangeFolderColor,
   onToggleFolderFavorite,
   onDeleteFolder,
+  onDeleteNote,
   onDragStart,
   onDragEnd,
   onMoveNoteToFolder,
@@ -313,27 +328,16 @@ export default function NotesExplorer({
 
       {/* ── 헤더 ──────────────────────────────────────── */}
       <div className="border-b border-line/50 px-3 py-3 space-y-2.5">
-        {/* 타이틀 + 카운트 */}
-        <div className="flex items-center px-0.5">
-          <span className="text-[12px] font-semibold text-txt">노트 탐색기</span>
-          <span
-            className="ml-2 rounded-full px-1.5 py-px text-[10px] font-medium text-txt3"
-            style={{ background: "rgb(var(--surface2))" }}
-          >
-            {notes.length}
-          </span>
-        </div>
-
         {/* + 새 노트 버튼 */}
-        <button
-          type="button"
+        <Btn
+          variant="primary"
+          size="md"
+          icon="plus"
+          className="w-full text-[14px]"
           onClick={() => onCreateNote(selectedFolderId ?? undefined)}
-          className="flex h-9 w-full items-center justify-center gap-1.5 rounded-full text-[13px] font-semibold text-white shadow-sm transition-all hover:brightness-110 hover:shadow-md active:scale-[0.98]"
-          style={{ background: "rgb(var(--primary))" }}
         >
-          <Plus size={15} />
           새 노트
-        </button>
+        </Btn>
 
         {/* 검색창 */}
         <div
@@ -358,6 +362,16 @@ export default function NotesExplorer({
 
       {/* ── 콘텐츠 ──────────────────────────────────── */}
       <div className="scroll-thin flex-1 overflow-y-auto py-2">
+        {/* 타이틀 + 카운트 */}
+        <div className="flex items-center px-3.5 py-1 mb-1.5">
+          <span className="text-[13px] font-bold text-txt">노트 탐색기</span>
+          <span
+            className="ml-2 rounded-full px-1.5 py-px text-[10px] font-medium text-txt3"
+            style={{ background: "rgb(var(--surface2))" }}
+          >
+            {notes.length}
+          </span>
+        </div>
 
         {isSearching ? (
           /* 검색 중: 폴더 무시하고 평면 리스트로 표시 */
@@ -377,7 +391,7 @@ export default function NotesExplorer({
                   }}
                   onDragEnd={onDragEnd}
                   className={cx(
-                    "group relative flex h-7 cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 text-[13px] transition-colors",
+                    "group relative flex h-7 cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 text-[12px] transition-colors",
                     note.id === activeNoteId ? "font-medium text-txt" : "text-txt2 hover:text-txt"
                   )}
                   style={{ background: note.id === activeNoteId ? "rgb(var(--primary) / 0.12)" : undefined }}
@@ -392,6 +406,16 @@ export default function NotesExplorer({
                     )}
                   >
                     <Star size={10} className={favorites.has(note.id) ? "fill-yellow-400 text-yellow-400" : "text-txt3"} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirm("이 노트를 삭제하시겠습니까?")) onDeleteNote?.(note.id);
+                    }}
+                    className="shrink-0 p-0.5 opacity-0 group-hover:opacity-100 text-txt3 hover:text-red-400 transition-opacity ml-1"
+                    title="노트 삭제"
+                  >
+                    <Trash2 size={10} />
                   </button>
                 </div>
               ))
@@ -408,7 +432,7 @@ export default function NotesExplorer({
                 >
                   <CollapseChevron expanded={favExpanded} size={11} />
                   <Star size={11} className="shrink-0 fill-yellow-400 text-yellow-400" />
-                  <span className="flex-1 text-[11px] font-semibold text-txt">즐겨찾기</span>
+                  <span className="flex-1 text-[13px] font-bold text-txt">즐겨찾기</span>
                   <span className="text-[10px] text-txt3">{favNotes.length + favFolders.length}</span>
                 </button>
 
@@ -434,6 +458,7 @@ export default function NotesExplorer({
                         onDragStart={onDragStart}
                         onDragEnd={onDragEnd}
                         onToggleFavorite={toggleFavorite}
+                        onDeleteNote={onDeleteNote}
                       />
                     ))}
                   </div>
@@ -467,7 +492,7 @@ export default function NotesExplorer({
                 <button
                   type="button"
                   onClick={() => setCreatingRootFolder(true)}
-                  className="flex h-7 w-full items-center gap-1.5 rounded-md px-1.5 text-[11px] text-txt3 transition-colors hover:bg-surface2/40 hover:text-txt2"
+                  className="flex h-7 w-full items-center gap-1.5 rounded-md px-1.5 text-[13px] font-bold text-txt3 transition-colors hover:bg-surface2/40 hover:text-txt2"
                 >
                   <Plus size={12} className="shrink-0" />
                   <span>새 폴더 (루트)</span>
@@ -489,6 +514,7 @@ export default function NotesExplorer({
               onChangeFolderColor={onChangeFolderColor}
               onToggleFolderFavorite={onToggleFolderFavorite}
               onDeleteFolder={onDeleteFolder}
+              onDeleteNote={onDeleteNote}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
               onMoveNoteToFolder={onMoveNoteToFolder}

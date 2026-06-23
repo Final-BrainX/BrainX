@@ -17,6 +17,8 @@ export interface UserGuideState {
   updateSkillLevel: (level: SkillLevel) => void;
   setUserId: (id: string) => void;
   resetTutorials: () => void;
+  isManualTrigger: boolean;
+  clearManualTrigger: () => void;
 }
 
 export const useGuideStore = create<UserGuideState>()(
@@ -28,6 +30,7 @@ export const useGuideStore = create<UserGuideState>()(
       skillLevel: 'BEGINNER',
       totalEvents: 0,
       firstSeenAt: new Date().toISOString(),
+      isManualTrigger: false,
 
       completeTutorial: (tutorialId) =>
         set((state) => ({
@@ -50,7 +53,9 @@ export const useGuideStore = create<UserGuideState>()(
       
       setUserId: (userId) => set({ userId }),
 
-      resetTutorials: () => set({ completedTutorials: [] }),
+      resetTutorials: () => set({ completedTutorials: [], isManualTrigger: true }),
+      
+      clearManualTrigger: () => set({ isManualTrigger: false }),
     }),
     {
       name: 'brainx-guide-storage',

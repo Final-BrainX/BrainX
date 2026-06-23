@@ -84,15 +84,19 @@ a {
   text-decoration: none;
 }
 
+.scroll {
+  scrollbar-gutter: stable;
+}
+
 .scroll::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 6px;
+  height: 6px;
 }
 
 .scroll::-webkit-scrollbar-thumb {
   background: rgb(var(--border) / 0.8);
   border-radius: 999px;
-  border: 3px solid transparent;
+  border: 2px solid transparent;
   background-clip: content-box;
 }
 
@@ -147,6 +151,7 @@ a {
 .scroll-thin {
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
+  scrollbar-gutter: stable;
 }
 
 .scroll-thin:hover {
@@ -173,6 +178,14 @@ a {
 
 .scroll-thin::-webkit-scrollbar-thumb:hover {
   background: rgb(var(--txt3) / 0.7);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 .glass {
