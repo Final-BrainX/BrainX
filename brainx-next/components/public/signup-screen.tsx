@@ -321,7 +321,7 @@ export function SignupScreen() {
         </button>
         <div className="relative z-10 mb-10 max-w-[320px]">
           <h2 className="mb-3.5 text-[32px] font-bold leading-[1.25] text-[#1E1A3C]">
-            내 지식의 우주를
+            내 지식의 우주를 
             <br />
             탐험하는 AI 두뇌
           </h2>
