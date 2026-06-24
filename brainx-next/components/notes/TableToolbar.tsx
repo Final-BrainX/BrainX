@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/core";
+import { NodeSelection } from "@tiptap/pm/state";
 import {
   ArrowUpToLine,
   ArrowDownToLine,
@@ -11,7 +12,6 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
-  PaintBucket,
   Plus,
   Rows3,
   Columns3,
@@ -29,7 +29,6 @@ import {
   updateActiveTableAttrs,
   updateSelectedCellsAttrs,
   type CellColorPreset,
-  type TableColorPreset,
 } from "./tableUtils";
 
 const CELL_COLOR_SWATCHES: { value: CellColorPreset; label: string; dot: string }[] = [
@@ -37,14 +36,6 @@ const CELL_COLOR_SWATCHES: { value: CellColorPreset; label: string; dot: string 
   { value: "green", label: "초록", dot: "rgb(16 185 129)" },
   { value: "blue", label: "파랑", dot: "rgb(59 130 246)" },
   { value: "gray", label: "회색", dot: "rgb(148 163 184)" },
-];
-
-const TABLE_COLOR_SWATCHES: { value: TableColorPreset; label: string; color: string }[] = [
-  { value: "default", label: "기본", color: "rgb(var(--surface2))" },
-  { value: "blue", label: "파랑", color: "#3b82f6" },
-  { value: "emerald", label: "초록", color: "#10b981" },
-  { value: "amber", label: "노랑", color: "#f59e0b" },
-  { value: "rose", label: "분홍", color: "#f43f5e" },
 ];
 
 const BORDER_WIDTH_OPTIONS = [1, 2, 3];
@@ -84,39 +75,6 @@ function ToolbarBtn({
   );
 }
 
-/** 더보기 메뉴 안의 아이콘+라벨 행 — EditorContextMenu의 MenuItem과 같은 패턴(전체폭, 좌측정렬). */
-function MoreMenuItem({
-  icon,
-  label,
-  onClick,
-  disabled,
-  danger,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  danger?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
-      className={cx(
-        "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors",
-        disabled && "cursor-not-allowed text-txt3/55",
-        !disabled && danger && "text-red-400 hover:bg-red-500/10 hover:text-red-300",
-        !disabled && !danger && "text-txt2 hover:bg-surface2/70 hover:text-txt"
-      )}
-    >
-      <span className="shrink-0">{icon}</span>
-      <span>{label}</span>
-    </button>
-  );
-}
-
 function Divider() {
   return <div className="mx-0.5 h-4 w-px shrink-0 bg-line/50" />;
 }
@@ -130,14 +88,17 @@ function Divider() {
     selection이 드래그 중 일시적으로 collapse되는" 문제에 영향받지 않는다 — settling 같은
     방어 로직 없이 단순하게 구현해도 안전하다.
 
-    자주 쓰는 행/열/정렬/배경색만 1차 노출하고, 서식·표 크기·표 색상·표 삭제처럼 빈도가 낮은
-    기능은 "···" 더보기로 옮겨 폭을 줄였다 — 좁은 분할 패널에서 툴바 전체가 옆 패널/컨텍스트
-    패널 영역까지 넘어가 잘리던 문제의 근본 원인이 "버튼이 너무 많아 항상 가로로 길다"였다. */
+    자주 쓰는 행/열 추가·삭제, 셀 병합/분리, 정렬, 표 삭제만 1차 노출한다(표 삭제는 더보기 안에
+    숨어 있으면 찾기 어렵다는 피드백으로 1차로 옮김). 서식·셀 배경색·테두리·표 크기·표 색상처럼
+    빈도가 낮은 기능은 "···" 더보기로 옮겨 폭을 줄였다 — 좁은 분할 패널에서 툴바 전체가 옆
+    패널/컨텍스트 패널 영역까지 넘어가 잘리던 문제의 근본 원인이 "버튼이 너무 많아 항상 가로로
+    길다"였다. 더보기 메뉴 내부도 셀 배경색/테두리를 2열 grid로 묶어 세로 스크롤 의존도를
+    낮췄다. */
 export function TableToolbar({ editor }: { editor: Editor }) {
   const [anchor, setAnchor] = useState<{ left: number; right: number; top: number; bottom: number } | null>(null);
   const [customDraft, setCustomDraft] = useState("100");
   const [moreOpen, setMoreOpen] = useState(false);
-  const [moreDropUp, setMoreDropUp] = useState(false);
+  const [morePos, setMorePos] = useState<{ left: number; top: number } | null>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const moreWrapRef = useRef<HTMLDivElement>(null);
@@ -157,12 +118,20 @@ export function TableToolbar({ editor }: { editor: Editor }) {
       setAnchor(null);
       return;
     }
-    const { $from } = editor.state.selection;
+    const { selection } = editor.state;
     let tablePos: number | null = null;
-    for (let d = $from.depth; d >= 0; d--) {
-      if ($from.node(d).type.name === "table") {
-        tablePos = $from.before(d);
-        break;
+    // 표 테두리 클릭으로 표 전체가 NodeSelection으로 잡힌 경우 — $from은 표 "바로 앞" 경계를
+    // 가리켜 그 조상 체인에 표 자신이 포함되지 않으므로(아래 일반 분기로는 못 찾음), 선택된
+    // 노드가 table인지 직접 확인해서 그 위치를 그대로 쓴다.
+    if (selection instanceof NodeSelection && selection.node.type.name === "table") {
+      tablePos = selection.from;
+    } else {
+      const { $from } = selection;
+      for (let d = $from.depth; d >= 0; d--) {
+        if ($from.node(d).type.name === "table") {
+          tablePos = $from.before(d);
+          break;
+        }
       }
     }
     if (tablePos === null) {
@@ -215,7 +184,10 @@ export function TableToolbar({ editor }: { editor: Editor }) {
   useEffect(() => {
     if (!moreOpen) return;
     const handler = (e: MouseEvent) => {
-      if (moreWrapRef.current?.contains(e.target as Node)) return;
+      const target = e.target as Node;
+      // 메뉴는 document.body에 portal로 떠 있어 moreWrapRef(버튼) 바깥의 DOM이다 — 둘 중
+      // 하나라도 포함하면 "메뉴 안 클릭"으로 본다.
+      if (moreWrapRef.current?.contains(target) || moreMenuRef.current?.contains(target)) return;
       setMoreOpen(false);
     };
     document.addEventListener("mousedown", handler);
@@ -225,37 +197,37 @@ export function TableToolbar({ editor }: { editor: Editor }) {
   // 더보기 메뉴는 기본적으로 버튼 아래로 펼쳐지는데, 툴바 자체가 이미(표가 패널 아래쪽에
   // 있어서) 화면 하단 가까이 떠 있으면 메뉴가 뷰포트 밖으로 잘려 나간다 — 버튼 기준으로
   // 펼쳐질 실제 공간을 측정해 부족하면 위로 뒤집는다(useLayoutEffect라 화면에 그려지기 전에
-  // 다시 계산되어 깜빡임 없이 처음부터 올바른 방향으로 보인다).
+  // 다시 계산되어 깜빡임 없이 처음부터 올바른 방향으로 보인다). 1차 툴바가 가로 스크롤
+  // (overflow-x-auto)을 갖게 되면서, 더보기 메뉴를 그 안에 absolute로 두면 스크롤 컨테이너의
+  // overflow에 잘린다 — document.body에 portal로 띄우고 fixed 좌표를 직접 계산한다.
   useLayoutEffect(() => {
     if (!moreOpen) return;
     const btn = moreWrapRef.current;
     const menu = moreMenuRef.current;
     if (!btn || !menu) return;
     const btnRect = btn.getBoundingClientRect();
-    setMoreDropUp(btnRect.bottom + menu.offsetHeight + 8 > window.innerHeight);
+    const dropUp = btnRect.bottom + menu.offsetHeight + 8 > window.innerHeight;
+    const menuWidth = menu.offsetWidth || 300;
+    setMorePos({
+      left: Math.max(4, Math.min(btnRect.right - menuWidth, window.innerWidth - menuWidth - 4)),
+      top: dropUp ? btnRect.top - menu.offsetHeight - 4 : btnRect.bottom + 4,
+    });
   }, [moreOpen]);
 
   if (!anchor) return null;
 
-  // 우측 컨텍스트 패널(RightSidebar)/옆 분할 패널 영역까지 툴바가 넘어가 잘리는 문제가 있었다
-  // — window.innerWidth로만 클램프하면 컨텍스트 패널/다른 패널이 차지하는 폭을 고려하지 못한다.
-  // editor.view.dom(.ProseMirror)은 노트 작성 영역 자체의 DOM이라 그 bounding rect는 이미
-  // 컨텍스트 패널/사이드바/다른 분할 패널을 제외한 "이 에디터의" 안전 영역과 일치한다.
-  const editorRect = editor.view.dom.getBoundingClientRect();
-  const safeLeft = editorRect.left;
-  const safeRight = editorRect.right;
-  const safeTop = editorRect.top;
-  const safeWidth = Math.max(80, safeRight - safeLeft - 8);
-  // 실제(잘리기 전) 폭과 안전 영역 중 더 좁은 쪽을 기준으로 왼쪽 좌표를 잡아야, "왼쪽 좌표 +
-  // 렌더된 폭"이 항상 safeRight 이하로 맞아떨어진다(maxWidth와 같은 기준을 써야 모순이 없다).
-  const effectiveWidth = Math.min(measuredWidth, safeWidth);
-  const left = Math.max(safeLeft + 4, Math.min(anchor.right - effectiveWidth, safeRight - effectiveWidth));
+  // 텍스트 선택 시 뜨는 버블 툴바(CustomBubbleMenu)와 동일한 기준 — 패널/컨텍스트 패널 경계가
+  // 아니라 뷰포트(window) 기준으로만 클램프한다. 이전에는 editor.view.dom(현재 패널) 폭으로
+  // 제한해서 좁은 분할 패널에서 줄바꿈/가로스크롤이 필요했는데, "텍스트 버블 툴바처럼 화면 위에
+  // 떠서 패널 폭과 무관하게 한 줄로 보이게 해달라"는 요구로 패널 경계 제한을 없앴다 — 이제
+  // 다른 패널/컨텍스트 패널 영역 위로 자연스럽게 넘어가 보인다.
+  const margin = 4;
+  const left = Math.max(margin, Math.min(anchor.right - measuredWidth, window.innerWidth - measuredWidth - margin));
 
-  // 표가 패널 맨 위쪽에 붙어 있으면 "표 위"에 띄울 공간이 부족하다 — 이때는 표 아래로 뒤집는다
-  // (CustomBubbleMenu의 위/아래 자동 전환과 같은 방식). 패널 자체의 위쪽 경계(safeTop)를
-  // 기준으로 판단해야, 분할 화면에서 이 패널의 탭바 영역과도 겹치지 않는다.
+  // 표가 뷰포트 맨 위쪽에 붙어 있으면 "표 위"에 띄울 공간이 부족하다 — 이때는 표 아래로
+  // 뒤집는다(CustomBubbleMenu의 위/아래 자동 전환과 같은 방식, 역시 뷰포트 기준).
   const wantTop = anchor.top - measuredHeight - 6;
-  const top = wantTop >= safeTop + 4 ? wantTop : anchor.bottom + 6;
+  const top = wantTop >= margin ? wantTop : anchor.bottom + 6;
 
   const run = (fn: () => boolean) => () => { fn(); updateAnchor(); };
   const tableAttrs = activeTableDisplayAttrs(editor);
@@ -283,7 +255,6 @@ export function TableToolbar({ editor }: { editor: Editor }) {
           left,
           top,
           zIndex: 1900,
-          maxWidth: safeWidth,
         }}
       >
         <div
@@ -291,10 +262,9 @@ export function TableToolbar({ editor }: { editor: Editor }) {
           style={{
             background: "rgb(var(--surface))",
             boxShadow: "0 8px 20px -4px rgba(2,6,23,0.35)",
-            // 좁은 분할 패널에서는 한 줄에 다 들어가지 않을 수 있다 — 잘리거나 내부 스크롤로
-            // 숨겨지는 대신 다음 줄로 자연스럽게 줄바꿈되는 compact 모드로 전환한다.
-            flexWrap: "wrap",
-            maxWidth: safeWidth - 8,
+            // 텍스트 선택 시 뜨는 버블 툴바와 동일하게 패널/컨텍스트 패널 폭과 무관하게 항상
+            // 한 줄로 펼쳐진다 — 줄바꿈도, 가로 스크롤도 없다(뷰포트 기준 위치 클램프만 함).
+            flexWrap: "nowrap",
           }}
         >
           <ToolbarBtn title="위에 행 추가" onClick={run(() => editor.chain().focus().addRowBefore().run())}>
@@ -348,60 +318,33 @@ export function TableToolbar({ editor }: { editor: Editor }) {
 
           <Divider />
 
-          {/* 셀 배경색 — 표 전체 색(tableColor, 더보기 메뉴)과 별개로 선택한 셀(들)에만 적용.
-              채우기 아이콘으로 더보기 메뉴의 "A" 텍스트 색상과 구분한다. */}
-          <PaintBucket size={13} className="shrink-0 text-txt3" aria-hidden />
-          {CELL_COLOR_SWATCHES.map((s) => (
-            <button
-              key={s.value}
-              type="button"
-              title={`셀 배경색 ${s.label}`}
-              aria-label={`셀 배경색 ${s.label}`}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={run(() =>
-                updateSelectedCellsAttrs(editor, {
-                  cellBackground: cellAttrs.background === s.value ? "none" : s.value,
-                })
-              )}
-              className={cx(
-                "grid h-[24px] w-[24px] shrink-0 place-items-center rounded transition-colors",
-                cellAttrs.background === s.value ? "bg-primary/15 ring-1 ring-primary/50" : "hover:bg-surface2/70"
-              )}
-            >
-              <span className="block h-3 w-3 rounded-full" style={{ background: s.dot }} />
-            </button>
-          ))}
-          {/* 테두리 굵기 — 표 전체에 적용. 클릭마다 1→2→3→1px로 순환하며, 미리보기 사각형의
-              테두리 두께 자체로 현재 값을 보여준다(별도 select 없이 1버튼으로 compact 유지). */}
-          <ToolbarBtn
-            title={`테두리 굵기 ${tableAttrs.borderWidth}px (클릭하여 변경)`}
-            onClick={run(() => {
-              const next = BORDER_WIDTH_OPTIONS[(BORDER_WIDTH_OPTIONS.indexOf(tableAttrs.borderWidth) + 1) % BORDER_WIDTH_OPTIONS.length] ?? 1;
-              return updateActiveTableAttrs(editor, { borderWidth: next });
-            })}
-          >
-            <span
-              className="block h-3 w-3 rounded-sm"
-              style={{ border: `${tableAttrs.borderWidth}px solid rgb(var(--txt2))` }}
-              aria-hidden
-            />
+          {/* 표 삭제 — 더보기 안에 숨어 있어 찾기 불편하다는 피드백으로 1차 툴바로 옮겼다.
+              가장 위험한 동작이라 항상 맨 끝(더보기 바로 앞)에 두어 다른 버튼과 헷갈리지 않게 한다. */}
+          <ToolbarBtn danger title="표 삭제" onClick={run(() => editor.chain().focus().deleteTable().run())}>
+            <Trash2 size={13} />
           </ToolbarBtn>
 
           <Divider />
 
-          {/* 자주 쓰지 않는 기능(서식/색상/표 크기/표 색상/표 삭제)은 더보기로 이동 */}
+          {/* 자주 쓰지 않는 기능(서식/셀 배경색/테두리/표 크기)은 더보기로 이동 */}
           <div ref={moreWrapRef} className="relative shrink-0">
             <ToolbarBtn title="더보기" active={moreOpen} onClick={() => setMoreOpen((v) => !v)}>
               <MoreHorizontal size={13} />
             </ToolbarBtn>
-            {moreOpen && (
+            {moreOpen && createPortal(
               <div
                 ref={moreMenuRef}
-                className={cx(
-                  "absolute right-0 z-[1910] w-[220px] rounded-lg border border-line/60 p-1.5",
-                  moreDropUp ? "bottom-full mb-1" : "top-full mt-1"
-                )}
+                // 기존 252px는 "텍스트 서식" 줄(B/I/S + 색상 표시 + 8개 색상 스와치)이 다 들어가기엔
+                // 좁아서, overflow-y:auto(아래)가 CSS 스펙상 overflow-x도 auto로 강제 전환시켜
+                // 가로 스크롤바가 생겼다(좌우 여백도 한쪽만 잘리는 느낌으로 불균형해 보였다).
+                // 300px로 넓혀 모든 줄이 가로 스크롤 없이 한 번에 들어가게 했다.
+                className="w-[300px] rounded-lg border border-line/60 p-1.5"
                 style={{
+                  position: "fixed",
+                  left: morePos?.left ?? 0,
+                  top: morePos?.top ?? 0,
+                  visibility: morePos ? "visible" : "hidden",
+                  zIndex: 1910,
                   background: "rgb(var(--surface))",
                   boxShadow: "0 12px 28px -6px rgba(2,6,23,0.5)",
                   maxHeight: "calc(100vh - 16px)",
@@ -409,7 +352,7 @@ export function TableToolbar({ editor }: { editor: Editor }) {
                 }}
               >
                 <p className="px-2 pb-1 pt-0.5 text-[10px] font-medium text-txt3">텍스트 서식</p>
-                <div className="mb-1 flex items-center gap-0.5 px-1">
+                <div className="mb-1 flex items-center gap-0.5 px-2">
                   <ToolbarBtn title="굵게" active={editor.isActive("bold")} onClick={run(() => editor.chain().focus().toggleBold().run())}>
                     <span className="text-[13px] font-bold leading-none">B</span>
                   </ToolbarBtn>
@@ -436,8 +379,69 @@ export function TableToolbar({ editor }: { editor: Editor }) {
 
                 <div className="my-1 border-t border-line/30" />
 
+                {/* 셀 배경색 — 표 전체 색 기능은 제거하고 이것만 유지한다(요구사항: 표 전체
+                    색을 바꾸려면 셀을 전부 선택해 배경색을 적용하면 됨). */}
+                <p className="px-2 pb-1 pt-0.5 text-[10px] font-medium text-txt3">셀 배경색</p>
+                <div className="mb-1 flex items-center gap-0.5 px-2">
+                  {CELL_COLOR_SWATCHES.map((s) => (
+                    <button
+                      key={s.value}
+                      type="button"
+                      title={`셀 배경색 ${s.label}`}
+                      aria-label={`셀 배경색 ${s.label}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={run(() =>
+                        updateSelectedCellsAttrs(editor, {
+                          cellBackground: cellAttrs.background === s.value ? "none" : s.value,
+                        })
+                      )}
+                      className={cx(
+                        "grid h-[22px] w-[22px] shrink-0 place-items-center rounded transition-colors",
+                        cellAttrs.background === s.value ? "bg-primary/15 ring-1 ring-primary/50" : "hover:bg-surface2/70"
+                      )}
+                    >
+                      <span className="block h-3 w-3 rounded-full" style={{ background: s.dot }} />
+                    </button>
+                  ))}
+                </div>
+
+                <div className="my-1 border-t border-line/30" />
+
+                {/* 테두리 두께 — 두께를 한 버튼으로 순환시키던 방식은 "지금 몇 px인지/뭘 고를 수
+                    있는지"가 안 보인다는 피드백으로, 두께가 다른 가로선 미리보기 + px 라벨을 가진
+                    3개의 명시적 버튼으로 바꿨다(선택된 값은 배경/테두리로 강조). */}
+                <p className="px-2 pb-1 pt-0.5 text-[10px] font-medium text-txt3">테두리 두께</p>
+                <div className="mb-1 flex items-center gap-1 px-2">
+                  {BORDER_WIDTH_OPTIONS.map((w) => {
+                    const active = tableAttrs.borderWidth === w;
+                    return (
+                      <button
+                        key={w}
+                        type="button"
+                        title={`테두리 두께 ${w}px`}
+                        aria-label={`테두리 두께 ${w}px`}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={run(() => updateActiveTableAttrs(editor, { borderWidth: w }))}
+                        className={cx(
+                          "flex flex-1 flex-col items-center gap-1 rounded py-1 transition-colors",
+                          active ? "bg-primary/15 text-primary ring-1 ring-primary/50" : "text-txt2 hover:bg-surface2/70"
+                        )}
+                      >
+                        <span
+                          className="block w-7 rounded-full"
+                          style={{ height: w, background: active ? "rgb(var(--primary))" : "rgb(var(--txt2))" }}
+                          aria-hidden
+                        />
+                        <span className="text-[9.5px] leading-none">{w}px</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="my-1 border-t border-line/30" />
+
                 <p className="px-2 pb-1 pt-0.5 text-[10px] font-medium text-txt3">표 크기</p>
-                <div className="mb-1 flex items-center gap-1 px-1">
+                <div className="mb-1 flex items-center gap-1 px-2">
                   <select
                     aria-label="표 크기"
                     title="표 크기"
@@ -471,37 +475,8 @@ export function TableToolbar({ editor }: { editor: Editor }) {
                     className="h-6 w-12 rounded border border-line/50 bg-transparent px-1 text-[10.5px] text-txt outline-none"
                   />
                 </div>
-
-                <div className="my-1 border-t border-line/30" />
-
-                <p className="px-2 pb-1 pt-0.5 text-[10px] font-medium text-txt3">표 색상</p>
-                <div className="mb-1 flex items-center gap-1.5 px-2">
-                  {TABLE_COLOR_SWATCHES.map((preset) => (
-                    <button
-                      key={preset.value}
-                      type="button"
-                      title={preset.label}
-                      aria-label={`표 색상 ${preset.label}`}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => updateActiveTableAttrs(editor, { tableColor: preset.value })}
-                      className={cx(
-                        "h-5 w-5 rounded-full border transition-transform hover:scale-110",
-                        tableAttrs.tableColor === preset.value ? "border-primary ring-1 ring-primary" : "border-line/70"
-                      )}
-                      style={{ background: preset.color }}
-                    />
-                  ))}
-                </div>
-
-                <div className="my-1 border-t border-line/30" />
-
-                <MoreMenuItem
-                  icon={<Trash2 size={13} />}
-                  label="표 삭제"
-                  danger
-                  onClick={run(() => editor.chain().focus().deleteTable().run())}
-                />
-              </div>
+              </div>,
+              document.body
             )}
           </div>
         </div>

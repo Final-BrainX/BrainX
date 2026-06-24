@@ -15,7 +15,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { cx } from "@/lib/utils";
-import { activeTableDisplayAttrs, updateActiveTableAttrs, type TableColorPreset } from "./tableUtils";
+import { activeTableDisplayAttrs, updateActiveTableAttrs } from "./tableUtils";
 
 export interface EditorContextTarget {
   x: number;
@@ -58,14 +58,6 @@ function MenuItem({
     </button>
   );
 }
-
-const TABLE_COLORS: { value: TableColorPreset; label: string; color: string }[] = [
-  { value: "default", label: "기본", color: "rgb(var(--surface2))" },
-  { value: "blue", label: "파랑", color: "#3b82f6" },
-  { value: "emerald", label: "초록", color: "#10b981" },
-  { value: "amber", label: "노랑", color: "#f59e0b" },
-  { value: "rose", label: "분홍", color: "#f43f5e" },
-];
 
 export default function EditorContextMenu({
   target,
@@ -204,45 +196,34 @@ export default function EditorContextMenu({
           <MenuItem icon={<Merge size={13} />} label="셀 병합" disabled={!canMerge} onClick={run(() => editor.chain().focus().mergeCells().run())} />
           <MenuItem icon={<Split size={13} />} label="셀 병합 해제" disabled={!canSplit} onClick={run(() => editor.chain().focus().splitCell().run())} />
 
-          <div className="px-3 pb-1 pt-1.5">
-            <p className="mb-1.5 text-[10px] font-medium text-txt3">표 색상</p>
-            <div className="flex items-center gap-1.5">
-              {TABLE_COLORS.map((preset) => (
-                <button
-                  key={preset.value}
-                  type="button"
-                  title={preset.label}
-                  aria-label={`표 색상 ${preset.label}`}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => updateActiveTableAttrs(editor, { tableColor: preset.value })}
-                  className={cx(
-                    "h-5 w-5 rounded-full border transition-transform hover:scale-110",
-                    tableAttrs?.tableColor === preset.value ? "border-primary ring-1 ring-primary" : "border-line/70"
-                  )}
-                  style={{ background: preset.color }}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="px-3 pb-2 pt-1">
+          {/* 표 전체 색 기능은 제거됨(요구사항) — 셀 배경색만 유지하며, 셀 배경색은
+              TableToolbar(표 안에 커서가 있을 때 뜨는 플로팅 툴바)에서 지정한다. */}
+          <div className="px-3 pb-2 pt-1.5">
             <p className="mb-1 text-[10px] font-medium text-txt3">테두리 굵기</p>
             <div className="flex gap-1">
-              {[1, 2, 3].map((width) => (
-                <button
-                  key={width}
-                  type="button"
-                  aria-label={`표 테두리 ${width}px`}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => updateActiveTableAttrs(editor, { borderWidth: width })}
-                  className={cx(
-                    "rounded px-2 py-0.5 text-[10px] transition-colors",
-                    tableAttrs?.borderWidth === width ? "bg-primary/15 text-primary" : "text-txt3 hover:bg-surface2 hover:text-txt"
-                  )}
-                >
-                  {width}px
-                </button>
-              ))}
+              {[1, 2, 3].map((width) => {
+                const active = tableAttrs?.borderWidth === width;
+                return (
+                  <button
+                    key={width}
+                    type="button"
+                    aria-label={`표 테두리 ${width}px`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => updateActiveTableAttrs(editor, { borderWidth: width })}
+                    className={cx(
+                      "flex flex-1 flex-col items-center gap-1 rounded py-1 transition-colors",
+                      active ? "bg-primary/15 text-primary ring-1 ring-primary/50" : "text-txt3 hover:bg-surface2 hover:text-txt"
+                    )}
+                  >
+                    <span
+                      className="block w-7 rounded-full"
+                      style={{ height: width, background: active ? "rgb(var(--primary))" : "rgb(var(--txt3))" }}
+                      aria-hidden
+                    />
+                    <span className="text-[9.5px] leading-none">{width}px</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </>

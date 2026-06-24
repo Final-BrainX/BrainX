@@ -54,8 +54,9 @@ interface Props {
   onGoToFile: () => void;
 }
 
-/** 빈 시작 화면(Welcome) — 실제 노트가 아닌 placeholder 탭이며, 노트 클릭/드롭/새 노트 생성
-    중 어떤 경로로든 활성 탭이 그 노트로 교체되면 이 화면은 더 이상 남아있지 않는다. */
+/** 빈 시작 화면(Welcome) — 탭이 아니라 "열린 노트가 없음"을 나타내는 empty state다. 노트
+    클릭/드롭/새 노트 생성 중 어떤 경로로든 패널에 탭이 하나라도 생기면 이 화면은 사라진다.
+    EditorPanel에서는 탭이 있지만 그 노트를 찾을 수 없을 때(삭제된 노트 등) 복구용으로도 쓴다. */
 export default function EmptyNoteStartPage({ onCreateNote, onGoToFile }: Props) {
   return (
     <div className="flex h-full flex-1 items-center justify-center" style={{ background: "rgb(var(--surface))" }}>

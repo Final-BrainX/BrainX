@@ -13,6 +13,24 @@ function loadMermaid() {
 
 let renderCounter = 0;
 
+function normalizeMermaidSource(source: string) {
+  const lines = source.replace(/\r\n?/g, "\n").trim().split("\n");
+  if (lines.length === 0) return "";
+
+  const first = lines[0].trim();
+  if (/^```/.test(first)) {
+    const withoutOpeningFence = lines.slice(1);
+    if (withoutOpeningFence.at(-1)?.trim() === "```") withoutOpeningFence.pop();
+    return withoutOpeningFence.join("\n").trim();
+  }
+
+  if (/^(?:text)?mermaid$/i.test(first) || /^language-(?:text)?mermaid$/i.test(first)) {
+    return lines.slice(1).join("\n").trim();
+  }
+
+  return lines.join("\n").trim();
+}
+
 type RenderState =
   | { status: "empty" }
   | { status: "loading" }
@@ -40,7 +58,7 @@ export function MermaidPreview({
 
   useEffect(() => {
     let cancelled = false;
-    const trimmed = code.trim();
+    const trimmed = normalizeMermaidSource(code);
     if (!trimmed) {
       setState({ status: "empty" });
       return;

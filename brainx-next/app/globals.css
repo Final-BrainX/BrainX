@@ -624,6 +624,47 @@ html.light .aurora b {
   margin: 0.1em 0;
 }
 
+.tiptap-note-content .ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0.2em;
+}
+
+.tiptap-note-content .ProseMirror ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+}
+
+.tiptap-note-content .ProseMirror ul[data-type="taskList"] li > label {
+  display: flex;
+  align-items: center;
+  margin-top: 0.3em;
+  user-select: none;
+}
+
+.tiptap-note-content .ProseMirror ul[data-type="taskList"] li > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tiptap-note-content .ProseMirror ul[data-type="taskList"] input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: rgb(var(--primary));
+}
+
+.tiptap-note-content .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div {
+  color: rgb(var(--txt3));
+  text-decoration: line-through;
+  text-decoration-color: rgb(var(--txt3) / 0.6);
+}
+
+.tiptap-note-content .ProseMirror[contenteditable="false"] ul[data-type="taskList"] input[type="checkbox"] {
+  cursor: default;
+  pointer-events: none;
+}
+
 .tiptap-note-content .ProseMirror strong,
 .tiptap-note-content .ProseMirror b {
   /* color는 지정하지 않음: Color/TextStyle mark(<span style="color:...">)가
@@ -758,8 +799,60 @@ html.light .aurora b {
 .tiptap-note-content .ProseMirror table.note-table :is(td, th)[data-cell-align="center"] { text-align: center; }
 .tiptap-note-content .ProseMirror table.note-table :is(td, th)[data-cell-align="right"] { text-align: right; }
 
+/* 셀 선택 표시 — 셀 자체의 background-color로만 표시하면 셀 배경색([data-cell-bg])이 지정된
+   셀에서는 CSS specificity상 배경색 규칙이 이겨서 선택이 거의 안 보이는 문제가 있었다(둘 다
+   .selectedCell/[data-cell-bg]가 background 속성을 다투는 구조). ::after로 별도 페인트 레이어를
+   덧씌우면 background-color와 전혀 경쟁하지 않아 셀 배경색 유무와 무관하게 항상 또렷하게
+   보인다 — outline도 같이 둬서 "드래그로 선택됐다"는 인지가 한눈에 들어오게 한다. */
 .tiptap-note-content .ProseMirror table.note-table .selectedCell {
-  background: rgb(var(--primary) / 0.12);
+  position: relative;
+}
+.tiptap-note-content .ProseMirror table.note-table .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgb(var(--primary) / 0.28);
+  outline: 1.5px solid rgb(var(--primary) / 0.85);
+  outline-offset: -1px;
+  pointer-events: none;
+}
+
+/* 표 테두리/래퍼 클릭으로 표 전체가 NodeSelection으로 선택됐을 때(NoteEditor.tsx의
+   handleClickOn/BrainXTableView.selectNode) — 셀 단위 선택(.selectedCell)과 구분되는
+   표 전체 outline. */
+.tiptap-note-content .ProseMirror table.note-table[data-node-selected="true"] {
+  outline: 2px solid rgb(var(--primary));
+  outline-offset: 2px;
+}
+
+/* 표 전체 선택용 그립(BrainXTableView) — border-collapse라 표 안에는 "셀이 아닌" 픽셀이
+   없어서 테두리 자체를 클릭 타겟으로 쓸 수 없다. 좌상단 바깥에 작게 떠 있다가 표에 마우스를
+   올리면(또는 이미 선택된 상태면) 보이고, 클릭하면 표 전체가 NodeSelection으로 선택된다. */
+.tiptap-note-content .ProseMirror .note-table-grip {
+  position: absolute;
+  top: -9px;
+  left: -9px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  border: 1px solid rgb(var(--border) / 0.6);
+  background: rgb(var(--surface));
+  color: rgb(var(--txt3));
+  opacity: 0;
+  cursor: pointer;
+  z-index: 5;
+  padding: 0;
+  transition: opacity 0.12s, color 0.12s, border-color 0.12s;
+}
+.tiptap-note-content .ProseMirror .tableWrapper:hover .note-table-grip,
+.tiptap-note-content .ProseMirror table.note-table[data-node-selected="true"] ~ .note-table-grip {
+  opacity: 1;
+}
+.tiptap-note-content .ProseMirror .note-table-grip:hover {
+  color: rgb(var(--primary));
+  border-color: rgb(var(--primary) / 0.6);
 }
 
 .tiptap-note-content .ProseMirror table.note-table .column-resize-handle {
@@ -842,8 +935,23 @@ html.light .tiptap-note-content .ProseMirror table.note-table :is(td, th) {
   user-select: text;
 }
 
+/* ── 헤딩의 "#"+공백 — 진짜 편집 가능한 텍스트(decoration 위젯 아님) ───────────
+   "## "가 decoration 위젯이던 이전 방식은 그 영역에 커서를 둘 수 없었다(비편집 영역) — 이제는
+   실제 텍스트라 클릭/화살표/Backspace/Delete가 전부 네이티브로 동작한다. Obsidian Live
+   Preview처럼 커서가 그 줄에 있을 때만 보이고(.md-heading-syntax) 그 외에는 숨긴다
+   (.md-heading-syntax-hidden) — 어느 클래스가 적용될지는 NoteEditor.tsx의
+   computeLivePreviewDecorations가 cursorInside로 판정한다. display:none으로 숨겨도 실제
+   텍스트는 그대로 남아있어 그 줄 어디를 클릭하든(숨겨진 "#" 자리 포함) 정상적으로 그 줄
+   안의 가까운 위치에 캐럿이 놓이고, 그 결과 cursorInside가 true가 되며 다시 보인다. */
+.split-pane-editor .ProseMirror .md-heading-syntax {
+  opacity: 0.4;
+  font-weight: 500;
+}
+.split-pane-editor .ProseMirror .md-heading-syntax-hidden {
+  display: none;
+}
+
 /* 커서가 위치한 줄 → 마크다운 소스 표시 (Obsidian Live Preview)
-   heading은 크기·굵기·색상을 그대로 유지하고 접두사 위젯만 추가한다.
    blockquote는 소스 표시를 위해 스타일을 초기화한다.            */
 
 .split-pane-editor .ProseMirror blockquote.md-source-active {

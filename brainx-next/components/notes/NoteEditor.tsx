@@ -6,10 +6,11 @@ import { createRoot, type Root } from "react-dom/client";
 import dynamic from "next/dynamic";
 import { useEditor, EditorContent, ReactNodeViewRenderer } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
-import { Extension, textblockTypeInputRule } from "@tiptap/core";
-import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { Extension, InputRule, textblockTypeInputRule } from "@tiptap/core";
+import Heading from "@tiptap/extension-heading";
+import { NodeSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
-import type { EditorState } from "@tiptap/pm/state";
+import type { EditorState, Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, EditorView } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
@@ -18,10 +19,12 @@ import Color from "@tiptap/extension-color";
 import Highlight from "@tiptap/extension-highlight";
 import { Check, Link2, Highlighter, Loader2, Sparkles, Wand2, RotateCcw, Search, FileText, ExternalLink, X } from "lucide-react";
 import { Table, TableRow, TableHeader, TableCell, TableView } from "@tiptap/extension-table";
+import { TaskList, TaskItem } from "@tiptap/extension-list";
 import type { Fragment, Mark, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { cx } from "@/lib/utils";
 import { MockNote } from "@/lib/notes/noteTypes";
 import { typographyCssVars } from "@/lib/notes/typography";
+import { titleDragGuard } from "@/lib/notes/titleDragGuard";
 import { HeadingFold } from "./headingFold";
 import { CodeBlockView } from "./CodeBlockView";
 import { QuickSwatchRow, MoreColorPopover, TEXT_COLOR_QUICK, HIGHLIGHT_SWATCHES } from "./ColorPalette";
@@ -34,6 +37,9 @@ import { WikiLink } from "./WikiLinkNode";
 import { WikiLinkSuggestion } from "./WikiLinkSuggestion";
 import { WikiLinkAutocomplete } from "./WikiLinkAutocomplete";
 import { useWikiLinkContext } from "./WikiLinkContext";
+import { SlashCommandSuggestion } from "./SlashCommand";
+import { SlashCommandMenu } from "./SlashCommandMenu";
+import { TaskListMarkdownBridge } from "./TaskListMarkdownBridge";
 import { createInlineAssistStream, decideAiSuggestion } from "@/lib/intelligence-api";
 // 표를 쓰지 않는 노트에서는 이 작은 플로팅 툴바조차 메인 청크에 묶이지 않도록 분리한다.
 // Table/TableCell 등 TipTap extension 자체는 그대로 유지(동적 등록은 사이드 이펙트 위험이
@@ -91,17 +97,30 @@ function markdownToHtml(md: string): string {
   let inCode = false;
   const codeLines: string[] = [];
   let codeLang = "";
-  let listType: "ul" | "ol" | null = null;
-  const listItems: string[] = [];
+  let listType: "ul" | "ol" | "task" | null = null;
+  const listItems: { text: string; checked?: boolean }[] = [];
 
   function flushList() {
     if (!listType || listItems.length === 0) return;
-    const tag = listType;
-    out.push(
-      `<${tag}>${listItems
-        .map((t) => `<li><p>${inlineHtml(t)}</p></li>`)
-        .join("")}</${tag}>`
-    );
+    if (listType === "task") {
+      out.push(
+        `<ul data-type="taskList">${listItems
+          .map(
+            (it) =>
+              `<li data-type="taskItem" data-checked="${it.checked ? "true" : "false"}">` +
+              `<label><input type="checkbox"${it.checked ? " checked" : ""}><span></span></label>` +
+              `<div><p>${inlineHtml(it.text)}</p></div></li>`
+          )
+          .join("")}</ul>`
+      );
+    } else {
+      const tag = listType;
+      out.push(
+        `<${tag}>${listItems
+          .map((it) => `<li><p>${inlineHtml(it.text)}</p></li>`)
+          .join("")}</${tag}>`
+      );
+    }
     listItems.length = 0;
     listType = null;
   }
@@ -127,11 +146,14 @@ function markdownToHtml(md: string): string {
     if (inCode) { codeLines.push(line); continue; }
 
     if (line.startsWith("### ")) {
-      flushList(); out.push(`<h3>${inlineHtml(line.slice(4))}</h3>`);
+      // "#"+공백을 지우지 않고 그대로 둔다 — 헤딩이 이제 실제 텍스트에 마크다운 기호를
+      // 포함하는 라이브 프리뷰 방식이라(MarkdownHeading 참고), 시드 데이터도 동일한 형태로
+      // 로드해야 변환된 헤딩과 똑같이 그 기호 위/사이로 커서를 자유롭게 둘 수 있다.
+      flushList(); out.push(`<h3>### ${inlineHtml(line.slice(4))}</h3>`);
     } else if (line.startsWith("## ")) {
-      flushList(); out.push(`<h2>${inlineHtml(line.slice(3))}</h2>`);
+      flushList(); out.push(`<h2>## ${inlineHtml(line.slice(3))}</h2>`);
     } else if (line.startsWith("# ")) {
-      flushList(); out.push(`<h1>${inlineHtml(line.slice(2))}</h1>`);
+      flushList(); out.push(`<h1># ${inlineHtml(line.slice(2))}</h1>`);
     } else if (line.startsWith("> ")) {
       flushList();
       out.push(`<blockquote><p>${inlineHtml(line.slice(2))}</p></blockquote>`);
@@ -150,15 +172,20 @@ function markdownToHtml(md: string): string {
         out.push(`<div data-image-block="true"><img src="${escHtml(url)}" alt="${escHtml(alt)}"></div>`);
       }
     } else {
+      const taskMatch = /^[-*] \[([ xX])\] (.*)$/.exec(line);
       const olMatch = /^(\d+)\. (.+)/.exec(line);
-      if (olMatch) {
-        if (listType === "ul") flushList();
+      if (taskMatch) {
+        if (listType && listType !== "task") flushList();
+        listType = "task";
+        listItems.push({ text: taskMatch[2], checked: taskMatch[1].toLowerCase() === "x" });
+      } else if (olMatch) {
+        if (listType && listType !== "ol") flushList();
         listType = "ol";
-        listItems.push(olMatch[2]);
+        listItems.push({ text: olMatch[2] });
       } else if (line.startsWith("- ") || line.startsWith("* ")) {
-        if (listType === "ol") flushList();
+        if (listType && listType !== "ul") flushList();
         listType = "ul";
-        listItems.push(line.slice(2));
+        listItems.push({ text: line.slice(2) });
       } else if (line.trim() === "") {
         flushList(); out.push("<p></p>");
       } else {
@@ -375,39 +402,29 @@ function computeLivePreviewDecorations(editor: Editor, state: EditorState): Deco
   const { $from, from, to } = selection;
   const decos: Decoration[] = [];
 
-  /* ── Heading prefix 위젯
-     커서가 안에 있을 때(opacity 0.45) + 빈 heading(opacity 0.3)에 항상 표시.
-     빈 heading에 marker를 보여야 Enter→split 후 시각적으로 heading이 남아 있게 됨. */
+  /* ── 헤딩의 "## " 마크다운 기호 — Obsidian Live Preview 방식(커서가 그 줄에 있을 때만 표시)
+     "## "는 decoration 위젯이 아니라 heading 노드의 실제 텍스트 내용 일부다(아래 MarkdownHeading
+     커스텀 input rule이 입력된 "#"+공백을 지우지 않고 그대로 둔다) — 그래야 사용자가 그 위/사이로
+     커서를 자유롭게 두고 직접 고칠 수 있다. 표시 여부(cursorInside)는 selection에 의존하지만,
+     이 함수를 호출하는 Plugin.apply()가 실제 드래그 중(mousedown~mouseup)에는 이 함수를 절대
+     다시 호출하지 않고 이전 decoration을 위치만 매핑해 그대로 쓴다(파일 상단 MarkdownLivePreview
+     주석 참고, blockquote/인라인 코드 마커도 이미 같은 패턴) — 그래서 cursorInside가 바뀌어도
+     "드래그가 진행되는 동안" DOM이 흔들리는 일은 없다(과거 버그는 정확히 이 보호가 없을 때만
+     발생했다). 단순 클릭/화살표 이동처럼 드래그가 아닌 선택 변경은 한 번에 끝나는 동작이라
+     이 토글로 인한 DOM 변경이 진행 중인 네이티브 제스처를 방해할 일이 없다. */
   doc.forEach((node, offset) => {
     if (node.type.name !== "heading") return;
-    const level   = node.attrs.level as number;
+    const match = /^#{1,6}\s*/.exec(node.textContent);
+    if (!match || match[0].length === 0) return;
     const nodeEnd = offset + node.nodeSize;
     const cursorInside = from > offset && to < nodeEnd;
-    const isEmpty = node.textContent === "";
-    if (!cursorInside && !isEmpty) return;
-
-    const opacity = cursorInside ? 0.45 : 0.3;
-    const prefix  = "#".repeat(level) + " ";
+    const start = offset + 1;
+    const end = start + match[0].length;
     decos.push(
-      Decoration.widget(
-        offset + 1,
-        () => {
-          const s = document.createElement("span");
-          s.textContent = prefix;
-          s.style.cssText =
-            `color:rgb(var(--txt3));opacity:${opacity};font-size:inherit;` +
-            `font-weight:inherit;line-height:inherit;` +
-            `user-select:none;pointer-events:none;`;
-          return s;
-        },
-        { side: -1, key: `md-h-prefix-${offset}-${level}-${cursorInside ? 1 : 0}` }
-      )
+      Decoration.inline(start, end, {
+        class: cursorInside ? "md-heading-syntax" : "md-heading-syntax-hidden",
+      })
     );
-    if (cursorInside) {
-      decos.push(
-        Decoration.node(offset, nodeEnd, { class: "md-source-active" })
-      );
-    }
   });
 
   /* ── Blockquote prefix (커서가 있을 때만) ── */
@@ -751,9 +768,86 @@ const MarkdownCodeFenceEnter = Extension.create({
   },
 });
 
+/* ── 마크다운 헤딩 Live Preview ───────────────────────────────────────────
+   기존 구현은 "## "를 decoration 위젯(비편집 영역)으로 보여줬다 — 보기엔 똑같아도 실제
+   텍스트가 아니라서 그 위/사이에 커서를 둘 수 없었고(클릭해도 항상 "제목" 시작 위치로
+   스냅), Backspace/Delete로 "#" 하나만 지우는 것도 불가능했다. 진짜 "마크다운을 편집하면서
+   동시에 렌더링되는" 경험을 위해 "#"+공백을 heading 노드의 실제 텍스트로 유지하도록
+   바꿨다 — Obsidian처럼 커서가 그 줄에 있을 때만 "#"를 보여주는 표시/숨김은 위
+   computeLivePreviewDecorations의 cursorInside 기반 `.md-heading-syntax`/
+   `.md-heading-syntax-hidden` decoration이 담당한다(실제 드래그 중에는 그 함수 자체가
+   재호출되지 않도록 보호돼 있어 안전 — 같은 파일의 MarkdownLivePreview 주석 참고). */
+// MarkdownHeading/HeadingLevelSync 둘 다 같은 레벨 목록을 알아야 한다 — 확장 인스턴스를 서로
+// 찾아 옵션을 읽는 대신(생성 순서/타이밍에 의존해 깨지기 쉬움) 모듈 스코프 상수 하나를 공유한다.
+const SUPPORTED_HEADING_LEVELS = [1, 2, 3] as const;
+
+const MarkdownHeading = Heading.extend({
+  addInputRules() {
+    const levels = this.options.levels as number[];
+    const maxLevel = Math.max(...levels);
+    return [
+      new InputRule({
+        // 기본 tiptap headingRule과 동일한 트리거("#"~"######" + 공백 1개, 줄 맨 앞)지만,
+        // handler에서 매치된 텍스트를 지우지 않는다(기본은 `tr.delete(range.from, range.to)`로
+        // 지운 뒤 setBlockType — 여기서는 그 delete를 빼고 setBlockType만 한다).
+        find: new RegExp(`^(#{1,${maxLevel}})\\s$`),
+        handler: ({ state, range, match }) => {
+          const level = Math.min(match[1].length, maxLevel) as 1 | 2 | 3 | 4 | 5 | 6;
+          if (!levels.includes(level)) return null;
+          // range는 이미 문서에 들어가 있는 "#" 글자들만 가리킨다(range.to는 트리거로 쓰인
+          // 공백이 아직 삽입되기 *전* 커서 위치) — prosemirror-inputrules는 매치에 쓰인 마지막
+          // 글자(공백)를 자동으로 넣어주지 않고, 핸들러가 트랜잭션에 직접 step을 안 넣으면
+          // 이 규칙 자체가 무시된다(run()의 `!tr.steps.length` 체크). 그 공백을 직접 삽입해야
+          // "## 제목"처럼 "#"와 본문 사이의 띄어쓰기가 실제 텍스트로 남는다.
+          const trailing = match[0].slice(match[1].length);
+          state.tr
+            .insertText(trailing, range.to)
+            .setBlockType(range.from, range.from, this.type, { level });
+        },
+      }),
+    ];
+  },
+});
+
+/* 위 input rule로 "## 제목"이 만들어진 뒤에도, 사용자가 그 "#" 영역을 직접 편집(스페이스/문자
+   입력, Backspace, Delete)할 수 있어야 한다 — 매 트랜잭션 뒤 모든 heading의 실제 텍스트를
+   다시 읽어 앞부분 "#" 개수에 맞춰 level 속성을 재동기화한다("## "→"###"면 레벨 3으로,
+   "#"가 하나도 안 남으면 평범한 문단으로). attrs만 바꾸거나 type만 바꾸는 것이라(텍스트 길이는
+   그대로) 다른 노드의 위치가 밀리지 않아, newState.doc을 순회하며 바로 적용해도 안전하다. */
+const HeadingLevelSync = Extension.create({
+  name: "headingLevelSync",
+  addProseMirrorPlugins() {
+    const levels: readonly number[] = SUPPORTED_HEADING_LEVELS;
+    const maxLevel = Math.max(...levels);
+    return [
+      new Plugin({
+        key: new PluginKey("headingLevelSync"),
+        appendTransaction(transactions, _oldState, newState) {
+          if (!transactions.some((tr) => tr.docChanged)) return null;
+          let tr: Transaction | null = null;
+          newState.doc.forEach((node, offset) => {
+            if (node.type.name !== "heading") return;
+            const match = /^#{1,6}/.exec(node.textContent);
+            const hashCount = match ? match[0].length : 0;
+            if (hashCount === 0) {
+              // "#"가 전부 지워졌다 — 평범한 문단으로 되돌린다.
+              (tr ?? (tr = newState.tr)).setNodeMarkup(offset, newState.schema.nodes.paragraph, {});
+              return;
+            }
+            const level = Math.min(hashCount, maxLevel);
+            if (!levels.includes(level)) return;
+            if (node.attrs.level !== level) {
+              (tr ?? (tr = newState.tr)).setNodeMarkup(offset, undefined, { ...node.attrs, level });
+            }
+          });
+          return tr;
+        },
+      }),
+    ];
+  },
+});
+
 /* ── Heading marker keyboard editing ─────────────────────────────────── */
-// Backspace at heading start → 레벨 감소 (level 1이면 StarterKit에 위임)
-// # at heading start (parentOffset 0) → 레벨 증가
 const HeadingMarkerEdit = Extension.create({
   name: "headingMarkerEdit",
   priority: 200,
@@ -794,26 +888,25 @@ const HeadingMarkerEdit = Extension.create({
           return false;
         }
       },
-      "#": () => {
+      /* "#"/Backspace로 헤딩 레벨을 직접 조작하던 핸들러는 제거했다 — "## "가 이제 진짜
+         텍스트라서, "#"를 누르면 평범한 문자 입력으로 처리되고(레벨은 아래 HeadingLevelSync가
+         결과 텍스트의 "#" 개수를 다시 세어 동기화), Backspace도 평범한 문자 삭제로 처리된다.
+         이전처럼 "커서가 맨 앞일 때만" 특별 동작하는 게 아니라, 헤딩 어디서든(예: "#|#" 사이,
+         "##| 제목") 자연스럽게 "#"를 추가/삭제해 레벨을 바꿀 수 있게 하는 게 목적이다. */
+      /* 헤딩 안에서 Home 키가 줄 시작으로 안 가는 네이티브 버그가 있었다(Playwright로 실측:
+         일반 문단에서는 정상, 헤딩 안에서만 무반응). ProseMirror 모델 기준으로 직접 텍스트
+         시작 위치로 이동시켜 우회한다 — "## "가 실제 텍스트가 된 지금도 안전망으로 유지. */
+      Home: () => {
         const { state } = this.editor;
-        const { $from, empty } = state.selection;
-        if (!empty || $from.parentOffset !== 0) return false;
+        const { $from } = state.selection;
         if ($from.parent.type.name !== "heading") return false;
-        const level = $from.parent.attrs.level as number;
-        if (level >= 6) return false;
-        return this.editor.commands.setHeading({ level: (level + 1) as 1 | 2 | 3 | 4 | 5 | 6 });
+        return this.editor.commands.setTextSelection($from.start());
       },
-      Backspace: () => {
+      "Shift-Home": () => {
         const { state } = this.editor;
-        const { $from, empty } = state.selection;
-        if (!empty || $from.parentOffset !== 0) return false;
+        const { $from, to } = state.selection;
         if ($from.parent.type.name !== "heading") return false;
-        const level = $from.parent.attrs.level as number;
-        if (level <= 1) {
-          // H1 커서 맨 앞 → paragraph로 변환 (joinBackward/앞줄 merge 방지)
-          return this.editor.commands.setParagraph();
-        }
-        return this.editor.chain().setHeading({ level: (level - 1) as 1 | 2 | 3 | 4 | 5 | 6 }).run();
+        return this.editor.commands.setTextSelection({ from: $from.start(), to });
       },
     };
   },
@@ -1847,6 +1940,9 @@ function CursorContinueButton({
    재발하기 쉽다. 모든 인스턴스가 이 단일 배열을 공유하도록 모듈 스코프에 한 번만
    정의한다. (link/underline은 StarterKit 내장분만 사용) */
 class BrainXTableView extends TableView {
+  private editorView?: EditorView;
+  private gripHandle: HTMLButtonElement;
+
   constructor(
     node: ProseMirrorNode,
     cellMinWidth: number,
@@ -1857,13 +1953,66 @@ class BrainXTableView extends TableView {
     // columnResizing plugin은 View 생성 시 extension의 HTMLAttributes를 넘기지 않는다.
     // 표 스타일 계약이 리사이즈 활성화 여부에 따라 사라지지 않도록 NodeView가 직접 보장한다.
     this.table.classList.add("note-table");
+    this.editorView = view;
     this.syncDisplayAttributes(node);
+
+    // 표 전체 선택용 그립 핸들 — border-collapse라 표 안에는 셀이 아닌 픽셀이 없어서("표
+    // 테두리"가 시각적으로만 존재하고 실제로는 항상 어떤 셀의 border) 테두리를 직접 클릭하는
+    // 방식은 신뢰할 수 없다(실측: 클릭 좌표가 항상 셀로 hit-test됨). 대신 Notion처럼 표
+    // 좌상단에 hover 시 나타나는 작은 그립을 두고, 클릭 시 그 좌표 아래의 표를 찾아
+    // NodeSelection으로 선택한다 — TableToolbar의 updateAnchor와 동일한 "좌표 → posAtCoords →
+    // 조상에서 table 탐색" 패턴을 재사용한다.
+    this.gripHandle = document.createElement("button");
+    this.gripHandle.type = "button";
+    this.gripHandle.contentEditable = "false";
+    this.gripHandle.title = "표 전체 선택";
+    this.gripHandle.className = "note-table-grip";
+    this.gripHandle.innerHTML =
+      '<svg width="9" height="9" viewBox="0 0 9 9" fill="none"><circle cx="1.5" cy="1.5" r="1.2" fill="currentColor"/><circle cx="7.5" cy="1.5" r="1.2" fill="currentColor"/><circle cx="1.5" cy="7.5" r="1.2" fill="currentColor"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor"/></svg>';
+    this.gripHandle.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const ev = this.editorView;
+      if (!ev) return;
+      // 그립이 표 모서리 바로 바깥에 떠 있어 클릭 좌표 자체로 hit-test하면 표 밖(앞 문단)으로
+      // 잡힐 수 있다 — 항상 표 영역 안쪽의 한 점(좌상단에서 4px 들어간 지점)을 기준으로
+      // posAtCoords를 조회해 어떤 표인지를 신뢰성 있게 찾는다.
+      const rect = this.table.getBoundingClientRect();
+      const coords = ev.posAtCoords({ left: rect.left + 4, top: rect.top + 4 });
+      if (!coords) return;
+      const $pos = ev.state.doc.resolve(coords.pos);
+      for (let d = $pos.depth; d >= 0; d--) {
+        if ($pos.node(d).type.name === "table") {
+          const tablePos = $pos.before(d);
+          ev.dispatch(ev.state.tr.setSelection(NodeSelection.create(ev.state.doc, tablePos)));
+          ev.focus();
+          break;
+        }
+      }
+    });
+    this.dom.style.position = "relative";
+    this.dom.appendChild(this.gripHandle);
   }
 
   update(node: ProseMirrorNode) {
     const updated = super.update(node);
     if (updated) this.syncDisplayAttributes(node);
     return updated;
+  }
+
+  /* 표 전체가 NodeSelection으로 선택되면(그립 클릭) PM이 호출 — outline으로 표시한다.
+     Backspace/Delete는 별도 키맵 없이 tiptap 기본 Keymap의 deleteSelection이 처리한다(NodeSelection은
+     selection.empty가 false라 deleteSelection이 그대로 표 노드를 지운다). */
+  selectNode() {
+    this.table.dataset.nodeSelected = "true";
+  }
+
+  deselectNode() {
+    delete this.table.dataset.nodeSelected;
+  }
+
+  destroy() {
+    this.gripHandle.remove();
   }
 
   private syncDisplayAttributes(node: ProseMirrorNode) {
@@ -1942,6 +2091,11 @@ const BrainXTable = Table.extend({
   resizable: true,
   View: BrainXTableView,
   HTMLAttributes: { class: "note-table" },
+  // prosemirror-tables의 tableEditing()은 기본적으로(false) 표 노드 자체의 NodeSelection을
+  // 항상 CellSelection으로 정규화해버린다 — 그립 클릭으로 만든 NodeSelection이 dispatch
+  // 직후 appendTransaction에서 도로 CellSelection으로 바뀌어 selectNode()가 전혀 호출되지
+  // 않는 문제였다(실측 확인). true로 켜면 표 전체 NodeSelection이 그대로 유지된다.
+  allowTableNodeSelection: true,
 });
 
 /** 셀 단위 배경색·정렬 — 표 전체(BrainXTable) 색과 별개로, 선택한 셀(들)에만 적용된다.
@@ -1982,11 +2136,16 @@ const BrainXTableHeader = TableHeader.extend({
 const NOTE_EDITOR_EXTENSIONS = [
   StarterKit.configure({
     codeBlock: false,
+    // 기본 Heading은 "#"+공백을 지워버리는 input rule을 쓴다(라이브 프리뷰와 상충) — 아래
+    // MarkdownHeading(이 "#"를 실제 텍스트로 유지)으로 대체한다.
+    heading: false,
     // protocols 기본 허용 목록(http/https/mailto 등)에는 brainx-note:// 같은 커스텀 스킴이
     // 없어서 기본 검증을 통과하지 못해 setLink가 조용히 실패한다(LinkPopover의 노트 연결
     // 기능, INTERNAL_LINK_PREFIX) — 추가해줘야 내부 노트 링크가 실제로 적용된다.
     link: { openOnClick: false, autolink: false, protocols: ["http", "https", "mailto", "tel", "brainx-note"] },
   }),
+  MarkdownHeading.configure({ levels: [...SUPPORTED_HEADING_LEVELS] }),
+  HeadingLevelSync,
   InlineContinueDraftExtension,
   MarkdownLivePreview,
   MarkdownCodeFenceEnter,
@@ -2166,6 +2325,10 @@ const NOTE_EDITOR_EXTENSIONS = [
   BrainXTableCell,
   WikiLink,
   WikiLinkSuggestion,
+  TaskList,
+  TaskItem.configure({ nested: true }),
+  TaskListMarkdownBridge,
+  SlashCommandSuggestion,
 ];
 
 export interface NoteEditorHandle {
@@ -2244,6 +2407,11 @@ function CustomBubbleMenu({
   const popoverOpenRef = useRef(false);
 
   const updateAnchor = useCallback(() => {
+    // 제목 input 안에서 드래그가 진행 중이면 이 본문 에디터의 selection/버블메뉴 상태를
+    // 전혀 건드리지 않는다 — 제목은 제목 컴포넌트 내부에서 독립적으로 selection/focus를
+    // 관리해야 하고, 본문 쪽 로직(여기)이 그 사이에 끼어들면 안 된다(EditorPanel.tsx의 제목
+    // input mousedown이 켜고, window capture 단계 mouseup에서 끈다).
+    if (titleDragGuard.active) return;
     if (!editor.isEditable) {
       setAnchor(null);
       return;
@@ -2291,7 +2459,14 @@ function CustomBubbleMenu({
       const belongsHere = !!anchorEl && editor.view.dom.contains(anchorEl);
 
       if (!belongsHere) {
-        if (settling || popoverOpenRef.current) return; // 잔여 collapse 가능성 — 마지막 위치 유지, 숨기지 않음
+        // anchor가 확실히 이 에디터 바깥에 있다 — settling(이 에디터 "자기 자신"의 드래그가
+        // 남긴 잔여 collapse를 무시하기 위한 보호)을 여기서도 적용하면 안 된다. anchor가
+        // 다른 곳이면 "다른 곳에서 새로운 선택이 시작됐다"는 확실한 신호이므로 즉시
+        // 숨겨야 한다. settling을 이 분기에도 걸어두면, 직전 드래그(이 패널 안에서의 진짜
+        // 드래그)의 150ms settle 구간과 겹쳐서 전혀 무관한 새 선택(예: 제목 영역 드래그,
+        // 다른 패널 드래그)이 시작돼도 이 패널의 버블 메뉴가 안 사라지는 버그가 있었다
+        // (제목을 드래그하면 다른 패널까지 선택이 이어지는 것처럼 보이던 문제의 원인).
+        if (popoverOpenRef.current) return;
         setAnchor(null);
         return;
       }
@@ -2501,6 +2676,20 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
         if (files.length === 0) return false;
         event.preventDefault();
         files.forEach((file) => insertImageBlockFromFile(view, file));
+        return true;
+      },
+      // 표 테두리/래퍼 영역(셀 내부가 아닌 곳) 클릭 → 표 전체를 NodeSelection으로 선택한다.
+      // handleClickOn은 클릭 좌표가 속한 모든 조상 노드에 대해 안쪽→바깥쪽 순서로 호출되므로,
+      // 셀 안을 클릭해도 결국 그 조상인 table에 대해서도 호출된다 — 그래서 node.type만으로는
+      // "셀 안 클릭"과 "표 테두리 클릭"을 구분할 수 없고, 실제 클릭된 DOM(event.target)이
+      // td/th 내부인지로 판정해야 한다. 셀 안이면 false를 반환해 기존 커서 배치/선택 동작을
+      // 그대로 둔다.
+      handleClickOn: (view, pos, node, nodePos, event) => {
+        if (node.type.name !== "table") return false;
+        const target = event.target as HTMLElement | null;
+        if (target?.closest("td, th")) return false;
+        const tr = view.state.tr.setSelection(NodeSelection.create(view.state.doc, nodePos));
+        view.dispatch(tr);
         return true;
       },
       // 사이드바 노트 드래그(EditorPanel의 dragPayload 오버레이)는 이 핸들러와 무관하게
@@ -2944,6 +3133,9 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       ) : null}
       {editor && <TableToolbar editor={editor} />}
       {editor && <WikiLinkAutocomplete editor={editor} />}
+      {editor && (
+        <SlashCommandMenu editor={editor} onPickImage={() => fileInputRef.current?.click()} />
+      )}
       {editor && contextMenu && (
         <EditorContextMenu
           target={contextMenu}

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   DndContext,
   DragOverlay,
@@ -111,6 +112,9 @@ interface FolderTreeProps {
   onToggleFolderFavorite: (folderId: string) => void;
   onDeleteFolder: (folderId: string) => void;
   onDeleteNote?: (noteId: string) => void;
+  favorites?: Set<string>;
+  onToggleNoteFavorite?: (noteId: string) => void;
+  onRenameNote?: (noteId: string, newTitle: string) => void;
   onDragStart: (noteId: string) => void;
   onDragEnd: () => void;
   onMoveNoteToFolder: (noteId: string, targetFolderId: string | null) => void;
@@ -118,6 +122,8 @@ interface FolderTreeProps {
   onMoveFolderToParent: (folderId: string, targetParentId: string | null) => void;
   onReorderFolder: (folderId: string, referenceFolderId: string, position: "before" | "after") => void;
 }
+
+const EMPTY_FAVORITES = new Set<string>();
 
 export default function FolderTree({
   folders,
@@ -133,6 +139,9 @@ export default function FolderTree({
   onToggleFolderFavorite,
   onDeleteFolder,
   onDeleteNote,
+  favorites = EMPTY_FAVORITES,
+  onToggleNoteFavorite,
+  onRenameNote,
   onDragStart,
   onDragEnd,
   onMoveNoteToFolder,
@@ -228,6 +237,9 @@ export default function FolderTree({
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
             onDeleteNote={onDeleteNote}
+            isFavorite={favorites.has(note.id)}
+            onToggleFavorite={() => onToggleNoteFavorite?.(note.id)}
+            onRenameNote={onRenameNote}
           />
         ))}
 
@@ -249,6 +261,9 @@ export default function FolderTree({
             onToggleFolderFavorite={onToggleFolderFavorite}
             onDeleteFolder={onDeleteFolder}
             onDeleteNote={onDeleteNote}
+            favorites={favorites}
+            onToggleNoteFavorite={(id) => onToggleNoteFavorite?.(id)}
+            onRenameNote={onRenameNote}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
           />
@@ -321,30 +336,22 @@ function DropIndicatorOverlay({ indicator }: { indicator: OverIndicator | null }
   );
 }
 
-/* ── 폴더 더보기 메뉴 (하위 폴더/노트 생성, 이름변경, 색상, 즐겨찾기, 삭제) ── */
-interface FolderMenuProps {
-  folder: MockFolder;
-  onCreateSubfolder: () => void;
-  onCreateNote: () => void;
-  onStartRename: () => void;
-  onChangeColor: (color: string) => void;
-  onToggleFavorite: () => void;
-  onDelete: () => void;
-  onClose: () => void;
-}
-
-function FolderMenu({
-  folder,
-  onCreateSubfolder,
-  onCreateNote,
-  onStartRename,
-  onChangeColor,
-  onToggleFavorite,
-  onDelete,
+/* ── 더보기("...")/우클릭 메뉴 공통 셸 ── "..." 클릭은 트리거 바로 아래(absolute)에,
+   우클릭은 클릭한 좌표(fixed, document.body portal)에 띄운다 — 항목 마크업(children)은
+   FolderMenu/NoteMenu가 그대로 공유하고, 이 셸만 두 진입점의 위치 계산을 책임진다. */
+function MenuShell({
+  anchor,
   onClose,
-}: FolderMenuProps) {
-  const [colorPickerOpen, setColorPickerOpen] = useState(false);
+  width = 176,
+  children,
+}: {
+  anchor?: { x: number; y: number } | null;
+  onClose: () => void;
+  width?: number;
+  children: React.ReactNode;
+}) {
   const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -354,20 +361,82 @@ function FolderMenu({
     return () => document.removeEventListener("mousedown", handler);
   }, [onClose]);
 
-  const itemClass =
-    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt";
+  useLayoutEffect(() => {
+    if (!anchor) { setPos(null); return; }
+    const h = ref.current?.offsetHeight ?? 0;
+    const left = Math.max(8, Math.min(anchor.x, window.innerWidth - width - 8));
+    const top = Math.max(8, Math.min(anchor.y, window.innerHeight - h - 8));
+    setPos({ left, top });
+  }, [anchor, width]);
+
+  if (anchor) {
+    return createPortal(
+      <div
+        ref={ref}
+        onClick={(e) => e.stopPropagation()}
+        className="fixed z-[2000] overflow-hidden rounded-lg border border-line/60 py-1"
+        style={{
+          left: pos?.left ?? anchor.x,
+          top: pos?.top ?? anchor.y,
+          width,
+          background: "rgb(var(--surface))",
+          boxShadow: "0 8px 24px -4px rgba(2,6,23,0.45)",
+          visibility: pos ? "visible" : "hidden",
+        }}
+      >
+        {children}
+      </div>,
+      document.body
+    );
+  }
 
   return (
     <div
       ref={ref}
       onClick={(e) => e.stopPropagation()}
-      className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-lg border border-line/60 py-1"
-      style={{ background: "rgb(var(--surface))", boxShadow: "0 8px 24px -4px rgba(2,6,23,0.45)" }}
+      className="absolute right-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-line/60 py-1"
+      style={{ width, background: "rgb(var(--surface))", boxShadow: "0 8px 24px -4px rgba(2,6,23,0.45)" }}
     >
+      {children}
+    </div>
+  );
+}
+
+/* ── 폴더 더보기 메뉴 (하위 폴더/노트 생성, 이름변경, 색상, 즐겨찾기, 삭제) ── */
+interface FolderMenuProps {
+  folder: MockFolder;
+  anchor?: { x: number; y: number } | null;
+  onCreateSubfolder: () => void;
+  onCreateNote: () => void;
+  onStartRename: () => void;
+  onChangeColor: (color: string) => void;
+  onToggleFavorite: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}
+
+export function FolderMenu({
+  folder,
+  anchor,
+  onCreateSubfolder,
+  onCreateNote,
+  onStartRename,
+  onChangeColor,
+  onToggleFavorite,
+  onDelete,
+  onClose,
+}: FolderMenuProps) {
+  const [colorPickerOpen, setColorPickerOpen] = useState(false);
+
+  const itemClass =
+    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt";
+
+  return (
+    <MenuShell anchor={anchor} onClose={onClose} width={176}>
       {!colorPickerOpen ? (
         <>
           <button type="button" className={itemClass} onClick={() => { onCreateSubfolder(); onClose(); }}>
-            <Plus size={12} className="shrink-0" /> 하위 폴더 생성
+            <Plus size={12} className="shrink-0" /> 새 폴더 생성
           </button>
           <button type="button" className={itemClass} onClick={() => { onCreateNote(); onClose(); }}>
             <FilePlus size={12} className="shrink-0" /> 새 노트 생성
@@ -413,7 +482,46 @@ function FolderMenu({
           </div>
         </div>
       )}
-    </div>
+    </MenuShell>
+  );
+}
+
+/* ── 노트 더보기 메뉴 (이름변경, 즐겨찾기, 삭제) — 폴더와 항목은 다르지만 같은 MenuShell/스타일 ── */
+interface NoteMenuProps {
+  note: MockNote;
+  isFavorite: boolean;
+  anchor?: { x: number; y: number } | null;
+  onStartRename: () => void;
+  onToggleFavorite: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}
+
+export function NoteMenu({ note, isFavorite, anchor, onStartRename, onToggleFavorite, onDelete, onClose }: NoteMenuProps) {
+  const itemClass =
+    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt";
+
+  return (
+    <MenuShell anchor={anchor} onClose={onClose} width={160}>
+      <button type="button" className={itemClass} onClick={() => { onStartRename(); onClose(); }}>
+        <Pencil size={12} className="shrink-0" /> 이름 변경
+      </button>
+      <button type="button" className={itemClass} onClick={() => { onToggleFavorite(); onClose(); }}>
+        <Star size={12} className={cx("shrink-0", isFavorite && "fill-yellow-400 text-yellow-400")} />
+        {isFavorite ? "즐겨찾기 해제" : "즐겨찾기 추가"}
+      </button>
+      <div className="my-1 border-t border-line/30" />
+      <button
+        type="button"
+        className={cx(itemClass, "text-red-400 hover:text-red-300")}
+        onClick={() => {
+          onClose();
+          if (confirm(`"${note.title}" 노트를 삭제하시겠습니까?`)) onDelete();
+        }}
+      >
+        <Trash2 size={12} className="shrink-0" /> 삭제
+      </button>
+    </MenuShell>
   );
 }
 
@@ -434,6 +542,9 @@ interface FolderNodeProps {
   onToggleFolderFavorite: (folderId: string) => void;
   onDeleteFolder: (folderId: string) => void;
   onDeleteNote?: (noteId: string) => void;
+  favorites: Set<string>;
+  onToggleNoteFavorite: (noteId: string) => void;
+  onRenameNote?: (noteId: string, newTitle: string) => void;
   onDragStart: (noteId: string) => void;
   onDragEnd: () => void;
 }
@@ -454,12 +565,16 @@ function FolderNode({
   onToggleFolderFavorite,
   onDeleteFolder,
   onDeleteNote,
+  favorites,
+  onToggleNoteFavorite,
+  onRenameNote,
   onDragStart,
   onDragEnd,
 }: FolderNodeProps) {
   const [expanded, setExpanded] = useState(depth < 2);
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
   const [creatingSubfolder, setCreatingSubfolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [renaming, setRenaming] = useState(false);
@@ -524,6 +639,11 @@ function FolderNode({
         }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setMenuAnchor({ x: e.clientX, y: e.clientY });
+          setMenuOpen(true);
+        }}
       >
         <DropIndicatorOverlay indicator={indicator} />
 
@@ -601,12 +721,12 @@ function FolderNode({
           <Star size={10} className="shrink-0 fill-yellow-400 text-yellow-400" />
         )}
 
-        {hovered && !renaming && (
+        {(hovered || menuOpen) && !renaming && (
           <div className="relative flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
               onClick={() => { setCreatingSubfolder(true); setExpanded(true); }}
-              title="하위 폴더 생성"
+              title="새 폴더 생성"
               className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-primary"
             >
               <Plus size={11} />
@@ -621,7 +741,7 @@ function FolderNode({
             </button>
             <button
               type="button"
-              onClick={() => setMenuOpen((v) => !v)}
+              onClick={() => { setMenuAnchor(null); setMenuOpen((v) => !v); }}
               title="더보기"
               className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-primary"
             >
@@ -631,13 +751,14 @@ function FolderNode({
             {menuOpen && (
               <FolderMenu
                 folder={item.folder}
+                anchor={menuAnchor}
                 onCreateSubfolder={() => { setCreatingSubfolder(true); setExpanded(true); }}
                 onCreateNote={() => { onCreateNote(item.folder.id); setExpanded(true); }}
                 onStartRename={() => setRenaming(true)}
                 onChangeColor={(color) => onChangeFolderColor(item.folder.id, color)}
                 onToggleFavorite={() => onToggleFolderFavorite(item.folder.id)}
                 onDelete={() => onDeleteFolder(item.folder.id)}
-                onClose={() => setMenuOpen(false)}
+                onClose={() => { setMenuOpen(false); setMenuAnchor(null); }}
               />
             )}
           </div>
@@ -686,6 +807,9 @@ function FolderNode({
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
               onDeleteNote={onDeleteNote}
+              isFavorite={favorites.has(note.id)}
+              onToggleFavorite={() => onToggleNoteFavorite(note.id)}
+              onRenameNote={onRenameNote}
             />
           ))}
 
@@ -707,6 +831,9 @@ function FolderNode({
               onToggleFolderFavorite={onToggleFolderFavorite}
               onDeleteFolder={onDeleteFolder}
               onDeleteNote={onDeleteNote}
+              favorites={favorites}
+              onToggleNoteFavorite={onToggleNoteFavorite}
+              onRenameNote={onRenameNote}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
             />
@@ -728,6 +855,9 @@ function NoteRow({
   onDragStart,
   onDragEnd,
   onDeleteNote,
+  isFavorite,
+  onToggleFavorite,
+  onRenameNote,
 }: {
   note: MockNote;
   depth: number;
@@ -738,9 +868,17 @@ function NoteRow({
   onDragStart: (id: string) => void;
   onDragEnd: () => void;
   onDeleteNote?: (id: string) => void;
+  isFavorite?: boolean;
+  onToggleFavorite?: () => void;
+  onRenameNote?: (id: string, newTitle: string) => void;
 }) {
   const [dragging, setDragging] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState(note.title);
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
   const indent = depth * 14 + 6 + 16;
 
@@ -757,13 +895,32 @@ function NoteRow({
     data: { dropType: "note", id: note.id, folderId: note.folderId ?? null } satisfies DropTargetData,
   });
 
+  useEffect(() => {
+    if (renaming) {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }
+  }, [renaming]);
+
+  const commitRename = useCallback(() => {
+    const name = renameDraft.trim();
+    if (name && name !== note.title) onRenameNote?.(note.id, name);
+    else setRenameDraft(note.title);
+    setRenaming(false);
+  }, [renameDraft, note.id, note.title, onRenameNote]);
+
   return (
     <div
       ref={(el) => { setDropRef(el); rowRef.current = el; }}
-      draggable
-      onClick={() => onNoteClick(note.id)}
+      draggable={!renaming}
+      onClick={() => { if (!renaming) onNoteClick(note.id); }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenuAnchor({ x: e.clientX, y: e.clientY });
+        setMenuOpen(true);
+      }}
       onDragStart={(e) => {
         e.dataTransfer.setData("text/plain", note.id);
         e.dataTransfer.effectAllowed = "copy";
@@ -814,19 +971,52 @@ function NoteRow({
         className="shrink-0"
         style={{ color: isActive ? "rgb(var(--primary))" : undefined }}
       />
-      <span className="flex-1 truncate">{note.title}</span>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          if (confirm("이 노트를 삭제하시겠습니까?")) onDeleteNote?.(note.id);
-        }}
-        className="shrink-0 p-0.5 opacity-0 group-hover:opacity-100 text-txt3 hover:text-red-400 transition-opacity ml-1"
-        title="노트 삭제"
-      >
-        <Trash2 size={10} />
-      </button>
+      {renaming ? (
+        <input
+          ref={renameInputRef}
+          value={renameDraft}
+          onChange={(e) => setRenameDraft(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitRename();
+            if (e.key === "Escape") { setRenaming(false); setRenameDraft(note.title); }
+          }}
+          onBlur={commitRename}
+          className="flex-1 rounded border border-primary/40 bg-surface px-1 py-0 text-[12px] text-txt outline-none"
+        />
+      ) : (
+        <span className="flex-1 truncate">{note.title}</span>
+      )}
+      {isFavorite && !renaming && (
+        <Star size={10} className="shrink-0 fill-yellow-400 text-yellow-400" />
+      )}
 
-      <HoverInfoCard anchorRef={rowRef} hovered={hovered && !dragging}>
+      {(hovered || menuOpen) && !renaming && (
+        <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={() => { setMenuAnchor(null); setMenuOpen((v) => !v); }}
+            title="더보기"
+            className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-primary"
+          >
+            <MoreHorizontal size={11} />
+          </button>
+
+          {menuOpen && (
+            <NoteMenu
+              note={note}
+              isFavorite={!!isFavorite}
+              anchor={menuAnchor}
+              onStartRename={() => setRenaming(true)}
+              onToggleFavorite={() => onToggleFavorite?.()}
+              onDelete={() => onDeleteNote?.(note.id)}
+              onClose={() => { setMenuOpen(false); setMenuAnchor(null); }}
+            />
+          )}
+        </div>
+      )}
+
+      <HoverInfoCard anchorRef={rowRef} hovered={hovered && !dragging && !renaming && !menuOpen}>
         <p className="mb-1 truncate font-semibold text-txt">{note.title}</p>
         <p className="text-txt3">마지막 수정</p>
         <p className="mb-1.5 text-txt2">{formatRelativeTime(note.updatedAt)}</p>

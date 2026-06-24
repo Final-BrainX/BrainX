@@ -41,7 +41,9 @@ export interface MockNote {
   typography?: NoteTypography;
 }
 
-/** 일반 노트 탭 */
+/** 일반 노트 탭 — 패널에 열린 탭은 항상 실제 노트를 가리킨다. 열린 노트가 하나도 없는 패널은
+    탭이 아니라 PaneTabsState.tabs가 빈 배열인 상태(empty state)로 표현하고, 그 경우 워크스페이스는
+    Welcome 보드를 보여준다(Welcome은 탭 목록에 들어가지 않는다 — NotesWorkspace.tsx 참고). */
 export interface NoteTab {
   id: string;
   kind: "note";
@@ -50,13 +52,7 @@ export interface NoteTab {
   pinned?: boolean;
 }
 
-/** Obsidian 스타일 빈 시작 탭 — 새 파일 생성하기/파일로 이동하기/닫기 */
-export interface StartTab {
-  id: string;
-  kind: "start";
-}
-
-export type Tab = NoteTab | StartTab;
+export type Tab = NoteTab;
 
 /** 사이드바 노트 드래그 vs 탭 드래그를 구분 — 드롭 위치별 동작(교체/탭추가/분할/재정렬)을 결정하는 데 사용 */
 export type DragPayload =

@@ -8,8 +8,30 @@ import { MockNote } from "@/lib/notes/noteTypes";
 import { MOCK_CONTEXT_DATA } from "@/lib/notes/mockNotes";
 import { createInlineAssistStream } from "@/lib/intelligence-api";
 
-/* ── 헤딩 파싱 ─────────────────────────────────────── */
+/* ── 헤딩 파싱 ─────────────────────────────────────────────────────────────
+   note.content는 두 가지 형태일 수 있다 — 한 번도 편집 안 한 시드 노트는 원문 마크다운
+   ("# 제목\n..."), 에디터에서 한 번이라도 저장된 노트는 getHTML() 결과(HTML, 예:
+   "<h2>## 제목</h2>" — "#"는 라이브 프리뷰용 decoration이 아니라 실제 텍스트라 HTML에도
+   그대로 들어있음, NoteEditor.tsx의 MarkdownHeading 참고). 기존엔 항상 줄바꿈 기준으로
+   "^#{1,3}\s+"만 찾았는데, 그건 마크다운 원문에만 맞는 파싱이라 한 번이라도 편집된 노트는
+   목차가 항상 비어 있었다(이번 헤딩 작업으로 새로 생긴 문제가 아니라 원래부터 있던 제약). */
 function parseHeadings(content: string) {
+  const trimmed = content.trim();
+  if (trimmed.startsWith("<")) {
+    const headings: { id: string; level: number; text: string }[] = [];
+    const re = /<h([1-3])[^>]*>([\s\S]*?)<\/h\1>/gi;
+    let match: RegExpExecArray | null;
+    let i = 0;
+    while ((match = re.exec(trimmed))) {
+      const level = Number(match[1]);
+      const text = match[2]
+        .replace(/<[^>]+>/g, "")
+        .replace(/^#{1,6}\s*/, "")
+        .trim();
+      if (text) headings.push({ id: `h-${i++}`, level, text });
+    }
+    return headings;
+  }
   return content
     .split("\n")
     .map((line, index) => {

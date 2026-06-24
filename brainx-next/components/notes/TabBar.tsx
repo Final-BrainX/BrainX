@@ -36,7 +36,6 @@ interface TabBarProps {
 }
 
 function tabLabel(tab: Tab, notes: MockNote[]): string {
-  if (tab.kind === "start") return "새 탭";
   return notes.find((n) => n.id === tab.noteId)?.title ?? "제목 없음";
 }
 
@@ -79,7 +78,6 @@ export default function TabBar({
   }, [activeTabId]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, tab: Tab) => {
-    if (tab.kind !== "note") return;
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, tabId: tab.id, noteId: tab.noteId, pinned: !!tab.pinned });
   }, []);
@@ -142,9 +140,8 @@ export default function TabBar({
               <button
                 type="button"
                 data-tab-id={tab.id}
-                draggable={tab.kind === "note"}
+                draggable
                 onDragStart={(e) => {
-                  if (tab.kind !== "note") return;
                   e.dataTransfer.setData("text/plain", tab.noteId);
                   e.dataTransfer.effectAllowed = "copyMove";
                   onTabDragStart(tab.id, tab.noteId);
@@ -155,11 +152,7 @@ export default function TabBar({
                 title={label}
                 className={cx(
                   "group relative flex h-full min-w-[110px] max-w-[170px] shrink-0 items-center gap-1.5 border-r px-3 text-[12px] transition-colors",
-                  isActive
-                    ? "font-semibold text-txt"
-                    : tab.kind === "start"
-                    ? "text-txt3/50 hover:text-txt2"
-                    : "text-txt3/80 hover:text-txt2"
+                  isActive ? "font-semibold text-txt" : "text-txt3/80 hover:text-txt2"
                 )}
                 style={{
                   background: isActive
@@ -182,9 +175,7 @@ export default function TabBar({
 
                 {isPinned && <Pin size={10} className="shrink-0 text-txt3" />}
 
-                <span className={cx("min-w-0 flex-1 truncate text-left", tab.kind === "start" && "italic")}>
-                  {label}
-                </span>
+                <span className="min-w-0 flex-1 truncate text-left">{label}</span>
 
                 <span
                   role="button"
