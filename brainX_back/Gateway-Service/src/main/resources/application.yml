@@ -27,6 +27,8 @@ spring:
                 allowed-headers:
                   - '*'
                 allow-credentials: true
+          default-filters:
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin RETAIN_FIRST
           routes:
             - id: commerce-service-user-subscription
               uri: ${COMMERCE_SERVICE_URL:http://localhost:8084}
