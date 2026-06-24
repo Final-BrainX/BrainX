@@ -40,9 +40,27 @@ class JwtAuthenticationGlobalFilterTest {
     }
 
     @Test
-    void rejectsProtectedPathWithoutToken() {
+    void createsGuestActorForWorkspacePathWithoutToken() {
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/api/v1/notes")
+        );
+        AtomicReference<String> guestHeader = new AtomicReference<>();
+        GatewayFilterChain chain = filteredExchange -> {
+            guestHeader.set(filteredExchange.getRequest().getHeaders().getFirst(JwtAuthenticationGlobalFilter.GUEST_ID_HEADER));
+            return Mono.empty();
+        };
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertThat(exchange.getResponse().getStatusCode()).isNull();
+        assertThat(guestHeader.get()).startsWith("gst_");
+        assertThat(exchange.getResponse().getCookies().getFirst(JwtAuthenticationGlobalFilter.GUEST_ID_COOKIE)).isNotNull();
+    }
+
+    @Test
+    void rejectsNonWorkspaceProtectedPathWithoutToken() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/v1/users/me")
         );
         GatewayFilterChain chain = ignored -> Mono.empty();
 

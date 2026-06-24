@@ -321,7 +321,7 @@ DB 접속 계정과 비밀번호는 루트 `.env`의 `POSTGRES_USER`, `POSTGRES_
 | `/api/v1/imports/**`, `/api/v1/exports/**`, `/v1/publish-jobs/**` | Ingestion-Service |
 | `/api/v1/plans/**`, `/api/v1/subscriptions/**`, `/api/v1/users/me/subscription` | Commerce-Service |
 
-Gateway는 보호 API에 대해 `Authorization: Bearer <access-token>`을 검증하고, 통과한 요청에 내부 식별 헤더를 추가합니다.
+Gateway는 보호 API에 대해 `Authorization: Bearer <access-token>`을 검증하고, 통과한 요청에 내부 식별 헤더를 추가합니다. Workspace 체험 API는 비회원도 사용할 수 있게 Gateway가 guest session cookie(`brainx_guest_id`)를 발급하고 내부 `X-Guest-Id` 헤더를 추가합니다.
 
 | 구분 | Path |
 | --- | --- |
@@ -335,8 +335,16 @@ Gateway는 보호 API에 대해 `Authorization: Bearer <access-token>`을 검증
 | `X-User-Id` | JWT `sub` |
 | `X-User-Email` | JWT `email` |
 | `X-User-Role` | JWT `role` |
+| `X-Guest-Id` | Gateway-issued guest id for non-member Workspace trial requests |
 
-클라이언트가 임의로 보낸 `X-User-*` 헤더는 Gateway에서 제거한 뒤 JWT 클레임 기준으로 다시 설정합니다. 로그인/회원가입/OAuth 콜백은 JWT가 아직 없으므로 `/api/v1/auth/**` 공개 경로로 유지합니다.
+클라이언트가 임의로 보낸 `X-User-*`, `X-Guest-Id` 헤더는 Gateway에서 제거한 뒤 JWT 클레임 또는 Gateway guest cookie 기준으로 다시 설정합니다. 로그인/회원가입/OAuth 콜백은 JWT가 아직 없으므로 `/api/v1/auth/**` 공개 경로로 유지합니다.
+
+Workspace-Service는 내부 식별 헤더를 `CurrentActor`로 해석합니다.
+
+- 회원 요청: `X-User-Id`가 있으면 `actorType=USER`, `actorId=<userId>`
+- 비회원 요청: `X-Guest-Id`가 있으면 `actorType=GUEST`, `actorId=<guestId>`
+
+비회원 노트/폴더/링크/그래프 데이터는 체험용 임시 데이터로 취급합니다. Redis in-memory 저장소가 도입되면 guest actor의 Workspace 데이터는 Redis에 저장하고 TTL 만료 또는 세션 종료로 사라지게 합니다. 회원 데이터는 계속 Workspace-Service의 PostgreSQL 원장에 저장합니다.
 
 ```powershell
 cd C:\Edu\Final\BrainX\brainX_back\Gateway-Service
@@ -467,7 +475,7 @@ npx --yes http-server . -p 18081 -a 127.0.0.1
   - 노트 생성이 `bulkCreateNotesInternal` 대신 신규 `Workspace-Service`의 `POST /api/v1/notes`를 직접 호출 중 (구 `knowledge-workspace-service`가 아님). 정식 internal API 전환 필요.
   - `brainx-next` import 화면은 `lib/ingestion-api.ts`로 실제 API와 연동되어 있습니다 (더 이상 mock 아님). Notion OAuth는 팝업 + `postMessage` 방식.
   - **TEMP**: 실제 로그인 연동 전까지 `/api/v1/imports/notion/**`, `/api/v1/imports/{importJobId}`(GET)를 인증 없이 허용하고(`SecurityConfig` permitAll), 인증이 없으면 고정 `dev-test-user`로 동작하도록 임시 우회되어 있습니다. 코드에 `TEMP` 주석으로 표시. 실제 로그인 연동 완료 후 제거 필요.
-- **Workspace-Service**: `POST /api/v1/notes`, `GET /api/v1/notes/{noteId}`도 위와 동일한 사유로 임시 인증 우회(`CurrentUser`가 인증 없으면 `dev-test-user` 반환) 적용 중. 같은 이유로 추후 제거 필요.
+- **Workspace-Service**: Gateway가 전달한 `X-User-Id`/`X-Guest-Id`를 `CurrentActor`로 해석하는 흐름을 기준으로 전환 중입니다. Redis 도입 전까지 직접 Workspace-Service를 호출하는 개발 편의 경로에는 `dev-test-user` fallback이 남아 있으나, 정식 흐름은 Gateway를 통해 회원은 USER actor, 비회원은 GUEST actor로 처리합니다.
 - **Commerce-Service (신규, 2026-06-19 추가)**:
   - Toss Payments 연동: SSOT의 `CheckoutSessionData`에 `checkoutUrl` 단일 필드만 있던 것을 `clientKey`/`orderId`/`orderName`/`amount` 필드로 확장하고, `POST /api/v1/subscriptions/checkout-sessions/{id}/confirm` 엔드포인트를 SSOT에 신규 추가했습니다 (Toss는 호스팅 체크아웃 URL이 아니라 SDK + 서버 confirm 모델이기 때문). AsyncAPI는 변경하지 않았습니다 (기존 이벤트 스키마로 충분).
   - **TEMP**: 다른 서비스와 동일하게 `/api/v1/plans`, `/api/v1/users/me/subscription`, `/api/v1/subscriptions/**`를 인증 없이 허용. 실제 로그인 연동 전까지는 누가 테스트하든 같은 `dev-test-user` 계정의 구독만 바뀝니다.

@@ -84,6 +84,7 @@ async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
   // 아래 두 줄을 제거하고 session?.accessToken이 없으면 에러를 던지도록 되돌릴 것.
   const response = await fetch(`${WORKSPACE_API_BASE_URL}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...(session?.accessToken ? { Authorization: `${session.tokenType ?? "Bearer"} ${session.accessToken}` } : {}),
