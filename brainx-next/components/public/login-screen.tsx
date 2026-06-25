@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { issueTemporaryPassword, loginLocal, requestEmailVerification, verifyEmailCode } from "@/lib/auth-api";
+import { issueTemporaryPassword, loginLocal, readRecentSocialLoginProvider, requestEmailVerification, verifyEmailCode } from "@/lib/auth-api";
 import { useBrainX } from "@/components/brainx-provider";
 import { Btn } from "@/components/brainx-ui";
 import { AuthShell, Field, SocialButtons } from "@/components/public/auth-shared";
@@ -26,6 +26,7 @@ export function LoginScreen() {
   const [resetStep, setResetStep] = useState<ResetStep>("idle");
   const [submitting, setSubmitting] = useState(false);
   const [resetSubmitting, setResetSubmitting] = useState(false);
+  const recentLogin = readRecentSocialLoginProvider();
 
   const canSubmit = email.trim().length > 0 && password.length > 0 && !submitting;
   const canRequestResetCode = resetEmail.trim().length > 0 && !resetSubmitting;
@@ -198,13 +199,24 @@ export function LoginScreen() {
       <Btn variant="primary" size="lg" className="mt-2 w-full" disabled={!canSubmit} onClick={handleLogin}>
         {submitting ? "로그인 중..." : "로그인"}
       </Btn>
-      <div className="my-6 flex items-center gap-3 text-[14px] text-txt3">
+      <div className="my-5 flex items-center gap-3 text-[14px] text-txt3">
         <div className="h-px flex-1 bg-line/60" />
         또는
         <div className="h-px flex-1 bg-line/60" />
       </div>
+      {recentLogin ? (
+        <div className="relative mb-[20px] w-fit">
+          <div className="inline-flex items-center gap-2 rounded-[10px] bg-black px-3 py-2 text-[12px] font-medium text-white shadow-sm dark:bg-white dark:text-black">
+            <span className="grid h-5 w-5 place-items-center rounded-full bg-white text-[11px] font-semibold text-black dark:bg-black dark:text-white">
+              {recentLogin === "google" ? "G" : recentLogin === "kakao" ? "K" : "N"}
+            </span>
+            <span>최근 로그인</span>
+          </div>
+          <div className="absolute left-1/2 top-full h-3 w-3 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-black dark:bg-white" />
+        </div>
+      ) : null}
       <SocialButtons />
-      <p className="mt-7 text-center text-[15px] text-txt2">
+      <p className="mt-12 text-center text-[15px] text-txt2">
         계정이 없으신가요?{" "}
         <button type="button" onClick={() => router.push("/signup")} className="font-medium text-primary">
           회원가입

@@ -69,21 +69,42 @@ export function SocialButtons() {
     provider: OAuthProvider;
     background: string;
     color: string;
+    icon: ReactNode;
   }> = [
     {
       name: "Google",
       provider: "google",
       background: "#fff",
       color: "#1f2937",
+      icon: (
+        <span className="grid h-5 w-5 place-items-center rounded-full border border-[#dadce0] text-[11px] font-bold leading-none text-[#4285f4]">
+          G
+        </span>
+      )
     },
     {
       name: "Kakao",
       provider: "kakao",
       background: "#FEE500",
       color: "#191600",
+      icon: (
+        <span className="grid h-5 w-5 place-items-center rounded-full bg-[#191600] text-[10px] font-black leading-none text-[#FEE500]">
+          T
+        </span>
+      )
     },
     //{ name: "Apple", provider: "apple", background: "#111", color: "#fff" }
-    { name: "Naver", provider: "naver", background: "#03C75A", color: "#fff" },
+    {
+      name: "Naver",
+      provider: "naver",
+      background: "#03C75A",
+      color: "#fff",
+      icon: (
+        <span className="grid h-5 w-5 place-items-center rounded-[5px] bg-white text-[10px] font-black leading-none text-[#03C75A]">
+          N
+        </span>
+      )
+    },
   ];
 
   const handleOAuth = async (provider: OAuthProvider, name: string) => {
@@ -109,8 +130,9 @@ export function SocialButtons() {
           type="button"
           onClick={() => handleOAuth(provider.provider, provider.name)}
           style={{ background: provider.background, color: provider.color }}
-          className="h-11 rounded-xl border border-line/30 text-[15px] font-semibold transition hover:brightness-95"
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-line/30 px-3 text-[15px] font-semibold transition hover:brightness-95"
         >
+          {provider.icon}
           {provider.name}
         </button>
       ))}
@@ -120,12 +142,28 @@ export function SocialButtons() {
 
 export function AuthShell({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const { effectiveTheme } = useBrainX();
+  const isLight = effectiveTheme === "light";
+
+  const leftBackground = isLight
+    ? "linear-gradient(145deg, #d8d4f7 0%, #e8f5f0 50%, #dcd8f5 100%)"
+    : "linear-gradient(145deg, #0f1327 0%, #121a33 52%, #17102f 100%)";
+
+  const rightPanelClassName = isLight
+    ? "scroll relative flex min-h-[100dvh] items-center justify-center overflow-y-auto bg-white p-6"
+    : "scroll relative flex min-h-[100dvh] items-center justify-center overflow-y-auto bg-bg2 p-6";
+
   return (
-    <div className="relative grid h-full overflow-hidden lg:grid-cols-2">
-      <div className="relative hidden overflow-hidden border-r border-line/40 p-12 lg:flex lg:flex-col lg:justify-between">
-        <div className="absolute inset-0 grid-bg opacity-50" />
+    <div className="relative grid min-h-[100dvh] overflow-hidden lg:grid-cols-2">
+      <div
+        className="relative hidden h-[100dvh] overflow-hidden border-r border-line/40 p-12 lg:flex lg:flex-col lg:justify-between"
+        style={{ background: leftBackground }}
+      >
+        <div className="absolute inset-0 grid-bg opacity-35" />
         <div className="absolute inset-0">
-          <HeroConstellation />
+          <div className="absolute inset-0 mx-auto max-w-[720px]">
+            <HeroConstellation />
+          </div>
         </div>
         <button
           type="button"
@@ -144,11 +182,11 @@ export function AuthShell({ children }: { children: ReactNode }) {
         <div className="relative z-10 text-[14px] text-txt3">© 2026 BrainX 개발팀</div>
       </div>
 
-      <div className="scroll relative flex items-center justify-center overflow-y-auto p-6">
+      <div className={rightPanelClassName}>
         <div className="absolute right-5 top-5">
           <ThemeToggle />
         </div>
-        <div className="w-full max-w-sm py-10">{children}</div>
+        <div className="w-full max-w-sm">{children}</div>
       </div>
     </div>
   );

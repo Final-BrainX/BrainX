@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
+import { Compass, FileUp, PencilLine, Pin, PinOff, Sparkles } from "lucide-react";
+import { readAuthSession } from "@/lib/auth-api";
 import { deriveGraphEdges, noteById, clusterById, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
 import { getGraph, graphEdgesForFlow, graphToBrainXNotes, USE_MOCK_GRAPH } from "@/lib/graph-api";
 import { useBrainX } from "@/components/brainx-provider";
@@ -24,6 +26,103 @@ const UniverseIcon = ({ size = 18, className = "" }: { size?: number; className?
     <path d="M5 18v2m-1-1h2" />
   </svg>
 );
+
+function GraphEmptyState({
+  onCreateNote,
+  onOpenNotes,
+  onOpenChat,
+  onOpenGraph
+}: {
+  onCreateNote: () => void;
+  onOpenNotes: () => void;
+  onOpenChat: () => void;
+  onOpenGraph: () => void;
+}) {
+  const steps = [
+    {
+      step: "1",
+      title: "노트 작성",
+      desc: "생각, 공부, 아이디어를 먼저 적어두면 그래프의 중심이 생깁니다.",
+      icon: PencilLine,
+      color: "from-[#EFEAFF] to-[#F7F5FF]",
+      accent: "text-[#6C63D8]"
+    },
+    {
+      step: "2",
+      title: "AI 연결",
+      desc: "BrainX가 주제와 문맥을 읽고 관련 노트를 부드럽게 연결해요.",
+      icon: Sparkles,
+      color: "from-[#EAF8F2] to-[#F5FBF8]",
+      accent: "text-[#4BC3AC]"
+    },
+    {
+      step: "3",
+      title: "그래프 탐색",
+      desc: "연결망을 따라가며 지식의 구조와 공백을 한눈에 확인해요.",
+      icon: Compass,
+      color: "from-[#EAF1FF] to-[#F5F8FF]",
+      accent: "text-[#5BA8F0]"
+    }
+  ] as const;
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-6 py-10">
+      <div className="pointer-events-auto flex w-full max-w-[860px] flex-col items-center text-center">
+        <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-[22px] border border-primary/15 bg-white/75 shadow-[0_10px_30px_rgba(108,99,216,0.12)] backdrop-blur">
+          <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-primary/15 to-accent/10 text-primary">
+            <Icon name="graph" size={24} />
+          </div>
+        </div>
+        <h2 className="text-[27px] font-bold tracking-tight text-txt sm:text-[30px]">
+          아직 지식 그래프가 비어있어요
+        </h2>
+        <p className="mt-2 max-w-[560px] text-[14px] leading-7 text-txt2 sm:text-[15px]">
+          첫 노트를 작성하면 AI가 자동으로 연결을 돕고, 그래프에서 관계를 탐색할 수 있어요.
+        </p>
+
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={onCreateNote}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#6C63D8] to-[#7A72E6] px-5 text-[14px] font-semibold text-white shadow-[0_14px_28px_rgba(108,99,216,0.22)] transition-transform hover:-translate-y-0.5"
+          >
+            <Icon name="plus" size={16} />
+            첫 노트 만들기
+          </button>
+          <button
+            type="button"
+            onClick={onOpenNotes}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-line/70 bg-white/80 px-5 text-[14px] font-semibold text-txt2 shadow-sm transition-colors hover:border-primary/30 hover:text-txt"
+          >
+            <FileUp size={16} />
+            가져오기
+          </button>
+        </div>
+
+        <div className="mt-8 grid w-full gap-3 md:grid-cols-3">
+          {steps.map((item) => (
+            <button
+              key={item.step}
+              type="button"
+              onClick={item.step === "1" ? onCreateNote : item.step === "2" ? onOpenChat : onOpenGraph}
+              className="group relative overflow-hidden rounded-2xl border border-line/60 bg-white/85 p-5 text-left shadow-[0_12px_30px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_16px_34px_rgba(108,99,216,0.12)]"
+            >
+              <span className={`absolute -right-1 top-1 text-[56px] font-extrabold leading-none ${item.accent} opacity-[0.08]`}>
+                {item.step}
+              </span>
+              <div className={`mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br ${item.color} ${item.accent}`}>
+                <item.icon size={18} />
+              </div>
+              <div className="text-[13px] font-semibold text-txt">{item.title}</div>
+              <p className="mt-1.5 min-h-[44px] text-[12px] leading-6 text-txt2">{item.desc}</p>
+              <div className="mt-3 text-[12px] font-medium text-primary">시작하기</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export type LayoutMode = 'force' | 'tree' | 'radial';
 
@@ -763,13 +862,20 @@ function GraphScreenInner() {
   const [timeFilter, setTimeFilter] = useState("전체");
   const [hiddenClusters, setHiddenClusters] = useState<Partial<Record<ClusterId, boolean>>>({});
   const [bridgeMode, setBridgeMode] = useState(false);
+  const [sidebarsVisible, setSidebarsVisible] = useState(true);
+  const [sidebarsLocked, setSidebarsLocked] = useState(false);
   const controls = useRef<GraphControls | null>(null);
+  const idleTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const notes = liveNotes ?? mockNotes;
   const edges = useMemo(() => liveEdges ?? deriveGraphEdges(notes), [liveEdges, notes]);
   const selected = selectedId ? notes.find((note) => note.id === selectedId) ?? null : null;
+  const hasGraphData = notes.length > 0;
 
   useEffect(() => {
-    if (USE_MOCK_GRAPH) {
+    const session = readAuthSession();
+    const hasRealLogin = !!session && session.accessToken !== "demo-access-token";
+
+    if (USE_MOCK_GRAPH && !hasRealLogin) {
       setLiveNotes(null);
       setLiveEdges(null);
       return;
@@ -797,6 +903,57 @@ function GraphScreenInner() {
     };
   }, [pushToast]);
 
+  useEffect(() => {
+    if (!hasGraphData) {
+      setSidebarsVisible(true);
+      return;
+    }
+
+    const clearTimer = () => {
+      if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    };
+
+    const scheduleHide = () => {
+      clearTimer();
+      if (sidebarsLocked) return;
+      idleTimerRef.current = window.setTimeout(() => {
+        setSidebarsVisible(false);
+      }, 3000);
+    };
+
+    const handleActivity = () => {
+      setSidebarsVisible(true);
+      scheduleHide();
+    };
+
+    window.addEventListener("mousemove", handleActivity);
+    window.addEventListener("mousedown", handleActivity);
+    window.addEventListener("touchstart", handleActivity, { passive: true });
+    scheduleHide();
+
+    return () => {
+      window.removeEventListener("mousemove", handleActivity);
+      window.removeEventListener("mousedown", handleActivity);
+      window.removeEventListener("touchstart", handleActivity);
+      clearTimer();
+    };
+  }, [hasGraphData, sidebarsLocked]);
+
+  useEffect(() => {
+    if (!hasGraphData) {
+      setSidebarsLocked(true);
+      setSidebarsVisible(true);
+      return;
+    }
+    if (sidebarsLocked) setSidebarsVisible(true);
+  }, [hasGraphData, sidebarsLocked]);
+
+  useEffect(() => {
+    if (hasGraphData) return;
+    setSidebarsLocked(false);
+  }, [hasGraphData]);
+
   return (
     <div data-route className={cx("relative h-full overflow-hidden transition-colors duration-150", theme === 'universe' ? "bg-slate-950 universe-theme" : "bg-bg")}>
       <ReactFlowProvider>
@@ -817,9 +974,22 @@ function GraphScreenInner() {
           }}
         />
       </ReactFlowProvider>
+      {notes.length === 0 ? (
+        <GraphEmptyState
+          onCreateNote={() => router.push("/notes")}
+          onOpenNotes={() => router.push("/notes")}
+          onOpenChat={() => router.push("/chat")}
+          onOpenGraph={() => router.push("/graph")}
+        />
+      ) : null}
 
       <div className="pointer-events-none absolute left-5 right-5 top-5 z-20 flex items-start justify-between gap-3">
-        <div className="pointer-events-auto">
+        <div
+          className={cx(
+            "pointer-events-auto transition-all duration-300 ease-out",
+            !hasGraphData || sidebarsVisible ? "translate-x-0 opacity-100" : "-translate-x-10 opacity-0"
+          )}
+        >
           <div className="glass mb-3 max-w-xs rounded-2xl px-4 py-3 backdrop-blur-md shadow-sm">
             <h1 className="flex items-center gap-2 text-[17px] font-bold tracking-tight text-txt">
               <Icon name="graph" size={18} className="text-primary" />
@@ -854,8 +1024,37 @@ function GraphScreenInner() {
           </div>
         </div>
 
-        <div className="pointer-events-auto flex flex-col items-end gap-3">
+        <div
+          className={cx(
+            "pointer-events-auto flex flex-col items-end gap-3 transition-all duration-300 ease-out",
+            !hasGraphData || sidebarsVisible ? "translate-x-0 opacity-100" : "translate-x-10 opacity-0"
+          )}
+        >
           <div className="glass relative z-20 flex items-center gap-0.5 rounded-xl p-1.5 backdrop-blur-md shadow-sm">
+            <button
+              type="button"
+              aria-pressed={sidebarsLocked}
+              disabled={!hasGraphData}
+              onClick={() => {
+                if (!hasGraphData) return;
+                setSidebarsLocked((current) => !current);
+              }}
+              className={cx(
+                "group relative grid h-8 w-8 place-items-center rounded-lg transition-colors",
+                !hasGraphData
+                  ? "cursor-not-allowed text-txt3/40"
+                  : sidebarsLocked
+                    ? "bg-primary text-white"
+                    : "text-txt3 hover:bg-txt/10 hover:text-txt"
+              )}
+              title={sidebarsLocked ? "사이드바 고정 해제" : "사이드바 고정"}
+            >
+              {!hasGraphData || sidebarsLocked ? <PinOff size={14} /> : <Pin size={14} />}
+              <span className="pointer-events-none absolute top-[calc(100%+12px)] z-50 whitespace-nowrap rounded-[6px] px-2.5 py-1.5 text-[12px] font-medium bg-txt text-bg2 shadow-md opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                {!hasGraphData ? "데이터가 있을 때만 사용 가능" : sidebarsLocked ? "사이드바 고정 해제" : "사이드바 고정"}
+                <div className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt" style={{ zIndex: -1 }} />
+              </span>
+            </button>
             <button type="button" onClick={() => controls.current?.zoom(0.5)} className="group relative grid h-9 w-9 place-items-center rounded-lg transition-colors text-txt3 hover:bg-txt/10 hover:text-txt">
               <Icon name="zoomin" size={17} />
               <span className="pointer-events-none absolute top-[calc(100%+12px)] z-50 whitespace-nowrap rounded-[6px] px-2.5 py-1.5 text-[12px] font-medium bg-txt text-bg2 shadow-md opacity-0 transition-opacity duration-200 group-hover:opacity-100">
