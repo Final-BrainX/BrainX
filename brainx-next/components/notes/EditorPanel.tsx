@@ -330,7 +330,7 @@ export default function EditorPanel({
             {/* 노트 제목: 편집 모드에서는 클릭 → 인라인 input. 우측의 "서식"은 이 노트 전체에
                 적용되는 문서 기본 타이포그래피(글꼴 크기 배율/개별 설정/글꼴) 패널 — 선택한
                 텍스트에만 적용되는 BubbleToolbar의 Aa(FontPopover)와는 별개다 */}
-            <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center justify-between gap-[5px]">
               {isEdit && isEditingTitle ? (
                 <input
                   ref={titleInputRef}
@@ -398,7 +398,7 @@ export default function EditorPanel({
                   {note.title}
                 </h1>
               )}
-              <div className="mt-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+              <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
                 <TypographyPopover
                   typography={note.typography}
                   onChange={(next) => onTypographyChange(note.id, next)}

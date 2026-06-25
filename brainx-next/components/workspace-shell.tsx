@@ -63,7 +63,7 @@ function SearchBar() {
     <div className="relative w-full md:flex-1 md:max-w-xl tutorial-target-search">
       <div
         className={cx(
-          "group flex h-11 items-center gap-2.5 rounded-2xl border px-3.5 transition-all duration-200",
+          "group flex h-9 items-center gap-2 rounded-xl border px-3 transition-all duration-200",
           semantic
             ? "border-accent/50 bg-accent/[0.06] shadow-glowv"
             : "border-line/60 bg-surface/60 hover:border-line",
@@ -87,25 +87,25 @@ function SearchBar() {
               ? '의미로 검색… "어텐션이 왜 작동하는지"'
               : "노트·메모·자료 검색"
           }
-          className="flex-1 bg-transparent text-[16px] text-txt outline-none placeholder:text-txt3"
+          className="flex-1 bg-transparent text-[14px] text-txt outline-none placeholder:text-txt3"
         />
         <button
           type="button"
           onClick={() => setSemantic((current) => !current)}
           className={cx(
-            "flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[14px] font-medium whitespace-nowrap transition-all",
+            "flex h-6 items-center gap-1.5 rounded-md border px-2 text-[12px] font-medium whitespace-nowrap transition-all",
             semantic
               ? "border-accent bg-accent text-white"
               : "border-line/60 bg-surface2/60 text-txt2 hover:text-txt",
           )}
         >
-          <Icon name="sparkle" size={13} /> 의미
+            <Icon name="sparkle" size={13} /> 의미
         </button>
         <div className="relative">
           <button
             type="button"
             onClick={() => setOpen((current) => !current)}
-            className="flex h-7 items-center gap-1 rounded-lg px-2 text-[14px] whitespace-nowrap text-txt2 hover:bg-surface2/60 hover:text-txt"
+            className="flex h-6 items-center gap-1 rounded-md px-2 text-[12px] whitespace-nowrap text-txt2 hover:bg-surface2/60 hover:text-txt"
           >
             <Icon name="filter" size={13} /> {filter}{" "}
             <Icon name="chevD" size={12} />
@@ -124,7 +124,7 @@ function SearchBar() {
                     setOpen(false);
                   }}
                   className={cx(
-                    "flex h-9 w-full items-center justify-between rounded-lg px-3 text-left text-[15px]",
+                    "flex h-8 w-full items-center justify-between rounded-lg px-3 text-left text-[13px]",
                     item === filter
                       ? "bg-surface2/60 text-primary"
                       : "text-txt2 hover:bg-surface2/50 hover:text-txt",
@@ -216,6 +216,7 @@ function SidebarItem({
       className={cx(
         "group relative flex aspect-square w-full items-center justify-center gap-3 rounded-[0.4rem] transition-all duration-200",
         path === "/home" && "tutorial-target-home",
+        path === "/notes" && "tutorial-target-notes",
         path === "/graph" && "tutorial-target-mindmap",
         path === "/chat" && "tutorial-target-ai",
         active
@@ -286,22 +287,6 @@ function Sidebar({ onOpenSettings, notesExplorerOpen }: { onOpenSettings: () => 
       </nav>
 
       <div className="mt-auto px-1 pb-3 flex flex-col gap-2">
-        <button
-          type="button"
-          onClick={() => useGuideStore.getState().resetTutorials()}
-          className="group relative grid aspect-square w-full place-items-center rounded-[0.4rem] text-txt3 hover:bg-surface2/50 hover:text-txt transition-colors"
-        >
-          <Icon name="sparkle" size={18} />
-          <span 
-            className="pointer-events-none absolute left-[calc(100%+12px)] z-50 whitespace-nowrap rounded-[6px] px-2.5 py-1.5 text-[12px] font-medium bg-txt text-bg2 shadow-md opacity-0 transition-opacity duration-200 group-hover:opacity-100"
-          >
-            튜토리얼 다시보기
-            <div
-              className="absolute left-[-4px] top-1/2 h-2.5 w-2.5 -translate-y-1/2 rotate-45 bg-txt"
-              style={{ zIndex: -1 }}
-            />
-          </span>
-        </button>
         <button
           type="button"
           onClick={() => router.push("/billing")}
@@ -433,49 +418,65 @@ function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
     { label: t("nav.graph"), icon: "graph" as const, path: "/graph" },
     { label: t("nav.chat"), icon: "chat" as const, path: "/chat" },
   ];
+  const topTooltipClass =
+    "pointer-events-none absolute top-[calc(100%+12px)] left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-[6px] bg-txt px-2.5 py-1.5 text-[12px] font-medium text-bg2 opacity-0 shadow-md transition-opacity duration-200 group-hover:opacity-100";
 
   return (
     <header className="relative z-10 border-b border-line/50 bg-bg2/30 backdrop-blur-xl">
-      <div className="flex flex-col gap-3 px-4 py-3 md:h-16 md:flex-row md:items-center md:gap-3 md:pl-0 md:pr-5 md:py-0">
+      <div className="flex flex-col gap-3 px-4 py-3 md:h-[50px] md:flex-row md:items-center md:gap-2.5 md:pl-0 md:pr-4 md:py-0">
         <div className="hidden h-full w-[50px] shrink-0 items-center justify-center border-r border-line/50 md:flex">
           <button
             type="button"
             onClick={() => router.push("/")}
             className="flex items-center group"
           >
-            <div className="grid aspect-square w-[42px] shrink-0 place-items-center rounded-[0.4rem] bg-gradient-to-br from-primary via-accent to-cyan shadow-glow">
-              <Icon name="brain" size={22} className="text-white" strokeWidth={1.6} />
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[0.4rem] bg-gradient-to-br from-primary via-accent to-cyan shadow-glow">
+              <Icon name="brain" size={19} className="text-white" strokeWidth={1.6} />
             </div>
           </button>
         </div>
-        <div className="md:ml-2 md:flex-1 md:max-w-xl">
+        <div className="md:ml-2 md:flex-1 md:max-w-lg">
           <SearchBar />
         </div>
         <div className="flex items-center justify-between gap-2 md:ml-auto md:justify-end">
-          <ThemeToggle />
+          <div className="tutorial-target-darkmode group relative [&>button]:h-8 [&>button]:w-8 [&>button]:rounded-lg [&_svg]:h-[15px] [&_svg]:w-[15px]">
+            <ThemeToggle />
+            <span className={topTooltipClass}>
+              테마 변경
+              <div className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt" style={{ zIndex: -1 }} />
+            </span>
+          </div>
           <button
             type="button"
             onClick={() => pushToast("새 알림은 없습니다", "info")}
-            className="relative grid h-9 w-9 place-items-center rounded-xl border border-line/60 text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt"
+            className="tutorial-target-notifications group relative grid h-8 w-8 place-items-center rounded-lg border border-line/60 text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt"
           >
-            <Icon name="bell" size={17} />
-            <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-accent" />
+            <Icon name="bell" size={15} />
+            <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-accent" />
+            <span className={topTooltipClass}>
+              알림
+              <div className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt" style={{ zIndex: -1 }} />
+            </span>
           </button>
           <div className="mx-1 hidden h-6 w-px bg-line/60 md:block" />
           <button
             type="button"
             onClick={onOpenSettings}
-            className="flex h-10 items-center gap-2.5 rounded-xl px-2.5 transition-colors hover:bg-surface2/60"
+            className="tutorial-target-profile group relative flex h-8 items-center gap-2 rounded-lg px-2 transition-colors hover:bg-surface2/60"
           >
-            <Avatar name={displayName} size={32} imageUrl={displayImageUrl} />
+            <Avatar name={displayName} size={26} imageUrl={displayImageUrl} />
             <div className="hidden text-left leading-tight sm:block">
-              <div className="max-w-[120px] truncate text-[13px] font-semibold text-txt">
+              <div className="max-w-[110px] truncate text-[12px] font-semibold text-txt">
                 {displayName}
               </div>
-              <div className="text-[11px] text-txt3">
+              <div className="text-[10px] text-txt3">
                 {currentPlan}
               </div>
             </div>
+            <span className={topTooltipClass}>
+              사용자 프로필
+              <div className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt" style={{ zIndex: -1 }} />
+            </span>
           </button>
         </div>
       </div>

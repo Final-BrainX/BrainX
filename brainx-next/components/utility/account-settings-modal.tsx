@@ -43,6 +43,7 @@ import { createSupportTicket, getMySupportTickets, type SupportTicket, type Supp
 import { cx } from "@/lib/utils";
 import type { ThemeMode } from "@/components/brainx-provider";
 import type { LanguageCode } from "@/lib/i18n";
+import { useGuideStore } from "@/lib/use-guide-store";
 
 type TabId = "profile" | "general" | "notifications" | "import" | "usage" | "stats" | "support" | "upgrade";
 type SocialProvider = "google" | "kakao" | "naver";
@@ -658,6 +659,19 @@ export function AccountSettingsModal({ open, onClose }: { open: boolean; onClose
               </div>
             </div>
           ))}
+
+          {/* 튜토리얼 다시보기 버튼 */}
+          <button
+            type="button"
+            onClick={() => {
+              useGuideStore.getState().triggerTutorialReplay();
+              onClose();
+            }}
+            className="mb-2 flex h-[29px] w-full items-center gap-2.5 rounded-[6px] px-2 text-left text-[13px] text-[#6c55f6] hover:bg-[#eeeafe] transition"
+          >
+            <Icon name="sparkle" size={15} />
+            <span>튜토리얼 다시보기</span>
+          </button>
 
           <button
             type="button"

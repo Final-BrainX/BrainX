@@ -350,11 +350,11 @@ export default function RightSidebar({ activeNote, allNotes, onCollapse, pending
     >
       {/* ── 패널 헤더 ──────────────────────────────── */}
       <div
-        className="flex items-center gap-2 border-b border-line/50 px-4 py-3"
+        className="flex h-9 items-center gap-[5px] border-b border-line/50 px-4"
         style={{ background: "rgb(var(--surface))" }}
       >
         <Icon name="sparkle" size={14} className="shrink-0 text-accent" />
-        <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-1 items-center gap-[5px]">
           <p className="truncate text-[12px] font-semibold text-txt">{activeNote?.title ?? "노트 없음"}</p>
           <p className="text-[10px] text-txt3">컨텍스트 패널</p>
         </div>
