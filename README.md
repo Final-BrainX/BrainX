@@ -331,6 +331,7 @@ DB 접속 계정과 비밀번호는 루트 `.env`의 `POSTGRES_USER`, `POSTGRES_
 | `/api/v1/notes/**`, `/api/v1/folders/**`, `/api/v1/graph/**`, `/api/v1/share-links/**` | Workspace-Service |
 | `/api/v1/imports/**`, `/api/v1/exports/**`, `/v1/publish-jobs/**` | Ingestion-Service |
 | `/api/v1/plans/**`, `/api/v1/subscriptions/**`, `/api/v1/users/me/subscription` | Commerce-Service |
+| `/api/v1/admin/**` | Admin-Service |
 
 Gateway는 보호 API에 대해 `Authorization: Bearer <access-token>`을 검증하고, 통과한 요청에 내부 식별 헤더를 추가합니다. Workspace 체험 API는 비회원도 사용할 수 있게 Gateway가 guest session cookie(`brainx_guest_id`)를 발급하고 내부 `X-Guest-Id` 헤더를 추가합니다.
 
@@ -441,6 +442,34 @@ cd C:\Edu\Final\brainX_back\Commerce-Service
 
 자세한 결제 흐름과 DB 스키마는 `brainX_back/Commerce-Service/README.md`를 참고하세요.
 
+### Backend: Admin-Service API Contract
+
+`BrainX-Admin/brainx-admin-next`가 실제 데이터로 동작하기 위한 관리자 API는 `contracts-v2/brainx-openapi.ssot.yaml`의 `/api/v1/admin/**`로 확정합니다. Admin-Service는 관리자 화면 전용 read model/orchestration layer이며, 원장 데이터는 각 소유 서비스가 유지합니다.
+
+| 화면 | Method | Path | 소유 데이터/연동 |
+| --- | --- | --- | --- |
+| 모니터링 | GET | `/api/v1/admin/dashboard/overview` | Gateway/User/Commerce 상태와 KPI 집계 |
+| 사용자 목록 | GET | `/api/v1/admin/users` | User-Service 계정 + Workspace note/storage + Commerce plan |
+| 사용자 상세 | GET | `/api/v1/admin/users/{userId}` | 프로필, 플랜, 로그인 세션, 활동 이력 |
+| 플랜 변경 | PATCH | `/api/v1/admin/users/{userId}/plan` | Commerce-Service 구독 변경, `SubscriptionChanged` |
+| 계정 상태 | PATCH | `/api/v1/admin/users/{userId}/status` | User-Service 상태 변경 |
+| 탈퇴 처리 | POST | `/api/v1/admin/users/{userId}/withdrawal` | User-Service 삭제 요청, `UserDeletionRequested` |
+| 일괄 처리 | POST | `/api/v1/admin/users/bulk-actions` | 플랜 변경/정지/재활성화/탈퇴/공지 |
+| 문의 목록 | GET | `/api/v1/admin/support/tickets` | 관리자 문의 목록 |
+| 문의 상세/배정 | GET/PATCH | `/api/v1/admin/support/tickets/{ticketId}` | 담당자/상태 변경, `SupportTicketUpdated` |
+| 문의 답변 | POST | `/api/v1/admin/support/tickets/{ticketId}/replies` | 답변 등록, `SupportTicketReplied`, `NotificationRequested` |
+| 결제 KPI | GET | `/api/v1/admin/billing/summary` | Commerce 매출/구독/실패 집계 |
+| 결제 내역 | GET | `/api/v1/admin/billing/payments` | Commerce 결제 원장 |
+| 환불 | POST | `/api/v1/admin/billing/payments/{paymentId}/refund` | Commerce 환불, `PaymentRefunded` |
+| 결제 재시도 | POST | `/api/v1/admin/billing/payments/{paymentId}/retry` | Commerce 결제 재시도, `PaymentSucceeded`/`PaymentFailed` |
+| 구독 현황 | GET | `/api/v1/admin/billing/subscriptions` | Commerce 구독 원장 |
+| 결제 실패 추적 | GET | `/api/v1/admin/billing/payment-failures` | Commerce 실패 사유/재시도 횟수 |
+| 요금제 가격 | PATCH | `/api/v1/admin/billing/plans/{planId}` | Commerce 플랜 가격 변경, `PlanPriceChanged` |
+| 관리자 프로필 | GET/PATCH | `/api/v1/admin/me`, `/api/v1/admin/me/profile` | 관리자 본인 정보 |
+| 관리자 비밀번호 | PATCH | `/api/v1/admin/me/password` | User-Service credential 변경, `PasswordChanged` |
+
+AsyncAPI에는 Admin 화면에서 새로 필요한 `PaymentRefunded`, `PlanPriceChanged`, `SupportTicketUpdated` 이벤트를 추가했습니다. 결제/플랜 이벤트는 Commerce-Service가 발행하고, 문의 상태 변경 이벤트는 Admin-Service가 발행합니다.
+
 ### Frontend: BrainX-Design (포트 3000)
 
 ```powershell
@@ -481,6 +510,11 @@ npx --yes http-server . -p 18081 -a 127.0.0.1
 
 ## Current Notes
 
+- **(2026-06-25 SSOT 계약 변경) BrainX-Admin 실제 데이터 연동용 관리자 API 확정**:
+  - 분석 대상: `contracts-v2/brainx-openapi.ssot.yaml`, `contracts-v2/brainx-asyncapi.ssot.yaml`, `README.md`, `BrainX-Admin/brainx-admin-next`의 현재 UI 더미 데이터.
+  - OpenAPI: `/api/v1/admin/**` 아래에 관리자 대시보드, 사용자 목록/상세/플랜 변경/상태 변경/탈퇴/일괄 처리, 문의 상세/배정, 결제 KPI/내역/환불/재시도/구독/실패 추적/요금제 가격 수정, 관리자 프로필/비밀번호 변경 API를 추가했습니다.
+  - AsyncAPI: `PaymentRefunded`, `PlanPriceChanged`, `SupportTicketUpdated` 이벤트를 추가했습니다. 기존 `SubscriptionChanged`, `PaymentSucceeded`, `PaymentFailed`, `SupportTicketReplied`, `NotificationRequested`, `PasswordChanged`, `UserDeletionRequested`는 그대로 재사용합니다.
+  - 서비스 경계: Admin-Service는 관리자 화면용 read model/orchestration layer로 두고, 사용자 원장은 User-Service, 노트/저장소 통계는 Workspace-Service, 결제/구독/요금제 원장은 Commerce-Service가 유지합니다. Admin-Service는 Gateway 보호 경로 `/api/v1/admin/**` 뒤에서 내부 API/이벤트로 각 서비스와 동기화합니다.
 - `brainx-next`의 일부 한글 UI 문자열은 현재 소스 파일에서 인코딩이 깨진 상태입니다. 기능 구조 분석은 가능하지만, 제품화 전에 UTF-8 기준으로 문구를 복구해야 합니다.
 - `brainX_front`는 이전 Vite/React 구현으로 보이며, 신규 개발 기준은 `brainx-next`를 우선합니다.
 - `brainX_back/identity-access-service`, `brainX_back/knowledge-workspace-service`는 제거 예정이므로 새 문서와 개발 계획에서는 제외합니다.

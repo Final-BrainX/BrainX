@@ -557,6 +557,29 @@ channels:
     - Commerce-Service
     - User-Service
     - Admin-Service
+  paymentRefunded:
+    address: brainx.commerce.operations.payment-refunded.v1
+    messages:
+      PaymentRefunded:
+        $ref: '#/components/messages/PaymentRefunded'
+    description: 'Channel for PaymentRefunded. Producer: Commerce-Service. Consumers: Commerce-Service, User-Service,
+      Admin-Service.'
+    x-producer-service: Commerce-Service
+    x-consumer-services:
+    - Commerce-Service
+    - User-Service
+    - Admin-Service
+  planPriceChanged:
+    address: brainx.commerce.operations.plan-price-changed.v1
+    messages:
+      PlanPriceChanged:
+        $ref: '#/components/messages/PlanPriceChanged'
+    description: 'Channel for PlanPriceChanged. Producer: Commerce-Service. Consumers: Commerce-Service,
+      Admin-Service.'
+    x-producer-service: Commerce-Service
+    x-consumer-services:
+    - Commerce-Service
+    - Admin-Service
   publishJobCompleted:
     address: brainx.content.ingestion.publishing.publish-job-completed.v1
     x-implementation-status: planned
@@ -650,6 +673,16 @@ channels:
         $ref: '#/components/messages/SupportTicketReplied'
     description: 'Channel for SupportTicketReplied. Producer: Commerce-Service. Consumers: User-Service, Admin-Service.'
     x-producer-service: Commerce-Service
+    x-consumer-services:
+    - User-Service
+    - Admin-Service
+  supportTicketUpdated:
+    address: brainx.commerce.operations.support-ticket-updated.v1
+    messages:
+      SupportTicketUpdated:
+        $ref: '#/components/messages/SupportTicketUpdated'
+    description: 'Channel for SupportTicketUpdated. Producer: Admin-Service. Consumers: User-Service, Admin-Service.'
+    x-producer-service: Admin-Service
     x-consumer-services:
     - User-Service
     - Admin-Service
@@ -1333,6 +1366,29 @@ operations:
     - Commerce-Service
     - User-Service
     - Admin-Service
+  sendPaymentRefunded:
+    action: send
+    channel:
+      $ref: '#/channels/paymentRefunded'
+    messages:
+    - $ref: '#/channels/paymentRefunded/messages/PaymentRefunded'
+    summary: Commerce-Service publishes PaymentRefunded
+    x-producer-service: Commerce-Service
+    x-consumer-services:
+    - Commerce-Service
+    - User-Service
+    - Admin-Service
+  sendPlanPriceChanged:
+    action: send
+    channel:
+      $ref: '#/channels/planPriceChanged'
+    messages:
+    - $ref: '#/channels/planPriceChanged/messages/PlanPriceChanged'
+    summary: Commerce-Service publishes PlanPriceChanged
+    x-producer-service: Commerce-Service
+    x-consumer-services:
+    - Commerce-Service
+    - Admin-Service
   sendPublishJobCompleted:
     action: send
     channel:
@@ -1428,6 +1484,17 @@ operations:
     - $ref: '#/channels/supportTicketReplied/messages/SupportTicketReplied'
     summary: Commerce-Service publishes SupportTicketReplied
     x-producer-service: Commerce-Service
+    x-consumer-services:
+    - User-Service
+    - Admin-Service
+  sendSupportTicketUpdated:
+    action: send
+    channel:
+      $ref: '#/channels/supportTicketUpdated'
+    messages:
+    - $ref: '#/channels/supportTicketUpdated/messages/SupportTicketUpdated'
+    summary: Admin-Service publishes SupportTicketUpdated
+    x-producer-service: Admin-Service
     x-consumer-services:
     - User-Service
     - Admin-Service
@@ -2970,6 +3037,61 @@ components:
         orderingKey: userId or aggregate id
         requiresIdempotentConsumer: true
         deadLetter: brainx.commerce.operations.payment-succeeded.v1.dlq
+    PaymentRefunded:
+      name: PaymentRefunded
+      title: PaymentRefunded
+      summary: PaymentRefunded domain/integration event
+      contentType: application/json
+      payload:
+        allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          properties:
+            eventType:
+              type: string
+              const: PaymentRefunded
+            producer:
+              type: string
+              const: Commerce-Service
+            payload:
+              $ref: '#/components/schemas/PaymentRefundedPayload'
+      x-producer-service: Commerce-Service
+      x-consumer-services:
+      - Commerce-Service
+      - User-Service
+      - Admin-Service
+      x-delivery:
+        semantic: at-least-once
+        orderingKey: userId or aggregate id
+        requiresIdempotentConsumer: true
+        deadLetter: brainx.commerce.operations.payment-refunded.v1.dlq
+    PlanPriceChanged:
+      name: PlanPriceChanged
+      title: PlanPriceChanged
+      summary: PlanPriceChanged domain/integration event
+      contentType: application/json
+      payload:
+        allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          properties:
+            eventType:
+              type: string
+              const: PlanPriceChanged
+            producer:
+              type: string
+              const: Commerce-Service
+            payload:
+              $ref: '#/components/schemas/PlanPriceChangedPayload'
+      x-producer-service: Commerce-Service
+      x-consumer-services:
+      - Commerce-Service
+      - Admin-Service
+      x-delivery:
+        semantic: at-least-once
+        orderingKey: planId
+        requiresIdempotentConsumer: true
+        deadLetter: brainx.commerce.operations.plan-price-changed.v1.dlq
     PublishJobCompleted:
       name: PublishJobCompleted
       title: PublishJobCompleted
@@ -3215,6 +3337,33 @@ components:
         orderingKey: userId or aggregate id
         requiresIdempotentConsumer: true
         deadLetter: brainx.commerce.operations.support-ticket-replied.v1.dlq
+    SupportTicketUpdated:
+      name: SupportTicketUpdated
+      title: SupportTicketUpdated
+      summary: SupportTicketUpdated domain/integration event
+      contentType: application/json
+      payload:
+        allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          properties:
+            eventType:
+              type: string
+              const: SupportTicketUpdated
+            producer:
+              type: string
+              const: Admin-Service
+            payload:
+              $ref: '#/components/schemas/SupportTicketUpdatedPayload'
+      x-producer-service: Admin-Service
+      x-consumer-services:
+      - User-Service
+      - Admin-Service
+      x-delivery:
+        semantic: at-least-once
+        orderingKey: ticketId
+        requiresIdempotentConsumer: true
+        deadLetter: brainx.commerce.operations.support-ticket-updated.v1.dlq
     TokenUsageRecorded:
       name: TokenUsageRecorded
       title: TokenUsageRecorded
@@ -3810,6 +3959,32 @@ components:
       - ticketId
       - replyId
       - userId
+      additionalProperties: false
+    SupportTicketUpdatedPayload:
+      type: object
+      properties:
+        ticketId:
+          type: string
+        userId:
+          type: string
+        status:
+          type: string
+          enum:
+          - OPEN
+          - IN_PROGRESS
+          - RESOLVED
+          - CLOSED
+        assigneeAdminUserId:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+      - ticketId
+      - userId
+      - status
+      - updatedAt
       additionalProperties: false
     NotificationRequestedPayload:
       type: object
@@ -4927,6 +5102,63 @@ components:
       - paymentId
       - reasonCode
       - provider
+      additionalProperties: false
+    PaymentRefundedPayload:
+      type: object
+      properties:
+        paymentId:
+          type: string
+        refundId:
+          type: string
+        userId:
+          type: string
+        amount:
+          type: number
+        currency:
+          type: string
+        provider:
+          type: string
+          enum:
+          - toss
+          - stripe
+        refundedAt:
+          type: string
+          format: date-time
+      required:
+      - paymentId
+      - refundId
+      - userId
+      - amount
+      - currency
+      - provider
+      - refundedAt
+      additionalProperties: false
+    PlanPriceChangedPayload:
+      type: object
+      properties:
+        planId:
+          type: string
+        oldPrice:
+          type: number
+        newPrice:
+          type: number
+        currency:
+          type: string
+        applyTiming:
+          type: string
+          enum:
+          - IMMEDIATE
+          - NEXT_BILLING
+        effectiveAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - planId
+      - oldPrice
+      - newPrice
+      - currency
+      - applyTiming
       additionalProperties: false
     InvoiceIssuedPayload:
       type: object
