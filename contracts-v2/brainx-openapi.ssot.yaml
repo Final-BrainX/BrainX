@@ -2193,6 +2193,64 @@ paths:
       security:
       - bearerAuth: []
       - guestSessionAuth: []
+  /api/v1/notes/drafts/claim:
+    post:
+      operationId: claimGuestNoteDrafts
+      summary: guest Redis draft를 회원 노트로 전환
+      tags:
+      - Knowledge Workspace
+      x-producer-service: knowledge-workspace
+      x-visibility: public
+      x-consumers:
+      - id: web.signup
+        type: frontend
+        description: 회원가입/로그인 직후 guest Redis draft를 USER PostgreSQL 노트로 저장
+      x-produces-events:
+      - NoteCreated
+      - NoteContentSaved
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      description: 로그인된 USER actor가 기존 guest cookie의 Redis draft를 자신의 PostgreSQL 노트로 claim한다. Gateway는 유효한 JWT 요청에서도 guest cookie가 있으면 X-Guest-Id를 Workspace-Service로 전달해야 한다. 성공적으로 저장된 guest draft는 Redis draft key와 dirty set에서 제거된다.
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/NoteDraftClaimData'
+        '400':
+          description: X-Guest-Id 누락
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: USER actor가 아님
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
   /api/v1/notes/draft-ids:
     post:
       operationId: issueNoteDraftId
@@ -10557,6 +10615,38 @@ components:
       - actorType
       - issuedAt
       - status
+      additionalProperties: false
+    ClaimedNoteDraft:
+      type: object
+      properties:
+        noteId:
+          type: string
+          description: PostgreSQL에 저장된 회원 노트 ID. sourceNoteId와 같을 수 있다.
+        sourceNoteId:
+          type: string
+          description: guest Redis draft의 원래 noteId.
+        title:
+          type: string
+        version:
+          type: integer
+      required:
+      - noteId
+      - sourceNoteId
+      - title
+      - version
+      additionalProperties: false
+    NoteDraftClaimData:
+      type: object
+      properties:
+        claimedCount:
+          type: integer
+        notes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClaimedNoteDraft'
+      required:
+      - claimedCount
+      - notes
       additionalProperties: false
     NoteMetadataPatchRequest:
       type: object

@@ -68,6 +68,15 @@ public final class WorkspaceDtos {
     public record NoteDraftIdData(String noteId, String actorType, Instant issuedAt, String status) {
     }
 
+    public record ClaimedNoteDraft(String noteId, String sourceNoteId, String title, int version) {
+    }
+
+    public record NoteDraftClaimData(int claimedCount, List<ClaimedNoteDraft> notes) {
+    }
+
+    public record NoteDraftFlushData(int flushedCount, int skippedCount) {
+    }
+
     public record NoteMetadataPatchRequest(String title, String folderId, List<String> tags, Boolean archived,
                                            NoteTypography typography, Integer order) {
     }

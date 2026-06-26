@@ -66,6 +66,15 @@ public class Note {
         this.updatedAt = now;
     }
 
+    public void applyDraft(String title, String markdown, Instant now) {
+        if (title != null && !title.isBlank()) {
+            this.title = title;
+        }
+        this.markdown = markdown == null ? "" : markdown;
+        this.version++;
+        this.updatedAt = now;
+    }
+
     public void patchMetadata(String title, String folderId, List<String> tags, Boolean archived, String typographyJson, Instant now) {
         if (title != null && !title.isBlank()) {
             this.title = title;

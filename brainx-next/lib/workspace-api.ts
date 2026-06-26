@@ -123,7 +123,7 @@ async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     clearAuthSession();
     throw new Error("로그인이 만료되었습니다. 다시 로그인해 주세요.");
   }

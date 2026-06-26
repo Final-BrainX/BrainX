@@ -115,15 +115,17 @@ Published event types include:
 
 `PUT /api/v1/notes/{noteId}/content` requires `baseVersion`. If the client base version differs from the server version, the service returns `409 NOTE_VERSION_CONFLICT` with `serverVersion` and `clientBaseVersion`.
 
-`POST /api/v1/notes/draft-ids` issues a noteId for a new-note autosave flow without inserting a PostgreSQL note row. `PUT /api/v1/notes/{noteId}/draft` stores autosave title and content in Redis only, `GET /api/v1/notes/{noteId}/draft` reads that Redis draft back for restore flows, and `GET /api/v1/notes/drafts/list` lists the current actor's Redis-only drafts so a new note can reappear after refresh. The draft list path stays under `/api/v1/notes/**` for Gateway routing but avoids colliding with `GET /api/v1/notes/{noteId}`. Draft keys are separated by `actorType + actorId`: `workspace:note:draft:user:{userId}:{noteId}` for members and `workspace:note:draft:guest:{guestId}:{noteId}` for guests. The dirty set keys `workspace:note:dirty:user:{userId}` and `workspace:note:dirty:guest:{guestId}` track note IDs that have pending Redis drafts. If no Redis draft exists for the current actor and note, the read endpoint returns `200` with `data: null`.
+`POST /api/v1/notes/draft-ids` issues a noteId for a new-note autosave flow without inserting a PostgreSQL note row. `PUT /api/v1/notes/{noteId}/draft` stores autosave title and content in Redis only, `GET /api/v1/notes/{noteId}/draft` reads that Redis draft back for restore flows, and `GET /api/v1/notes/drafts/list` lists the current actor's Redis-only drafts so a new note can reappear after refresh. `POST /api/v1/notes/drafts/claim` moves the current guest's Redis drafts into the logged-in USER's PostgreSQL notes, then deletes the claimed guest draft keys. The draft list path stays under `/api/v1/notes/**` for Gateway routing but avoids colliding with `GET /api/v1/notes/{noteId}`. Draft keys are separated by `actorType + actorId`: `workspace:note:draft:user:{userId}:{noteId}` for members and `workspace:note:draft:guest:{guestId}:{noteId}` for guests. The dirty set keys `workspace:note:dirty:user:{userId}` and `workspace:note:dirty:guest:{guestId}` track note IDs that have pending Redis drafts. If no Redis draft exists for the current actor and note, the read endpoint returns `200` with `data: null`.
 
-Guests can use Redis draft autosave, but PostgreSQL note creation/content/metadata save is blocked with `403 GUEST_POSTGRES_SAVE_FORBIDDEN`. Guest draft content should be persisted to PostgreSQL only through a future signup/claim flow.
+Guests can use Redis draft autosave, but PostgreSQL note creation/content/metadata save is blocked with `403 GUEST_POSTGRES_SAVE_FORBIDDEN`. Guest draft content is persisted to PostgreSQL only through the signup/login claim flow. Gateway must forward `X-Guest-Id` from the `brainx_guest_id` cookie even when the request also has a valid JWT, so Workspace-Service can know both the USER actor and the guest draft owner.
 
 Autosave timing policy:
 
 - Frontend Redis draft debounce: 1.5 seconds after typing stops.
-- Future PostgreSQL flush scan interval: `WORKSPACE_DRAFT_FLUSH_INTERVAL_SECONDS=30`.
-- Future PostgreSQL flush idle threshold: `WORKSPACE_DRAFT_FLUSH_IDLE_SECONDS=10`.
+- PostgreSQL flush scan interval: `WORKSPACE_DRAFT_FLUSH_INTERVAL_SECONDS=30`.
+- PostgreSQL flush idle threshold: `WORKSPACE_DRAFT_FLUSH_IDLE_SECONDS=10`.
+
+Only USER drafts are flushed by the scheduler. GUEST drafts remain Redis-only until they are claimed after signup/login.
 
 ## Local Docker
 

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpCookie;
 import org.springframework.http.HttpMethod;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
@@ -98,6 +99,34 @@ class JwtAuthenticationGlobalFilterTest {
         assertThat(userHeader.get()).isEqualTo("usr_123");
         assertThat(emailHeader.get()).isEqualTo("user@example.com");
         assertThat(roleHeader.get()).isEqualTo("ROLE_USER");
+    }
+
+    @Test
+    void keepsGuestHeaderForValidAccessTokenWhenGuestCookieExists() {
+        String token = JwtTokenTestSupport.accessToken(
+                SECRET,
+                "usr_123",
+                "user@example.com",
+                "ROLE_USER",
+                Instant.now().plusSeconds(60)
+        );
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/v1/notes/drafts/claim")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .cookie(new HttpCookie(JwtAuthenticationGlobalFilter.GUEST_ID_COOKIE, "gst_1234567890abcdef"))
+        );
+        AtomicReference<String> userHeader = new AtomicReference<>();
+        AtomicReference<String> guestHeader = new AtomicReference<>();
+        GatewayFilterChain chain = filteredExchange -> {
+            userHeader.set(filteredExchange.getRequest().getHeaders().getFirst(JwtAuthenticationGlobalFilter.USER_ID_HEADER));
+            guestHeader.set(filteredExchange.getRequest().getHeaders().getFirst(JwtAuthenticationGlobalFilter.GUEST_ID_HEADER));
+            return Mono.empty();
+        };
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertThat(userHeader.get()).isEqualTo("usr_123");
+        assertThat(guestHeader.get()).isEqualTo("gst_1234567890abcdef");
     }
 
     @Test

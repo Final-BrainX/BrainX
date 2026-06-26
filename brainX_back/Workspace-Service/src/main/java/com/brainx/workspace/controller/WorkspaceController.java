@@ -6,6 +6,7 @@ import com.brainx.workspace.exception.WorkspaceException;
 import com.brainx.workspace.security.CurrentActor.Actor;
 import com.brainx.workspace.security.CurrentActor.ActorType;
 import com.brainx.workspace.security.CurrentUser;
+import com.brainx.workspace.service.NoteDraftPersistenceService;
 import com.brainx.workspace.service.NoteDraftService;
 import com.brainx.workspace.service.WorkspaceService;
 import jakarta.validation.Valid;
@@ -21,6 +22,7 @@ import java.time.LocalDate;
 public class WorkspaceController {
     private final WorkspaceService workspaceService;
     private final NoteDraftService noteDraftService;
+    private final NoteDraftPersistenceService noteDraftPersistenceService;
     private final CurrentUser currentUser;
 
     @GetMapping("/api/v1/workspace/sync")
@@ -82,6 +84,17 @@ public class WorkspaceController {
     @GetMapping("/api/v1/notes/drafts/list")
     public ApiResponse<NoteDraftListData> listNoteDrafts() {
         return ApiResponse.success(noteDraftService.listDrafts(currentUser.actor()));
+    }
+
+    @PostMapping("/api/v1/notes/drafts/claim")
+    public ApiResponse<NoteDraftClaimData> claimGuestDrafts(
+            @RequestHeader(value = "X-Guest-Id", required = false) String guestId
+    ) {
+        if (guestId == null || guestId.isBlank()) {
+            throw new WorkspaceException(HttpStatus.BAD_REQUEST, "GUEST_ID_REQUIRED",
+                    "X-Guest-Id is required to claim guest drafts.");
+        }
+        return ApiResponse.success(noteDraftPersistenceService.claimGuestDrafts(memberUserId(), guestId));
     }
 
     @PatchMapping("/api/v1/notes/{noteId}/metadata")

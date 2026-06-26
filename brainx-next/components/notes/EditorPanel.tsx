@@ -219,9 +219,8 @@ export default function EditorPanel({
   }
 
   const isEdit = mode === "edit";
-  /* "교체"는 이 패널이 비어있을 때만 적용된다 — 노트를 찾을 수 없는 경우(삭제된 노트 등)뿐 아니라,
-     "+"로 막 생성된 본문이 비어있는 노트 탭(content==="")도 "빈 탭"으로 취급한다. 실제 내용이
-     있는 노트가 열려 있으면 항상 기존처럼 좌/우/상/하 분할(zone) 동작을 유지한다. */
+  /* 사이드바 노트 드래그는 빈 패널/빈 새 노트 위에서 "교체"로 동작한다. 하지만 탭 드래그는
+     본문이 비어있는 새 노트라도 실제 탭이 존재하므로, 항상 분할 이동이 가능해야 한다. */
   const isEmptyTarget = !note || note.content.trim() === "";
   /* 문서 제목은 본문 H1보다 한 단계 더 커야 한다(위계 구분, Obsidian/Notion 스타일) — 고정 px가
      아니라 note.typography(전역 배율/h1 개별 오버라이드)로 계산된 실제 H1 px 기준으로 1.2배를
@@ -457,7 +456,8 @@ export default function EditorPanel({
             // isEmptyTarget 여부와 무관하게 항상 같은 규칙으로 맞춰야 일부 브라우저에서 drop이
             // 무시되는 effectAllowed/dropEffect 불일치를 피할 수 있다.
             e.dataTransfer.dropEffect = dragPayload.kind === "note" ? "copy" : "move";
-            if (isEmptyTarget) {
+            const shouldReplace = dragPayload.kind === "note" && isEmptyTarget;
+            if (shouldReplace) {
               if (hoverZone !== "replace") setHoverZone("replace");
             } else {
               const z = getZone(e);
@@ -468,18 +468,14 @@ export default function EditorPanel({
           onDrop={(e) => {
             e.preventDefault();
             setHoverZone(null);
-            if (isEmptyTarget) {
-              if (dragPayload.kind === "tab") {
-                // 탭을 빈 시작 화면에 드롭 → 그 자리를 교체하면서 원래 패널에서는 제거(이동, 복제 아님)
-                onMoveTabToPane(dragPayload.paneId, dragPayload.tabId, dragPayload.noteId);
-              } else {
-                onReplaceActiveTab(dragPayload.noteId);
-              }
+            const shouldReplace = dragPayload.kind === "note" && isEmptyTarget;
+            if (shouldReplace) {
+              onReplaceActiveTab(dragPayload.noteId);
             } else {
               const zone = getZone(e);
               if (dragPayload.kind === "tab") {
-                // 탭을 다른(비어있지 않은) 패널의 본문에 드롭 → 새 분할을 만들면서 원본 패널에서는
-                // 제거한다(이동, 복제 아님). 사이드바 노트 드래그는 그대로 onDrop(복제=새로 열기) 유지.
+                // 탭을 본문에 드롭 → 새 분할을 만들면서 원본 패널에서는 제거한다(이동, 복제 아님).
+                // 본문이 비어있는 새 노트도 실제 탭이므로 분할 이동 대상이다.
                 onMoveTabToSplit(dragPayload.paneId, dragPayload.tabId, dragPayload.noteId, zone);
               } else {
                 onDrop(zone, dragPayload.noteId);

@@ -103,6 +103,38 @@ public class WorkspaceService {
         return new NoteCreatedData(note.getNoteId(), note.getTitle(), note.getFolderId(), note.getVersion(), note.getCreatedAt());
     }
 
+    public ClaimedNoteDraft persistDraft(String userId, NoteDraftData draft) {
+        Instant now = Instant.now();
+        String title = draft.title() == null || draft.title().isBlank() ? "제목 없음" : draft.title();
+        String markdown = draft.markdown() == null ? "" : draft.markdown();
+        Note note = noteRepository.findByNoteIdAndUserId(draft.noteId(), userId).orElse(null);
+        if (note == null) {
+            String noteId = noteRepository.existsById(draft.noteId()) ? Ids.note() : draft.noteId();
+            note = new Note(noteId, userId, title, markdown, null, List.of(), now);
+            noteRepository.save(note);
+            eventPublisher.publish("NoteCreated", userId, payload(
+                    "noteId", note.getNoteId(),
+                    "userId", userId,
+                    "title", note.getTitle(),
+                    "folderId", note.getFolderId(),
+                    "tags", note.getTags(),
+                    "version", note.getVersion()
+            ));
+        } else {
+            note.applyDraft(title, markdown, now);
+            eventPublisher.publish("NoteContentSaved", userId, Map.of(
+                    "noteId", note.getNoteId(),
+                    "userId", userId,
+                    "version", note.getVersion(),
+                    "markdownHash", sha256(note.getMarkdown()),
+                    "savedAt", now
+            ));
+        }
+        snapshot(note, now);
+        activity(userId, note, "updated", now);
+        return new ClaimedNoteDraft(note.getNoteId(), draft.noteId(), note.getTitle(), note.getVersion());
+    }
+
     @Transactional(readOnly = true)
     public NoteDetailData getNote(String userId, String noteId) {
         Note note = note(userId, noteId);

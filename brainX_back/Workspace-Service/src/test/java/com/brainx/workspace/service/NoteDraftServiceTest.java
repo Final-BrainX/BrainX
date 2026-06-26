@@ -119,4 +119,41 @@ class NoteDraftServiceTest {
         assertThat(result.drafts()).extracting("noteId").containsExactly("note_2", "note_1");
         assertThat(result.drafts()).extracting("title").containsExactly("Newer title", "Older title");
     }
+
+    @Test
+    void deleteDraftRemovesDraftValueAndDirtySetMember() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        SetOperations<String, String> setOperations = mock(SetOperations.class);
+        when(redisTemplate.opsForSet()).thenReturn(setOperations);
+
+        NoteDraftService service = new NoteDraftService(redisTemplate, new ObjectMapper());
+
+        service.deleteDraft(new Actor(ActorType.GUEST, "gst_abc"), "note_1");
+
+        verify(redisTemplate).delete("workspace:note:draft:guest:gst_abc:note_1");
+        verify(setOperations).remove("workspace:note:dirty:guest:gst_abc", "note_1");
+    }
+
+    @Test
+    void userIdsWithDirtyDraftsReturnsUserIdsFromDirtyKeys() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        when(redisTemplate.keys("workspace:note:dirty:user:*")).thenReturn(Set.of(
+                "workspace:note:dirty:user:usr_1",
+                "workspace:note:dirty:user:usr_2"
+        ));
+
+        NoteDraftService service = new NoteDraftService(redisTemplate, new ObjectMapper());
+
+        assertThat(service.userIdsWithDirtyDrafts()).containsExactlyInAnyOrder("usr_1", "usr_2");
+    }
+
+    @Test
+    void userIdsWithDirtyDraftsReturnsEmptyListWhenNoDirtyKeysExist() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        when(redisTemplate.keys("workspace:note:dirty:user:*")).thenReturn(null);
+
+        NoteDraftService service = new NoteDraftService(redisTemplate, new ObjectMapper());
+
+        assertThat(service.userIdsWithDirtyDrafts()).isEmpty();
+    }
 }

@@ -64,6 +64,7 @@ public class JwtAuthenticationGlobalFilter implements GlobalFilter, Ordered {
                         headers.set(USER_ID_HEADER, claims.userId());
                         setIfPresent(headers, USER_EMAIL_HEADER, claims.email());
                         setIfPresent(headers, USER_ROLE_HEADER, claims.role());
+                        guestIdFromCookie(request).ifPresent(guestId -> headers.set(GUEST_ID_HEADER, guestId));
                     })
                     .build();
             return chain.filter(sanitizedExchange.mutate().request(authenticatedRequest).build());
@@ -106,9 +107,7 @@ public class JwtAuthenticationGlobalFilter implements GlobalFilter, Ordered {
     }
 
     private Mono<Void> authenticateGuest(ServerWebExchange exchange, GatewayFilterChain chain, ServerHttpRequest request) {
-        String guestId = request.getCookies().getFirst(GUEST_ID_COOKIE) != null
-                ? request.getCookies().getFirst(GUEST_ID_COOKIE).getValue()
-                : null;
+        String guestId = guestIdFromCookie(request).orElse(null);
         boolean shouldSetCookie = guestId == null || !GUEST_ID_PATTERN.matcher(guestId).matches();
         if (shouldSetCookie) {
             guestId = "gst_" + UUID.randomUUID();
@@ -126,6 +125,17 @@ public class JwtAuthenticationGlobalFilter implements GlobalFilter, Ordered {
                 .headers(headers -> headers.set(GUEST_ID_HEADER, effectiveGuestId))
                 .build();
         return chain.filter(exchange.mutate().request(guestRequest).build());
+    }
+
+    private Optional<String> guestIdFromCookie(ServerHttpRequest request) {
+        if (request.getCookies().getFirst(GUEST_ID_COOKIE) == null) {
+            return Optional.empty();
+        }
+        String guestId = request.getCookies().getFirst(GUEST_ID_COOKIE).getValue();
+        if (!GUEST_ID_PATTERN.matcher(guestId).matches()) {
+            return Optional.empty();
+        }
+        return Optional.of(guestId);
     }
 
     private Optional<String> bearerToken(ServerHttpRequest request) {

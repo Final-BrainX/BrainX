@@ -260,7 +260,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const saveStatusTimerRef = useRef<number | null>(null);
   const draftAutosaveTimerRef = useRef<number | null>(null);
   const draftDirtyNoteIdsRef = useRef<Set<string>>(new Set());
-  const effectivePersistKey = USE_MOCK_NOTES ? persistKey : undefined;
+  const effectivePersistKey = persistKey;
   // Ctrl+S 발생 시점의 최신 세션 스냅샷 — 디바운스/렌더 타이밍과 무관하게 항상 최신값을 읽기 위한 ref
   const latestSessionRef = useRef<NotesWorkspaceSession>({
     root: init.root,
@@ -924,8 +924,10 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       }
       setState({ root: saved.root, activeId: nextActiveId });
       setPaneTabs(nextPaneTabs);
-      setNotes(saved.notes);
-      setFolders(saved.folders);
+      if (USE_MOCK_NOTES) {
+        setNotes(saved.notes);
+        setFolders(saved.folders);
+      }
     }
     hydratedRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -946,10 +948,23 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       ])
         .then(([noteData, folderData, draftData, targetDraft]) => {
           if (!active) return;
-          const persistedNotes = noteData.notes.map(workspaceNoteToMock);
-          const persistedNoteIds = new Set(persistedNotes.map((note) => note.id));
           const draftsById = new Map(draftData.drafts.map((draft) => [draft.noteId, draft]));
           if (targetDraft) draftsById.set(targetDraft.noteId, targetDraft);
+          const persistedNotes = noteData.notes.map((note) => {
+            const persisted = workspaceNoteToMock(note);
+            const draft = draftsById.get(persisted.id);
+            if (!draft) return persisted;
+            const draftSavedAt = Date.parse(draft.savedAt) || persisted.updatedAt;
+            return {
+              ...persisted,
+              title: draft.title?.trim() || persisted.title,
+              content: draft.markdown ?? "",
+              updatedAt: draftSavedAt,
+              version: draft.baseVersion ?? persisted.version,
+              persisted: true,
+            };
+          });
+          const persistedNoteIds = new Set(persistedNotes.map((note) => note.id));
           const draftOnlyNotes = Array.from(draftsById.values())
             .filter((draft) => !persistedNoteIds.has(draft.noteId))
             .map(workspaceDraftToMock);

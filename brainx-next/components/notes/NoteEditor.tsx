@@ -2677,6 +2677,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
   const continueRequestIdRef = useRef(0);
   const suppressInlineContinueAutoRejectRef = useRef(false);
   const lastInlineContinueDraftRef = useRef<ContinueSuggestionState | null>(null);
+  const syncedNoteIdRef = useRef(note.id);
   const [isEmpty, setIsEmpty] = useState(() => note.content.trim() === "");
   const [focused, setFocused] = useState(false);
   const [contextMenu, setContextMenu] = useState<EditorContextTarget | null>(null);
@@ -3086,12 +3087,20 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
     // 마이크로태스크는 cancelled 플래그로 무시).
     let cancelled = false;
     const content = note.content;
+    const noteId = note.id;
     queueMicrotask(() => {
       if (cancelled) return;
+      const isSameNote = syncedNoteIdRef.current === noteId;
+      const editorHasFocus = editor.view.dom.contains(document.activeElement);
+      if (isSameNote && editorHasFocus) {
+        setIsEmpty(editor.isEmpty);
+        return;
+      }
       const nextContent = resolveEditorHtml(content);
       if (editor.getHTML() !== nextContent) {
         editor.commands.setContent(nextContent);
       }
+      syncedNoteIdRef.current = noteId;
       setIsEmpty(content.trim() === "");
       setFocused(false);
     });

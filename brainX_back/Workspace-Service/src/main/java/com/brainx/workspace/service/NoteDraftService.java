@@ -99,6 +99,25 @@ public class NoteDraftService {
         return new NoteDraftListData(drafts);
     }
 
+    public void deleteDraft(Actor actor, String noteId) {
+        redisTemplate.delete(draftKey(actor, noteId));
+        redisTemplate.opsForSet().remove(dirtyKey(actor), noteId);
+    }
+
+    public List<String> userIdsWithDirtyDrafts() {
+        Set<String> dirtyKeys = redisTemplate.keys(DIRTY_KEY_FORMAT.formatted(actorTypeSegmentName("USER"), "*"));
+        if (dirtyKeys == null || dirtyKeys.isEmpty()) {
+            return List.of();
+        }
+        String prefix = DIRTY_KEY_FORMAT.formatted(actorTypeSegmentName("USER"), "");
+        return dirtyKeys.stream()
+                .filter(key -> key.startsWith(prefix))
+                .map(key -> key.substring(prefix.length()))
+                .filter(userId -> !userId.isBlank())
+                .distinct()
+                .toList();
+    }
+
     String draftKey(Actor actor, String noteId) {
         return DRAFT_KEY_FORMAT.formatted(actorTypeSegment(actor), actor.id(), noteId);
     }
@@ -109,6 +128,10 @@ public class NoteDraftService {
 
     private String actorTypeSegment(Actor actor) {
         return actor.type().name().toLowerCase(Locale.ROOT);
+    }
+
+    private String actorTypeSegmentName(String actorType) {
+        return actorType.toLowerCase(Locale.ROOT);
     }
 
     private String draftPayload(Actor actor, String noteId, NoteDraftSaveRequest request, Instant savedAt) {
