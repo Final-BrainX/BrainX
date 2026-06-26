@@ -245,7 +245,7 @@ function GraphCanvasFlow({
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<PlanetFlowNode>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<OrbitFlowEdge>([]);
   const [hovered, setHovered] = useState<BrainXNote | null>(null);
-  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hoverTimeoutRef = useRef<number | null>(null);
   const isDraggingRef = useRef(false);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   
@@ -679,19 +679,19 @@ function GraphCanvasFlow({
         onNodeMouseEnter={(_, node) => {
           if (node.data.dimmed) return;
           if (isDraggingRef.current) return;
-          if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+          if (hoverTimeoutRef.current) window.clearTimeout(hoverTimeoutRef.current);
           const note = notes.find(n => n.id === node.id);
           if (note) setHovered(note);
         }}
         onNodeMouseLeave={() => {
-          hoverTimeoutRef.current = setTimeout(() => {
+          hoverTimeoutRef.current = window.setTimeout(() => {
             setHovered(null);
           }, 150);
         }}
         onNodeDragStart={(_, node) => {
           isDraggingRef.current = true;
           setDraggingNodeId(node.id);
-          if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+          if (hoverTimeoutRef.current) window.clearTimeout(hoverTimeoutRef.current);
           setHovered(null);
           const p = positionsRef.current[node.id];
           if (p) {
@@ -749,10 +749,10 @@ function GraphCanvasFlow({
         <TooltipOverlay 
           hovered={hovered} 
           onMouseEnter={() => {
-            if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+            if (hoverTimeoutRef.current) window.clearTimeout(hoverTimeoutRef.current);
           }}
           onMouseLeave={() => {
-            hoverTimeoutRef.current = setTimeout(() => {
+            hoverTimeoutRef.current = window.setTimeout(() => {
               setHovered(null);
             }, 150);
           }}
@@ -865,7 +865,7 @@ function GraphScreenInner() {
   const [sidebarsVisible, setSidebarsVisible] = useState(true);
   const [sidebarsLocked, setSidebarsLocked] = useState(false);
   const controls = useRef<GraphControls | null>(null);
-  const idleTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const idleTimerRef = useRef<number | null>(null);
   const notes = liveNotes ?? mockNotes;
   const edges = useMemo(() => liveEdges ?? deriveGraphEdges(notes), [liveEdges, notes]);
   const clusterListNotes = USE_MOCK_GRAPH_CLUSTERS ? mockNotes : notes;

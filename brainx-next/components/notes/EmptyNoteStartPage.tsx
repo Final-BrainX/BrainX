@@ -1,11 +1,12 @@
 "use client";
 
+import type { ReactElement } from "react";
 import { FilePlus, FolderOpen } from "lucide-react";
 import { Icon } from "@/components/brainx-ui";
 import { cx } from "@/lib/utils";
 
 interface StartRowProps {
-  icon: JSX.Element;
+  icon: ReactElement;
   label: string;
   description: string;
   onClick: () => void;
