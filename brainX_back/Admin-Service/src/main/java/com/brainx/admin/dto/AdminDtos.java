@@ -15,7 +15,7 @@ public final class AdminDtos {
     private AdminDtos() {
     }
 
-    public enum PlanId { free, pro, team }
+    public enum PlanId { free, pro, max }
     public enum ManagedUserStatus { ACTIVE, SUSPENDED, WITHDRAWN }
     public enum PaymentStatus { SUCCESS, FAILED, REFUNDED, CANCELED }
     public enum SupportStatus { OPEN, IN_PROGRESS, RESOLVED, CLOSED }

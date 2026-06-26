@@ -11,6 +11,7 @@ services:
       - ./env/gateway-service.env
     environment:
       SERVER_PORT: "8088"
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-local-service-token}
       USER_SERVICE_URL: http://user-service:8080
       WORKSPACE_SERVICE_URL: http://workspace-service:8082
       INGESTION_SERVICE_URL: http://ingestion-service:8083
@@ -26,8 +27,6 @@ services:
       ingestion-service:
         condition: service_started
       commerce-service:
-        condition: service_started
-      admin-service:
         condition: service_started
 
   user-service:
@@ -129,11 +128,14 @@ services:
       SERVER_PORT: "8085"
       POSTGRES_HOST: postgres
       ADMIN_DB_NAME: ${ADMIN_DB_NAME:-brainx_admin}
+      GATEWAY_SERVICE_URL: http://gateway-service:8088
     ports:
       - "8085:8085"
     depends_on:
       postgres:
         condition: service_healthy
+      gateway-service:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8085/actuator/health | grep -q UP"]
       interval: 10s

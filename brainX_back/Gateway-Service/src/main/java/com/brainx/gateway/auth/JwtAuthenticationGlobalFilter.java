@@ -2,6 +2,7 @@ package com.brainx.gateway.auth;
 
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -34,10 +35,16 @@ public class JwtAuthenticationGlobalFilter implements GlobalFilter, Ordered {
     private final JwtTokenVerifier jwtTokenVerifier;
     private final GatewayAuthProperties authProperties;
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
+    private final String serviceToken;
 
-    public JwtAuthenticationGlobalFilter(JwtTokenVerifier jwtTokenVerifier, GatewayAuthProperties authProperties) {
+    public JwtAuthenticationGlobalFilter(
+            JwtTokenVerifier jwtTokenVerifier,
+            GatewayAuthProperties authProperties,
+            @Value("${brainx.service-token}") String serviceToken
+    ) {
         this.jwtTokenVerifier = jwtTokenVerifier;
         this.authProperties = authProperties;
+        this.serviceToken = serviceToken;
     }
 
     @Override
@@ -46,6 +53,10 @@ public class JwtAuthenticationGlobalFilter implements GlobalFilter, Ordered {
         ServerWebExchange sanitizedExchange = exchange.mutate().request(request).build();
 
         if (isPublicRequest(request)) {
+            return chain.filter(sanitizedExchange);
+        }
+
+        if (isInternalServiceRequest(request)) {
             return chain.filter(sanitizedExchange);
         }
 
@@ -88,6 +99,16 @@ public class JwtAuthenticationGlobalFilter implements GlobalFilter, Ordered {
         String path = request.getPath().pathWithinApplication().value();
         return authProperties.getPublicPaths().stream()
                 .anyMatch(pattern -> pathMatcher.match(pattern, path));
+    }
+
+    private boolean isInternalServiceRequest(ServerHttpRequest request) {
+        String path = request.getPath().pathWithinApplication().value();
+        if (!pathMatcher.match("/internal/v1/**", path)) {
+            return false;
+        }
+
+        String requestedToken = request.getHeaders().getFirst("X-Service-Token");
+        return requestedToken != null && !requestedToken.isBlank() && requestedToken.equals(serviceToken);
     }
 
     private boolean isGuestWorkspaceRequest(ServerHttpRequest request) {

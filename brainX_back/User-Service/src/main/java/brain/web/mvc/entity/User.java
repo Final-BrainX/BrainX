@@ -44,6 +44,10 @@ public class User {
     @Column(nullable = false, length = 30)
     private UserRole role;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    private UserStatus status;
+
     @Column(nullable = false)
     private boolean emailVerified;
 
@@ -69,6 +73,9 @@ public class User {
         }
         if (role == null) {
             role = UserRole.ROLE_USER;
+        }
+        if (status == null) {
+            status = UserStatus.ACTIVE;
         }
         LocalDateTime now = LocalDateTime.now();
         createdAt = now;
@@ -99,12 +106,19 @@ public class User {
     public void requestDeletion(String reason, LocalDateTime deletionScheduledAt) {
         this.deletionReason = reason;
         this.deletionScheduledAt = deletionScheduledAt;
+        this.status = UserStatus.WITHDRAWN;
         this.updatedAt = LocalDateTime.now();
     }
 
     public void cancelDeletion() {
         this.deletionReason = null;
         this.deletionScheduledAt = null;
+        this.status = UserStatus.ACTIVE;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void changeStatus(UserStatus status) {
+        this.status = status;
         this.updatedAt = LocalDateTime.now();
     }
 }

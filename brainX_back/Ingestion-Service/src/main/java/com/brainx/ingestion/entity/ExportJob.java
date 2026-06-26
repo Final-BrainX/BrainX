@@ -50,6 +50,9 @@ public class ExportJob {
     @Column(name = "download_url", length = 1000)
     private String downloadUrl;
 
+    @Column(name = "storage_path", length = 1000)
+    private String storagePath;
+
     @Column(name = "error_message", length = 500)
     private String errorMessage;
 

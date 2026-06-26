@@ -49,6 +49,24 @@ public class SupportInquiry {
     @Column(nullable = false, length = 20)
     private InquiryStatus status;
 
+    @Column(name = "assignee_admin_user_id", length = 40)
+    private String assigneeAdminUserId;
+
+    @Column(name = "assignee_admin_name", length = 80)
+    private String assigneeAdminName;
+
+    @Column(nullable = false)
+    private boolean urgent;
+
+    @Column(name = "reply_content", columnDefinition = "TEXT")
+    private String replyContent;
+
+    @Column(name = "replied_at")
+    private LocalDateTime repliedAt;
+
+    @Column(name = "replied_admin_user_id", length = 40)
+    private String repliedAdminUserId;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
@@ -71,6 +89,26 @@ public class SupportInquiry {
     @PreUpdate
     void preUpdate() {
         updatedAt = LocalDateTime.now();
+    }
+
+    public void assignAdmin(String adminUserId, String adminName) {
+        this.assigneeAdminUserId = adminUserId;
+        this.assigneeAdminName = adminName;
+        this.status = InquiryStatus.IN_PROGRESS;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void updateStatus(InquiryStatus status) {
+        this.status = status;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void reply(String replyContent, String adminUserId, String adminName) {
+        this.replyContent = replyContent;
+        this.repliedAdminUserId = adminUserId;
+        this.repliedAt = LocalDateTime.now();
+        this.status = InquiryStatus.ANSWERED;
+        this.updatedAt = LocalDateTime.now();
     }
 
     public enum InquiryStatus {

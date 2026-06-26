@@ -49,4 +49,11 @@ public class Plan {
         this.features = features == null ? new ArrayList<>() : new ArrayList<>(features);
         this.active = active;
     }
+
+    public void updatePlanPrice(long price, String currency) {
+        this.price = price;
+        if (currency != null) {
+            this.currency = currency;
+        }
+    }
 }

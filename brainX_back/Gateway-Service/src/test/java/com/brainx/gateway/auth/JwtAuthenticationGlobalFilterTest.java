@@ -18,11 +18,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class JwtAuthenticationGlobalFilterTest {
     private static final String SECRET = "test-secret-with-at-least-32-byte-value";
+    private static final String SERVICE_TOKEN = "test-service-token";
 
     private final GatewayAuthProperties authProperties = authProperties();
     private final JwtAuthenticationGlobalFilter filter = new JwtAuthenticationGlobalFilter(
             new JwtTokenVerifier(new ObjectMapper(), SECRET),
-            authProperties
+            authProperties,
+            SERVICE_TOKEN
     );
 
     @Test
@@ -131,6 +133,33 @@ class JwtAuthenticationGlobalFilterTest {
         StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
 
         assertThat(exchange.getResponse().getStatusCode()).isNull();
+    }
+
+    @Test
+    void rejectsInternalPathWithoutServiceToken() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/internal/v1/users")
+        );
+        GatewayFilterChain chain = ignored -> Mono.empty();
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertThat(exchange.getResponse().getStatusCode().value()).isEqualTo(401);
+    }
+
+    @Test
+    void allowsInternalPathWithServiceToken() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/internal/v1/users")
+                        .header("X-Service-Token", SERVICE_TOKEN)
+        );
+        AtomicReference<String> userHeader = new AtomicReference<>();
+        GatewayFilterChain chain = chainWithUserHeaderCapture(userHeader);
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertThat(exchange.getResponse().getStatusCode()).isNull();
+        assertThat(userHeader.get()).isNull();
     }
 
     private GatewayAuthProperties authProperties() {

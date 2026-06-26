@@ -82,3 +82,6 @@ brainx:
 #      authorization-uri: https://appleid.apple.com/auth/authorize
 #      token-uri: https://appleid.apple.com/auth/token
 #      user-info-uri:
+
+  service-token: ${SERVICE_TOKEN:local-service-token}
+

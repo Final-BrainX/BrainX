@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -114,6 +115,7 @@ public class CommerceDtos {
     }
 
     @Getter
+    @Setter
     @NoArgsConstructor
     public static class SubscriptionChangeRequest {
         @NotBlank

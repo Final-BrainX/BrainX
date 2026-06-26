@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/admin")
@@ -22,6 +23,28 @@ public class AdminController {
     @GetMapping("/dashboard/overview")
     public ApiResponse<AdminDashboardOverviewData> dashboardOverview() {
         return ApiResponse.success(adminService.dashboardOverview());
+    }
+
+    @GetMapping("/monitoring/snapshots")
+    public ApiResponse<List<com.brainx.admin.entity.AdminMonitoringSnapshot>> getMonitoringSnapshots() {
+        return ApiResponse.success(adminService.getMonitoringSnapshots());
+    }
+
+    @DeleteMapping("/monitoring/snapshots/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteMonitoringSnapshot(@PathVariable String id) {
+        adminService.deleteMonitoringSnapshot(id);
+    }
+
+    @GetMapping("/monitoring/health")
+    public ApiResponse<List<com.brainx.admin.entity.AdminServiceHealthSnapshot>> getHealthSnapshots() {
+        return ApiResponse.success(adminService.getHealthSnapshots());
+    }
+
+    @DeleteMapping("/monitoring/health/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteHealthSnapshot(@PathVariable String id) {
+        adminService.deleteHealthSnapshot(id);
     }
 
     @GetMapping("/users")
@@ -110,7 +133,13 @@ public class AdminController {
     @PostMapping("/support/tickets/{ticketId}/replies")
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<SupportReplyData> replyTicket(@PathVariable String ticketId, @Valid @RequestBody SupportReplyCreateRequest request) {
-        return ApiResponse.success(adminService.replyTicket(ticketId));
+        return ApiResponse.success(adminService.replyTicket(ticketId, request));
+    }
+
+    @DeleteMapping("/support/tickets/{ticketId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteTicket(@PathVariable String ticketId) {
+        adminService.deleteTicket(ticketId);
     }
 
     @GetMapping("/billing/summary")
@@ -138,9 +167,21 @@ public class AdminController {
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(adminService.retryPayment(paymentId)));
     }
 
+    @DeleteMapping("/billing/payments/{paymentId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deletePayment(@PathVariable String paymentId) {
+        adminService.deletePayment(paymentId);
+    }
+
     @GetMapping("/billing/subscriptions")
     public ApiResponse<AdminSubscriptionsData> listSubscriptions() {
         return ApiResponse.success(adminService.listSubscriptions());
+    }
+
+    @DeleteMapping("/billing/subscriptions/{subscriptionId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteSubscription(@PathVariable String subscriptionId) {
+        adminService.deleteSubscription(subscriptionId);
     }
 
     @GetMapping("/billing/payment-failures")

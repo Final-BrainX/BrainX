@@ -17,6 +17,7 @@ spring:
               '[/**]':
                 allowed-origins:
                   - ${FRONTEND_BASE_URL:http://localhost:3000}
+                  - http://localhost:3001
                 allowed-methods:
                   - GET
                   - POST
@@ -34,6 +35,49 @@ spring:
               uri: ${COMMERCE_SERVICE_URL:http://localhost:8084}
               predicates:
                 - Path=/api/v1/users/me/subscription
+
+            - id: internal-user-service-users
+              uri: ${USER_SERVICE_URL:http://localhost:8080}
+              predicates:
+                - Path=/internal/v1/users/**
+
+            - id: internal-user-service-support
+              uri: ${USER_SERVICE_URL:http://localhost:8080}
+              predicates:
+                - Path=/internal/v1/support/**
+
+            - id: internal-commerce-service
+              uri: ${COMMERCE_SERVICE_URL:http://localhost:8084}
+              predicates:
+                - Path=/internal/v1/billing/**,/internal/v1/plans/**
+
+            - id: internal-user-health
+              uri: ${USER_SERVICE_URL:http://localhost:8080}
+              predicates:
+                - Path=/internal/v1/health/user
+              filters:
+                - RewritePath=/internal/v1/health/user,/actuator/health
+
+            - id: internal-commerce-health
+              uri: ${COMMERCE_SERVICE_URL:http://localhost:8084}
+              predicates:
+                - Path=/internal/v1/health/commerce
+              filters:
+                - RewritePath=/internal/v1/health/commerce,/actuator/health
+
+            - id: internal-workspace-health
+              uri: ${WORKSPACE_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/internal/v1/health/workspace
+              filters:
+                - RewritePath=/internal/v1/health/workspace,/actuator/health
+
+            - id: internal-ingestion-health
+              uri: ${INGESTION_SERVICE_URL:http://localhost:8083}
+              predicates:
+                - Path=/internal/v1/health/ingestion
+              filters:
+                - RewritePath=/internal/v1/health/ingestion,/actuator/health
 
             - id: user-service-auth
               uri: ${USER_SERVICE_URL:http://localhost:8080}
@@ -79,6 +123,7 @@ management:
 brainx:
   jwt:
     secret: ${JWT_SECRET:replace_with_at_least_32_byte_secret}
+  service-token: ${SERVICE_TOKEN:local-service-token}
   gateway:
     auth:
       public-paths:

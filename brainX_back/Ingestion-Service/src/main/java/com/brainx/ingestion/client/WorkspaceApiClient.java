@@ -70,6 +70,29 @@ public class WorkspaceApiClient {
     }
 
     @SuppressWarnings("unchecked")
+    public NoteContent getNote(String noteId, String jwtToken) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + jwtToken);
+
+        try {
+            ResponseEntity<Map> res = restTemplate.exchange(
+                    workspaceBaseUrl + "/api/v1/notes/" + noteId,
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    Map.class
+            );
+            Map<String, Object> data = (Map<String, Object>) res.getBody().get("data");
+            return new NoteContent((String) data.get("title"), (String) data.get("markdown"));
+        } catch (Exception e) {
+            log.error("workspace-service 노트 조회 실패: noteId={}, error={}", noteId, e.getMessage());
+            throw BrainXException.internalError("노트를 조회할 수 없습니다: " + e.getMessage());
+        }
+    }
+
+    public record NoteContent(String title, String markdown) {
+    }
+
+    @SuppressWarnings("unchecked")
     public String createNote(String title, String markdown, String folderId,
                              List<String> tags, String jwtToken) {
         HttpHeaders headers = new HttpHeaders();
