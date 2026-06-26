@@ -2,7 +2,11 @@ package com.brainx.workspace.controller;
 
 import com.brainx.workspace.dto.ApiResponse;
 import com.brainx.workspace.dto.WorkspaceDtos.*;
+import com.brainx.workspace.exception.WorkspaceException;
+import com.brainx.workspace.security.CurrentActor.Actor;
+import com.brainx.workspace.security.CurrentActor.ActorType;
 import com.brainx.workspace.security.CurrentUser;
+import com.brainx.workspace.service.NoteDraftService;
 import com.brainx.workspace.service.WorkspaceService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +20,7 @@ import java.time.LocalDate;
 @RequiredArgsConstructor
 public class WorkspaceController {
     private final WorkspaceService workspaceService;
+    private final NoteDraftService noteDraftService;
     private final CurrentUser currentUser;
 
     @GetMapping("/api/v1/workspace/sync")
@@ -29,7 +34,7 @@ public class WorkspaceController {
     @PostMapping("/api/v1/notes")
     public ResponseEntity<ApiResponse<NoteCreatedData>> createNote(@Valid @RequestBody NoteCreateRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(workspaceService.createNote(currentUser.userId(), request)));
+                .body(ApiResponse.success(workspaceService.createNote(memberUserId(), request)));
     }
 
     @GetMapping("/api/v1/notes")
@@ -55,13 +60,34 @@ public class WorkspaceController {
     @PutMapping("/api/v1/notes/{noteId}/content")
     public ApiResponse<NoteContentSaveData> saveNoteContent(@PathVariable String noteId,
                                                             @Valid @RequestBody NoteContentSaveRequest request) {
-        return ApiResponse.success(workspaceService.saveContent(currentUser.userId(), noteId, request));
+        return ApiResponse.success(workspaceService.saveContent(memberUserId(), noteId, request));
+    }
+
+    @PutMapping("/api/v1/notes/{noteId}/draft")
+    public ApiResponse<NoteDraftSaveData> saveNoteDraft(@PathVariable String noteId,
+                                                        @Valid @RequestBody NoteDraftSaveRequest request) {
+        return ApiResponse.success(noteDraftService.saveDraft(currentUser.actor(), noteId, request));
+    }
+
+    @PostMapping("/api/v1/notes/draft-ids")
+    public ApiResponse<NoteDraftIdData> issueNoteDraftId() {
+        return ApiResponse.success(noteDraftService.issueDraftId(currentUser.actor()));
+    }
+
+    @GetMapping("/api/v1/notes/{noteId}/draft")
+    public ApiResponse<NoteDraftData> getNoteDraft(@PathVariable String noteId) {
+        return ApiResponse.success(noteDraftService.getDraft(currentUser.actor(), noteId));
+    }
+
+    @GetMapping("/api/v1/notes/drafts/list")
+    public ApiResponse<NoteDraftListData> listNoteDrafts() {
+        return ApiResponse.success(noteDraftService.listDrafts(currentUser.actor()));
     }
 
     @PatchMapping("/api/v1/notes/{noteId}/metadata")
     public ApiResponse<NoteMetadataData> patchNoteMetadata(@PathVariable String noteId,
                                                            @RequestBody NoteMetadataPatchRequest request) {
-        return ApiResponse.success(workspaceService.patchMetadata(currentUser.userId(), noteId, request));
+        return ApiResponse.success(workspaceService.patchMetadata(memberUserId(), noteId, request));
     }
 
     @GetMapping("/api/v1/notes/{noteId}/versions")
@@ -166,5 +192,14 @@ public class WorkspaceController {
     @PatchMapping("/api/v1/share-links/{shareId}")
     public ApiResponse<ShareLinkData> patchShareLink(@PathVariable String shareId, @RequestBody ShareLinkPatchRequest request) {
         return ApiResponse.success(workspaceService.patchShareLink(currentUser.userId(), shareId, request));
+    }
+
+    private String memberUserId() {
+        Actor actor = currentUser.actor();
+        if (actor.type() == ActorType.GUEST) {
+            throw new WorkspaceException(HttpStatus.FORBIDDEN, "GUEST_POSTGRES_SAVE_FORBIDDEN",
+                    "Guest drafts are stored in Redis only. Sign up or log in before saving to PostgreSQL.");
+        }
+        return actor.id();
     }
 }

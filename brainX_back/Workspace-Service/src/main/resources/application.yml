@@ -16,6 +16,11 @@ spring:
     username: ${POSTGRES_USER:postgres}
     password: ${POSTGRES_PASSWORD:change_me}
     driver-class-name: ${DB_DRIVER:org.postgresql.Driver}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: ${REDIS_TIMEOUT:2s}
   jpa:
     hibernate:
       ddl-auto: ${JPA_DDL_AUTO:update}
@@ -30,6 +35,11 @@ brainx:
   service-token: ${SERVICE_TOKEN:local-service-token}
   public-base-url: ${PUBLIC_BASE_URL:http://localhost:3000}
   seed-demo-data: ${SEED_DEMO_DATA:true}
+  workspace:
+    draft:
+      ttl-seconds: ${WORKSPACE_DRAFT_TTL_SECONDS:86400}
+      flush-interval-seconds: ${WORKSPACE_DRAFT_FLUSH_INTERVAL_SECONDS:30}
+      flush-idle-seconds: ${WORKSPACE_DRAFT_FLUSH_IDLE_SECONDS:10}
   graph:
     neo4j:
       enabled: ${NEO4J_ENABLED:true}

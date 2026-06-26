@@ -68,6 +68,9 @@ public class JwtAuthenticationGlobalFilter implements GlobalFilter, Ordered {
                     .build();
             return chain.filter(sanitizedExchange.mutate().request(authenticatedRequest).build());
         } catch (IllegalArgumentException exception) {
+            if (isGuestWorkspaceRequest(request)) {
+                return authenticateGuest(sanitizedExchange, chain, request);
+            }
             return unauthorized(sanitizedExchange);
         }
     }

@@ -335,7 +335,11 @@ export default function EditorPanel({
                 <input
                   ref={titleInputRef}
                   value={titleDraft}
-                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onChange={(e) => {
+                    const nextTitle = e.target.value;
+                    setTitleDraft(nextTitle);
+                    if (note && nextTitle !== note.title) onTitleChange(note.id, nextTitle);
+                  }}
                   onBlur={() => commitTitle()}
                   onKeyDown={(e) => {
                     // IME(한글 등) 조합 중 Enter는 조합 확정용이므로 제목 커밋을 건너뜀

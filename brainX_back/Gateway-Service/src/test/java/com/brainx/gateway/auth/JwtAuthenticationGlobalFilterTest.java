@@ -101,6 +101,27 @@ class JwtAuthenticationGlobalFilterTest {
     }
 
     @Test
+    void fallsBackToGuestForWorkspacePathWithInvalidAccessToken() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/v1/notes/drafts/list")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer invalid-token")
+        );
+        AtomicReference<String> guestHeader = new AtomicReference<>();
+        AtomicReference<String> userHeader = new AtomicReference<>();
+        GatewayFilterChain chain = filteredExchange -> {
+            guestHeader.set(filteredExchange.getRequest().getHeaders().getFirst(JwtAuthenticationGlobalFilter.GUEST_ID_HEADER));
+            userHeader.set(filteredExchange.getRequest().getHeaders().getFirst(JwtAuthenticationGlobalFilter.USER_ID_HEADER));
+            return Mono.empty();
+        };
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertThat(exchange.getResponse().getStatusCode()).isNull();
+        assertThat(guestHeader.get()).startsWith("gst_");
+        assertThat(userHeader.get()).isNull();
+    }
+
+    @Test
     void allowsOptionsWithoutToken() {
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.method(HttpMethod.OPTIONS, "/api/v1/notes")

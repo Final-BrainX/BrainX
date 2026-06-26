@@ -2142,6 +2142,247 @@ paths:
       security:
       - bearerAuth: []
       - guestSessionAuth: []
+  /api/v1/notes/drafts/list:
+    get:
+      operationId: listNoteDrafts
+      summary: 현재 actor의 Redis draft 목록 조회
+      tags:
+      - Knowledge Workspace
+      x-producer-service: knowledge-workspace
+      x-visibility: public
+      x-consumers:
+      - id: web.note-editor
+        type: frontend
+        description: 새로고침 후 PostgreSQL에 없는 Redis-only 새 노트 복구
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      description: 현재 USER/GUEST actor의 dirty set에 남아 있는 Redis draft 목록을 조회한다. `/api/v1/notes/{noteId}`와의 경로 충돌을 피하면서 Gateway의 Workspace route(`/api/v1/notes/**`)를 통과하도록 `/api/v1/notes/drafts/list` 경로를 사용한다. PostgreSQL 원장과 Kafka 이벤트는 갱신하지 않는다.
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/NoteDraftListData'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+      - guestSessionAuth: []
+  /api/v1/notes/draft-ids:
+    post:
+      operationId: issueNoteDraftId
+      summary: 새 노트 자동저장용 draft noteId 발급
+      tags:
+      - Knowledge Workspace
+      x-producer-service: knowledge-workspace
+      x-visibility: public
+      x-consumers:
+      - id: web.note-editor
+        type: frontend
+        description: 새 노트 작성 전 Redis draft key 생성을 위한 noteId 발급
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      description: 새 노트를 PostgreSQL에 생성하지 않고 Redis 자동저장에 사용할 noteId만 발급한다. 실제 노트 원장 저장과 Kafka 이벤트 발행은 발생하지 않는다.
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/NoteDraftIdData'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+      - guestSessionAuth: []
+  /api/v1/notes/{noteId}/draft:
+    get:
+      operationId: getNoteDraft
+      summary: 노트 자동저장 draft 조회
+      tags:
+      - Knowledge Workspace
+      x-producer-service: knowledge-workspace
+      x-visibility: public
+      x-consumers:
+      - id: web.note-editor
+        type: frontend
+        description: 마크다운/WYSIWYG 노트 편집기 자동저장 복구
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      description: 회원/비회원 actor별 Redis draft 저장소에서 노트 본문 임시 저장본을 조회한다. draft가 없으면 200 응답에 data null을 반환한다.
+      parameters:
+      - name: noteId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공. draft가 없으면 data는 null이다.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      nullable: true
+                      allOf:
+                      - $ref: '#/components/schemas/NoteDraftData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+      - guestSessionAuth: []
+    put:
+      operationId: saveNoteDraft
+      summary: 노트 자동저장 draft 저장
+      tags:
+      - Knowledge Workspace
+      x-producer-service: knowledge-workspace
+      x-visibility: public
+      x-consumers:
+      - id: web.note-editor
+        type: frontend
+        description: 마크다운/WYSIWYG 노트 편집기 자동저장
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      description: 회원/비회원 actor별 Redis draft 저장소에 노트 본문 임시 저장본을 저장한다. PostgreSQL 원장과 Kafka 이벤트는 갱신하지 않는다.
+      parameters:
+      - name: noteId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteDraftSaveRequest'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/NoteDraftSaveData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/notes/{noteId}/metadata:
     patch:
       operationId: patchNoteMetadata
@@ -9317,6 +9558,119 @@ components:
       - noteId
       - version
       - savedAt
+      - status
+      additionalProperties: false
+    NoteDraftSaveRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          description: Redis draft에 함께 저장할 노트 제목. 없으면 빈 문자열로 저장된다.
+        markdown:
+          type: string
+        baseVersion:
+          type: integer
+        clientSavedAt:
+          type: string
+          format: date-time
+      required:
+      - markdown
+      - baseVersion
+      - clientSavedAt
+      additionalProperties: false
+    NoteDraftSaveData:
+      type: object
+      properties:
+        noteId:
+          type: string
+        actorType:
+          type: string
+          enum:
+          - USER
+          - GUEST
+        savedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum:
+          - DRAFT_SAVED
+      required:
+      - noteId
+      - actorType
+      - savedAt
+      - expiresAt
+      - status
+      additionalProperties: false
+    NoteDraftData:
+      type: object
+      properties:
+        noteId:
+          type: string
+        actorType:
+          type: string
+          enum:
+          - USER
+          - GUEST
+        title:
+          type: string
+        markdown:
+          type: string
+        baseVersion:
+          type: integer
+        clientSavedAt:
+          type: string
+          format: date-time
+        savedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+      required:
+      - noteId
+      - actorType
+      - title
+      - markdown
+      - baseVersion
+      - clientSavedAt
+      - savedAt
+      - expiresAt
+      additionalProperties: false
+    NoteDraftListData:
+      type: object
+      properties:
+        drafts:
+          type: array
+          items:
+            $ref: '#/components/schemas/NoteDraftData'
+      required:
+      - drafts
+      additionalProperties: false
+    NoteDraftIdData:
+      type: object
+      properties:
+        noteId:
+          type: string
+        actorType:
+          type: string
+          enum:
+          - USER
+          - GUEST
+        issuedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum:
+          - DRAFT_ID_ISSUED
+      required:
+      - noteId
+      - actorType
+      - issuedAt
       - status
       additionalProperties: false
     NoteMetadataPatchRequest:

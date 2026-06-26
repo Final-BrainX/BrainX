@@ -59,11 +59,14 @@ services:
     environment:
       SERVER_PORT: "8082"
       POSTGRES_HOST: postgres
+      REDIS_HOST: redis
       NEO4J_URI: bolt://neo4j:7687
     ports:
       - "8082:8082"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       neo4j:
         condition: service_healthy
@@ -132,6 +135,18 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: brainx-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   neo4j:
     image: neo4j:5.26-community
     container_name: brainx-neo4j
@@ -148,7 +163,11 @@ services:
       - brainx_neo4j_data:/data
       - brainx_neo4j_logs:/logs
     healthcheck:
-      test: ["CMD-SHELL", "cypher-shell -u ${NEO4J_USERNAME:-neo4j} -p ${NEO4J_PASSWORD:-brainx_neo4j_local_password} 'RETURN 1'"]
+      test:
+        [
+          "CMD-SHELL",
+          "cypher-shell -u ${NEO4J_USERNAME:-neo4j} -p ${NEO4J_PASSWORD:-brainx_neo4j_local_password} 'RETURN 1'",
+        ]
       interval: 10s
       timeout: 10s
       retries: 10

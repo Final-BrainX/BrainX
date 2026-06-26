@@ -56,6 +56,10 @@ Public API:
 - `GET /api/v1/notes/{noteId}`
 - `DELETE /api/v1/notes/{noteId}`
 - `PUT /api/v1/notes/{noteId}/content`
+- `GET /api/v1/notes/drafts/list`
+- `POST /api/v1/notes/draft-ids`
+- `GET /api/v1/notes/{noteId}/draft`
+- `PUT /api/v1/notes/{noteId}/draft`
 - `PATCH /api/v1/notes/{noteId}/metadata`
 - `GET /api/v1/notes/{noteId}/versions`
 - `POST /api/v1/notes/{noteId}/versions/{versionId}/restore`
@@ -111,14 +115,25 @@ Published event types include:
 
 `PUT /api/v1/notes/{noteId}/content` requires `baseVersion`. If the client base version differs from the server version, the service returns `409 NOTE_VERSION_CONFLICT` with `serverVersion` and `clientBaseVersion`.
 
+`POST /api/v1/notes/draft-ids` issues a noteId for a new-note autosave flow without inserting a PostgreSQL note row. `PUT /api/v1/notes/{noteId}/draft` stores autosave title and content in Redis only, `GET /api/v1/notes/{noteId}/draft` reads that Redis draft back for restore flows, and `GET /api/v1/notes/drafts/list` lists the current actor's Redis-only drafts so a new note can reappear after refresh. The draft list path stays under `/api/v1/notes/**` for Gateway routing but avoids colliding with `GET /api/v1/notes/{noteId}`. Draft keys are separated by `actorType + actorId`: `workspace:note:draft:user:{userId}:{noteId}` for members and `workspace:note:draft:guest:{guestId}:{noteId}` for guests. The dirty set keys `workspace:note:dirty:user:{userId}` and `workspace:note:dirty:guest:{guestId}` track note IDs that have pending Redis drafts. If no Redis draft exists for the current actor and note, the read endpoint returns `200` with `data: null`.
+
+Guests can use Redis draft autosave, but PostgreSQL note creation/content/metadata save is blocked with `403 GUEST_POSTGRES_SAVE_FORBIDDEN`. Guest draft content should be persisted to PostgreSQL only through a future signup/claim flow.
+
+Autosave timing policy:
+
+- Frontend Redis draft debounce: 1.5 seconds after typing stops.
+- Future PostgreSQL flush scan interval: `WORKSPACE_DRAFT_FLUSH_INTERVAL_SECONDS=30`.
+- Future PostgreSQL flush idle threshold: `WORKSPACE_DRAFT_FLUSH_IDLE_SECONDS=10`.
+
 ## Local Docker
 
 The service can run from the root backend compose file:
 
 ```powershell
-cd C:\Edu\Final\BrainX\brainX_back
-Copy-Item .\env\workspace-service.env.example .\env\workspace-service.env
-docker compose up -d postgres workspace-service
+cd C:\Edu\Final\BrainX
+Copy-Item .\brainX_back\.env.example .\brainX_back\.env
+Copy-Item .\brainX_back\env\workspace-service.env.example .\brainX_back\env\workspace-service.env
+.\run.ps1
 ```
 
-`env/workspace-service.env` points the app container to the shared PostgreSQL container and the logical database `brainx_workspace`.
+`brainX_back/.env` contains shared backend settings such as PostgreSQL, Redis, JWT, and service-token values. `env/workspace-service.env` contains Workspace-only settings such as `WORKSPACE_DRAFT_TTL_SECONDS`. In Docker Compose, app containers override `REDIS_HOST` to the internal service name `redis`.

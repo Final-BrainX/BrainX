@@ -50,6 +50,24 @@ public final class WorkspaceDtos {
                                       Map<String, Object> conflict) {
     }
 
+    public record NoteDraftSaveRequest(String title, @NotNull String markdown, @NotNull Integer baseVersion,
+                                       @NotNull Instant clientSavedAt) {
+    }
+
+    public record NoteDraftSaveData(String noteId, String actorType, Instant savedAt,
+                                    Instant expiresAt, String status) {
+    }
+
+    public record NoteDraftData(String noteId, String actorType, String title, String markdown, Integer baseVersion,
+                                Instant clientSavedAt, Instant savedAt, Instant expiresAt) {
+    }
+
+    public record NoteDraftListData(List<NoteDraftData> drafts) {
+    }
+
+    public record NoteDraftIdData(String noteId, String actorType, Instant issuedAt, String status) {
+    }
+
     public record NoteMetadataPatchRequest(String title, String folderId, List<String> tags, Boolean archived,
                                            NoteTypography typography, Integer order) {
     }

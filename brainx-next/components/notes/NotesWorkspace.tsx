@@ -10,10 +10,15 @@ import { MOCK_NOTES, MOCK_FOLDERS } from "@/lib/notes/mockNotes";
 import {
   USE_MOCK_NOTES,
   createWorkspaceNote,
+  getWorkspaceNoteDraft,
+  issueWorkspaceNoteDraftId,
   listFolders,
   listNotes,
+  listWorkspaceNoteDrafts,
+  saveWorkspaceNoteDraft,
   updateWorkspaceNoteContent,
   updateWorkspaceNoteMetadata,
+  workspaceDraftToMock,
   workspaceFolderToMock,
   workspaceNoteToMock,
 } from "@/lib/workspace-api";
@@ -217,8 +222,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     window.addEventListener("mouseup", onUp);
   }, [contextPanelSize]);
   // MOCK_NOTES를 가변 상태로 복사 → 제목 수정/새 노트 생성 시 사이드바/헤더/컨텍스트 패널 즉시 반영
-  const [notes, setNotes] = useState<MockNote[]>(() => [...MOCK_NOTES]);
-  const [folders, setFolders] = useState<MockFolder[]>(() => [...MOCK_FOLDERS]);
+  const [notes, setNotes] = useState<MockNote[]>(() => USE_MOCK_NOTES ? [...MOCK_NOTES] : []);
+  const [folders, setFolders] = useState<MockFolder[]>(() => USE_MOCK_NOTES ? [...MOCK_FOLDERS] : []);
   // 탭(노트 인스턴스)별 읽기/편집 모드 — tabId 기준. 패널이 아니라 탭 단위라서 같은 패널 안에서
   // 탭마다 다른 모드를 가질 수 있고, 같은 노트를 여러 패널에 열어도 각 탭이 독립적으로 유지된다.
   // 기록이 없는 tabId는 항상 "edit"로 취급한다(새 노트/새로 연 노트는 기본 편집 모드).
@@ -234,14 +239,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const prevActiveNoteIdRef = useRef<string | null>(null);
   const prevInitialKeyRef = useRef<string>(initialTab.kind === "note" ? initialTab.noteId : "start");
   const saveStatusTimerRef = useRef<number | null>(null);
+  const draftAutosaveTimerRef = useRef<number | null>(null);
+  const draftDirtyNoteIdsRef = useRef<Set<string>>(new Set());
   const effectivePersistKey = USE_MOCK_NOTES ? persistKey : undefined;
   // Ctrl+S 발생 시점의 최신 세션 스냅샷 — 디바운스/렌더 타이밍과 무관하게 항상 최신값을 읽기 위한 ref
   const latestSessionRef = useRef<NotesWorkspaceSession>({
     root: init.root,
     activeId: init.activeId,
     paneTabs: init.paneTabs,
-    notes: [...MOCK_NOTES],
-    folders: [...MOCK_FOLDERS],
+    notes: USE_MOCK_NOTES ? [...MOCK_NOTES] : [],
+    folders: USE_MOCK_NOTES ? [...MOCK_FOLDERS] : [],
   });
 
   const panelCount = countLeaves(state.root);
@@ -455,6 +462,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
 
   /* 노트 제목 변경 → notes 상태 갱신 (사이드바/탭/헤더/컨텍스트 즉시 반영) */
   const handleTitleChange = useCallback((noteId: string, newTitle: string) => {
+    draftDirtyNoteIdsRef.current.add(noteId);
     setNotes((prev) =>
       prev.map((n) => (n.id === noteId ? { ...n, title: newTitle, updatedAt: Date.now() } : n))
     );
@@ -462,6 +470,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
 
   /* 노트 본문 변경(에디터 onUpdate 디바운스) → notes 상태 갱신, 탭 전환 후에도 내용 유지 */
   const handleContentChange = useCallback((noteId: string, newContentHtml: string) => {
+    draftDirtyNoteIdsRef.current.add(noteId);
     setNotes((prev) =>
       prev.map((n) => (n.id === noteId ? { ...n, content: newContentHtml, updatedAt: Date.now() } : n))
     );
@@ -580,6 +589,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const createNote = useCallback((folderId: string | undefined, paneId: string, title?: string) => {
     const newNote = makeBlankNote(folderId);
     if (title) newNote.title = title;
+    const localNoteId = newNote.id;
     const newTabId = uid();
     setNotes((prev) => [newNote, ...prev]);
     setPaneTabs((prev) => {
@@ -589,8 +599,32 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       return { ...prev, [paneId]: { tabs: newTabs, activeTabId: newTabId } };
     });
     setState((prev) => ({ ...prev, activeId: paneId }));
+    draftDirtyNoteIdsRef.current.add(localNoteId);
+
+    if (!USE_MOCK_NOTES) {
+      void issueWorkspaceNoteDraftId()
+        .then((draft) => {
+          setNotes((prev) =>
+            prev.map((item) =>
+              item.id === localNoteId
+                ? { ...item, id: draft.noteId, updatedAt: Date.now() }
+                : item
+            )
+          );
+          setState((prev) => ({ ...prev, root: replaceNoteIdInNode(prev.root, localNoteId, draft.noteId) }));
+          setPaneTabs((prev) => replaceNoteIdInTabs(prev, localNoteId, draft.noteId));
+          draftDirtyNoteIdsRef.current.delete(localNoteId);
+          draftDirtyNoteIdsRef.current.add(draft.noteId);
+          prevActiveNoteIdRef.current = draft.noteId;
+          onActiveNoteChange?.(draft.noteId);
+        })
+        .catch((error) => {
+          setLoadError(error instanceof Error ? error.message : "새 노트 임시저장 ID를 발급받지 못했습니다.");
+        });
+    }
+
     return newNote.id;
-  }, []);
+  }, [onActiveNoteChange]);
 
   /* 사이드바 "+ 새 노트" 버튼 → 현재 선택된 폴더 안에, 활성 패널의 새 탭으로 생성 */
   const handleNewNote = useCallback((folderId?: string) => {
@@ -884,15 +918,27 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
 
     function loadFromServer(openNoteId?: string) {
       setLoadError(null);
-      return Promise.all([listNotes(), listFolders()])
-        .then(([noteData, folderData]) => {
+      const targetNoteId = openNoteId ?? (initialTab.kind === "note" ? initialTab.noteId : null);
+      return Promise.all([
+        listNotes(),
+        listFolders(),
+        listWorkspaceNoteDrafts().catch(() => ({ drafts: [] })),
+        targetNoteId ? getWorkspaceNoteDraft(targetNoteId).catch(() => null) : Promise.resolve(null),
+      ])
+        .then(([noteData, folderData, draftData, targetDraft]) => {
           if (!active) return;
-          const nextNotes = noteData.notes.map(workspaceNoteToMock);
+          const persistedNotes = noteData.notes.map(workspaceNoteToMock);
+          const persistedNoteIds = new Set(persistedNotes.map((note) => note.id));
+          const draftsById = new Map(draftData.drafts.map((draft) => [draft.noteId, draft]));
+          if (targetDraft) draftsById.set(targetDraft.noteId, targetDraft);
+          const draftOnlyNotes = Array.from(draftsById.values())
+            .filter((draft) => !persistedNoteIds.has(draft.noteId))
+            .map(workspaceDraftToMock);
+          const nextNotes = [...draftOnlyNotes, ...persistedNotes];
           const nextFolders = folderData.folders.map(workspaceFolderToMock);
           setNotes(nextNotes);
           setFolders(nextFolders);
 
-          const targetNoteId = openNoteId ?? (initialTab.kind === "note" ? initialTab.noteId : null);
           if (targetNoteId && nextNotes.some((note) => note.id === targetNoteId)) {
             handleReplaceActiveTab(state.activeId, targetNoteId);
             return;
@@ -932,7 +978,21 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     const key = initialTab.kind === "note" ? initialTab.noteId : "start";
     if (prevInitialKeyRef.current === key) return;
     prevInitialKeyRef.current = key;
-    if (initialTab.kind === "note") handleNoteClick(initialTab.noteId);
+    if (initialTab.kind !== "note") return;
+    if (notes.some((note) => note.id === initialTab.noteId)) {
+      handleNoteClick(initialTab.noteId);
+      return;
+    }
+    if (USE_MOCK_NOTES) return;
+    void getWorkspaceNoteDraft(initialTab.noteId)
+      .then((draft) => {
+        if (!draft) return;
+        setNotes((prev) => prev.some((note) => note.id === draft.noteId) ? prev : [workspaceDraftToMock(draft), ...prev]);
+        handleReplaceActiveTab(state.activeId, draft.noteId);
+      })
+      .catch((error) => {
+        setLoadError(error instanceof Error ? error.message : "임시저장 노트를 불러오지 못했습니다.");
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialTab.kind === "note" ? initialTab.noteId : "start"]);
 
@@ -954,6 +1014,30 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     latestSessionRef.current = { root: state.root, activeId: state.activeId, paneTabs, notes, folders };
   }, [state, paneTabs, notes, folders]);
 
+  useEffect(() => {
+    if (USE_MOCK_NOTES || !hydratedRef.current || !activeNote) return;
+    if (!activeNote.id.startsWith("note_")) return;
+    if (!draftDirtyNoteIdsRef.current.has(activeNote.id)) return;
+
+    if (draftAutosaveTimerRef.current) window.clearTimeout(draftAutosaveTimerRef.current);
+    draftAutosaveTimerRef.current = window.setTimeout(() => {
+      const noteSnapshot = latestSessionRef.current.notes.find((item) => item.id === activeNote.id);
+      if (!noteSnapshot) return;
+      void saveWorkspaceNoteDraft(noteSnapshot)
+        .then(() => {
+          draftDirtyNoteIdsRef.current.delete(noteSnapshot.id);
+          setSaveStatus("saved");
+        })
+        .catch(() => {
+          setSaveStatus("error");
+        });
+    }, 1500);
+
+    return () => {
+      if (draftAutosaveTimerRef.current) window.clearTimeout(draftAutosaveTimerRef.current);
+    };
+  }, [activeNote?.id, activeNote?.title, activeNote?.content]);
+
   // 대표 활성 노트가 바뀌면 URL 갱신 콜백 호출
   useEffect(() => {
     if (!activeNoteId) return;
@@ -974,6 +1058,12 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
 
     const note = latestSessionRef.current.notes.find((item) => item.id === noteId.noteId);
     if (!note) {
+      return;
+    }
+
+    if (!note.persisted && note.id.startsWith("note_")) {
+      await saveWorkspaceNoteDraft(note);
+      draftDirtyNoteIdsRef.current.delete(note.id);
       return;
     }
 
@@ -1040,6 +1130,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   useEffect(() => {
     return () => {
       if (saveStatusTimerRef.current) window.clearTimeout(saveStatusTimerRef.current);
+      if (draftAutosaveTimerRef.current) window.clearTimeout(draftAutosaveTimerRef.current);
     };
   }, []);
 
