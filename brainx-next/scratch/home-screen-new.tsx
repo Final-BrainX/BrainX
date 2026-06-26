@@ -310,7 +310,7 @@ function UserInsightDashboard({ notes }: { notes: BrainXNote[] }) {
                 <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-accent/70">연결 부족 노트</div>
                 <div className="mb-1 text-[14px] font-semibold text-txt">{dormantNote?.title || "추천 노트가 없습니다"}</div>
                 <div className="mb-2.5 text-[12px] leading-relaxed text-txt3">연결이 아직 적어요. 관련 개념을 추가하거나 다른 노트와 연결해보세요.</div>
-                <button 
+                <button
                   onClick={() => dormantNote && router.push(`/notes/${dormantNote.id}`)}
                   className="inline-flex items-center gap-1 rounded-[0.4rem] border border-accent/30 bg-transparent px-3 py-1.5 text-[11px] font-medium text-accent hover:bg-accent/10 transition-colors"
                 >

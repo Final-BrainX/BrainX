@@ -18,6 +18,7 @@ export type AuthSession = {
   accessToken: string | null;
   refreshToken: string | null;
   tokenType: string;
+  provider?: OAuthProvider | "email" | null;
   userId?: string | null;
   email?: string;
   nickname?: string;
@@ -68,6 +69,7 @@ type OAuthCallbackData = AuthSession & {
 };
 
 const AUTH_SESSION_KEY = "brainx_auth_session_v1";
+const LAST_SOCIAL_LOGIN_KEY = "brainx_last_social_login_provider_v1";
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 export const DEMO_AUTH_SESSION: AuthSession = {
   accessToken: "demo-access-token",
@@ -114,6 +116,7 @@ export function saveAuthSession(session: Partial<AuthSession>) {
     tokenType: session.tokenType ?? "Bearer",
     accessToken: session.accessToken ?? null,
     refreshToken: session.refreshToken ?? null,
+    provider: session.provider ?? null,
     userId: session.userId,
     email: session.email,
     nickname: session.nickname,
@@ -124,6 +127,9 @@ export function saveAuthSession(session: Partial<AuthSession>) {
     next: session.next ?? null
   };
   window.localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(normalized));
+  if (normalized.provider === "google" || normalized.provider === "kakao" || normalized.provider === "naver") {
+    window.localStorage.setItem(LAST_SOCIAL_LOGIN_KEY, normalized.provider);
+  }
   window.dispatchEvent(new Event("brainx-auth-session-changed"));
 }
 
@@ -143,8 +149,14 @@ export function clearAuthSession() {
   window.dispatchEvent(new Event("brainx-auth-session-changed"));
 }
 
+export function readRecentSocialLoginProvider() {
+  if (typeof window === "undefined") return null;
+  const value = window.localStorage.getItem(LAST_SOCIAL_LOGIN_KEY);
+  return value === "google" || value === "kakao" || value === "naver" ? value : null;
+}
+
 export function startDemoSession() {
-  saveAuthSession(DEMO_AUTH_SESSION);
+  saveAuthSession({ ...DEMO_AUTH_SESSION, provider: "email" });
   return DEMO_AUTH_SESSION;
 }
 
@@ -190,7 +202,7 @@ export async function signupWithEmail(payload: {
     method: "POST",
     body: JSON.stringify(payload)
   });
-  saveAuthSession(data);
+  saveAuthSession({ ...data, provider: "email" });
   return data;
 }
 
@@ -199,7 +211,7 @@ export async function loginLocal(email: string, password: string) {
     method: "POST",
     body: JSON.stringify({ email, password })
   });
-  saveAuthSession(data);
+  saveAuthSession({ ...data, provider: "email" });
   return data;
 }
 
@@ -242,7 +254,7 @@ export async function completeOAuthLogin(provider: OAuthProvider, code: string, 
     method: "POST",
     body: JSON.stringify({ code, state })
   });
-  saveAuthSession(data);
+  saveAuthSession({ ...data, provider });
   return data;
 }
 
@@ -257,6 +269,6 @@ export async function completeOnboarding(payload: {
     method: "POST",
     body: JSON.stringify(payload)
   });
-  saveAuthSession(data);
+  saveAuthSession({ ...data, provider: "email" });
   return data;
 }

@@ -43,6 +43,9 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/imports/notion/**").permitAll()
                 .requestMatchers("/api/v1/imports/obsidian/**").permitAll()
                 .requestMatchers("/api/v1/imports/file/**").permitAll()
+                // 임의 URL을 서버가 대신 가져오는 프록시라 나머지 자산 엔드포인트와 달리
+                // 로그인한 사용자만 쓸 수 있게 한다 — permitAll 규칙보다 먼저 와야 한다.
+                .requestMatchers("/api/v1/assets/proxy-image").authenticated()
                 .requestMatchers("/api/v1/assets/**").permitAll()
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/imports/*").permitAll()
                 .anyRequest().authenticated()

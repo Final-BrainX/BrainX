@@ -66,6 +66,10 @@ export function ImportScreen() {
   const [notionLoadingPages, setNotionLoadingPages] = useState(false);
   const [notionImportingId, setNotionImportingId] = useState<string | null>(null);
   const [importedNotionNotes, setImportedNotionNotes] = useState<ImportedNote[]>([]);
+  // 페이지가 많은 Notion 워크스페이스나 반복 가져오기로 목록이 길어지면 화면이 너무 늘어나서
+  // 접고 펼 수 있게 한다 — 기본은 펼친 상태, 사용자가 직접 접게 둔다.
+  const [notionPagesCollapsed, setNotionPagesCollapsed] = useState(false);
+  const [importedNotesCollapsed, setImportedNotesCollapsed] = useState(false);
 
   useEffect(() => {
     if (!notionIntegration) return;
@@ -290,6 +294,28 @@ export function ImportScreen() {
       {tab === "browse" ? (
         <>
           <div className="mb-9">
+            <h2 className="mb-1 text-[15px] font-semibold text-txt">콘텐츠 가져오기</h2>
+            <p className="mb-3.5 text-[13px] text-txt3">ZIP 파일을 가져오면 내부의 각 파일이 자체 페이지로 변환됩니다.</p>
+            <div
+              onDragOver={(event) => { event.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(event) => { event.preventDefault(); setDragOver(false); handleFiles(event.dataTransfer.files); }}
+              onClick={() => openFilePicker()}
+              className={cx(
+                "cursor-pointer rounded-xl border-2 border-dashed px-6 py-12 text-center transition-all",
+                dragOver ? "border-primary/60 bg-primary/5" : "border-line/60 bg-surface2/30 hover:border-primary/35"
+              )}
+            >
+              <Icon name="upload" size={28} className="mx-auto mb-3.5 text-txt3" />
+              <p className="mb-1.5 text-[15px] font-semibold text-txt">BrainX로 콘텐츠 가져오기</p>
+              <p className="mb-1 text-[13px] text-txt3">
+                ZIP, CSV, PDF, 텍스트, Markdown, HTML을 드래그 &amp; 드롭 또는 파일을 선택하세요.
+              </p>
+              <p className="text-[12px] text-txt3/70">ZIP 파일은 최대 5GB까지 가능합니다.</p>
+            </div>
+          </div>
+
+          <div className="mb-9">
             <h2 className="mb-1 text-[15px] font-semibold text-txt">Notion 가져오기</h2>
             <p className="mb-3.5 text-[13px] text-txt3">Notion 워크스페이스를 연결하면 페이지를 골라서 BrainX 노트로 가져올 수 있습니다.</p>
 
@@ -346,66 +372,65 @@ export function ImportScreen() {
                 ) : notionPages.length === 0 ? (
                   <p className="px-1 py-3 text-[13px] text-txt3">가져올 수 있는 페이지가 없습니다.</p>
                 ) : (
-                  <div className="space-y-1.5">
-                    {notionPages.map((page) => (
-                      <div key={page.id} className="flex items-center gap-3 rounded-lg border border-line/40 bg-surface/40 px-3 py-2">
-                        <span className="w-5 shrink-0 text-center text-[15px]">{page.icon ?? "📄"}</span>
-                        <span className="min-w-0 flex-1 truncate text-[13.5px] text-txt">{page.title}</span>
-                        <button
-                          type="button"
-                          onClick={() => importNotion(page)}
-                          disabled={notionImportingId !== null}
-                          className="shrink-0 rounded-md border border-line/60 px-2.5 py-1 text-[12px] font-medium text-txt2 transition-colors hover:border-primary/35 hover:text-txt disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {notionImportingId === page.id ? "가져오는 중…" : "가져오기"}
-                        </button>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setNotionPagesCollapsed((current) => !current)}
+                      className="mb-1.5 flex w-full items-center justify-between text-[12px] font-semibold text-txt3 hover:text-txt2"
+                    >
+                      <span>페이지 목록 · {notionPages.length}개</span>
+                      <Icon name={notionPagesCollapsed ? "chevR" : "chevD"} size={14} />
+                    </button>
+                    {!notionPagesCollapsed && (
+                      <div className="space-y-1.5">
+                        {notionPages.map((page) => (
+                          <div key={page.id} className="flex items-center gap-3 rounded-lg border border-line/40 bg-surface/40 px-3 py-2">
+                            <span className="w-5 shrink-0 text-center text-[15px]">{page.icon ?? "📄"}</span>
+                            <span className="min-w-0 flex-1 truncate text-[13.5px] text-txt">{page.title}</span>
+                            <button
+                              type="button"
+                              onClick={() => importNotion(page)}
+                              disabled={notionImportingId !== null}
+                              className="shrink-0 rounded-md border border-line/60 px-2.5 py-1 text-[12px] font-medium text-txt2 transition-colors hover:border-primary/35 hover:text-txt disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {notionImportingId === page.id ? "가져오는 중…" : "가져오기"}
+                            </button>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
 
                 {importedNotionNotes.length > 0 && (
                   <div className="mt-3 border-t border-line/40 pt-3">
-                    <div className="mb-1.5 text-[12px] font-semibold text-txt3">가져온 노트</div>
-                    <div className="space-y-1.5">
-                      {importedNotionNotes.map((note) => (
-                        <button
-                          key={note.id}
-                          type="button"
-                          onClick={() => router.push(`/notes/${note.id}`)}
-                          className="flex w-full items-center gap-2 rounded-lg bg-surface/40 px-3 py-1.5 text-left transition-colors hover:bg-surface/70"
-                        >
-                          <Icon name="check" size={14} className="shrink-0 text-cyan" />
-                          <span className="min-w-0 flex-1 truncate text-[13px] text-txt2">{note.title}</span>
-                        </button>
-                      ))}
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setImportedNotesCollapsed((current) => !current)}
+                      className="mb-1.5 flex w-full items-center justify-between text-[12px] font-semibold text-txt3 hover:text-txt2"
+                    >
+                      <span>가져온 노트 · {importedNotionNotes.length}개</span>
+                      <Icon name={importedNotesCollapsed ? "chevR" : "chevD"} size={14} />
+                    </button>
+                    {!importedNotesCollapsed && (
+                      <div className="space-y-1.5">
+                        {importedNotionNotes.map((note) => (
+                          <button
+                            key={note.id}
+                            type="button"
+                            onClick={() => router.push(`/notes/${note.id}`)}
+                            className="flex w-full items-center gap-2 rounded-lg bg-surface/40 px-3 py-1.5 text-left transition-colors hover:bg-surface/70"
+                          >
+                            <Icon name="check" size={14} className="shrink-0 text-cyan" />
+                            <span className="min-w-0 flex-1 truncate text-[13px] text-txt2">{note.title}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             )}
-          </div>
-
-          <div className="mb-9">
-            <h2 className="mb-1 text-[15px] font-semibold text-txt">콘텐츠 가져오기</h2>
-            <p className="mb-3.5 text-[13px] text-txt3">ZIP 파일을 가져오면 내부의 각 파일이 자체 페이지로 변환됩니다.</p>
-            <div
-              onDragOver={(event) => { event.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={(event) => { event.preventDefault(); setDragOver(false); handleFiles(event.dataTransfer.files); }}
-              onClick={() => openFilePicker()}
-              className={cx(
-                "cursor-pointer rounded-xl border-2 border-dashed px-6 py-12 text-center transition-all",
-                dragOver ? "border-primary/60 bg-primary/5" : "border-line/60 bg-surface2/30 hover:border-primary/35"
-              )}
-            >
-              <Icon name="upload" size={28} className="mx-auto mb-3.5 text-txt3" />
-              <p className="mb-1.5 text-[15px] font-semibold text-txt">BrainX로 콘텐츠 가져오기</p>
-              <p className="mb-1 text-[13px] text-txt3">
-                ZIP, CSV, PDF, 텍스트, Markdown, HTML을 드래그 &amp; 드롭 또는 파일을 선택하세요.
-              </p>
-              <p className="text-[12px] text-txt3/70">ZIP 파일은 최대 5GB까지 가능합니다.</p>
-            </div>
           </div>
 
           <div>
