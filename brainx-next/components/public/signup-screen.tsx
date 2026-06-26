@@ -558,5 +558,8 @@ export function SignupScreen() {
       </p>
       </div>
     </AuthShell>
+        </div>
+      </div>
+    </div>
   );
 }
