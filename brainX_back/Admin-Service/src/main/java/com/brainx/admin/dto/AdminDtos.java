@@ -1,5 +1,6 @@
 package com.brainx.admin.dto;
 
+import com.brainx.admin.entity.AdminRole;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -105,11 +106,28 @@ public final class AdminDtos {
             String email,
             String role,
             List<String> permissions,
+            boolean mustChangePassword,
             OffsetDateTime lastLoginAt,
             OffsetDateTime createdAt
     ) {}
     public record AdminProfileUpdateRequest(String name, @Email String email) {}
     public record AdminPasswordChangeRequest(@NotBlank String currentPassword, @NotBlank String newPassword) {}
+
+    public record AdminLoginRequest(@NotBlank String loginId, @NotBlank String password) {}
+    public record AdminLoginData(String accessToken, AdminMeData admin) {}
+
+    public record AdminAccountRow(
+            String adminId,
+            String name,
+            String loginId,
+            AdminRole role,
+            boolean mustChangePassword,
+            OffsetDateTime createdAt,
+            OffsetDateTime lastLoginAt
+    ) {}
+    public record AdminAccountsData(List<AdminAccountRow> admins) {}
+    public record AdminAccountCreateRequest(@NotBlank String name, @NotBlank String loginId, @NotNull AdminRole role) {}
+    public record AdminAccountCreateData(AdminAccountRow admin, String temporaryPassword) {}
 
     public record SupportTicketData(
             String ticketId,
@@ -191,6 +209,4 @@ public final class AdminDtos {
     public record AdminPlanPriceUpdateRequest(@NotNull @Min(0) BigDecimal price, String currency, @NotNull ApplyTiming applyTiming) {}
 
     public record AdminTokenUsageData(List<Map<String, Object>> usage, BigDecimal totalCost) {}
-    public record AdminUserCreateRequest(@Email String email, String role, String temporaryPassword) {}
-    public record AdminUserCreateData(String adminUserId) {}
 }

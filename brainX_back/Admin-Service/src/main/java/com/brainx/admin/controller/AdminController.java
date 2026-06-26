@@ -2,10 +2,12 @@ package com.brainx.admin.controller;
 
 import com.brainx.admin.dto.ApiResponse;
 import com.brainx.admin.dto.AdminDtos.*;
+import com.brainx.admin.service.AdminAuthService;
 import com.brainx.admin.service.AdminService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -15,9 +17,32 @@ import java.util.List;
 @RequestMapping("/api/v1/admin")
 public class AdminController {
     private final AdminService adminService;
+    private final AdminAuthService adminAuthService;
 
-    public AdminController(AdminService adminService) {
+    public AdminController(AdminService adminService, AdminAuthService adminAuthService) {
         this.adminService = adminService;
+        this.adminAuthService = adminAuthService;
+    }
+
+    @PostMapping("/auth/login")
+    public ApiResponse<AdminLoginData> login(@Valid @RequestBody AdminLoginRequest request) {
+        return ApiResponse.success(adminAuthService.login(request));
+    }
+
+    @GetMapping("/admin-accounts")
+    public ApiResponse<AdminAccountsData> listAdminAccounts() {
+        return ApiResponse.success(adminAuthService.listAccounts());
+    }
+
+    @PostMapping("/admin-accounts")
+    public ResponseEntity<ApiResponse<AdminAccountCreateData>> createAdminAccount(Authentication auth, @Valid @RequestBody AdminAccountCreateRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(adminAuthService.createAccount(auth.getName(), request)));
+    }
+
+    @DeleteMapping("/admin-accounts/{adminId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteAdminAccount(Authentication auth, @PathVariable String adminId) {
+        adminAuthService.deleteAccount(auth.getName(), adminId);
     }
 
     @GetMapping("/dashboard/overview")
@@ -59,11 +84,6 @@ public class AdminController {
         return ApiResponse.success(adminService.listUsers(q, planId, status, joinedYear, page, size));
     }
 
-    @PostMapping("/users")
-    public ApiResponse<AdminUserCreateData> createAdminUser(@Valid @RequestBody AdminUserCreateRequest request) {
-        return ApiResponse.success(adminService.createAdminUser(request));
-    }
-
     @GetMapping("/users/{userId}")
     public ApiResponse<AdminUserDetailData> getUserDetail(@PathVariable String userId) {
         return ApiResponse.success(adminService.getUserDetail(userId));
@@ -90,19 +110,19 @@ public class AdminController {
     }
 
     @GetMapping("/me")
-    public ApiResponse<AdminMeData> getMe() {
-        return ApiResponse.success(adminService.getMe());
+    public ApiResponse<AdminMeData> getMe(Authentication auth) {
+        return ApiResponse.success(adminAuthService.getMe(auth.getName()));
     }
 
     @PatchMapping("/me/profile")
-    public ApiResponse<AdminMeData> updateProfile(@Valid @RequestBody AdminProfileUpdateRequest request) {
-        return ApiResponse.success(adminService.updateProfile(request));
+    public ApiResponse<AdminMeData> updateProfile(Authentication auth, @Valid @RequestBody AdminProfileUpdateRequest request) {
+        return ApiResponse.success(adminAuthService.updateProfile(auth.getName(), request));
     }
 
     @PatchMapping("/me/password")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void changePassword(@Valid @RequestBody AdminPasswordChangeRequest request) {
-        // Credential mutation is delegated to User-Service in the production adapter.
+    public void changePassword(Authentication auth, @Valid @RequestBody AdminPasswordChangeRequest request) {
+        adminAuthService.changePassword(auth.getName(), request);
     }
 
     @GetMapping("/token-usage")

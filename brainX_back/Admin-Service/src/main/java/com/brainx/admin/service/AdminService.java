@@ -275,31 +275,6 @@ public class AdminService {
         return new AdminUserBulkActionData(request.userIds().size(), 0, jobId);
     }
 
-    public AdminMeData getMe() {
-        return new AdminMeData(
-                "adm_001",
-                "김운영",
-                "admin@brainx.io",
-                "Super Admin",
-                List.of("최고관리자", "전체 접근 권한"),
-                BASE.minusMinutes(43),
-                OffsetDateTime.parse("2023-01-09T00:00:00+09:00")
-        );
-    }
-
-    public AdminMeData updateProfile(AdminProfileUpdateRequest request) {
-        AdminMeData current = getMe();
-        return new AdminMeData(
-                current.adminUserId(),
-                valueOr(request.name(), current.name()),
-                valueOr(request.email(), current.email()),
-                current.role(),
-                current.permissions(),
-                current.lastLoginAt(),
-                current.createdAt()
-        );
-    }
-
     public AdminSupportTicketsData listTickets(SupportStatus status) {
         String statusParam = toInternalSupportStatus(status);
         List<InternalTicketDto> tickets = userRestClient.get()
@@ -516,10 +491,6 @@ public class AdminService {
 
     public AdminTokenUsageData tokenUsage() {
         return new AdminTokenUsageData(List.of(Map.of("modelId", "gpt-4.1", "tokens", 1242000)), new BigDecimal("37.12"));
-    }
-
-    public AdminUserCreateData createAdminUser(AdminUserCreateRequest request) {
-        return new AdminUserCreateData("adm_" + UUID.randomUUID());
     }
 
     private List<InternalSubscriptionDto> listSubscriptionsInternal() {
