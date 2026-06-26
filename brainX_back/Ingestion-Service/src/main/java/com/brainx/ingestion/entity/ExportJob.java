@@ -28,7 +28,9 @@ public class ExportJob {
     @Column(name = "user_id", nullable = false, length = 36)
     private String userId;
 
-    @Column(name = "note_id", nullable = false, length = 36)
+    // Workspace-Service의 실제 노트 ID는 "note_" + UUID(하이픈 포함) = 41자라 36으로는 부족해서
+    // INSERT가 "value too long for type character varying(36)"으로 매번 실패했다.
+    @Column(name = "note_id", nullable = false, length = 64)
     private String noteId;
 
     @Enumerated(EnumType.STRING)

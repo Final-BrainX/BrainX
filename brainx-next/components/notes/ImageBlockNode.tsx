@@ -15,6 +15,7 @@ import {
   type BlockAlign,
   type BlockWidthMode,
 } from "./BlockControls";
+import { startBlockDrag } from "./DragHandleExtension";
 
 /** 클립보드/드래그앤드롭으로 들어온 이미지 파일을 base64 data URL로 읽어 지정 위치(또는 현재
     커서)에 이미지 블록으로 삽입한다. 파일 읽기가 비동기라 handlePaste/handleDrop처럼 동기
@@ -47,7 +48,7 @@ declare module "@tiptap/core" {
   }
 }
 
-function ImageBlockView({ node, updateAttributes, selected }: NodeViewProps) {
+function ImageBlockView({ node, updateAttributes, selected, getPos, editor }: NodeViewProps) {
   const [broken, setBroken] = useState(false);
   const assetId      = (node.attrs.assetId as string | null) ?? null;
   // 파일 가져오기로 만들어진 노트는 base64/외부 URL이 아니라 자산 참조(assetId)만 갖고
@@ -87,7 +88,7 @@ function ImageBlockView({ node, updateAttributes, selected }: NodeViewProps) {
     : blockContentStyle(widthMode, widthPercent, naturalWidthPx);
 
   return (
-    <NodeViewWrapper className="split-image-block my-3" data-drag-handle>
+    <NodeViewWrapper className="split-image-block my-3">
       {/* NodeViewWrapper는 forwardRef가 아니라 ref를 직접 못 받는다 — hover 감지/위치 측정용
           ref는 이 안쪽 div에 둔다. */}
       <div
@@ -95,6 +96,19 @@ function ImageBlockView({ node, updateAttributes, selected }: NodeViewProps) {
         className="relative"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        onMouseDown={(event) => {
+          // 네이티브 HTML5 드래그(draggable) 대신 ⠿ 손잡이와 같은 마우스 이벤트 기반 드래그로
+          // 옮긴다 — 노션처럼 이미지를 직접 잡고 끌 때도 휠 스크롤이 되게 하려는 목적
+          // (네이티브 드래그 중에는 브라우저가 'wheel' 이벤트를 보내지 않는다, DragHandleExtension
+          // 참고). 클릭만으로는 드래그가 시작되지 않게 preventDefault만 하고 실제 시작은
+          // mousemove가 충분히 움직였을 때만 하지 않고 즉시 시작한다 — 손잡이 드래그와 동일한
+          // 단순한 동작(클릭 즉시 드래그 상태)으로 통일.
+          if (!editor.isEditable) return;
+          const pos = getPos();
+          if (pos == null) return;
+          event.preventDefault();
+          startBlockDrag(pos);
+        }}
       >
         <BlockSizeToolbar
           value={{ align, widthMode, widthPercent }}
@@ -151,7 +165,11 @@ export const ImageBlock = Node.create({
   name: "imageBlock",
   group: "block",
   atom: true,
-  draggable: true,
+  // 네이티브 HTML5 드래그(draggable:true)로 두면 옮길 수는 있지만, 네이티브 드래그 중에는
+  // 브라우저가 'wheel' 이벤트를 전혀 보내지 않아(크로미움 공통 동작) 휠로 스크롤하며 옮길 수
+  // 없다. 노션처럼 이미지를 직접 잡고 끌어도 휠이 되게, ImageBlockView의 onMouseDown에서
+  // DragHandleExtension의 ⠿ 손잡이와 동일한(일반 마우스 이벤트 기반) 드래그를 시작한다.
+  draggable: false,
   selectable: true,
 
   addAttributes() {

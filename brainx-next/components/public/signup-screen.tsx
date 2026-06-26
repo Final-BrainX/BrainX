@@ -8,7 +8,7 @@ import { checkEmailAvailability, requestEmailVerification, signupWithEmail, veri
 import { cx } from "@/lib/utils";
 import { useBrainX } from "@/components/brainx-provider";
 import { Btn, Icon } from "@/components/brainx-ui";
-import { Field } from "@/components/public/auth-shared";
+import { AuthShell, Field } from "@/components/public/auth-shared";
 
 type VerificationStatus = "idle" | "sent" | "checking" | "verified" | "invalid";
 type EmailAvailabilityStatus = "idle" | "checking" | "available" | "unavailable";
@@ -352,6 +352,8 @@ export function SignupScreen() {
       {/* RIGHT — form panel */}
       <div className="relative flex h-screen items-center justify-center overflow-hidden border-l border-line/70 bg-bg px-6 py-6">
         <div className="w-full max-w-[500px] px-6 py-5 [&_input]:h-9 [&_input]:rounded-lg [&_input]:text-[14px]">
+    <AuthShell>
+      <div className="w-full max-w-[600px] px-6 py-5 [&_input]:h-9 [&_input]:rounded-lg [&_input]:text-[14px]">
           <h1 className="mb-1 text-[24px] font-bold tracking-tight text-txt">두뇌를 깨우는 1분</h1>
           <p className="mb-4 text-[14px] text-txt2">무료로 BrainX를 시작하세요.</p>
       <div className="mb-1 flex items-start gap-2">
@@ -554,8 +556,7 @@ export function SignupScreen() {
           로그인
         </button>
       </p>
-        </div>
       </div>
-    </div>
+    </AuthShell>
   );
 }

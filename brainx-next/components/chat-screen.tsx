@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Compass, PencilLine, Sparkles } from "lucide-react";
 import { CHAT_SESSIONS, MODELS, noteById, clusterById, type BrainXNote } from "@/lib/brainx-data";
 import { useBrainX } from "@/components/brainx-provider";
 import { Avatar, Badge, Btn, Card, Icon, RelevanceBar } from "@/components/brainx-ui";
@@ -87,7 +88,7 @@ export function ChatScreen() {
           </Btn>
         </div>
         <div className="scroll flex-1 overflow-y-auto px-2">
-          <div className="px-2 py-1.5 text-[13px] font-semibold text-txt3">최근 대화</div>
+          <div className="px-2 py-1.5 text-[12px] font-semibold text-txt3">최근 대화</div>
           {sessions.map((session) => (
             <button
               key={session.id}
@@ -115,7 +116,7 @@ export function ChatScreen() {
             <button
               type="button"
               onClick={() => setModelOpen((current) => !current)}
-              className="flex h-9 items-center gap-2 rounded-xl border border-line/60 bg-surface/60 px-3 text-[15px] hover:border-primary/50"
+              className="flex h-[34px] items-center gap-2 rounded-xl border border-line/60 bg-surface/60 px-3 text-[14px] hover:border-primary/50"
             >
               <span className="h-2 w-2 rounded-full bg-cyan" />
               {model.name}
@@ -147,18 +148,35 @@ export function ChatScreen() {
 
         <div ref={scrollRef} className="scroll flex-1 overflow-y-auto">
           {messages.length === 0 ? (
-            <div className="mx-auto flex h-full max-w-lg flex-col items-center justify-center px-6 text-center">
-              <div className="mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br from-primary to-accent shadow-glow">
-                <Icon name="brain" size={30} className="text-white" />
+            <div className="mx-auto flex h-full max-w-[860px] flex-col items-center justify-center px-6 py-10 text-center">
+              <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-[22px] border border-primary/15 bg-white/75 shadow-[0_10px_30px_rgba(108,99,216,0.12)]">
+                <Icon name="brain" size={24} className="text-primary" />
               </div>
-              <h2 className="mb-2 text-[24px] font-bold tracking-tight">내 노트를 기반으로 질문해보세요</h2>
-              <p className="mb-7 text-[16px] text-txt2">BrainX는 당신이 쌓은 13개의 노트를 근거로 답하고, 항상 출처를 함께 보여줍니다.</p>
-              <div className="grid w-full gap-2">
-                {suggestions.map((question) => (
-                  <button key={question} type="button" onClick={() => ask(question)} className="card group flex items-center gap-3 rounded-xl p-3.5 text-left transition-colors hover:border-primary/45">
-                    <Icon name="sparkle" size={16} className="shrink-0 text-accent" />
-                    <span className="flex-1 text-[15.5px] text-txt2 group-hover:text-txt">{question}</span>
-                    <Icon name="arrowL" size={15} className="rotate-180 text-txt3" />
+              <h2 className="text-[28px] font-bold tracking-tight text-txt">내 노트를 기반으로 질문해보세요</h2>
+              <p className="mt-2 max-w-[560px] text-[15px] leading-7 text-txt2">
+                BrainX는 노트에 적힌 맥락을 근거로 답하고, 필요한 경우 관련 출처를 함께 보여줍니다.
+              </p>
+              <div className="mt-7 grid w-full gap-3 md:grid-cols-3">
+                {[
+                  { step: "1", label: "노트 작성", desc: "먼저 생각을 적어두면 AI가 연결을 더 잘 이해해요.", icon: PencilLine, tone: "from-[#EFEAFF] to-[#F7F5FF]", accent: "text-[#6C63D8]" },
+                  { step: "2", label: "AI 연결", desc: "관련 노트와 문맥을 함께 읽으며 답을 풍부하게 만들어요.", icon: Sparkles, tone: "from-[#EAF8F2] to-[#F5FBF8]", accent: "text-[#4BC3AC]" },
+                  { step: "3", label: "그래프 탐색", desc: "대화로 찾은 주제를 그래프에서 더 넓게 살펴보세요.", icon: Compass, tone: "from-[#EAF1FF] to-[#F5F8FF]", accent: "text-[#5BA8F0]" }
+                ].map((item) => (
+                  <button
+                    key={item.step}
+                    type="button"
+                    onClick={() => ask(suggestions[0] ?? "내 노트의 핵심 흐름을 정리해줘")}
+                    className="group relative overflow-hidden rounded-2xl border border-line/60 bg-white/85 p-5 text-left shadow-[0_12px_30px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:border-primary/25"
+                  >
+                    <span className={`absolute -right-1 top-1 text-[56px] font-extrabold leading-none ${item.accent} opacity-[0.08]`}>
+                      {item.step}
+                    </span>
+                    <div className={`mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br ${item.tone} ${item.accent}`}>
+                      <item.icon size={18} />
+                    </div>
+                    <div className="text-[13px] font-semibold text-txt">{item.label}</div>
+                    <p className="mt-1.5 min-h-[44px] text-[12px] leading-6 text-txt2">{item.desc}</p>
+                    <div className="mt-3 text-[12px] font-medium text-primary">바로 보기</div>
                   </button>
                 ))}
               </div>
@@ -220,7 +238,7 @@ export function ChatScreen() {
                   }
                 }}
                 placeholder="내 노트에게 질문하기…  (Shift+Enter 줄바꿈)"
-                className="max-h-32 flex-1 resize-none bg-transparent px-2 py-2 text-[16.5px] text-txt outline-none placeholder:text-txt3"
+                className="max-h-32 flex-1 resize-none bg-transparent px-2 py-2 text-[15.5px] text-txt outline-none placeholder:text-[15px] placeholder:text-txt3"
               />
               <button type="button" onClick={() => ask(input)} disabled={!input.trim() || streaming} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-white hover:brightness-110 disabled:opacity-40">
                 <Icon name="send" size={17} />

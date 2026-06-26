@@ -7,9 +7,11 @@ import com.brainx.ingestion.dto.response.IngestionResponse.AssetDetailResponse;
 import com.brainx.ingestion.dto.response.IngestionResponse.AssetUploadCompleteResponse;
 import com.brainx.ingestion.dto.response.IngestionResponse.AssetUploadSessionResponse;
 import com.brainx.ingestion.entity.Asset;
+import com.brainx.ingestion.exception.BrainXException;
 import com.brainx.ingestion.service.AssetService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -18,10 +20,23 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.UnknownHostException;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/assets")
 @RequiredArgsConstructor
 public class AssetController {
+
+    private static final long MAX_PROXY_IMAGE_BYTES = 15L * 1024 * 1024;
 
     private final AssetService assetService;
 
@@ -85,5 +100,76 @@ public class AssetController {
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         ContentDisposition.inline().filename(asset.getFileName()).build().toString())
                 .body(bytes);
+    }
+
+    /**
+     * GET /api/v1/assets/proxy-image?url=...
+     * 노션 등에서 가져온 이미지가 서명 URL 만료나 그 호스트의 CORS 정책 때문에 브라우저가
+     * 직접 못 받아올 때(노트 PDF 내보내기 등), 서버가 대신 가져와서 전달한다 — 서버 대
+     * 서버 호출에는 브라우저의 CORS 제약이 적용되지 않는다.
+     * SecurityConfig에서 이 경로만 별도로 인증을 요구한다(임의 URL을 대신 가져오는 기능이라
+     * /api/v1/assets/** 의 나머지처럼 비로그인 허용으로 두지 않음). https만 허용하고,
+     * 사설/루프백/링크로컬 주소(클라우드 메타데이터 169.254.169.254 등)는 SSRF 방지를 위해
+     * 차단한다. 응답이 image/*가 아니거나 너무 크면 거부한다.
+     */
+    @GetMapping("/proxy-image")
+    public ResponseEntity<byte[]> proxyImage(Authentication auth, @RequestParam String url) {
+        URI uri = validateProxyUrl(url);
+        try {
+            HttpClient client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(5))
+                    .build();
+            HttpRequest request = HttpRequest.newBuilder(uri)
+                    .timeout(Duration.ofSeconds(10))
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() != 200) {
+                throw BrainXException.notFound("이미지를 가져오지 못했습니다");
+            }
+            byte[] body = response.body();
+            if (body == null || body.length == 0) {
+                throw BrainXException.notFound("이미지를 가져오지 못했습니다");
+            }
+            if (body.length > MAX_PROXY_IMAGE_BYTES) {
+                throw BrainXException.badRequest("IMAGE_TOO_LARGE", "이미지가 너무 큽니다");
+            }
+            String contentType = response.headers().firstValue("Content-Type").orElse("");
+            if (!contentType.toLowerCase().startsWith("image/")) {
+                throw BrainXException.badRequest("INVALID_CONTENT_TYPE", "이미지가 아닙니다");
+            }
+            log.info("이미지 프록시 성공: userId={}, host={}, bytes={}", auth.getName(), uri.getHost(), body.length);
+            return ResponseEntity.ok().contentType(MediaType.parseMediaType(contentType)).body(body);
+        } catch (IOException | InterruptedException e) {
+            log.warn("이미지 프록시 실패: url={}, error={}", url, e.getMessage());
+            throw BrainXException.internalError("이미지를 가져오는 중 오류가 발생했습니다");
+        }
+    }
+
+    private URI validateProxyUrl(String url) {
+        URI uri;
+        try {
+            uri = new URI(url);
+        } catch (URISyntaxException e) {
+            throw BrainXException.badRequest("INVALID_URL", "올바른 URL이 아닙니다");
+        }
+        if (!"https".equalsIgnoreCase(uri.getScheme())) {
+            throw BrainXException.badRequest("INVALID_URL", "https URL만 허용됩니다");
+        }
+        String host = uri.getHost();
+        if (host == null || host.isBlank()) {
+            throw BrainXException.badRequest("INVALID_URL", "올바른 URL이 아닙니다");
+        }
+        try {
+            for (InetAddress addr : InetAddress.getAllByName(host)) {
+                if (addr.isLoopbackAddress() || addr.isLinkLocalAddress() || addr.isSiteLocalAddress()
+                        || addr.isMulticastAddress() || addr.isAnyLocalAddress()) {
+                    throw BrainXException.badRequest("INVALID_URL", "허용되지 않는 주소입니다");
+                }
+            }
+        } catch (UnknownHostException e) {
+            throw BrainXException.badRequest("INVALID_URL", "호스트를 찾을 수 없습니다");
+        }
+        return uri;
     }
 }

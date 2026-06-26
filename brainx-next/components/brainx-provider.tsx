@@ -19,6 +19,7 @@ import {
   seedNotes,
   updateNoteDerived
 } from "@/lib/brainx-data";
+import { readAuthSession } from "@/lib/auth-api";
 import { translate, type I18nKey, type LanguageCode } from "@/lib/i18n";
 
 export type ThemeMode = "dark" | "light" | "system";
@@ -96,10 +97,12 @@ function readSidebarCollapsed() {
 }
 
 function readNotes(): BrainXNote[] {
-  if (typeof window === "undefined") return seedNotes();
+  if (typeof window === "undefined") return [];
+  const session = readAuthSession();
+  if (session && session.accessToken !== "demo-access-token") return [];
   const parsed = readJson<BrainXNote[] | null>(NOTES_KEY, null);
-  if (!Array.isArray(parsed)) return seedNotes();
-  return parsed;
+  if (Array.isArray(parsed)) return parsed;
+  return seedNotes();
 }
 
 export function BrainXProvider({ children }: { children: ReactNode }) {
@@ -107,7 +110,7 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<ThemeMode>("dark");
   const [effectiveTheme, setEffectiveTheme] = useState<EffectiveTheme>("dark");
   const [language, setLanguage] = useState<LanguageCode>("ko");
-  const [notes, setNotes] = useState<BrainXNote[]>(() => seedNotes());
+  const [notes, setNotes] = useState<BrainXNote[]>(() => readNotes());
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);

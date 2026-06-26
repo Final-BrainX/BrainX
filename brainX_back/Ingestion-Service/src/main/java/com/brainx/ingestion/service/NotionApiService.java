@@ -22,6 +22,7 @@ public class NotionApiService {
 
     private final RestTemplate restTemplate;
     private final AssetService assetService;
+    private final NotionRateLimiter rateLimiter;
 
     @Value("${notion.client-id}")
     private String clientId;
@@ -80,6 +81,7 @@ public class NotionApiService {
         );
 
         try {
+            rateLimiter.acquire();
             ResponseEntity<Map> res = restTemplate.postForEntity(
                     NOTION_API + "/search",
                     new HttpEntity<>(body, headers),
@@ -117,6 +119,7 @@ public class NotionApiService {
     // 페이지 제목 조회
     public String getPageTitle(String pageId, String accessToken) {
         try {
+            rateLimiter.acquire();
             ResponseEntity<Map> res = restTemplate.exchange(
                     NOTION_API + "/pages/" + pageId,
                     HttpMethod.GET,
@@ -134,6 +137,7 @@ public class NotionApiService {
     @SuppressWarnings("unchecked")
     public String getPageMarkdown(String pageId, String accessToken, String userId) {
         try {
+            rateLimiter.acquire();
             ResponseEntity<Map> res = restTemplate.exchange(
                     NOTION_API + "/blocks/" + pageId + "/children?page_size=100",
                     HttpMethod.GET,
@@ -194,6 +198,22 @@ public class NotionApiService {
                     Map<String, Object> childPage = (Map<String, Object>) block.get("child_page");
                     String childTitle = (String) childPage.get("title");
                     yield "[[" + childTitle + "]]";
+                }
+                case "child_database" -> {
+                    // child_database 블록 자체에는 행(row) 데이터가 없고, 행은 일반 자식 블록이
+                    // 아니라 databases/{id}/query API로만 조회된다. 각 행은 사실 Notion 페이지라
+                    // 본문 블록을 가지고 있으므로(ImportService.importPageRecursive가 별도 노트로
+                    // 만들고 createNoteLink로 이어준다) 여기서는 그 노트들로 가는 위키링크 목록만
+                    // 인라인으로 남긴다.
+                    String databaseId = (String) block.get("id");
+                    Map<String, Object> childDb = (Map<String, Object>) block.get("child_database");
+                    String dbTitle = (String) childDb.get("title");
+                    List<ChildPageRef> rows = queryDatabaseRowRefs(databaseId, accessToken);
+                    if (rows.isEmpty()) yield "**" + dbTitle + "**";
+                    StringBuilder sb = new StringBuilder();
+                    if (dbTitle != null && !dbTitle.isBlank()) sb.append("**").append(dbTitle).append("**\n");
+                    for (ChildPageRef row : rows) sb.append("- [[").append(row.title()).append("]]\n");
+                    yield sb.toString().stripTrailing();
                 }
                 case "column_list", "column" -> {
                     // 자식 블록 재귀 조회
@@ -319,6 +339,7 @@ public class NotionApiService {
     @SuppressWarnings("unchecked")
     public List<ChildPageRef> getChildPages(String pageId, String accessToken) {
         try {
+            rateLimiter.acquire();
             ResponseEntity<Map> res = restTemplate.exchange(
                     NOTION_API + "/blocks/" + pageId + "/children?page_size=100",
                     HttpMethod.GET,
@@ -341,6 +362,77 @@ public class NotionApiService {
     }
 
     public record ChildPageRef(String id, String title) {}
+
+    // 페이지 안에 임베드된 데이터베이스 블록 목록 조회
+    @SuppressWarnings("unchecked")
+    public List<ChildDatabaseRef> getChildDatabases(String pageId, String accessToken) {
+        try {
+            rateLimiter.acquire();
+            ResponseEntity<Map> res = restTemplate.exchange(
+                    NOTION_API + "/blocks/" + pageId + "/children?page_size=100",
+                    HttpMethod.GET,
+                    new HttpEntity<>(notionHeaders(accessToken)),
+                    Map.class
+            );
+            List<Map<String, Object>> results = (List<Map<String, Object>>) res.getBody().get("results");
+            if (results == null) return List.of();
+            return results.stream()
+                    .filter(block -> "child_database".equals(block.get("type")))
+                    .map(block -> {
+                        Map<String, Object> db = (Map<String, Object>) block.get("child_database");
+                        return new ChildDatabaseRef((String) block.get("id"), (String) db.get("title"));
+                    })
+                    .toList();
+        } catch (Exception e) {
+            log.warn("Notion 하위 데이터베이스 목록 조회 실패: pageId={}, error={}", pageId, e.getMessage());
+            return List.of();
+        }
+    }
+
+    public record ChildDatabaseRef(String id, String title) {}
+
+    // 데이터베이스 행을 (id, title) 참조 목록으로 조회한다. 행의 제목은 properties 중 type이
+    // title인 속성 값이다(extractTitle은 /pages/{id} 응답과 databases/{id}/query 행 응답 둘 다
+    // 같은 형태의 properties를 쓰므로 그대로 재사용한다).
+    public List<ChildPageRef> queryDatabaseRowRefs(String databaseId, String accessToken) {
+        return queryDatabaseRows(databaseId, accessToken).stream()
+                .map(row -> new ChildPageRef((String) row.get("id"), extractTitle(row)))
+                .toList();
+    }
+
+    // 데이터베이스의 모든 행(=페이지) 원본을 조회한다(페이지네이션 처리).
+    // 행은 child_page 블록이 아니라 databases/{id}/query API로만 조회되므로
+    // 일반 자식 블록 탐색에는 잡히지 않는다.
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> queryDatabaseRows(String databaseId, String accessToken) {
+        HttpHeaders headers = notionHeaders(accessToken);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        List<Map<String, Object>> rows = new ArrayList<>();
+        String startCursor = null;
+
+        try {
+            do {
+                Map<String, Object> body = startCursor == null
+                        ? Map.of("page_size", 100)
+                        : Map.of("page_size", 100, "start_cursor", startCursor);
+
+                rateLimiter.acquire();
+                ResponseEntity<Map> res = restTemplate.postForEntity(
+                        NOTION_API + "/databases/" + databaseId + "/query",
+                        new HttpEntity<>(body, headers),
+                        Map.class
+                );
+                Map<String, Object> resBody = res.getBody();
+                List<Map<String, Object>> results = (List<Map<String, Object>>) resBody.get("results");
+                if (results != null) rows.addAll(results);
+                boolean hasMore = Boolean.TRUE.equals(resBody.get("has_more"));
+                startCursor = hasMore ? (String) resBody.get("next_cursor") : null;
+            } while (startCursor != null);
+        } catch (Exception e) {
+            log.warn("Notion 데이터베이스 행 조회 실패: databaseId={}, error={}", databaseId, e.getMessage());
+        }
+        return rows;
+    }
 
     @Getter
     public static class NotionPageItem {

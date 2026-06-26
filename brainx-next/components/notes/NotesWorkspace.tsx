@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { WikiLinkContext, resolveWikiLinkTitle, type WikiLinkContextValue } from "./WikiLinkContext";
-import { ChevronLeft, RotateCcw, Save } from "lucide-react";
+import { ChevronLeft, Download, MoreHorizontal, RotateCcw, Save } from "lucide-react";
 import { cx } from "@/lib/utils";
 import { MockFolder, MockNote, PaneNode, PaneTabsState, Tab, NotesWorkspaceSession, DragPayload } from "@/lib/notes/noteTypes";
 import type { EditMode, AiActionType } from "./NoteEditor";
@@ -33,7 +33,8 @@ import QuickSwitcher from "./QuickSwitcher";
 import NotesExplorer from "./NotesExplorer";
 import RightSidebar, { type PendingAiRequest } from "./RightSidebar";
 import { moveNoteIntoFolder, reorderNoteRelativeTo, moveFolderUnder, reorderFolderRelativeTo } from "@/lib/notes/folderDnd";
-import { isNotionDemoSession, uploadAndImportFile } from "@/lib/ingestion-api";
+import { exportNote, isNotionDemoSession, uploadAndImportFile, type ExportFormat } from "@/lib/ingestion-api";
+import { downloadPdfFile, downloadTextFile, htmlToMarkdown, htmlToPlainText, safeFileName } from "@/lib/notes/exportNoteContent";
 import { useBrainX } from "@/components/brainx-provider";
 
 export type InitialTab = { kind: "note"; noteId: string } | { kind: "start" };
@@ -148,6 +149,24 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const init = initRef.current;
 
   const { pushToast } = useBrainX();
+
+  // 툴바 "···" 메뉴 — 지금은 "내보내기" 항목 하나뿐이지만, 새 메뉴 항목이 늘어날 자리.
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [exportSubmenuOpen, setExportSubmenuOpen] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!moreMenuOpen) return;
+    const handlePointer = (event: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
+        setMoreMenuOpen(false);
+        setExportSubmenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handlePointer);
+    return () => document.removeEventListener("mousedown", handlePointer);
+  }, [moreMenuOpen]);
 
   const [state, setState] = useState<{ root: PaneNode; activeId: string }>(() => ({
     root: init.root,
@@ -1043,6 +1062,36 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     };
   }, []);
 
+  /** POST /api/v1/exports는 SSOT 계약대로 계속 호출하지만(작업 기록), 현재 백엔드 구현은
+      MVP 스텁이라 존재하지 않는 cdn.brainx.com URL만 돌려줘 실제 다운로드가 되지 않는다
+      (브라우저가 그 도메인을 찾지 못해 그냥 아무 일도 안 일어난 것처럼 보임). 백엔드가 실제
+      파일을 렌더링하기 전까지는, 이미 메모리에 있는 노트 HTML을 여기서 직접 변환해
+      내려준다(exportNoteContent.ts) — 그래서 백엔드 호출은 실패해도 무시한다(best-effort). */
+  const handleExport = useCallback(async (format: ExportFormat) => {
+    if (!activeNote) return;
+    setExportingFormat(format);
+    try {
+      if (!isNotionDemoSession()) {
+        exportNote(activeNote.id, format).catch(() => {});
+      }
+      const fileName = safeFileName(activeNote.title);
+      if (format === "TXT") {
+        downloadTextFile(`${fileName}.txt`, htmlToPlainText(activeNote.content), "text/plain;charset=utf-8");
+      } else if (format === "MD") {
+        downloadTextFile(`${fileName}.md`, htmlToMarkdown(activeNote.content), "text/markdown;charset=utf-8");
+      } else {
+        await downloadPdfFile(activeNote.title, activeNote.content, `${fileName}.pdf`);
+      }
+      pushToast(`${format} 내보내기를 시작했어요`, "ok");
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : "내보내기에 실패했습니다.", "err");
+    } finally {
+      setExportingFormat(null);
+      setMoreMenuOpen(false);
+      setExportSubmenuOpen(false);
+    }
+  }, [activeNote, pushToast]);
+
   /* ── 키보드 단축키 (Ctrl/Cmd+N 새 파일, Ctrl/Cmd+O 파일로 이동, Ctrl/Cmd+S 저장) ── */
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -1232,6 +1281,69 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
               <RotateCcw size={12} />
               <span>초기화</span>
             </button>
+            <div className="relative" ref={moreMenuRef}>
+              <button
+                type="button"
+                onClick={() => setMoreMenuOpen((current) => !current)}
+                title="더 보기"
+                className={cx(
+                  "inline-flex h-[26px] w-[26px] items-center justify-center rounded-lg border transition-colors",
+                  moreMenuOpen
+                    ? "border-line/60 bg-surface2/60 text-txt"
+                    : "border-transparent text-txt3 hover:border-line/60 hover:bg-surface2/50 hover:text-txt"
+                )}
+              >
+                <MoreHorizontal size={14} />
+              </button>
+              {moreMenuOpen && (
+                <div
+                  role="menu"
+                  aria-label="더 보기 메뉴"
+                  className="absolute right-0 top-[calc(100%+4px)] z-[1200] w-44 overflow-hidden rounded-lg border border-line/60 py-1"
+                  style={{
+                    background: "rgb(var(--surface))",
+                    boxShadow: "0 12px 28px -6px rgba(2,6,23,0.5), 0 0 0 1px rgb(var(--border) / 0.2)"
+                  }}
+                >
+                  {!exportSubmenuOpen ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => setExportSubmenuOpen(true)}
+                      disabled={!activeNote}
+                      className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[12px] text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt disabled:cursor-not-allowed disabled:text-txt3/50"
+                    >
+                      <Download size={13} />
+                      <span>내보내기</span>
+                    </button>
+                  ) : (
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setExportSubmenuOpen(false)}
+                        className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-[11px] font-medium text-txt3 transition-colors hover:text-txt"
+                      >
+                        <ChevronLeft size={12} />
+                        <span>내보내기 형식</span>
+                      </button>
+                      {(["PDF", "MD", "TXT"] as ExportFormat[]).map((format) => (
+                        <button
+                          key={format}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => handleExport(format)}
+                          disabled={exportingFormat !== null}
+                          className="flex w-full items-center justify-between px-3 py-1.5 text-left text-[12px] text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt disabled:cursor-not-allowed disabled:text-txt3/50"
+                        >
+                          <span>{format}</span>
+                          {exportingFormat === format && <span className="text-[10px] text-txt3">내보내는 중…</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* 에디터 + 우측 컨텍스트 패널 — 컨텍스트 패널은 고정 폭이었는데, Split View

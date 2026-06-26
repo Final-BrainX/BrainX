@@ -632,17 +632,31 @@ export default function NotesExplorer({
       )}
 
       {/* ── 헤더 ──────────────────────────────────────── */}
-      <div className="border-b border-line/50 px-3 py-3 space-y-2.5">
+      <div className="border-l border-line/20 px-3 py-3 space-y-2.5">
         {/* + 새 노트 버튼 */}
-        <Btn
-          variant="primary"
-          size="md"
-          icon="plus"
-          className="w-full text-[14px]"
-          onClick={() => onCreateNote(selectedFolderId ?? undefined)}
-        >
-          새 노트
-        </Btn>
+        <div className="group relative">
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute left-[-3px] right-[-3px] top-[-3px] bottom-[-3px] rounded-[12px] border-1 border-primary/50 opacity-80 animate-[ping_3.8s_cubic-bezier(0.2,0,0.2,1)_infinite]"
+          />
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute left-[-3px] right-[-3px] top-[-3px] bottom-[-3px] rounded-[12px] border border-primary/30 opacity-40 animate-[ping_3.8s_cubic-bezier(0.2,0,0.2,1)_infinite] [animation-delay:1.9s]"
+          />
+          <Btn
+            variant="primary"
+            size="md"
+            icon="plus"
+            className="relative z-10 w-full text-[14px]"
+            onClick={() => onCreateNote(selectedFolderId ?? undefined)}
+          >
+            새 노트
+          </Btn>
+          <div className="pointer-events-none absolute left-1/2 top-[calc(100%+10px)] z-20 -translate-x-1/2 whitespace-nowrap rounded-lg bg-txt px-2.5 py-1 text-[11px] font-medium text-bg2 opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100">
+            첫 노트를 만들어 보세요
+            <span className="absolute left-1/2 top-[-4px] h-2 w-2 -translate-x-1/2 rotate-45 bg-txt" />
+          </div>
+        </div>
 
         {/* 검색창 */}
         <div

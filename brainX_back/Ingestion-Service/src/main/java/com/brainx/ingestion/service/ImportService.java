@@ -182,6 +182,27 @@ public class ImportService {
             }
         }
 
+        // 페이지 안에 임베드된 데이터베이스 블록의 행들도 일반 하위 페이지가 아니라
+        // databases/{id}/query로만 조회되므로 별도로 순회한다. 행 하나하나가 실제로는 Notion
+        // 페이지이므로 importPageRecursive를 그대로 재사용하면 본문 블록 변환과 행 안의
+        // child_page/child_database 재귀까지 동일하게 처리된다.
+        List<NotionApiService.ChildDatabaseRef> childDatabases = notionApiService.getChildDatabases(pageId, accessToken);
+        for (NotionApiService.ChildDatabaseRef db : childDatabases) {
+            List<NotionApiService.ChildPageRef> rows = notionApiService.queryDatabaseRowRefs(db.id(), accessToken);
+            for (NotionApiService.ChildPageRef row : rows) {
+                try {
+                    List<String> rowNoteIds = importPageRecursive(userId, row.id(), folderId, accessToken, jwtToken);
+                    if (!rowNoteIds.isEmpty()) {
+                        workspaceApiClient.createNoteLink(noteId, rowNoteIds.get(0), row.title(), jwtToken);
+                        allNoteIds.addAll(rowNoteIds);
+                    }
+                } catch (Exception e) {
+                    log.warn("데이터베이스 행(노트) 가져오기 실패: databaseId={}, rowPageId={}, error={}",
+                            db.id(), row.id(), e.getMessage());
+                }
+            }
+        }
+
         return allNoteIds;
     }
 

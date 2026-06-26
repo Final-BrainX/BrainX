@@ -993,6 +993,122 @@ html.light .tiptap-note-content .ProseMirror table.note-table :is(td, th) {
   margin: 0;
 }
 
+/* ── 다단 컬럼 블록 (우클릭 → N단으로 나누기) ──────────────────── */
+
+.split-pane-editor .ProseMirror [data-type="column-list"] {
+  display: flex;
+  gap: 1rem;
+  margin: 0.75rem 0;
+}
+
+.split-pane-editor .ProseMirror [data-type="column"] {
+  flex: 1 1 0%;
+  min-width: 0;
+  padding: 0.25rem 0.6rem;
+  border: 1px dashed rgb(var(--line) / 0.4);
+  border-radius: 0.5rem;
+}
+
+.split-pane-editor .ProseMirror [data-type="column"] > *:last-child {
+  margin-bottom: 0;
+}
+
+.split-pane-editor .ProseMirror [data-type="column"] {
+  position: relative;
+}
+
+.split-column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -9px;
+  width: 10px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.split-column-resize-handle::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: rgb(var(--line) / 0.5);
+  border-radius: 1px;
+}
+
+.split-column-resize-handle:hover::after {
+  background: rgb(var(--primary));
+}
+
+.split-column:last-child .split-column-resize-handle {
+  display: none;
+}
+
+/* ── 드래그 핸들(블록 이동) ──────────────────────────────────── */
+
+.split-drag-handle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  position: fixed;
+  width: 18px;
+  height: 22px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1;
+  color: rgb(var(--txt3));
+  cursor: grab;
+  user-select: none;
+  z-index: 1500;
+}
+
+.split-drag-handle:hover {
+  background: rgb(var(--surface2) / 0.7);
+  color: rgb(var(--txt));
+}
+
+.split-drag-indicator {
+  display: none;
+  position: fixed;
+  height: 3px;
+  background: rgb(var(--primary));
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 1500;
+}
+
+/* 네이티브 드래그의 "커서를 따라다니는 반투명 미리보기"를 흉내낸다 — 우리 드래그는 일반
+   마우스 이벤트 기반이라 브라우저가 기본으로 그려주는 고스트가 없다. */
+.split-drag-ghost {
+  position: fixed;
+  pointer-events: none;
+  z-index: 2100;
+  opacity: 0.88;
+  transform: rotate(-2deg) scale(0.96);
+  max-height: 220px;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  background: rgb(var(--surface));
+  box-shadow: 0 14px 30px -8px rgba(2, 6, 23, 0.55), 0 0 0 1px rgb(var(--border) / 0.35);
+}
+
+.split-drag-ghost-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 60px;
+  color: rgb(var(--txt3));
+  font-size: 12px;
+}
+
+.split-drag-ghost-fallback {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: rgb(var(--txt2));
+}
+
 /* ── Heading Fold (접기/펼치기) ──────────────────────────────── */
 
 /* Heading에 position: relative → chevron absolute 기준점 */

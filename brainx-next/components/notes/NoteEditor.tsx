@@ -29,6 +29,8 @@ import { HeadingFold } from "./headingFold";
 import { CodeBlockView } from "./CodeBlockView";
 import { QuickSwatchRow, MoreColorPopover, TEXT_COLOR_QUICK, HIGHLIGHT_SWATCHES } from "./ColorPalette";
 import { ImageBlock, insertImageBlockFromFile } from "./ImageBlockNode";
+import { ColumnList, Column, splitBlockIntoColumns } from "./ColumnBlockNode";
+import { DragHandle } from "./DragHandleExtension";
 import { PdfBlock } from "./PdfBlockNode";
 import { HtmlBlock } from "./HtmlBlockNode";
 import { blockWidthPercent, type BlockWidthMode } from "./BlockControls";
@@ -99,6 +101,40 @@ function markdownToHtml(md: string): string {
   let codeLang = "";
   let listType: "ul" | "ol" | "task" | null = null;
   const listItems: { text: string; checked?: boolean }[] = [];
+  let tableLines: string[] = [];
+
+  function isTableRow(line: string) {
+    return /^\|.*\|\s*$/.test(line.trim());
+  }
+  function isSeparatorRow(line: string) {
+    return /^\|(\s*:?-{3,}:?\s*\|)+\s*$/.test(line.trim());
+  }
+  function splitCells(line: string): string[] {
+    return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+  }
+  function flushTable() {
+    if (tableLines.length === 0) return;
+    const rows = tableLines.filter((l) => !isSeparatorRow(l));
+    if (rows.length > 0) {
+      const headerCells = splitCells(rows[0]);
+      const bodyRows = rows.slice(1);
+      out.push(
+        "<table><tbody><tr>" +
+          headerCells.map((c) => `<th><p>${inlineHtml(c)}</p></th>`).join("") +
+          "</tr>" +
+          bodyRows
+            .map(
+              (r) =>
+                "<tr>" +
+                splitCells(r).map((c) => `<td><p>${inlineHtml(c)}</p></td>`).join("") +
+                "</tr>"
+            )
+            .join("") +
+          "</tbody></table>"
+      );
+    }
+    tableLines = [];
+  }
 
   function flushList() {
     if (!listType || listItems.length === 0) return;
@@ -144,6 +180,13 @@ function markdownToHtml(md: string): string {
       continue;
     }
     if (inCode) { codeLines.push(line); continue; }
+
+    if (isTableRow(line)) {
+      flushList();
+      tableLines.push(line);
+      continue;
+    }
+    flushTable();
 
     if (line.startsWith("### ")) {
       // "#"+공백을 지우지 않고 그대로 둔다 — 헤딩이 이제 실제 텍스트에 마크다운 기호를
@@ -195,6 +238,7 @@ function markdownToHtml(md: string): string {
   }
 
   flushList();
+  flushTable();
   return out.join("");
 }
 
@@ -2319,6 +2363,9 @@ const NOTE_EDITOR_EXTENSIONS = [
   ImageBlock,
   PdfBlock,
   HtmlBlock,
+  ColumnList,
+  Column,
+  DragHandle,
   BrainXTable,
   TableRow,
   BrainXTableHeader,
@@ -3147,6 +3194,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
             if (url) editor.chain().focus().setImageBlock({ src: url }).run();
           }}
           onInsertTable={(rows, cols) => editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run()}
+          onSplitColumns={(count) => splitBlockIntoColumns(editor, count)}
         />
       )}
       <EditorContent editor={editor} />

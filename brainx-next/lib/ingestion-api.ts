@@ -9,6 +9,25 @@ export function getAssetFileUrl(assetId: string) {
   return `${INGESTION_API_BASE_URL}/api/v1/assets/${assetId}/file`;
 }
 
+/** 노션 등에서 가져온 이미지의 서명 URL이 만료됐거나 그 호스트가 CORS로 우리 origin을 막을 때
+    (노트 PDF 내보내기 등), 브라우저 대신 백엔드가 그 URL을 가져와서 전달한다. 임의 URL을
+    대신 가져오는 기능이라 로그인한 사용자만 쓸 수 있다(GET /api/v1/assets/proxy-image). */
+export async function fetchImageViaProxy(url: string): Promise<Blob> {
+  const session = readAuthSession();
+  const response = await fetch(
+    `${INGESTION_API_BASE_URL}/api/v1/assets/proxy-image?url=${encodeURIComponent(url)}`,
+    {
+      headers: session?.accessToken
+        ? { Authorization: `${session.tokenType ?? "Bearer"} ${session.accessToken}` }
+        : {}
+    }
+  );
+  if (!response.ok) {
+    throw new Error(`프록시로 이미지를 가져오지 못했습니다 (${response.status})`);
+  }
+  return response.blob();
+}
+
 const NOTION_INTEGRATION_KEY = "brainx_notion_integration_v1";
 const NOTION_OAUTH_STATE_KEY = "brainx_notion_oauth_state_v1";
 
@@ -315,6 +334,42 @@ export async function uploadAndImportFile(file: File, targetFolderId?: string) {
   }
   if (!job) {
     job = await getImportJobStatus(accepted.importJobId);
+  }
+  return job;
+}
+
+// ── 노트 내보내기 (PDF/TXT/MD) ──────────────────────────────────────────
+
+export type ExportFormat = "PDF" | "TXT" | "MD";
+
+type ExportJobData = {
+  exportJobId: string;
+  status: ImportJobStatus;
+  downloadUrl: string | null;
+  error: string | null;
+};
+
+async function requestExportJob(noteId: string, format: ExportFormat) {
+  return authedRequest<ExportJobData>("/api/v1/exports", {
+    method: "POST",
+    body: JSON.stringify({ noteId, format })
+  });
+}
+
+async function getExportJobStatus(exportJobId: string) {
+  return authedRequest<ExportJobData>(`/api/v1/exports/${exportJobId}`);
+}
+
+/** 내보내기 작업을 요청하고 완료(또는 실패)될 때까지 폴링한다. 데모 세션은 실제 백엔드가 없으므로
+    호출하는 쪽(NotesWorkspace)에서 isNotionDemoSession()으로 먼저 분기해야 한다. */
+export async function exportNote(noteId: string, format: ExportFormat) {
+  const accepted = await requestExportJob(noteId, format);
+  let status = accepted.status;
+  let job: ExportJobData = accepted;
+  for (let attempt = 0; attempt < 30 && status !== "COMPLETED" && status !== "FAILED"; attempt += 1) {
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+    job = await getExportJobStatus(accepted.exportJobId);
+    status = job.status;
   }
   return job;
 }
