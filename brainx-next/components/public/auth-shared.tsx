@@ -62,7 +62,11 @@ export function Field({
   );
 }
 
-export function SocialButtons() {
+type SocialButtonsProps = {
+  recentLogin?: "google" | "kakao" | "naver" | null;
+};
+
+export function SocialButtons({ recentLogin = null }: SocialButtonsProps) {
   const { pushToast } = useBrainX();
   const providers: Array<{
     name: string;
@@ -125,16 +129,30 @@ export function SocialButtons() {
   return (
     <div className="grid grid-cols-3 gap-2">
       {providers.map((provider) => (
-        <button
-          key={provider.name}
-          type="button"
-          onClick={() => handleOAuth(provider.provider, provider.name)}
-          style={{ background: provider.background, color: provider.color }}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-line/30 px-3 text-[15px] font-semibold transition hover:brightness-95"
-        >
-          {provider.icon}
-          {provider.name}
-        </button>
+        <div key={provider.name} className="flex flex-col items-center gap-2">
+          {recentLogin === provider.provider ? (
+            <div className="relative w-fit">
+              <div className="inline-flex items-center gap-2 rounded-[10px] bg-black px-3 py-2 text-[12px] font-medium text-white shadow-sm dark:bg-white dark:text-black">
+                <span className="grid h-5 w-5 place-items-center rounded-full bg-white text-[11px] font-semibold text-black dark:bg-black dark:text-white">
+                  {provider.provider === "google" ? "G" : provider.provider === "kakao" ? "K" : "N"}
+                </span>
+                <span>최근 로그인</span>
+              </div>
+              <div className="absolute left-1/2 top-full h-3 w-3 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-black dark:bg-white" />
+            </div>
+          ) : (
+            <div className="h-8" />
+          )}
+          <button
+            type="button"
+            onClick={() => handleOAuth(provider.provider, provider.name)}
+            style={{ background: provider.background, color: provider.color }}
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-line/30 px-3 text-[15px] font-semibold transition hover:brightness-95"
+          >
+            {provider.icon}
+            {provider.name}
+          </button>
+        </div>
       ))}
     </div>
   );

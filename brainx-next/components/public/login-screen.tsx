@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { issueTemporaryPassword, loginLocal, readRecentSocialLoginProvider, requestEmailVerification, verifyEmailCode } from "@/lib/auth-api";
@@ -14,6 +14,8 @@ type LoginFieldErrors = {
   password?: string;
 };
 
+type RecentSocialLoginProvider = "google" | "kakao" | "naver";
+
 export function LoginScreen() {
   const router = useRouter();
   const { pushToast } = useBrainX();
@@ -26,7 +28,22 @@ export function LoginScreen() {
   const [resetStep, setResetStep] = useState<ResetStep>("idle");
   const [submitting, setSubmitting] = useState(false);
   const [resetSubmitting, setResetSubmitting] = useState(false);
-  const recentLogin = readRecentSocialLoginProvider();
+  const [recentLogin, setRecentLogin] = useState<"google" | "kakao" | "naver" | null>(() => readRecentSocialLoginProvider());
+
+  useEffect(() => {
+    const syncRecentLogin = () => {
+      setRecentLogin(readRecentSocialLoginProvider() as RecentSocialLoginProvider | null);
+    };
+
+    syncRecentLogin();
+    window.addEventListener("storage", syncRecentLogin);
+    window.addEventListener("brainx-auth-session-changed", syncRecentLogin);
+
+    return () => {
+      window.removeEventListener("storage", syncRecentLogin);
+      window.removeEventListener("brainx-auth-session-changed", syncRecentLogin);
+    };
+  }, []);
 
   const canSubmit = email.trim().length > 0 && password.length > 0 && !submitting;
   const canRequestResetCode = resetEmail.trim().length > 0 && !resetSubmitting;
@@ -204,18 +221,7 @@ export function LoginScreen() {
         또는
         <div className="h-px flex-1 bg-line/60" />
       </div>
-      {recentLogin ? (
-        <div className="relative mb-[20px] w-fit">
-          <div className="inline-flex items-center gap-2 rounded-[10px] bg-black px-3 py-2 text-[12px] font-medium text-white shadow-sm dark:bg-white dark:text-black">
-            <span className="grid h-5 w-5 place-items-center rounded-full bg-white text-[11px] font-semibold text-black dark:bg-black dark:text-white">
-              {recentLogin === "google" ? "G" : recentLogin === "kakao" ? "K" : "N"}
-            </span>
-            <span>최근 로그인</span>
-          </div>
-          <div className="absolute left-1/2 top-full h-3 w-3 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-black dark:bg-white" />
-        </div>
-      ) : null}
-      <SocialButtons />
+      <SocialButtons recentLogin={recentLogin} />
       <p className="mt-12 text-center text-[15px] text-txt2">
         계정이 없으신가요?{" "}
         <button type="button" onClick={() => router.push("/signup")} className="font-medium text-primary">
