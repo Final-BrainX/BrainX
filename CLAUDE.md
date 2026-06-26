@@ -14,6 +14,8 @@ CLAUDE.md와 AGENTS.md 두 파일을 프로젝트 루트(C:\Edu\FinalProject\Bra
 3. 변경사항은 코드뿐 아니라 ssot yaml 파일과 README.md에도 반영
 4. 각 작업 완료 후 "SSOT 계약에 맞게 구현 완료" 확인 메시지 출력
 
+
+
 ### 커밋 규칙
 커밋 시 docs/git/AI_PROMPTS.md 파일을 읽고
 해당 파일에 정의된 형식에 맞춰 커밋 메시지 작성
