@@ -439,11 +439,10 @@ const SETTLE_MS = 150;
     것이었다 — 그래서 mousedown~mouseup 동안은 데코레이션을 동결(freeze)해 DOM을 건드리지
     않고, 드래그가 끝난 뒤(mouseup, 어디서 끝나든)에만 최종 selection 기준으로 다시 계산한다. */
 function computeLivePreviewDecorations(editor: Editor, state: EditorState): DecorationSet {
-  if (!editor.isEditable) return DecorationSet.empty;
-
   const { selection, doc } = state;
   const { $from, from, to } = selection;
   const decos: Decoration[] = [];
+  const isEditable = editor.isEditable;
 
   /* ── 헤딩의 "## " 마크다운 기호 — Obsidian Live Preview 방식(커서가 그 줄에 있을 때만 표시)
      "## "는 decoration 위젯이 아니라 heading 노드의 실제 텍스트 내용 일부다(아래 MarkdownHeading
@@ -454,13 +453,17 @@ function computeLivePreviewDecorations(editor: Editor, state: EditorState): Deco
      주석 참고, blockquote/인라인 코드 마커도 이미 같은 패턴) — 그래서 cursorInside가 바뀌어도
      "드래그가 진행되는 동안" DOM이 흔들리는 일은 없다(과거 버그는 정확히 이 보호가 없을 때만
      발생했다). 단순 클릭/화살표 이동처럼 드래그가 아닌 선택 변경은 한 번에 끝나는 동작이라
-     이 토글로 인한 DOM 변경이 진행 중인 네이티브 제스처를 방해할 일이 없다. */
+     이 토글로 인한 DOM 변경이 진행 중인 네이티브 제스처를 방해할 일이 없다.
+     읽기 모드(isEditable=false)에서는 "#"가 실제 텍스트로 항상 DOM에 남아있는 채 decoration이
+     전혀 안 붙으면 기본 스타일(완전히 보이는 일반 텍스트)로 노출돼 버린다 — 그래서 읽기
+     모드에서는 cursorInside를 보지 않고 무조건 숨김 클래스를 적용해, 클릭/포커스로 그 줄에
+     캐럿이 가더라도 "#"가 다시 나타나지 않게 한다. */
   doc.forEach((node, offset) => {
     if (node.type.name !== "heading") return;
     const match = /^#{1,6}\s*/.exec(node.textContent);
     if (!match || match[0].length === 0) return;
     const nodeEnd = offset + node.nodeSize;
-    const cursorInside = from > offset && to < nodeEnd;
+    const cursorInside = isEditable && from > offset && to < nodeEnd;
     const start = offset + 1;
     const end = start + match[0].length;
     decos.push(
@@ -469,6 +472,11 @@ function computeLivePreviewDecorations(editor: Editor, state: EditorState): Deco
       })
     );
   });
+
+  // 읽기 모드에서는 헤딩 "#" 숨김 외에 다른 라이브 프리뷰 데코레이션(블록쿼트/인라인 코드
+  // 마커 등 편집 전용 위젯)을 붙이지 않는다 — 그 위젯들은 원래 decoration 자체이므로 아래로
+  // 내려가지 않으면(=계산하지 않으면) 자동으로 보이지 않는다.
+  if (!isEditable) return DecorationSet.create(doc, decos);
 
   /* ── Blockquote prefix (커서가 있을 때만) ── */
   for (let d = $from.depth; d >= 1; d--) {
@@ -3152,7 +3160,13 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
   return (
     <div
       ref={editorShellRef}
-      className="split-pane-editor tiptap-note-content relative"
+      className={cx(
+        "split-pane-editor tiptap-note-content relative",
+        // .hf-btn은 globals.css의 `.split-pane-editor .ProseMirror .hf-btn { display:flex }`
+        // 규칙이 이 클래스보다 specificity가 높아 일반 `hidden`으로는 안 가려진다 — `!hidden`으로
+        // important를 줘서 강제로 숨긴다(실측: !important 없이는 읽기 모드에서도 display:flex로 보임).
+        mode === "read" && "[&_.hf-btn]:!hidden [&_.md-heading-syntax]:hidden [&_.md-heading-syntax-hidden]:hidden [&_.split-drag-handle]:hidden"
+      )}
       style={typographyCssVars(note.typography)}
       onClick={(e) => {
         if (handleInternalLinkClick(e)) return;

@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { WikiLinkContext, resolveWikiLinkTitle, type WikiLinkContextValue } from "./WikiLinkContext";
-import { ChevronLeft, Download, MoreHorizontal, RotateCcw, Save } from "lucide-react";
+import { AlertCircle, Check, ChevronLeft, Download, LoaderCircle, MoreHorizontal, RotateCcw, Save } from "lucide-react";
 import { cx } from "@/lib/utils";
 import { MockFolder, MockNote, PaneNode, PaneTabsState, Tab, NotesWorkspaceSession, DragPayload } from "@/lib/notes/noteTypes";
 import type { EditMode, AiActionType } from "./NoteEditor";
@@ -63,26 +63,112 @@ function makeBlankNote(folderId?: string): MockNote {
   };
 }
 
-const SAVE_STATUS_LABEL: Record<SaveStatus, string> = {
-  idle: "",
+const SAVE_BUTTON_TITLE: Record<SaveStatus, string> = {
+  idle: "저장 (Ctrl+S)",
   saving: "저장 중…",
   saved: "저장됨",
-  error: "저장 실패",
+  error: "저장 실패 — 다시 시도해 주세요",
 };
 
-const SAVE_STATUS_CLASS: Record<SaveStatus, string> = {
-  idle: "text-txt3",
-  saving: "text-txt3",
-  saved: "text-primary",
-  error: "text-red-400",
-};
-
-/** Ctrl+S 저장 상태 — 위치가 바뀌지 않도록 고정 너비 슬롯에 표시 */
-function SaveStatusBadge({ status }: { status: SaveStatus }) {
+/** draft 자동저장과 수동저장(Ctrl+S/클릭)을 하나의 아이콘 버튼 상태로 통합 표시 */
+function SaveIconButton({ status, disabled, onClick }: { status: SaveStatus; disabled: boolean; onClick: () => void }) {
   return (
-    <span className={cx("inline-flex w-[64px] shrink-0 items-center justify-end text-[11px] font-medium", SAVE_STATUS_CLASS[status])}>
-      {SAVE_STATUS_LABEL[status]}
-    </span>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={SAVE_BUTTON_TITLE[status]}
+      aria-label={SAVE_BUTTON_TITLE[status]}
+      className={cx(
+        "inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-lg border transition-colors",
+        disabled
+          ? "cursor-not-allowed border-transparent text-txt3/50"
+          : status === "error"
+            ? "border-red-400/40 bg-red-400/10 text-red-400 hover:bg-red-400/15"
+            : status === "saved"
+              ? "border-primary/30 bg-primary/10 text-primary"
+              : "border-transparent text-txt3 hover:border-line/60 hover:bg-surface2/50 hover:text-txt"
+      )}
+    >
+      {status === "saving" ? (
+        <LoaderCircle size={13} className="animate-spin" />
+      ) : status === "error" ? (
+        <AlertCircle size={13} />
+      ) : status === "saved" ? (
+        <Check size={13} />
+      ) : (
+        <Save size={13} />
+      )}
+    </button>
+  );
+}
+
+function ExplorerSkeleton() {
+  return (
+    <div className="hidden w-60 shrink-0 flex-col gap-1.5 border-r border-line/50 px-3 py-3 md:flex">
+      <div className="mb-2 h-7 w-full animate-pulse rounded-md bg-surface2/60" />
+      {Array.from({ length: 8 }, (_, i) => (
+        <div key={i} className="h-6 w-full animate-pulse rounded-md bg-surface2/40" style={{ animationDelay: `${i * 60}ms` }} />
+      ))}
+    </div>
+  );
+}
+
+function ToolbarSkeleton() {
+  return (
+    <div className="flex shrink-0 items-center gap-3 border-b border-line/50 px-5 py-2">
+      <div className="h-4 w-20 animate-pulse rounded-md bg-surface2/50" />
+      <div className="flex-1" />
+      <div className="h-[26px] w-[26px] animate-pulse rounded-lg bg-surface2/50" />
+      <div className="h-[26px] w-[60px] animate-pulse rounded-lg bg-surface2/50" />
+    </div>
+  );
+}
+
+function ContextPanelSkeleton({ width }: { width: number }) {
+  return (
+    <div
+      className="hidden shrink-0 flex-col gap-2 border-l border-line/50 px-3 py-3 lg:flex"
+      style={{ width, minWidth: "min(270px, 100vw)" }}
+    >
+      <div className="h-5 w-24 animate-pulse rounded-md bg-surface2/60" />
+      {Array.from({ length: 5 }, (_, i) => (
+        <div key={i} className="h-4 w-full animate-pulse rounded-md bg-surface2/40" style={{ animationDelay: `${i * 60}ms` }} />
+      ))}
+    </div>
+  );
+}
+
+/** /notes 페이지 전체(탐색기·툴바·에디터·컨텍스트 패널)를 한 번에 로딩 상태로 보여준다.
+    초기 서버 데이터 로드가 끝나기 전에 Welcome 보드 등 일부 영역만 따로 깜빡이며 바뀌지
+    않도록, 실제 레이아웃 구조(탐색기 폭/툴바 높이/컨텍스트 패널 폭)를 그대로 흉내내며
+    화면 전체를 대체한다. 추후 더 정교한 모양으로 바꿀 때는 이 함수와 위 *Skeleton
+    컴포넌트들만 교체하면 된다 — 호출 쪽(아래 isInitialWorkspaceLoading 분기)은 그대로 둔다. */
+function WorkspaceLoadingShell({
+  explorerOpen,
+  contextOpen,
+  contextPanelSize,
+}: {
+  explorerOpen: boolean;
+  contextOpen: boolean;
+  contextPanelSize: number;
+}) {
+  return (
+    <div className="flex h-full overflow-hidden">
+      {explorerOpen ? <ExplorerSkeleton /> : null}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <ToolbarSkeleton />
+        <div className="flex flex-1 overflow-hidden">
+          <div className="flex flex-1 items-center justify-center">
+            <div className="inline-flex items-center gap-2 rounded-lg border border-line/50 bg-surface/80 px-3 py-2 text-[12px] font-medium text-txt2">
+              <LoaderCircle size={14} className="animate-spin" />
+              <span>불러오는 중…</span>
+            </div>
+          </div>
+          {contextOpen ? <ContextPanelSkeleton width={contextPanelSize} /> : null}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -250,14 +336,27 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [aiRequest, setAiRequest] = useState<PendingAiRequest | null>(null);
   const [quickSwitcher, setQuickSwitcher] = useState<QuickSwitcherTarget | null>(null);
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [draftSaveStatus, setDraftSaveStatus] = useState<SaveStatus>("idle");
+  const [manualSaveStatus, setManualSaveStatus] = useState<SaveStatus>("idle");
+  // 자동 draft 저장과 수동 저장(Ctrl+S/클릭) 상태를 저장 버튼 하나에서 통합 표시하기 위한 파생값
+  const combinedSaveStatus: SaveStatus =
+    manualSaveStatus === "saving" || draftSaveStatus === "saving"
+      ? "saving"
+      : manualSaveStatus === "error" || draftSaveStatus === "error"
+        ? "error"
+        : manualSaveStatus === "saved" || draftSaveStatus === "saved"
+          ? "saved"
+          : "idle";
   const [saveSignal, setSaveSignal] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [isInitialWorkspaceLoading, setIsInitialWorkspaceLoading] = useState(!USE_MOCK_NOTES);
   const aiNonceRef = useRef(0);
   const hydratedRef = useRef(false);
+  const initialServerLoadDoneRef = useRef(USE_MOCK_NOTES);
   const prevActiveNoteIdRef = useRef<string | null>(null);
   const prevInitialKeyRef = useRef<string>(initialTab.kind === "note" ? initialTab.noteId : "start");
-  const saveStatusTimerRef = useRef<number | null>(null);
+  const manualSaveStatusTimerRef = useRef<number | null>(null);
+  const draftSaveStatusTimerRef = useRef<number | null>(null);
   const draftAutosaveTimerRef = useRef<number | null>(null);
   const draftDirtyNoteIdsRef = useRef<Set<string>>(new Set());
   const effectivePersistKey = persistKey;
@@ -937,7 +1036,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     if (USE_MOCK_NOTES) return;
     let active = true;
 
-    function loadFromServer(openNoteId?: string) {
+    function loadFromServer(openNoteId?: string, isInitialLoad = false) {
       setLoadError(null);
       const targetNoteId = openNoteId ?? (initialTab.kind === "note" ? initialTab.noteId : null);
       return Promise.all([
@@ -985,11 +1084,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
           if (active) setLoadError(error instanceof Error ? error.message : "Workspace-Service에서 노트를 불러오지 못했습니다.");
         })
         .finally(() => {
-          if (active) hydratedRef.current = true;
+          if (!active) return;
+          hydratedRef.current = true;
+          if (isInitialLoad && !initialServerLoadDoneRef.current) {
+            initialServerLoadDoneRef.current = true;
+            setIsInitialWorkspaceLoading(false);
+          }
         });
     }
 
-    loadFromServer();
+    loadFromServer(undefined, true);
 
     // Import 등 NotesWorkspace 외부(별도 마운트된 화면)에서 노트가 새로 생성된 경우, 이 컴포넌트는
     // 라우트 전환에도 리마운트되지 않아(레이아웃에서 한 번만 마운트) mount 시점 fetch만으로는 새
@@ -1054,16 +1158,19 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     if (!draftDirtyNoteIdsRef.current.has(activeNote.id)) return;
 
     if (draftAutosaveTimerRef.current) window.clearTimeout(draftAutosaveTimerRef.current);
+    if (draftSaveStatusTimerRef.current) window.clearTimeout(draftSaveStatusTimerRef.current);
+    setDraftSaveStatus("saving");
     draftAutosaveTimerRef.current = window.setTimeout(() => {
       const noteSnapshot = latestSessionRef.current.notes.find((item) => item.id === activeNote.id);
       if (!noteSnapshot) return;
       void saveWorkspaceNoteDraft(noteSnapshot)
         .then(() => {
           draftDirtyNoteIdsRef.current.delete(noteSnapshot.id);
-          setSaveStatus("saved");
+          setDraftSaveStatus("saved");
+          draftSaveStatusTimerRef.current = window.setTimeout(() => setDraftSaveStatus("idle"), 2000);
         })
         .catch(() => {
-          setSaveStatus("error");
+          setDraftSaveStatus("error");
         });
     }, 1500);
 
@@ -1135,35 +1242,39 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   }, [onActiveNoteChange]);
 
   const handleManualSave = useCallback(() => {
-    setSaveStatus("saving");
+    setManualSaveStatus("saving");
     setSaveSignal((n) => n + 1);
-    if (saveStatusTimerRef.current) window.clearTimeout(saveStatusTimerRef.current);
-    saveStatusTimerRef.current = window.setTimeout(async () => {
+    if (manualSaveStatusTimerRef.current) window.clearTimeout(manualSaveStatusTimerRef.current);
+    manualSaveStatusTimerRef.current = window.setTimeout(async () => {
       if (!USE_MOCK_NOTES) {
         try {
           await saveActiveNoteToBackend();
-          setSaveStatus("saved");
+          setManualSaveStatus("saved");
+          manualSaveStatusTimerRef.current = window.setTimeout(() => setManualSaveStatus("idle"), 2000);
         } catch {
-          setSaveStatus("error");
+          setManualSaveStatus("error");
         }
         return;
       }
       if (!effectivePersistKey) {
-        setSaveStatus("saved");
+        setManualSaveStatus("saved");
+        manualSaveStatusTimerRef.current = window.setTimeout(() => setManualSaveStatus("idle"), 2000);
         return;
       }
       try {
         writeSession(effectivePersistKey, latestSessionRef.current);
-        setSaveStatus("saved");
+        setManualSaveStatus("saved");
+        manualSaveStatusTimerRef.current = window.setTimeout(() => setManualSaveStatus("idle"), 2000);
       } catch {
-        setSaveStatus("error");
+        setManualSaveStatus("error");
       }
     }, 250);
   }, [effectivePersistKey, saveActiveNoteToBackend]);
 
   useEffect(() => {
     return () => {
-      if (saveStatusTimerRef.current) window.clearTimeout(saveStatusTimerRef.current);
+      if (manualSaveStatusTimerRef.current) window.clearTimeout(manualSaveStatusTimerRef.current);
+      if (draftSaveStatusTimerRef.current) window.clearTimeout(draftSaveStatusTimerRef.current);
       if (draftAutosaveTimerRef.current) window.clearTimeout(draftAutosaveTimerRef.current);
     };
   }, []);
@@ -1238,6 +1349,12 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     [wikiLinkNoteRefs, handleNoteClick, createNote, state.activeId]
   );
 
+  // 노트/탭/패널 데이터 초기화가 끝나기 전에는 워크스페이스 전체를 로딩 상태로 대체한다 —
+  // Welcome 보드나 탐색기처럼 일부 영역만 먼저 깜빡이며 빈 상태로 그려지는 것을 막는다.
+  if (isInitialWorkspaceLoading) {
+    return <WorkspaceLoadingShell explorerOpen={explorerOpen} contextOpen={contextOpen} contextPanelSize={contextPanelSize} />;
+  }
+
   const paneTree = (
     <PaneTreeRenderer
       node={state.root}
@@ -1284,7 +1401,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
      이 상태에 도달하므로, "전체 기준 노트 0개"일 때만 자연히 발동한다. */
   const isWorkspaceEmpty = state.root.type === "leaf" && (paneTabs[state.root.id]?.tabs.length ?? 0) === 0;
   const welcomeQuickSwitcherOpen = quickSwitcher?.paneId === state.activeId;
-  const mainContent = isWorkspaceEmpty ? (
+   const mainContent = isWorkspaceEmpty ? (
     <div
       className="relative h-full"
       onDragOver={(e) => {
@@ -1360,27 +1477,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
             </span>
             <div className="flex-1" />
             {loadError ? <span className="text-[11px] font-medium text-red-400">{loadError}</span> : null}
-            <SaveStatusBadge status={saveStatus} />
-            <button
-              type="button"
+            <SaveIconButton
+              status={combinedSaveStatus}
+              disabled={combinedSaveStatus === "saving" || !activeNote}
               onClick={handleManualSave}
-              disabled={saveStatus === "saving" || !activeNote}
-              title="선택된 노트 저장"
-              className={cx(
-                "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors",
-                saveStatus === "saving" || !activeNote
-                  ? "cursor-not-allowed border-transparent text-txt3/50"
-                  : "border-primary/30 bg-primary/10 text-primary hover:bg-primary/15"
-              )}
-            >
-              <Save size={12} />
-              <span>저장</span>
-            </button>
+            />
             <button
               onClick={handleReset}
               title="레이아웃 초기화"
               className={cx(
-                "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors",
                 "border-transparent text-txt3 hover:border-line/60 hover:bg-surface2/50 hover:text-txt"
               )}
             >

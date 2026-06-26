@@ -68,9 +68,26 @@ type OAuthCallbackData = AuthSession & {
   isNewUser?: boolean;
 };
 
+type ClaimedNoteDraft = {
+  noteId: string;
+  sourceNoteId: string;
+  title: string;
+  version: number;
+};
+
+type NoteDraftClaimData = {
+  claimedCount: number;
+  notes: ClaimedNoteDraft[];
+};
+
 const AUTH_SESSION_KEY = "brainx_auth_session_v1";
 const LAST_SOCIAL_LOGIN_KEY = "brainx_last_social_login_provider_v1";
+const WORKSPACE_SESSION_KEY = "brainx_notes_workspace_v1";
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+const WORKSPACE_API_BASE_URL =
+  process.env.NEXT_PUBLIC_WORKSPACE_API_BASE_URL ??
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
+  "";
 export const DEMO_AUTH_SESSION: AuthSession = {
   accessToken: "demo-access-token",
   refreshToken: "demo-refresh-token",
@@ -110,6 +127,32 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload.data as T;
 }
 
+async function claimGuestDraftsAfterAuth(session: AuthSession) {
+  if (!session.accessToken || isDemoSession(session)) return null;
+
+  try {
+    const response = await fetch(`${WORKSPACE_API_BASE_URL}/api/v1/notes/drafts/claim`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Authorization: `${session.tokenType ?? "Bearer"} ${session.accessToken}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    const payload = (await response.json().catch(() => null)) as ApiResponse<NoteDraftClaimData> | null;
+    if (!response.ok || !payload?.success) {
+      console.warn("Guest draft claim skipped after auth.", payload?.error?.code ?? response.status);
+      return null;
+    }
+
+    return payload.data ?? null;
+  } catch (error) {
+    console.warn("Guest draft claim request failed after auth.", error);
+    return null;
+  }
+}
+
 export function saveAuthSession(session: Partial<AuthSession>) {
   if (typeof window === "undefined") return;
   const normalized: AuthSession = {
@@ -146,6 +189,7 @@ export function readAuthSession() {
 export function clearAuthSession() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(AUTH_SESSION_KEY);
+  window.localStorage.removeItem(WORKSPACE_SESSION_KEY);
   window.dispatchEvent(new Event("brainx-auth-session-changed"));
 }
 
@@ -202,7 +246,9 @@ export async function signupWithEmail(payload: {
     method: "POST",
     body: JSON.stringify(payload)
   });
-  saveAuthSession({ ...data, provider: "email" });
+  const session = { ...data, provider: "email" as const };
+  saveAuthSession(session);
+  await claimGuestDraftsAfterAuth(session);
   return data;
 }
 
@@ -211,7 +257,9 @@ export async function loginLocal(email: string, password: string) {
     method: "POST",
     body: JSON.stringify({ email, password })
   });
-  saveAuthSession({ ...data, provider: "email" });
+  const session = { ...data, provider: "email" as const };
+  saveAuthSession(session);
+  await claimGuestDraftsAfterAuth(session);
   return data;
 }
 
@@ -254,7 +302,9 @@ export async function completeOAuthLogin(provider: OAuthProvider, code: string, 
     method: "POST",
     body: JSON.stringify({ code, state })
   });
-  saveAuthSession({ ...data, provider });
+  const session = { ...data, provider };
+  saveAuthSession(session);
+  await claimGuestDraftsAfterAuth(session);
   return data;
 }
 
