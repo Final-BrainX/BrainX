@@ -321,37 +321,7 @@ export function SignupScreen() {
   };
 
   return (
-    <div className="grid h-screen overflow-hidden bg-bg lg:grid-cols-[4fr_6fr]">
-      {/* LEFT — 애니메이션 그래프 패널 (brainx_signup_final.html 그대로). 높이 고정으로 크기·텍스트 위치 불변 */}
-      <div
-        className="relative hidden flex-col justify-between overflow-hidden p-8 lg:flex lg:h-screen"
-        style={{ background: "linear-gradient(145deg, rgb(var(--surface2)) 0%, rgb(var(--bg2)) 52%, rgb(var(--surface)) 100%)" }}
-      >
-        <SignupGraphCanvas />
-        <button type="button" onClick={() => router.push("/")} className="relative z-10 flex w-fit items-center gap-2.5">
-          <span className="grid h-8 w-8 place-items-center rounded-[9px] bg-gradient-to-br from-[#7B6FD8] to-[#4ECFB3]">
-            <Icon name="brain" size={17} className="text-white" />
-          </span>
-          <span className="text-[15px] font-semibold text-txt">BrainX</span>
-        </button>
-        <div className="relative z-10 mb-10 max-w-[320px]">
-          <h2 className="mb-3.5 text-[32px] font-bold leading-[1.25] text-txt">
-            내 지식의 우주를 
-            <br />
-            탐험하는 AI 두뇌
-          </h2>
-          <p className="text-[14px] leading-[1.75] text-txt2">
-            적기만 하세요. 연결과 정리는 AI가 합니다.
-            <br />
-            흩어진 노트가 하나의 살아있는 그래프가 됩니다.
-          </p>
-        </div>
-        <div className="relative z-10 text-[11px] text-txt3">© 2026 BrainX 개발팀</div>
-      </div>
-
-      {/* RIGHT — form panel */}
-      {/* <div className="relative flex h-screen items-center justify-center overflow-hidden border-l border-line/70 bg-bg px-6 py-6">
-        <div className="w-full max-w-[500px] px-6 py-5 [&_input]:h-9 [&_input]:rounded-lg [&_input]:text-[14px]"> */}
+    <div className="grid h-screen overflow-hidden bg-bg">
     <AuthShell>
       <div className="w-full max-w-[600px] px-6 py-5 [&_input]:h-9 [&_input]:rounded-lg [&_input]:text-[14px]">
           <h1 className="mb-1 text-[24px] font-bold tracking-tight text-txt">두뇌를 깨우는 1분</h1>
