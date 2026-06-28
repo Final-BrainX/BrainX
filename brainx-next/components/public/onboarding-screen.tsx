@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -12,10 +12,12 @@ import { useBrainX } from "@/components/brainx-provider";
 import { Btn, Card, Icon, ThemeToggle } from "@/components/brainx-ui";
 import { Field } from "@/components/public/auth-shared";
 import { LegalConsents } from "@/components/public/legal-consents";
+import { useGuideStore } from "@/lib/use-guide-store";
 
 export function OnboardingScreen() {
   const router = useRouter();
   const { pushToast } = useBrainX();
+  const markAsNewUserFirstLogin = useGuideStore((s) => s.markAsNewUserFirstLogin);
   const [step, setStep] = useState(0);
   const [nick, setNick] = useState("");
   const [profileImageUrl, setProfileImageUrl] = useState("");
@@ -96,6 +98,7 @@ export function OnboardingScreen() {
         return;
       }
       pushToast("온보딩이 완료되었습니다.", "ok");
+      markAsNewUserFirstLogin();
       router.push("/home");
     } catch (error) {
       pushToast(error instanceof Error ? error.message : "온보딩 완료에 실패했습니다.", "err");

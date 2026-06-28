@@ -11,7 +11,9 @@ export interface UserGuideState {
   totalEvents: number;
   firstSeenAt: string;
   hasSeenWelcomeTour: boolean;
-  
+  /** 회원가입 후 온보딩 완료 시 true로 설정, 튜토리얼 1회 실행 후 false로 초기화 */
+  isNewUserFirstLogin: boolean;
+
   completeTutorial: (tutorialId: string) => void;
   discoverFeature: (featureId: string) => void;
   incrementEventCount: () => void;
@@ -19,6 +21,8 @@ export interface UserGuideState {
   setUserId: (id: string) => void;
   resetTutorials: () => void;
   markWelcomeTourSeen: () => void;
+  markAsNewUserFirstLogin: () => void;
+  clearNewUserFirstLogin: () => void;
   triggerTutorialReplay: () => void;
   isManualTrigger: boolean;
   clearManualTrigger: () => void;
@@ -34,6 +38,7 @@ export const useGuideStore = create<UserGuideState>()(
       totalEvents: 0,
       firstSeenAt: new Date().toISOString(),
       hasSeenWelcomeTour: false,
+      isNewUserFirstLogin: false,
       isManualTrigger: false,
 
       completeTutorial: (tutorialId) =>
@@ -60,6 +65,10 @@ export const useGuideStore = create<UserGuideState>()(
       resetTutorials: () => set({ completedTutorials: [], hasSeenWelcomeTour: false, isManualTrigger: true }),
 
       markWelcomeTourSeen: () => set({ hasSeenWelcomeTour: true }),
+
+      markAsNewUserFirstLogin: () => set({ isNewUserFirstLogin: true }),
+
+      clearNewUserFirstLogin: () => set({ isNewUserFirstLogin: false }),
 
       triggerTutorialReplay: () => set({ isManualTrigger: true }),
 

@@ -76,9 +76,9 @@ function writeJson(key: string, value: unknown) {
 }
 
 function readTheme(): ThemeMode {
-  if (typeof window === "undefined") return "dark";
+  if (typeof window === "undefined") return "light";
   const stored = window.localStorage.getItem(THEME_KEY);
-  return stored === "light" || stored === "system" ? stored : "dark";
+  return stored === "dark" || stored === "light" || stored === "system" ? stored : "light";
 }
 
 function readLanguage(): LanguageCode {
@@ -107,8 +107,8 @@ function readNotes(): BrainXNote[] {
 
 export function BrainXProvider({ children }: { children: ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
-  const [theme, setTheme] = useState<ThemeMode>("dark");
-  const [effectiveTheme, setEffectiveTheme] = useState<EffectiveTheme>("dark");
+  const [theme, setTheme] = useState<ThemeMode>("light");
+  const [effectiveTheme, setEffectiveTheme] = useState<EffectiveTheme>("light");
   const [language, setLanguage] = useState<LanguageCode>("ko");
   const [notes, setNotes] = useState<BrainXNote[]>(() => readNotes());
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");

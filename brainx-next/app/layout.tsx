@@ -29,7 +29,7 @@ export const metadata: Metadata = {
 
 const themeScript = `(() => {
   try {
-    const preference = localStorage.getItem('brainx_theme_v1') || 'dark';
+    const preference = localStorage.getItem('brainx_theme_v1') || 'light';
     const theme = preference === 'system'
       ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
       : preference;

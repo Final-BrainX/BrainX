@@ -5,6 +5,7 @@ import { Joyride, STATUS, EVENTS, ACTIONS, type Step, type EventData } from 'rea
 import { useGuideStore } from '@/lib/use-guide-store';
 import { useBrainX } from '@/components/brainx-provider';
 import { usePathname } from 'next/navigation';
+import { readAuthSession } from '@/lib/auth-api';
 
 // 온보딩 가이드를 띄우지 않는 라우트. notion-callback은 Notion OAuth 팝업(작은 창)에서
 // 잠깐 떴다가 닫히는 페이지라 튜토리얼 오버레이가 뜨면 안 된다.
@@ -225,7 +226,7 @@ export function TutorialProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const tutorialDisabled = TUTORIAL_DISABLED_ROUTES.some((route) => pathname.startsWith(route));
   const { effectiveTheme } = useBrainX();
-  const { hasSeenWelcomeTour, isManualTrigger, markWelcomeTourSeen, clearManualTrigger } = useGuideStore();
+  const { hasSeenWelcomeTour, isManualTrigger, markWelcomeTourSeen, clearManualTrigger, isNewUserFirstLogin, clearNewUserFirstLogin } = useGuideStore();
   const isLight = effectiveTheme === 'dark';
   const tutorialTheme = {
     tooltipBg: isLight ? '#ffffff' : 'rgb(30, 41, 59)',
@@ -240,7 +241,7 @@ export function TutorialProvider({ children }: { children: React.ReactNode }) {
     setIsMounted(true);
   }, []);
 
-  // 자동 실행: 홈 진입 시 최초 1회만
+  // 자동 실행: 회원가입 후 온보딩 완료 시 isNewUserFirstLogin=true이면 1회만 실행
   useEffect(() => {
     if (!isMounted || tutorialDisabled) return;
 
@@ -253,20 +254,27 @@ export function TutorialProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // 비로그인 상태이면 튜토리얼 실행 안 함
+    const session = readAuthSession();
+    const isLoggedIn = Boolean(session?.accessToken);
+    if (!isLoggedIn) return;
+
     const isHomePage = pathname === '/home' || pathname === '/';
-    if (isHomePage && !hasSeenWelcomeTour && !run) {
-      // 최초 홈 진입 시 자동 실행
+    if (isHomePage && isNewUserFirstLogin && !hasSeenWelcomeTour && !run) {
+      // 회원가입 후 첫 로그인으로 홈 진입 시 자동 실행
+      clearNewUserFirstLogin();
       setStepIndex(0);
       setRun(true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMounted, isManualTrigger, pathname, hasSeenWelcomeTour]);
+  }, [isMounted, isManualTrigger, isNewUserFirstLogin, pathname, hasSeenWelcomeTour]);
 
   const handleTutorialComplete = () => {
     setRun(false);
     setStepIndex(0);
     markWelcomeTourSeen();
     clearManualTrigger();
+    clearNewUserFirstLogin();
   };
 
   const handleJoyrideEvent = (data: EventData) => {

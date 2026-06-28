@@ -40,6 +40,9 @@ import { WikiLinkAutocomplete } from "./WikiLinkAutocomplete";
 import { useWikiLinkContext } from "./WikiLinkContext";
 import { SlashCommandSuggestion } from "./SlashCommand";
 import { SlashCommandMenu } from "./SlashCommandMenu";
+import { TagSuggestion } from "./TagSuggestion";
+import { TagAutocomplete } from "./TagAutocomplete";
+import { TagNode } from "./TagNode";
 import { TaskListMarkdownBridge } from "./TaskListMarkdownBridge";
 import { createInlineAssistStream, decideAiSuggestion } from "@/lib/intelligence-api";
 import { AI_CONTEXT_AROUND_CURSOR_CHARS, buildInlineAssistContext, validateAiContextSufficiency } from "@/lib/ai-context";
@@ -2358,6 +2361,8 @@ const NOTE_EDITOR_EXTENSIONS = [
   BrainXTableCell,
   WikiLink,
   WikiLinkSuggestion,
+  TagNode,
+  TagSuggestion,
   TaskList,
   TaskItem.configure({ nested: true }),
   TaskListMarkdownBridge,
@@ -2642,6 +2647,8 @@ const EDITOR_HINT_TEXT =
 interface NoteEditorProps {
   note: MockNote;
   mode: EditMode;
+  /** 워크스페이스 전체 노트에서 수집된 고유 태그 목록 — `#` 자동완성에 사용 */
+  allTags: readonly string[];
   /** 편집 모드에서는 본문 클릭이 stopPropagation되어 패널 바깥 wrapper까지 버블링되지 않으므로,
       여기서 직접 호출해 패널(탭) 활성화가 빠지지 않게 한다 */
   onActivate: () => void;
@@ -2653,7 +2660,7 @@ interface NoteEditorProps {
     읽기/편집 모드는 노트(탭) 단위로 부모(EditorPanel)가 관리하며, 이 컴포넌트는 mode prop을
     그대로 따르기만 한다(모드를 직접 설정하지 않음 — 그래야 탭별 모드가 서로 덮어쓰지 않는다). */
 const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEditor(
-  { note, mode, onActivate, onContentChange, onAiAction },
+  { note, mode, allTags, onActivate, onContentChange, onAiAction },
   ref
 ) {
   const contentSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3200,6 +3207,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       ) : null}
       {editor && <TableToolbar editor={editor} />}
       {editor && <WikiLinkAutocomplete editor={editor} />}
+      {editor && <TagAutocomplete editor={editor} allTags={allTags} />}
       {editor && (
         <SlashCommandMenu editor={editor} onPickImage={() => fileInputRef.current?.click()} />
       )}

@@ -438,6 +438,7 @@ export default function EditorPanel({
               onActivate={onActivate}
               onContentChange={onContentChange}
               onAiAction={onAiAction}
+              allTags={Array.from(new Set(allNotes.flatMap((n) => n.tags ?? [])))}
             />
           </div>
         </div>
