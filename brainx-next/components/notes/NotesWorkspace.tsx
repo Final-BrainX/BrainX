@@ -46,6 +46,7 @@ import { moveNoteIntoFolder, reorderNoteRelativeTo, moveFolderUnder, reorderFold
 import { exportNote, isNotionDemoSession, uploadAndImportFile, type ExportFormat } from "@/lib/ingestion-api";
 import { downloadPdfFile, downloadTextFile, htmlToMarkdown, htmlToPlainText, safeFileName } from "@/lib/notes/exportNoteContent";
 import { useBrainX } from "@/components/brainx-provider";
+import { readAuthSession } from "@/lib/auth-api";
 
 export type InitialTab = { kind: "note"; noteId: string } | { kind: "start" };
 
@@ -247,6 +248,59 @@ function writeSession(persistKey: string, session: NotesWorkspaceSession) {
   window.localStorage.setItem(persistKey, JSON.stringify(session));
 }
 
+/* localStorage 워크스페이스 세션 key를 actor(guest/user)별로 분리해서 계산한다 — 게스트의 탭/
+   split/active note가 로그인 직후 다른 사용자의 화면에 잠깐 보이거나, 반대로 로그아웃 후 직전
+   user의 탭이 게스트 화면에 남는 걸 막기 위함(기존 brainx:notes-refresh + resetWorkspace는
+   "현재 메모리 상태를 정리"할 뿐, 페이지를 새로 열거나 다른 라우트(/login 등)를 거쳐 돌아오는
+   경우처럼 컴포넌트가 새로 마운트되는 경로는 못 막는다 — localStorage key 자체가 actor별로
+   갈라져 있어야 그 경로도 안전하다).
+
+   guestId는 Gateway가 httpOnly 쿠키(brainx_guest_id)로만 들고 있어 프론트 JS가 값을 읽을 수
+   없다 — 그래서 "이 브라우저의 현재 게스트"를 가리키는 고정 슬롯 하나(:guest, id 없이)만
+   쓴다. 어차피 브라우저 하나에는 그 쿠키도 한 번에 하나뿐이라 별도 id가 없어도 충돌하지
+   않는다. userId는 로그인 세션에 평문으로 있으므로 그대로 키에 쓴다.
+
+   "게스트 → 유저"는 매 로그인/회원가입마다(최초 가입뿐 아니라 기존 회원 로그인도 동일) 그
+   순간의 게스트 작업을 user 세션으로 넘겨준다("이어받기") — 그래서 게스트 키에 실제 탭이
+   있으면 그 내용을 통째로 user 키에 덮어쓰고, 게스트 키는 지운다(다음부터는 user 키만 읽음).
+   게스트가 비어 있었으면(둘러보기만 한 경우) 굳이 비어있는 값으로 그 user의 기존 세션을
+   덮어쓰지 않는다.
+
+   예전의 공유 단일 key(`persistKeyBase` 그대로, suffix 없음)는 guest/user 어느 쪽 데이터인지
+   알 수 없어 안전하게 폐기한다(섞어 쓰는 것보다 버리는 쪽이 안전) — 호출마다(멱등) 지운다. */
+function resolveActorPersistKey(persistKeyBase: string): string {
+  if (typeof window === "undefined") return persistKeyBase;
+  try {
+    window.localStorage.removeItem(persistKeyBase);
+  } catch {
+    // localStorage 접근 불가 — 무시
+  }
+
+  const guestKey = `${persistKeyBase}:guest`;
+  const session = readAuthSession();
+  if (!session?.accessToken || !session.userId) {
+    return guestKey;
+  }
+
+  const userKey = `${persistKeyBase}:user:${session.userId}`;
+  try {
+    const guestRaw = window.localStorage.getItem(guestKey);
+    if (guestRaw) {
+      const guestSession = JSON.parse(guestRaw) as NotesWorkspaceSession;
+      const guestHasTabs = collectLeafIds(guestSession.root).some(
+        (leafId) => (guestSession.paneTabs[leafId]?.tabs.length ?? 0) > 0
+      );
+      if (guestHasTabs) {
+        window.localStorage.setItem(userKey, guestRaw);
+      }
+      window.localStorage.removeItem(guestKey);
+    }
+  } catch {
+    // 손상된 게스트 세션 등은 무시하고 user 키로 그대로 진행
+  }
+  return userKey;
+}
+
 function replaceNoteIdInNode(node: PaneNode, oldId: string, newId: string): PaneNode {
   if (node.type === "leaf") {
     return node.noteId === oldId ? { ...node, noteId: newId } : node;
@@ -412,7 +466,14 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const draftSaveStatusTimerRef = useRef<number | null>(null);
   const draftAutosaveTimerRef = useRef<number | null>(null);
   const draftDirtyNoteIdsRef = useRef<Set<string>>(new Set());
-  const effectivePersistKey = persistKey;
+  // persistKey(prop)는 "brainx_notes_workspace_v1" 같은 고정 베이스고, 실제로 읽고 쓰는 키는
+  // 여기서 actor(guest/user)별로 한 번 더 갈라진다 — resolveActorPersistKey 참고. 마운트
+  // 시점에 1회 계산(이 시점에 이미 guest->user 1회 승계도 처리됨), 이후 로그인/로그아웃 등으로
+  // actor가 바뀌면 handleExternalRefresh(resetWorkspace)가 다시 계산해 갈아끼운다.
+  const [actorPersistKey, setActorPersistKey] = useState<string | undefined>(() =>
+    persistKey ? resolveActorPersistKey(persistKey) : undefined
+  );
+  const effectivePersistKey = actorPersistKey;
   // Ctrl+S 발생 시점의 최신 세션 스냅샷 — 디바운스/렌더 타이밍과 무관하게 항상 최신값을 읽기 위한 ref
   const latestSessionRef = useRef<NotesWorkspaceSession>({
     root: init.root,
@@ -1170,72 +1231,100 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
 
   /* ── 세션 영속화 (persistKey 지정 시) ──────────────────────────── */
 
-  // mount 시 1회: 저장된 세션 복원 → initialTab이 note면 그 노트를 활성 패널 탭으로 연다
+  // initialTab(프로퍼티)을 ref로도 들고 있는다 — applyHydration은 actor 전환(이벤트, 아래
+  // handleExternalRefresh) 시점에도 안전하게 호출돼야 해서 deps 없는 안정된 identity로 만들고
+  // 싶은데, 그러려면 클로저로 직접 initialTab을 참조할 수 없다(그 시점엔 stale할 수 있음).
+  const initialTabRef = useRef(initialTab);
   useEffect(() => {
-    if (!effectivePersistKey) {
+    initialTabRef.current = initialTab;
+  }, [initialTab]);
+
+  /* 주어진 key의 저장된 세션을 읽어 state/paneTabs(+ mock 모드면 notes/folders)에 반영한다.
+     mount 시(첫 effect)와 actor 전환(handleExternalRefresh, 아래)에서 공유한다 — 예전에는 mount
+     effect 안에만 이 로직이 있어서, actor가 바뀔 때 "resolveActorPersistKey가 돌려준 key가
+     이전과 같은 값"인 경우(예: 토큰 만료로 여러 401이 거의 동시에 도착해 로그아웃 처리가
+     중복 호출되는 경우) effectivePersistKey가 실제로는 안 바뀌어 이 effect가 재실행되지
+     않고, 그 사이 notes/folders만 비워져 직전 actor의 탭이 빈 패널로 덩그러니 남는 문제가
+     있었다 — 이제는 actor 전환 쪽에서 key가 바뀌었는지와 무관하게 항상 명시적으로 호출한다.
+     attachInitialTab=false면 "지금 URL이 가리키는 노트를 탭에 끼워넣기"를 건너뛴다(actor
+     전환 시점의 URL은 새 actor와 무관할 수 있어서 mount 때만 적용). */
+  const applyHydration = useCallback((key: string | undefined, attachInitialTab: boolean) => {
+    if (!key) {
       hydratedRef.current = true;
       return;
     }
-    const saved = readSession(effectivePersistKey);
-    if (saved) {
-      // 이전 버전(Welcome이 kind:"start" 탭으로 저장되던 시절)의 세션이 남아있을 수 있으므로,
-      // "note"가 아닌 탭은 걸러내고 activeTabId가 사라진 탭을 가리키면 첫 탭으로 재조정한다.
-      let nextPaneTabs: Record<string, PaneTabsState> = Object.fromEntries(
-        Object.entries(saved.paneTabs).map(([paneId, tabsState]) => {
-          const tabs = tabsState.tabs.filter((t) => t.kind === "note" && t.noteId.trim().length > 0);
-          const activeTabId = tabs.some((t) => t.id === tabsState.activeTabId)
-            ? tabsState.activeTabId
-            : tabs[0]?.id ?? "";
-          return [paneId, { tabs, activeTabId }];
-        })
-      );
-      // saved.paneTabs에는 트리에 없는 고아 항목이 섞여 있을 수 있으므로(과거 레이스로 생긴 것
-      // 포함), "정말 비어있는 세션인지"는 saved.root에 실제로 있는 leaf만 기준으로 판정한다 —
-      // isWorkspaceEmpty와 동일한 기준(collectLeafIds)을 써야 두 판정이 어긋나지 않는다.
-      const hasAnyRealTabs = collectLeafIds(saved.root).some(
-        (leafId) => (nextPaneTabs[leafId]?.tabs.length ?? 0) > 0
-      );
-      if (!hasAnyRealTabs) {
-        const fresh = createInitialPaneState({ kind: "start" });
-        setState({ root: fresh.root, activeId: fresh.activeId });
-        setPaneTabs(fresh.paneTabs);
-        if (USE_MOCK_NOTES) {
-          setNotes(saved.notes);
-          setFolders(saved.folders);
-        }
-        hydratedRef.current = true;
-        return;
-      }
-      // 복원된 세션 위에서, initialTab이 note를 가리키면 그 노트를 활성 패널의 탭으로 연다.
-      // (handleNoteClick은 마운트 시점의 stale state를 참조하므로 여기서 saved 값으로 직접 계산한다.)
-      // 후보는 항상 saved.root에 실제로 있는 leaf 중에서만 고른다 — 고아 paneTabs 키를 활성
-      // 패널로 고르면 트리에 없는 paneId가 activeId가 되어버린다.
-      const realLeafIds = collectLeafIds(saved.root);
-      const nextActiveId =
-        realLeafIds.includes(saved.activeId) && (nextPaneTabs[saved.activeId]?.tabs.length ?? 0) > 0
-          ? saved.activeId
-          : realLeafIds.find((leafId) => (nextPaneTabs[leafId]?.tabs.length ?? 0) > 0) ?? saved.activeId;
-      if (initialTab.kind === "note") {
-        const noteId = initialTab.noteId;
-        const current = nextPaneTabs[nextActiveId];
-        const existing = current?.tabs.find((t) => t.kind === "note" && t.noteId === noteId);
-        if (existing) {
-          nextPaneTabs = { ...nextPaneTabs, [nextActiveId]: { ...current, activeTabId: existing.id } };
-        } else {
-          const newTabId = uid();
-          const newTab: Tab = { id: newTabId, kind: "note", noteId };
-          const newTabs = current ? [...current.tabs, newTab] : [newTab];
-          nextPaneTabs = { ...nextPaneTabs, [nextActiveId]: { tabs: newTabs, activeTabId: newTabId } };
-        }
-      }
-      setState({ root: saved.root, activeId: nextActiveId });
-      setPaneTabs(nextPaneTabs);
+    const resetToBlank = () => {
+      const fresh = createInitialPaneState({ kind: "start" });
+      setState({ root: fresh.root, activeId: fresh.activeId });
+      setPaneTabs(fresh.paneTabs);
+      setTabMode({});
+    };
+    const saved = readSession(key);
+    if (!saved) {
+      resetToBlank();
+      hydratedRef.current = true;
+      return;
+    }
+    // 이전 버전(Welcome이 kind:"start" 탭으로 저장되던 시절)의 세션이 남아있을 수 있으므로,
+    // "note"가 아닌 탭은 걸러내고 activeTabId가 사라진 탭을 가리키면 첫 탭으로 재조정한다.
+    let nextPaneTabs: Record<string, PaneTabsState> = Object.fromEntries(
+      Object.entries(saved.paneTabs).map(([paneId, tabsState]) => {
+        const tabs = tabsState.tabs.filter((t) => t.kind === "note" && t.noteId.trim().length > 0);
+        const activeTabId = tabs.some((t) => t.id === tabsState.activeTabId)
+          ? tabsState.activeTabId
+          : tabs[0]?.id ?? "";
+        return [paneId, { tabs, activeTabId }];
+      })
+    );
+    // saved.paneTabs에는 트리에 없는 고아 항목이 섞여 있을 수 있으므로(과거 레이스로 생긴 것
+    // 포함), "정말 비어있는 세션인지"는 saved.root에 실제로 있는 leaf만 기준으로 판정한다 —
+    // isWorkspaceEmpty와 동일한 기준(collectLeafIds)을 써야 두 판정이 어긋나지 않는다.
+    const hasAnyRealTabs = collectLeafIds(saved.root).some(
+      (leafId) => (nextPaneTabs[leafId]?.tabs.length ?? 0) > 0
+    );
+    if (!hasAnyRealTabs) {
+      resetToBlank();
       if (USE_MOCK_NOTES) {
         setNotes(saved.notes);
         setFolders(saved.folders);
       }
+      hydratedRef.current = true;
+      return;
+    }
+    // 복원된 세션 위에서, initialTab이 note를 가리키면 그 노트를 활성 패널의 탭으로 연다.
+    // 후보는 항상 saved.root에 실제로 있는 leaf 중에서만 고른다 — 고아 paneTabs 키를 활성
+    // 패널로 고르면 트리에 없는 paneId가 activeId가 되어버린다.
+    const realLeafIds = collectLeafIds(saved.root);
+    const nextActiveId =
+      realLeafIds.includes(saved.activeId) && (nextPaneTabs[saved.activeId]?.tabs.length ?? 0) > 0
+        ? saved.activeId
+        : realLeafIds.find((leafId) => (nextPaneTabs[leafId]?.tabs.length ?? 0) > 0) ?? saved.activeId;
+    const initial = initialTabRef.current;
+    if (attachInitialTab && initial.kind === "note") {
+      const noteId = initial.noteId;
+      const current = nextPaneTabs[nextActiveId];
+      const existing = current?.tabs.find((t) => t.kind === "note" && t.noteId === noteId);
+      if (existing) {
+        nextPaneTabs = { ...nextPaneTabs, [nextActiveId]: { ...current, activeTabId: existing.id } };
+      } else {
+        const newTabId = uid();
+        const newTab: Tab = { id: newTabId, kind: "note", noteId };
+        const newTabs = current ? [...current.tabs, newTab] : [newTab];
+        nextPaneTabs = { ...nextPaneTabs, [nextActiveId]: { tabs: newTabs, activeTabId: newTabId } };
+      }
+    }
+    setState({ root: saved.root, activeId: nextActiveId });
+    setPaneTabs(nextPaneTabs);
+    if (USE_MOCK_NOTES) {
+      setNotes(saved.notes);
+      setFolders(saved.folders);
     }
     hydratedRef.current = true;
+  }, []);
+
+  // mount 시 1회: 저장된 세션 복원 → initialTab이 note면 그 노트를 활성 패널 탭으로 연다
+  useEffect(() => {
+    applyHydration(effectivePersistKey, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectivePersistKey]);
 
@@ -1319,14 +1408,23 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     function handleExternalRefresh(event: Event) {
       const detail = (event as CustomEvent<{ noteId?: string; resetWorkspace?: boolean }>).detail;
       // 로그인/회원가입/로그아웃으로 actor(guest/user)가 바뀐 경우(auth-api.ts의
-      // claimGuestDraftsAfterAuth)에는 resetWorkspace:true로 호출된다 — 이전 actor가 열어둔
-      // 탭/패널 구조를 새 actor 화면에 그대로 남겨두면, 게스트 때 클라이언트에서만 지운 노트가
-      // 되살아난 것처럼 보이거나(탭은 남아있지만 그 노트가 새 actor에는 없어 빈 패널로 보임)
-      // 다른 사람 화면이 섞인 것처럼 보일 수 있다 — Welcome 상태로 먼저 비운 뒤 새로 불러온다.
-      if (detail?.resetWorkspace) {
-        const fresh = createInitialPaneState({ kind: "start" });
-        setState({ root: fresh.root, activeId: fresh.activeId });
-        setPaneTabs(fresh.paneTabs);
+      // claimGuestDraftsAfterAuth/clearAuthSession)에는 resetWorkspace:true로 호출된다.
+      // localStorage 키 자체를 다시 계산해 갈아끼운다(resolveActorPersistKey가 guest->user
+      // 1회 승계도 처리). applyHydration을 "키가 실제로 바뀌었는지"와 무관하게 항상 직접
+      // 호출한다 — effectivePersistKey state의 변화 감지(아래 effect)에만 의존하면, 토큰
+      // 만료로 401이 거의 동시에 여러 번 와서 resetWorkspace가 중복 호출되는 경우처럼
+      // resolveActorPersistKey가 "이전과 같은 키"를 돌려줄 때 effect가 재실행되지 않아 직전
+      // actor의 탭이 빈 패널로 남는 문제가 있었다. attachInitialTab=false로 호출해 "지금 URL의
+      // 노트를 탭에 끼워넣기"는 건너뛴다(actor가 막 바뀐 시점의 URL은 새 actor와 무관할 수
+      // 있음). 승계됐다면 방금 게스트가 쓰던 탭 그대로, 로그아웃이라 게스트 키에 예전 세션이
+      // 있었다면 그걸로, 둘 다 없으면 빈 Welcome으로 그려진다 — 그래서 여기서 직접 탭/패널을
+      // 비우지 않는다(승계된 탭을 비워버리면 "이어받기"가 깨짐). notes/folders/탭 모드는
+      // 이전 actor 것이 잠깐 보이지 않도록 즉시 비우고 loadFromServer가 새 actor 기준으로
+      // 다시 채운다.
+      if (detail?.resetWorkspace && persistKey) {
+        const nextKey = resolveActorPersistKey(persistKey);
+        setActorPersistKey(nextKey);
+        applyHydration(nextKey, false);
         setTabMode({});
         setNotes([]);
         setFolders([]);
