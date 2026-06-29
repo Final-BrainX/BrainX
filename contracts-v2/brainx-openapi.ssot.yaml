@@ -419,6 +419,7 @@ paths:
       - UserLoggedIn
       x-internal-sync-calls: []
       x-async-boundary: false
+      x-implementation-note: 로그인 성공 응답은 Redis 세션 이력 저장과 분리한다. 세션 이력 기록이 실패해도 auth 응답은 유지하고, 기록은 best-effort로 처리한다.
       requestBody:
         required: true
         content:
@@ -495,6 +496,7 @@ paths:
       - UserLoggedOut
       x-internal-sync-calls: []
       x-async-boundary: false
+      x-implementation-note: 로그아웃은 Redis 세션 종료 기록과 분리한다. 세션 이력 갱신이 실패해도 auth 응답은 유지하고, 기록은 best-effort로 처리한다.
       requestBody:
         required: true
         content:
@@ -567,6 +569,7 @@ paths:
       x-produces-events: []
       x-internal-sync-calls: []
       x-async-boundary: false
+      x-implementation-note: 토큰 재발급은 Redis 세션 마지막 활동 시간 갱신과 분리한다. 세션 이력 갱신이 실패해도 auth 응답은 유지하고, 기록은 best-effort로 처리한다.
       requestBody:
         required: true
         content:
@@ -713,6 +716,7 @@ paths:
       - UserRegistered
       x-internal-sync-calls: []
       x-async-boundary: false
+      x-implementation-note: 소셜 로그인 콜백은 Redis 세션 이력 저장과 분리한다. 세션 이력 기록이 실패해도 auth 응답은 유지하고, 기록은 best-effort로 처리한다.
       parameters:
       - $ref: '#/components/parameters/IdempotencyKey'
       - name: provider

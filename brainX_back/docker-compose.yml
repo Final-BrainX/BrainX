@@ -69,10 +69,13 @@ services:
     environment:
       SERVER_PORT: "8080"
       POSTGRES_HOST: postgres
+      REDIS_HOST: redis
     ports:
       - "8080:8080"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   workspace-service:

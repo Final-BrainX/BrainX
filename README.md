@@ -372,7 +372,8 @@ Workspace-Service는 내부 식별 헤더를 `CurrentActor`로 해석합니다.
 
 비회원 노트/폴더/링크/그래프 데이터는 체험용 임시 데이터로 취급합니다. Redis in-memory 저장소가 도입되면 guest actor의 Workspace 데이터는 Redis에 저장하고 TTL 만료 또는 세션 종료로 사라지게 합니다. 회원 데이터는 계속 Workspace-Service의 PostgreSQL 원장에 저장합니다.
 
-User-Service도 같은 Redis를 사용합니다. 인증 토큰 자체는 PostgreSQL `RefreshToken` 원장과 JWT에 남기고, 실제 로그인 세션 이력은 Redis에 저장해 관리자 페이지와 내부 API가 읽습니다.
+User-Service도 같은 Redis를 사용합니다. 인증 토큰 자체는 PostgreSQL `RefreshToken` 원장과 JWT에 남기고, 실제 로그인 세션 이력은 Redis에 저장해 관리자 페이지와 내부 API가 읽습니다. 다만 Redis 세션 이력 기록이 실패해도 로그인/OAuth 콜백/토큰 재발급/로그아웃 응답 자체는 계속 성공하도록 best-effort로 처리합니다.
+Docker Compose로 실행할 때는 `user-service` 컨테이너가 `REDIS_HOST=redis`를 사용해야 하며, `localhost`를 쓰면 컨테이너 자기 자신을 보게 되어 로그인/OAuth 흐름이 500으로 실패할 수 있습니다.
 
 ```powershell
 cd C:\Edu\Final\BrainX\brainX_back\Gateway-Service
@@ -416,6 +417,7 @@ User-Service의 Redis 역할은 다음과 같습니다.
 - JWT `sid` 기준으로 세션의 마지막 활동 시간 갱신
 - 로그아웃/세션 종료 시 세션 상태 종료 표시
 - 관리자 상세 조회용 실제 로그인 세션, IP, 기기, 위치 이력 제공
+- Redis 장애나 세션 이력 파싱 실패가 나더라도 auth 응답은 막지 않고, 이력 기록만 건너뜁니다.
 
 관리자 페이지는 `Admin-Service`를 통해 `User-Service`의 내부 API `/internal/v1/users/{userId}/login-sessions`를 조회합니다.
 

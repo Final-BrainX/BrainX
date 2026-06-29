@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,7 @@ import java.util.List;
 import java.util.Locale;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class UserLoginSessionService {
     private static final String SESSION_HISTORY_KEY_FORMAT = "user:login:sessions:%s";
@@ -40,24 +42,28 @@ public class UserLoginSessionService {
             return;
         }
 
-        Instant now = Instant.now();
-        SessionRecord next = new SessionRecord(
-                sessionId,
-                userId,
-                resolveDevice(request),
-                resolveLocation(request),
-                resolveIpAddress(request),
-                hashUserAgent(request),
-                toLocalDateTime(now),
-                toLocalDateTime(now),
-                null,
-                true
-        );
+        try {
+            Instant now = Instant.now();
+            SessionRecord next = new SessionRecord(
+                    sessionId,
+                    userId,
+                    resolveDevice(request),
+                    resolveLocation(request),
+                    resolveIpAddress(request),
+                    hashUserAgent(request),
+                    toLocalDateTime(now),
+                    toLocalDateTime(now),
+                    null,
+                    true
+            );
 
-        List<SessionRecord> sessions = loadSessions(userId);
-        sessions.removeIf(session -> session.sessionId().equals(sessionId));
-        sessions.add(0, next);
-        storeSessions(userId, sessions);
+            List<SessionRecord> sessions = loadSessions(userId);
+            sessions.removeIf(session -> session.sessionId().equals(sessionId));
+            sessions.add(0, next);
+            storeSessions(userId, sessions);
+        } catch (RuntimeException exception) {
+            log.warn("Skipping login session history write for user {} and session {}.", userId, sessionId, exception);
+        }
     }
 
     public void touchSession(String userId, String sessionId, HttpServletRequest request) {
@@ -65,37 +71,41 @@ public class UserLoginSessionService {
             return;
         }
 
-        List<SessionRecord> sessions = loadSessions(userId);
-        boolean changed = false;
-        Instant now = Instant.now();
-        List<SessionRecord> updated = new ArrayList<>(sessions.size());
+        try {
+            List<SessionRecord> sessions = loadSessions(userId);
+            boolean changed = false;
+            Instant now = Instant.now();
+            List<SessionRecord> updated = new ArrayList<>(sessions.size());
 
-        for (SessionRecord session : sessions) {
-            if (session.sessionId().equals(sessionId)) {
-                updated.add(new SessionRecord(
-                        session.sessionId(),
-                        session.userId(),
-                        session.device(),
-                        session.location(),
-                        session.ipAddress(),
-                        session.userAgentHash(),
-                        session.createdAt(),
-                        toLocalDateTime(now),
-                        session.endedAt(),
-                        session.current()
-                ));
-                changed = true;
-            } else {
-                updated.add(session);
+            for (SessionRecord session : sessions) {
+                if (session.sessionId().equals(sessionId)) {
+                    updated.add(new SessionRecord(
+                            session.sessionId(),
+                            session.userId(),
+                            session.device(),
+                            session.location(),
+                            session.ipAddress(),
+                            session.userAgentHash(),
+                            session.createdAt(),
+                            toLocalDateTime(now),
+                            session.endedAt(),
+                            session.current()
+                    ));
+                    changed = true;
+                } else {
+                    updated.add(session);
+                }
             }
-        }
 
-        if (!changed) {
-            return;
-        }
+            if (!changed) {
+                return;
+            }
 
-        updated.sort(Comparator.comparing(SessionRecord::lastSeenAt).reversed());
-        storeSessions(userId, updated);
+            updated.sort(Comparator.comparing(SessionRecord::lastSeenAt).reversed());
+            storeSessions(userId, updated);
+        } catch (RuntimeException exception) {
+            log.warn("Skipping login session touch for user {} and session {}.", userId, sessionId, exception);
+        }
     }
 
     public void endSession(String userId, String sessionId, HttpServletRequest request) {
@@ -103,52 +113,66 @@ public class UserLoginSessionService {
             return;
         }
 
-        List<SessionRecord> sessions = loadSessions(userId);
-        boolean changed = false;
-        Instant now = Instant.now();
-        List<SessionRecord> updated = new ArrayList<>(sessions.size());
+        try {
+            List<SessionRecord> sessions = loadSessions(userId);
+            boolean changed = false;
+            Instant now = Instant.now();
+            List<SessionRecord> updated = new ArrayList<>(sessions.size());
 
-        for (SessionRecord session : sessions) {
-            if (session.sessionId().equals(sessionId)) {
-                updated.add(new SessionRecord(
-                        session.sessionId(),
-                        session.userId(),
-                        session.device(),
-                        session.location(),
-                        session.ipAddress(),
-                        session.userAgentHash(),
-                        session.createdAt(),
-                        toLocalDateTime(now),
-                        toLocalDateTime(now),
-                        false
-                ));
-                changed = true;
-            } else {
-                updated.add(session);
+            for (SessionRecord session : sessions) {
+                if (session.sessionId().equals(sessionId)) {
+                    updated.add(new SessionRecord(
+                            session.sessionId(),
+                            session.userId(),
+                            session.device(),
+                            session.location(),
+                            session.ipAddress(),
+                            session.userAgentHash(),
+                            session.createdAt(),
+                            toLocalDateTime(now),
+                            toLocalDateTime(now),
+                            false
+                    ));
+                    changed = true;
+                } else {
+                    updated.add(session);
+                }
             }
-        }
 
-        if (!changed) {
-            return;
-        }
+            if (!changed) {
+                return;
+            }
 
-        updated.sort(Comparator.comparing(SessionRecord::lastSeenAt).reversed());
-        storeSessions(userId, updated);
+            updated.sort(Comparator.comparing(SessionRecord::lastSeenAt).reversed());
+            storeSessions(userId, updated);
+        } catch (RuntimeException exception) {
+            log.warn("Skipping login session end for user {} and session {}.", userId, sessionId, exception);
+        }
     }
 
     public LoginSessionSnapshot latestSession(String userId) {
-        List<SessionRecord> sessions = loadSessions(userId);
-        if (sessions.isEmpty()) {
+        try {
+            List<SessionRecord> sessions = loadSessions(userId);
+            if (sessions.isEmpty()) {
+                return null;
+            }
+            return sessions.get(0).toSnapshot();
+        } catch (RuntimeException exception) {
+            log.warn("Unable to read latest login session history for user {}.", userId, exception);
             return null;
         }
-        return sessions.get(0).toSnapshot();
     }
 
     public List<LoginSessionSnapshot> listSessions(String userId) {
-        return loadSessions(userId).stream()
-                .sorted(Comparator.comparing(SessionRecord::lastSeenAt).reversed())
-                .map(SessionRecord::toSnapshot)
-                .toList();
+        try {
+            return loadSessions(userId).stream()
+                    .sorted(Comparator.comparing(SessionRecord::lastSeenAt).reversed())
+                    .map(SessionRecord::toSnapshot)
+                    .toList();
+        } catch (RuntimeException exception) {
+            log.warn("Unable to read login session history for user {}.", userId, exception);
+            return List.of();
+        }
     }
 
     private List<SessionRecord> loadSessions(String userId) {
