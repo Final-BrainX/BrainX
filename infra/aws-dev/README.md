@@ -162,7 +162,20 @@ aws ssm put-parameter --name /brainx/dev/NAVER_CLIENT_SECRET --type SecureString
 aws ssm put-parameter --name /brainx/dev/MAIL_USERNAME --type SecureString --value "<smtp username>"
 aws ssm put-parameter --name /brainx/dev/MAIL_PASSWORD --type SecureString --value "<smtp password>"
 aws ssm put-parameter --name /brainx/dev/MAIL_FROM --type SecureString --value "<sender email>"
+aws ssm put-parameter --name /brainx/dev/NOTION_CLIENT_ID --type SecureString --value "<notion client id>"
+aws ssm put-parameter --name /brainx/dev/NOTION_CLIENT_SECRET --type SecureString --value "<rotated notion client secret>"
+aws ssm put-parameter --name /brainx/dev/NOTION_REDIRECT_URI --type SecureString --value "https://brainx.p-e.kr/notion-callback"
+aws ssm put-parameter --name /brainx/dev/CDN_BASE_URL --type SecureString --value "https://brainx.p-e.kr"
+aws ssm put-parameter --name /brainx/dev/ASSET_STORAGE_DIR --type SecureString --value "/app/asset-storage"
 ```
+
+For Notion import in the domain-based dev environment, register this exact redirect URI in the Notion integration settings:
+
+```text
+https://brainx.p-e.kr/notion-callback
+```
+
+`NOTION_CLIENT_SECRET` must be rotated before it is stored if it was ever pasted into chat, issue trackers, or logs. The current Ingestion-Service still uses local disk `AssetStorageService`, so `ASSET_STORAGE_DIR=/app/asset-storage` is backed by the `ingestion_asset_storage` Docker volume. The S3 asset bucket is prepared for a later S3 adapter/presigned URL implementation, but this deployment path does not use it yet.
 
 Optional admin seed overrides:
 

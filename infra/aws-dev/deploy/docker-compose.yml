@@ -163,8 +163,15 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       SERVICE_TOKEN: ${SERVICE_TOKEN}
       WORKSPACE_SERVICE_URL: http://workspace-service:8082
+      NOTION_CLIENT_ID: ${NOTION_CLIENT_ID:-}
+      NOTION_CLIENT_SECRET: ${NOTION_CLIENT_SECRET:-}
+      NOTION_REDIRECT_URI: ${NOTION_REDIRECT_URI}
+      CDN_BASE_URL: ${CDN_BASE_URL}
+      ASSET_STORAGE_DIR: ${ASSET_STORAGE_DIR}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       JPA_DDL_AUTO: update
+    volumes:
+      - ingestion_asset_storage:/app/asset-storage
     expose:
       - "8083"
     depends_on:
@@ -335,3 +342,4 @@ volumes:
   neo4j_logs:
   qdrant_data:
   kafka_data:
+  ingestion_asset_storage:
