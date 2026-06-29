@@ -19,6 +19,7 @@
 - `docs/technical/connection-api.md`: public 노트 연결 추천 API, 내부 `NoteAutoLinkUseCase` 재사용 방식, `default` document group 제한, usage/event 발행 경계를 확인할 때 참고합니다.
 - `docs/technical/external-search.md`: OpenAI Responses `web_search` 기반 외부 자료 검색 port, CLI 실행 방법, batch quality capture, RAG chat router 연결 방향을 확인할 때 참고합니다.
 - `docs/technical/frontend-ai-context-management.md`: `brainx-next`의 프론트 주도 AI context 관리, `clientContext`/`noteScope` 분리, RightSidebar chat과 editor inline assist context 조립 정책, inline assist quality CLI를 확인할 때 참고합니다.
+- `docs/technical/rag-chat-api-frontend-integration.md`: `/chat` 화면의 실제 RAG 채팅 API 연동, thread 목록 cursor pagination, SSE refresh, PostgreSQL LOB preview 주의점을 확인할 때 참고합니다.
 - `docs/technical/inline-assist-frontend-stream-lifecycle.md`: `brainx-next` inline assist 요약/다시쓰기 SSE 소비 중 요청 state cleanup과 stream abort가 coupling될 때 생기는 문제, 원인 분석, 재발 방지 기준을 확인할 때 참고합니다.
 - `docs/technical/insight-reports.md`: 고급 인사이트 리포트 v1의 sync-complete job, document group scope, usage/event, persistence 정책을 확인할 때 참고합니다.
 - `docs/technical/knowledge-structure-analysis.md`: AI 클러스터링 작업 v1의 sync-complete job, note card 입력, usage/event, persistence 정책을 확인할 때 참고합니다.
@@ -58,6 +59,7 @@
 - 운영 PostgreSQL schema baseline DDL, 부분 적용 DB 체크리스트, 권장 인덱스는 `docs/technical/intelligence-operational-db-ddl.md`를 기준으로 답합니다.
 - 외부 자료 검색 port, OpenAI `web_search` provider, 검색 CLI 실행 방법, RAG chat router 연결 방향은 `docs/technical/external-search.md`를 기준으로 답합니다.
 - `brainx-next`의 AI context 관리, `clientContext` payload, `noteScope` 검증 역할, RightSidebar/NoteEditor context 조립 방식은 `docs/technical/frontend-ai-context-management.md`를 기준으로 답합니다.
+- `/chat` 화면의 RAG 채팅 API 연동, thread 목록 cursor pagination, SSE 이후 상세 재조회, PostgreSQL LOB preview 문제는 `docs/technical/rag-chat-api-frontend-integration.md`를 기준으로 답합니다.
 - 프론트 inline assist SSE 요청이 사용자 메시지만 표시되고 응답이 비는 문제는 `docs/technical/inline-assist-frontend-stream-lifecycle.md`를 기준으로 답합니다.
 - LLM 품질 CLI의 실제 provider 평가 결과와 후속 품질 gate 기준은 `docs/technical/llm-quality-evaluation-report-2026-06-26.md`를 기준으로 답합니다.
 - LLM 품질 CLI 결과를 의미적으로 해석할 때는 `docs/technical/llm-quality-evaluations/`의 영역별 상세 보고서를 함께 확인합니다.

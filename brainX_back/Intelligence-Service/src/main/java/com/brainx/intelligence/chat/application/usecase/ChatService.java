@@ -1,6 +1,8 @@
 package com.brainx.intelligence.chat.application.usecase;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -17,6 +19,11 @@ import com.brainx.intelligence.chat.application.port.inbound.GetChatThreadUseCas
 import com.brainx.intelligence.chat.application.port.inbound.GetChatThreadUseCase.ChatThreadDetailResult;
 import com.brainx.intelligence.chat.application.port.inbound.GetChatThreadUseCase.GetChatThreadQuery;
 import com.brainx.intelligence.chat.application.port.inbound.GetChatThreadUseCase.ThreadView;
+import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase;
+import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ChatThreadListItem;
+import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ChatThreadListPagination;
+import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ChatThreadListResult;
+import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ListChatThreadsQuery;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.ChatStreamEvent;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.SendChatMessageCommand;
@@ -24,6 +31,7 @@ import com.brainx.intelligence.chat.application.port.outbound.ChatEventPort;
 import com.brainx.intelligence.chat.application.port.outbound.ChatEventPort.ChatMessageCreatedEvent;
 import com.brainx.intelligence.chat.application.port.outbound.ChatEventPort.ChatThreadCreatedEvent;
 import com.brainx.intelligence.chat.application.port.outbound.ChatPersistencePort;
+import com.brainx.intelligence.chat.application.port.outbound.ChatPersistencePort.ChatThreadSummaryCursor;
 import com.brainx.intelligence.chat.domain.ChatCitation;
 import com.brainx.intelligence.chat.domain.ChatDomainException;
 import com.brainx.intelligence.chat.domain.ChatMessage;
@@ -31,6 +39,7 @@ import com.brainx.intelligence.chat.domain.ChatRole;
 import com.brainx.intelligence.chat.domain.ChatRoute;
 import com.brainx.intelligence.chat.domain.ChatRouteDecision;
 import com.brainx.intelligence.chat.domain.ChatThread;
+import com.brainx.intelligence.chat.domain.ChatThreadSummary;
 import com.brainx.intelligence.chat.domain.ChatTokenUsage;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteChunkRetrievalPort;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteChunkRetrievalPort.NoteChunkSearchQuery;
@@ -52,7 +61,11 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 @Service
-public class ChatService implements CreateChatThreadUseCase, SendChatMessageUseCase, GetChatThreadUseCase {
+public class ChatService implements
+    CreateChatThreadUseCase,
+    ListChatThreadsUseCase,
+    SendChatMessageUseCase,
+    GetChatThreadUseCase {
 
     static final String RAG_CHAT_CAPABILITY = "RAG_CHAT";
     static final String RAG_CHAT_FEATURE_ID = "rag-chat";
@@ -64,6 +77,9 @@ public class ChatService implements CreateChatThreadUseCase, SendChatMessageUseC
     private static final int HISTORY_LIMIT = 8;
     private static final int CONTEXT_SNIPPET_LENGTH = 1_200;
     private static final int MIN_CLIENT_CONTEXT_CHARS = 80;
+    private static final int DEFAULT_THREAD_LIST_LIMIT = 20;
+    private static final int MAX_THREAD_LIST_LIMIT = 50;
+    private static final int THREAD_PREVIEW_LENGTH = 160;
 
     private final ChatProperties properties;
     private final ChatRouteDecider chatRouteDecider;
@@ -119,6 +135,29 @@ public class ChatService implements CreateChatThreadUseCase, SendChatMessageUseC
             thread.title()
         ));
         return toThreadResult(thread);
+    }
+
+    @Override
+    public ChatThreadListResult listChatThreads(ListChatThreadsQuery query) {
+        String userId = requireText(query.userId(), "userId");
+        int limit = normalizeThreadListLimit(query.limit());
+        ChatThreadSummaryCursor cursor = decodeThreadListCursor(query.cursor());
+        List<ChatThreadSummary> summaries = chatPersistencePort.findThreadSummariesByUserId(
+            userId,
+            cursor,
+            limit + 1
+        );
+        boolean hasMore = summaries.size() > limit;
+        List<ChatThreadSummary> visibleSummaries = summaries.stream()
+            .limit(limit)
+            .toList();
+        String nextCursor = hasMore && !visibleSummaries.isEmpty()
+            ? encodeThreadListCursor(visibleSummaries.getLast())
+            : null;
+        return new ChatThreadListResult(
+            visibleSummaries.stream().map(ChatService::toThreadListItem).toList(),
+            new ChatThreadListPagination(limit, nextCursor, hasMore)
+        );
     }
 
     @Override
@@ -607,6 +646,71 @@ public class ChatService implements CreateChatThreadUseCase, SendChatMessageUseC
             thread.modelId(),
             thread.createdAt()
         );
+    }
+
+    private static ChatThreadListItem toThreadListItem(ChatThreadSummary summary) {
+        return new ChatThreadListItem(
+            summary.threadId(),
+            summary.documentGroupId(),
+            summary.title(),
+            summary.modelId(),
+            summary.createdAt(),
+            summary.lastMessageAt(),
+            preview(summary.lastMessagePreview()),
+            summary.messageCount()
+        );
+    }
+
+    private static int normalizeThreadListLimit(Integer limit) {
+        if (limit == null) {
+            return DEFAULT_THREAD_LIST_LIMIT;
+        }
+        if (limit < 1 || limit > MAX_THREAD_LIST_LIMIT) {
+            throw new ChatDomainException("limit must be between 1 and 50.");
+        }
+        return limit;
+    }
+
+    private static String encodeThreadListCursor(ChatThreadSummary summary) {
+        String value = summary.lastMessageAt() + "|" + summary.threadId();
+        return Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static ChatThreadSummaryCursor decodeThreadListCursor(String cursor) {
+        if (!StringUtils.hasText(cursor)) {
+            return null;
+        }
+        try {
+            String padded = cursor.trim();
+            int padding = padded.length() % 4;
+            if (padding > 0) {
+                padded = padded + "=".repeat(4 - padding);
+            }
+            String decoded = new String(Base64.getUrlDecoder().decode(padded), StandardCharsets.UTF_8);
+            int separator = decoded.indexOf('|');
+            if (separator <= 0 || separator == decoded.length() - 1) {
+                throw new IllegalArgumentException("Invalid cursor format.");
+            }
+            return new ChatThreadSummaryCursor(
+                Instant.parse(decoded.substring(0, separator)),
+                requireText(decoded.substring(separator + 1), "cursor.threadId")
+            );
+        } catch (RuntimeException exception) {
+            throw new ChatDomainException("Invalid chat thread cursor.");
+        }
+    }
+
+    private static String preview(String content) {
+        if (!StringUtils.hasText(content)) {
+            return null;
+        }
+        String normalized = content.replaceAll("\\s+", " ").trim();
+        if (normalized.length() <= THREAD_PREVIEW_LENGTH) {
+            return normalized;
+        }
+        return normalized.substring(0, THREAD_PREVIEW_LENGTH).trim();
     }
 
     private static String sourceLabel(ChatCitation citation) {

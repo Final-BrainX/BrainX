@@ -14,6 +14,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 
+import com.brainx.intelligence.chat.application.port.outbound.ChatPersistencePort.ChatThreadSummaryCursor;
 import com.brainx.intelligence.chat.domain.ChatCitation;
 import com.brainx.intelligence.chat.domain.ChatMessage;
 import com.brainx.intelligence.chat.domain.ChatRole;
@@ -123,5 +124,75 @@ class ChatJpaAdapterTest {
         assertThat(messages.get(1).citations().getFirst().sourcePath()).isEqualTo("docs/rag.md");
         assertThat(messages.get(1).tokenUsage().inputTokens()).isEqualTo(10);
         assertThat(messages.get(1).tokenUsage().estimatedCost()).isEqualByComparingTo("0.003");
+    }
+
+    @Test
+    void findThreadSummariesOrdersByLatestMessageAndSupportsCursor() {
+        chatJpaAdapter.saveThread(new ChatThread(
+            "thread-1",
+            "user-1",
+            "default",
+            "첫 대화",
+            "gpt-test",
+            Instant.parse("2026-06-23T00:00:00Z")
+        ));
+        chatJpaAdapter.saveThread(new ChatThread(
+            "thread-2",
+            "user-1",
+            "default",
+            "메시지 없는 대화",
+            "gpt-test",
+            Instant.parse("2026-06-23T00:02:00Z")
+        ));
+        chatJpaAdapter.saveThread(new ChatThread(
+            "thread-other",
+            "user-2",
+            "default",
+            "다른 사용자",
+            "gpt-test",
+            Instant.parse("2026-06-23T00:05:00Z")
+        ));
+        chatJpaAdapter.saveMessage(ChatMessage.user(
+            "message-1",
+            "thread-1",
+            "user-1",
+            "오래된 질문",
+            "gpt-test",
+            Map.of(),
+            Map.of(),
+            Instant.parse("2026-06-23T00:01:00Z")
+        ));
+        chatJpaAdapter.saveMessage(ChatMessage.assistant(
+            "message-2",
+            "thread-1",
+            "user-1",
+            "최신 답변",
+            "gpt-test",
+            List.of(),
+            null,
+            Instant.parse("2026-06-23T00:04:00Z")
+        ));
+        entityManager.flush();
+        entityManager.clear();
+
+        var firstPage = chatJpaAdapter.findThreadSummariesByUserId("user-1", null, 1);
+
+        assertThat(firstPage).hasSize(1);
+        assertThat(firstPage.getFirst().threadId()).isEqualTo("thread-1");
+        assertThat(firstPage.getFirst().lastMessageAt()).isEqualTo(Instant.parse("2026-06-23T00:04:00Z"));
+        assertThat(firstPage.getFirst().lastMessagePreview()).isEqualTo("최신 답변");
+        assertThat(firstPage.getFirst().messageCount()).isEqualTo(2);
+
+        var secondPage = chatJpaAdapter.findThreadSummariesByUserId(
+            "user-1",
+            new ChatThreadSummaryCursor(firstPage.getFirst().lastMessageAt(), firstPage.getFirst().threadId()),
+            10
+        );
+
+        assertThat(secondPage).hasSize(1);
+        assertThat(secondPage.getFirst().threadId()).isEqualTo("thread-2");
+        assertThat(secondPage.getFirst().lastMessageAt()).isEqualTo(Instant.parse("2026-06-23T00:02:00Z"));
+        assertThat(secondPage.getFirst().lastMessagePreview()).isNull();
+        assertThat(secondPage.getFirst().messageCount()).isZero();
     }
 }

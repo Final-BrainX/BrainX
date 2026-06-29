@@ -13,6 +13,7 @@ export type AiSuggestionDecisionRequest = Schemas["AiSuggestionDecisionRequest"]
 export type AiSuggestionDecisionData = Schemas["AiSuggestionDecisionData"];
 export type ChatThreadCreateRequest = Schemas["ChatThreadCreateRequest"];
 export type ChatThreadData = Schemas["ChatThreadData"];
+export type ChatThreadListData = Schemas["ChatThreadListData"];
 export type ChatMessageCreateRequest = Schemas["ChatMessageCreateRequest"];
 export type ChatThreadDetailData = Schemas["ChatThreadDetailData"];
 export type BridgeConceptsRequest = Schemas["BridgeConceptsRequest"];
@@ -230,6 +231,25 @@ export function createChatThread(payload: ChatThreadCreateRequest, options?: Int
       method: "POST",
       body: JSON.stringify(payload),
     },
+    options
+  );
+}
+
+export function listChatThreads(
+  params: { limit?: number; cursor?: string | null } = {},
+  options?: IntelligenceRequestOptions
+) {
+  const searchParams = new URLSearchParams();
+  if (params.limit) {
+    searchParams.set("limit", String(params.limit));
+  }
+  if (params.cursor) {
+    searchParams.set("cursor", params.cursor);
+  }
+  const query = searchParams.toString();
+  return authedRequest<ChatThreadListData>(
+    `/api/intelligence/ai/chat-threads${query ? `?${query}` : ""}`,
+    undefined,
     options
   );
 }

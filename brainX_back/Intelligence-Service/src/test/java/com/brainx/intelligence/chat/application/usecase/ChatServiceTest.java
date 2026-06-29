@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -14,15 +15,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.brainx.intelligence.chat.application.port.inbound.CreateChatThreadUseCase.CreateChatThreadCommand;
+import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ListChatThreadsQuery;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.SendChatMessageCommand;
 import com.brainx.intelligence.chat.application.port.outbound.ChatEventPort;
 import com.brainx.intelligence.chat.application.port.outbound.ChatPersistencePort;
+import com.brainx.intelligence.chat.application.port.outbound.ChatPersistencePort.ChatThreadSummaryCursor;
 import com.brainx.intelligence.chat.domain.ChatDomainException;
 import com.brainx.intelligence.chat.domain.ChatMessage;
 import com.brainx.intelligence.chat.domain.ChatRole;
 import com.brainx.intelligence.chat.domain.ChatRoute;
 import com.brainx.intelligence.chat.domain.ChatRouteDecision;
 import com.brainx.intelligence.chat.domain.ChatThread;
+import com.brainx.intelligence.chat.domain.ChatThreadSummary;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteChunkRetrievalPort;
 import com.brainx.intelligence.exploration.domain.NoteChunkSearchResult;
 import com.brainx.intelligence.exploration.domain.SearchScope;
@@ -102,6 +106,85 @@ class ChatServiceTest {
         assertThat(persistencePort.threads).hasSize(1);
         assertThat(chatEventPort.threadEvents).hasSize(1);
         assertThat(chatEventPort.threadEvents.getFirst().threadId()).isEqualTo(result.threadId());
+    }
+
+    @Test
+    void listChatThreadsUsesRecentMessageOrderAndCursorPagination() {
+        persistencePort.saveThread(new ChatThread(
+            "thread-1",
+            "user-1",
+            "default",
+            "첫 대화",
+            "gpt-test",
+            Instant.parse("2026-06-23T00:00:00Z")
+        ));
+        persistencePort.saveThread(new ChatThread(
+            "thread-2",
+            "user-1",
+            "default",
+            "최근 대화",
+            "gpt-test",
+            Instant.parse("2026-06-23T00:02:00Z")
+        ));
+        persistencePort.saveThread(new ChatThread(
+            "thread-other",
+            "user-2",
+            "default",
+            "다른 사용자",
+            "gpt-test",
+            Instant.parse("2026-06-23T00:03:00Z")
+        ));
+        persistencePort.saveMessage(ChatMessage.user(
+            "message-1",
+            "thread-1",
+            "user-1",
+            "오래된 질문",
+            "gpt-test",
+            Map.of(),
+            Map.of(),
+            Instant.parse("2026-06-23T00:01:00Z")
+        ));
+        persistencePort.saveMessage(ChatMessage.assistant(
+            "message-2",
+            "thread-1",
+            "user-1",
+            "최근 답변 ".repeat(30),
+            "gpt-test",
+            List.of(),
+            null,
+            Instant.parse("2026-06-23T00:04:00Z")
+        ));
+
+        var firstPage = service.listChatThreads(new ListChatThreadsQuery("user-1", 1, null));
+
+        assertThat(firstPage.threads()).hasSize(1);
+        assertThat(firstPage.threads().getFirst().threadId()).isEqualTo("thread-1");
+        assertThat(firstPage.threads().getFirst().lastMessageAt()).isEqualTo(Instant.parse("2026-06-23T00:04:00Z"));
+        assertThat(firstPage.threads().getFirst().lastMessagePreview()).hasSizeLessThanOrEqualTo(160);
+        assertThat(firstPage.threads().getFirst().messageCount()).isEqualTo(2);
+        assertThat(firstPage.pagination().hasMore()).isTrue();
+        assertThat(firstPage.pagination().nextCursor()).isNotBlank();
+
+        var secondPage = service.listChatThreads(new ListChatThreadsQuery(
+            "user-1",
+            10,
+            firstPage.pagination().nextCursor()
+        ));
+
+        assertThat(secondPage.threads()).extracting("threadId").containsExactly("thread-2");
+        assertThat(secondPage.threads().getFirst().messageCount()).isZero();
+        assertThat(secondPage.pagination().hasMore()).isFalse();
+    }
+
+    @Test
+    void listChatThreadsRejectsInvalidCursor() {
+        assertThatThrownBy(() -> service.listChatThreads(new ListChatThreadsQuery(
+            "user-1",
+            10,
+            "not-a-cursor"
+        )))
+            .isInstanceOf(ChatDomainException.class)
+            .hasMessage("Invalid chat thread cursor.");
     }
 
     @Test
@@ -532,6 +615,29 @@ class ChatServiceTest {
         }
 
         @Override
+        public List<ChatThreadSummary> findThreadSummariesByUserId(
+            String userId,
+            ChatThreadSummaryCursor cursor,
+            int limit
+        ) {
+            return threads.stream()
+                .filter(thread -> thread.userId().equals(userId))
+                .map(thread -> toSummary(thread, messages.stream()
+                    .filter(message -> message.userId().equals(userId) && message.threadId().equals(thread.threadId()))
+                    .sorted(Comparator.comparing(ChatMessage::createdAt))
+                    .toList()))
+                .sorted(Comparator
+                    .comparing(ChatThreadSummary::lastMessageAt, Comparator.reverseOrder())
+                    .thenComparing(ChatThreadSummary::threadId, Comparator.reverseOrder()))
+                .filter(summary -> cursor == null
+                    || summary.lastMessageAt().isBefore(cursor.lastMessageAt())
+                    || (summary.lastMessageAt().equals(cursor.lastMessageAt())
+                        && summary.threadId().compareTo(cursor.threadId()) < 0))
+                .limit(limit)
+                .toList();
+        }
+
+        @Override
         public ChatMessage saveMessage(ChatMessage message) {
             messages.add(message);
             return message;
@@ -543,6 +649,22 @@ class ChatServiceTest {
                 .filter(message -> message.userId().equals(userId) && message.threadId().equals(threadId))
                 .sorted(Comparator.comparing(ChatMessage::createdAt))
                 .toList();
+        }
+
+        private static ChatThreadSummary toSummary(ChatThread thread, List<ChatMessage> threadMessages) {
+            Instant threadCreatedAt = thread.createdAt() == null ? Instant.EPOCH : thread.createdAt();
+            ChatMessage lastMessage = threadMessages.isEmpty() ? null : threadMessages.getLast();
+            return new ChatThreadSummary(
+                thread.threadId(),
+                thread.userId(),
+                thread.documentGroupId(),
+                thread.title(),
+                thread.modelId(),
+                threadCreatedAt,
+                lastMessage == null ? threadCreatedAt : lastMessage.createdAt(),
+                lastMessage == null ? null : lastMessage.content(),
+                threadMessages.size()
+            );
         }
     }
 

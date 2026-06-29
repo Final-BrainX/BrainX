@@ -10,6 +10,7 @@
 - `connection-api.md`: 연결 추천 공개 API와 event / usage 경계
 - `external-search.md`: OpenAI `web_search` 기반 검색 port와 품질 캡처 메모
 - `frontend-ai-context-management.md`: 프론트엔드 AI context 흐름과 chat / inline assist 전달
+- `rag-chat-api-frontend-integration.md`: `/chat` 화면과 RAG 채팅 API, thread 목록 pagination, SSE, persistence 주의점
 - `insight-reports.md`: insight report job 흐름, persistence, event 동작
 - `knowledge-structure-analysis.md`: knowledge structure analysis job 흐름과 persistence
 - `note-auto-linking.md`: note auto-linking 전략과 CLI 품질 캡처 메모

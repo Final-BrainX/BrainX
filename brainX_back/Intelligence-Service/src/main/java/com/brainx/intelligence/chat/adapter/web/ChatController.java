@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -24,6 +25,8 @@ import com.brainx.intelligence.chat.application.port.inbound.CreateChatThreadUse
 import com.brainx.intelligence.chat.application.port.inbound.CreateChatThreadUseCase.CreateChatThreadCommand;
 import com.brainx.intelligence.chat.application.port.inbound.GetChatThreadUseCase;
 import com.brainx.intelligence.chat.application.port.inbound.GetChatThreadUseCase.GetChatThreadQuery;
+import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase;
+import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ListChatThreadsQuery;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.ChatStreamEvent;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.SendChatMessageCommand;
@@ -32,6 +35,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import reactor.core.publisher.Flux;
 
@@ -40,20 +45,56 @@ import reactor.core.publisher.Flux;
 public class ChatController {
 
     private final CreateChatThreadUseCase createChatThreadUseCase;
+    private final ListChatThreadsUseCase listChatThreadsUseCase;
     private final SendChatMessageUseCase sendChatMessageUseCase;
     private final GetChatThreadUseCase getChatThreadUseCase;
     private final ObjectMapper objectMapper;
 
     public ChatController(
         CreateChatThreadUseCase createChatThreadUseCase,
+        ListChatThreadsUseCase listChatThreadsUseCase,
         SendChatMessageUseCase sendChatMessageUseCase,
         GetChatThreadUseCase getChatThreadUseCase,
         ObjectMapper objectMapper
     ) {
         this.createChatThreadUseCase = createChatThreadUseCase;
+        this.listChatThreadsUseCase = listChatThreadsUseCase;
         this.sendChatMessageUseCase = sendChatMessageUseCase;
         this.getChatThreadUseCase = getChatThreadUseCase;
         this.objectMapper = objectMapper;
+    }
+
+    @GetMapping("/api/v1/ai/chat-threads")
+    public ApiSuccessResponse<ChatThreadListData> listChatThreads(
+        Principal principal,
+        @RequestParam(required = false) @Min(1) @Max(50) Integer limit,
+        @RequestParam(required = false) String cursor
+    ) {
+        var result = listChatThreadsUseCase.listChatThreads(new ListChatThreadsQuery(
+            userId(principal),
+            limit,
+            cursor
+        ));
+
+        return ApiSuccessResponse.ok(new ChatThreadListData(
+            result.threads().stream()
+                .map(thread -> new ChatThreadListItemData(
+                    thread.threadId(),
+                    thread.documentGroupId(),
+                    thread.title(),
+                    thread.modelId(),
+                    thread.createdAt(),
+                    thread.lastMessageAt(),
+                    thread.lastMessagePreview(),
+                    thread.messageCount()
+                ))
+                .toList(),
+            new ChatThreadListPaginationData(
+                result.pagination().limit(),
+                result.pagination().nextCursor(),
+                result.pagination().hasMore()
+            )
+        ));
     }
 
     @PostMapping("/api/v1/ai/chat-threads")
@@ -217,6 +258,31 @@ public class ChatController {
         String title,
         String modelId,
         Instant createdAt
+    ) {
+    }
+
+    record ChatThreadListItemData(
+        String threadId,
+        String documentGroupId,
+        String title,
+        String modelId,
+        Instant createdAt,
+        Instant lastMessageAt,
+        String lastMessagePreview,
+        long messageCount
+    ) {
+    }
+
+    record ChatThreadListPaginationData(
+        int limit,
+        String nextCursor,
+        boolean hasMore
+    ) {
+    }
+
+    record ChatThreadListData(
+        List<ChatThreadListItemData> threads,
+        ChatThreadListPaginationData pagination
     ) {
     }
 

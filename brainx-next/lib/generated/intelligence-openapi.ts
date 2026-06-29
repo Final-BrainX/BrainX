@@ -68,7 +68,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** AI 채팅 스레드 목록 조회 */
+        get: operations["listChatThreads"];
         put?: never;
         /** AI 채팅 스레드 생성 */
         post: operations["createChatThread"];
@@ -394,6 +395,28 @@ export interface components {
             modelId: string;
             /** Format: date-time */
             createdAt: string;
+        };
+        ChatThreadListItemData: {
+            threadId: string;
+            documentGroupId: string;
+            title: string;
+            modelId: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            lastMessageAt: string;
+            lastMessagePreview?: string | null;
+            /** Format: int64 */
+            messageCount: number;
+        };
+        ChatThreadListPaginationData: {
+            limit: number;
+            nextCursor?: string | null;
+            hasMore: boolean;
+        };
+        ChatThreadListData: {
+            threads: components["schemas"]["ChatThreadListItemData"][];
+            pagination: components["schemas"]["ChatThreadListPaginationData"];
         };
         ChatMessageCreateRequest: {
             message: string;
@@ -772,6 +795,67 @@ export interface operations {
             };
             /** @description 충돌 */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 서버 내부 오류 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    listChatThreads: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["ChatThreadListData"];
+                    };
+                };
+            };
+            /** @description 잘못된 요청 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 인증 필요 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 권한 없음 */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
