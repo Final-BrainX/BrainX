@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
@@ -154,6 +155,63 @@ public class CommerceService {
         return new CheckoutSessionConfirmData(checkoutSessionId, paymentId, "SUCCEEDED",
                 plan.getPlanId(), subscription.getStatus().name());
     }
+
+    public PaymentRefundData refundPayment(String paymentId, BigDecimal amount, String reason) {
+        CheckoutSession session = checkoutSessionRepository.findById(paymentId)
+                .orElseThrow(() -> CommerceException.notFound("결제 내역을 찾을 수 없습니다: " + paymentId));
+
+        if (session.getStatus() == CheckoutSession.Status.REFUNDED) {
+            throw CommerceException.conflict("PAYMENT_ALREADY_REFUNDED", "이미 환불된 결제입니다.");
+        }
+        if (session.getStatus() != CheckoutSession.Status.SUCCEEDED) {
+            throw CommerceException.conflict("PAYMENT_NOT_REFUNDABLE", "성공한 결제만 환불할 수 있습니다.");
+        }
+        if (session.getPaymentKey() == null || session.getPaymentKey().isBlank()) {
+            throw CommerceException.conflict("PAYMENT_KEY_MISSING", "환불에 필요한 결제 키가 없습니다.");
+        }
+
+        BigDecimal refundableAmount = BigDecimal.valueOf(session.getAmount());
+        if (amount != null && amount.compareTo(refundableAmount) != 0) {
+            throw CommerceException.badRequest("REFUND_AMOUNT_MISMATCH", "현재 구현은 전액 환불만 지원합니다.");
+        }
+
+        Instant now = Instant.now();
+        TossPaymentsClient.TossCancelResult result = tossPaymentsClient.cancel(session.getPaymentKey(), amount, reason);
+        if (!result.isRefunded()) {
+            throw CommerceException.paymentFailed(result.getErrorCode(), result.getErrorMessage());
+        }
+
+        String refundReason = reason == null || reason.isBlank() ? "관리자 요청 환불" : reason;
+        session.markRefunded(refundReason, now);
+        checkoutSessionRepository.save(session);
+
+        Subscription subscription = findOrCreateSubscription(session.getUserId());
+        subscription.cancelImmediately(PlanDataSeeder.FREE_PLAN_ID, now);
+        subscriptionRepository.save(subscription);
+
+        String refundId = "rfd_" + paymentId;
+        eventPublisher.publish("PaymentRefunded", session.getUserId(), Map.of(
+                "paymentId", paymentId,
+                "refundId", refundId,
+                "userId", session.getUserId(),
+                "amount", session.getAmount(),
+                "currency", session.getCurrency(),
+                "provider", "toss",
+                "refundedAt", now.toString()
+        ));
+        eventPublisher.publish("SubscriptionChanged", session.getUserId(), Map.of(
+                "subscriptionId", subscription.getSubscriptionId(),
+                "userId", session.getUserId(),
+                "planId", subscription.getPlanId(),
+                "status", subscription.getStatus().name(),
+                "effectiveAt", now.toString()
+        ));
+
+        log.info("결제 환불 완료: paymentId={}, userId={}, amount={}", paymentId, session.getUserId(), session.getAmount());
+        return new PaymentRefundData(paymentId, refundId, now);
+    }
+
+    public record PaymentRefundData(String paymentId, String refundId, Instant refundedAt) {}
 
     private void publishPaymentFailed(CheckoutSession session, String reasonCode) {
         eventPublisher.publish("PaymentFailed", session.getUserId(), Map.of(

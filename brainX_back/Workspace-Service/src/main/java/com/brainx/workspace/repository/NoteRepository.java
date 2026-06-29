@@ -14,4 +14,6 @@ public interface NoteRepository extends JpaRepository<Note, String> {
     List<Note> findByUserIdAndFolderIdAndDeletedFalse(String userId, String folderId);
     List<Note> findByUserIdAndFolderIdIn(String userId, Collection<String> folderIds);
     Optional<Note> findFirstByUserIdAndTitleAndDeletedFalse(String userId, String title);
+    long countByUserIdAndDeletedFalse(String userId);
+    List<Note> findTop5ByUserIdAndDeletedFalseOrderByUpdatedAtDesc(String userId);
 }

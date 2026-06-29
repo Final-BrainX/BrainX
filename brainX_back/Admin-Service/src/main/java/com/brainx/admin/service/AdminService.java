@@ -24,6 +24,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -35,7 +36,9 @@ public class AdminService {
 
     private final RestClient userRestClient;
     private final RestClient commerceRestClient;
+    private final RestClient workspaceRestClient;
     private final RestClient defaultRestClient;
+    private final AdminRefundNotificationService refundNotificationService;
 
     private final AdminOperationEventRepository operationEvents;
     private final AdminServiceHealthSnapshotRepository healthSnapshotRepository;
@@ -56,14 +59,18 @@ public class AdminService {
     public AdminService(
             RestClient userRestClient,
             RestClient commerceRestClient,
+            RestClient workspaceRestClient,
             RestClient defaultRestClient,
+            AdminRefundNotificationService refundNotificationService,
             AdminOperationEventRepository operationEvents,
             AdminServiceHealthSnapshotRepository healthSnapshotRepository,
             AdminMonitoringSnapshotRepository monitoringSnapshotRepository
     ) {
         this.userRestClient = userRestClient;
         this.commerceRestClient = commerceRestClient;
+        this.workspaceRestClient = workspaceRestClient;
         this.defaultRestClient = defaultRestClient;
+        this.refundNotificationService = refundNotificationService;
         this.operationEvents = operationEvents;
         this.healthSnapshotRepository = healthSnapshotRepository;
         this.monitoringSnapshotRepository = monitoringSnapshotRepository;
@@ -90,15 +97,15 @@ public class AdminService {
         ));
 
         List<KpiData> kpis = List.of(
-                new KpiData("?대쾲 ??留ㅼ텧", formatMoney(summary.monthlyRevenue()), "live", "good", "Commerce-Service 吏묎퀎"),
-                new KpiData("?쒖꽦 援щ룆", String.valueOf(summary.activeSubscriptions()), "live", "good", "?꾩옱 ?좊즺 援щ룆"),
-                new KpiData("MRR", formatMoney(summary.mrr()), "live", "good", "??諛섎났 留ㅼ텧"),
+                new KpiData("이번 달 매출", formatMoney(summary.monthlyRevenue()), "live", "good", "Commerce-Service 집계"),
+                new KpiData("활성 구독", String.valueOf(summary.activeSubscriptions()), "live", "good", "현재 유료 구독"),
+                new KpiData("MRR", formatMoney(summary.mrr()), "live", "good", "월 반복 매출"),
                 new KpiData(
-                        "寃곗젣 ?ㅽ뙣",
+                        "결제 실패",
                         String.valueOf(summary.failedPaymentCount()),
                         summary.failedPaymentCount() > 0 ? "action" : "stable",
                         summary.failedPaymentCount() > 0 ? "bad" : "good",
-                        "?ъ떆???먮뒗 ?덈궡 ?꾩슂"
+                        "재시도 또는 안내 필요"
                 )
         );
 
@@ -165,9 +172,16 @@ public class AdminService {
         }
 
         Map<String, String> userPlans = resolveUserPlans();
+        Map<String, InternalUserWorkspaceStatsDto> workspaceStatsByUser = new HashMap<>();
+        usersFromService.forEach(user -> workspaceStatsByUser.put(user.userId(), loadWorkspaceStats(user.userId())));
 
         List<AdminUserRow> rows = usersFromService.stream()
-                .map(user -> mapUserRow(user, userPlans.getOrDefault(user.userId(), "free")))
+                .map(user -> mapUserRow(
+                        user,
+                        userPlans.getOrDefault(user.userId(), "free"),
+                        workspaceStatsByUser.getOrDefault(user.userId(), new InternalUserWorkspaceStatsDto(0, 0L, List.of())),
+                        List.of()
+                ))
                 .filter(row -> planId == null || row.planId() == planId)
                 .toList();
 
@@ -186,22 +200,32 @@ public class AdminService {
         }
 
         String userPlan = resolveUserPlans().getOrDefault(userId, "free");
-        List<AdminUserLoginSession> sessions = loadLoginSessions(userId, user);
+        List<AdminUserLoginSession> sessions = loadLoginSessions(userId);
+        InternalUserWorkspaceStatsDto workspaceStats = loadWorkspaceStats(userId);
 
-        AdminUserRow row = mapUserRow(user, userPlan);
+        AdminUserRow row = mapUserRow(user, userPlan, workspaceStats, sessions);
+        List<AdminUserActivity> activities = new ArrayList<>(row.activities());
+        workspaceStats.activities().forEach(activity -> activities.add(new AdminUserActivity(
+                activity.noteId(),
+                activity.type(),
+                ("NOTE_CREATED".equals(activity.type()) ? "노트 작성: " : "노트 수정: ") + activity.title(),
+                activity.occurredAt() != null ? activity.occurredAt().atZone(ZoneId.systemDefault()).toOffsetDateTime() : BASE
+        )));
+        activities.sort(Comparator.comparing(AdminUserActivity::occurredAt).reversed());
+
         return new AdminUserDetailData(
                 row.userId(),
                 row.name(),
                 row.email(),
                 row.planId(),
                 row.status(),
-                row.noteCount(),
-                row.storageBytes(),
+                workspaceStats.noteCount(),
+                workspaceStats.storageBytes(),
                 row.joinedAt(),
                 row.lastActiveAt(),
                 row.lastLogin(),
                 sessions,
-                row.activities()
+                activities
         );
     }
 
@@ -223,10 +247,19 @@ public class AdminService {
     public AdminUserStatusChangeData changeUserStatus(String userId, AdminUserStatusChangeRequest request) {
         recordOperation("USER_STATUS_CHANGE", "USER", userId, "status=" + request.status());
 
+        Map<String, Object> body = new HashMap<>();
+        body.put("status", request.status().name());
+        if (request.reason() != null) {
+            body.put("reason", request.reason());
+        }
+        if (request.suspendedDays() != null) {
+            body.put("suspendedDays", request.suspendedDays());
+        }
+
         userRestClient.patch()
                 .uri("/internal/v1/users/{userId}/status", userId)
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("status", request.status().name()))
+                .body(body)
                 .retrieve()
                 .toBodilessEntity();
 
@@ -234,11 +267,13 @@ public class AdminService {
     }
 
     @Transactional
-    public AdminUserWithdrawalData withdrawUser(String userId) {
+    public AdminUserWithdrawalData withdrawUser(String userId, AdminUserWithdrawalRequest request) {
         recordOperation("USER_WITHDRAWAL_REQUEST", "USER", userId, null);
 
         userRestClient.post()
                 .uri("/internal/v1/users/{userId}/withdrawal", userId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("reason", request != null && request.reason() != null ? request.reason() : "Admin requested withdrawal"))
                 .retrieve()
                 .toBodilessEntity();
 
@@ -246,7 +281,7 @@ public class AdminService {
     }
 
     @Transactional
-    public AdminUserBulkActionData runBulkAction(AdminUserBulkActionRequest request) {
+    public AdminUserBulkActionData runBulkAction(AdminUserBulkActionRequest request, String adminUserId, String adminName) {
         String jobId = "JOB-" + UUID.randomUUID();
         recordOperation("USER_BULK_" + request.action(), "USER_BULK", String.join(",", request.userIds()), "jobId=" + jobId);
 
@@ -257,14 +292,37 @@ public class AdminService {
             return new AdminUserBulkActionData(request.userIds().size(), 0, jobId);
         }
 
-        if (request.action() == BulkAction.SEND_NOTICE) {
+        if (request.action() == BulkAction.SEND_NOTICE && request.notice() != null) {
+            userRestClient.post()
+                    .uri("/internal/v1/users/notifications/bulk")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of(
+                            "userIds", request.userIds(),
+                            "type", "ADMIN_NOTICE",
+                            "title", request.notice().title(),
+                            "body", request.notice().body(),
+                            "sentByAdminUserId", adminUserId,
+                            "sentByAdminName", adminName
+                    ))
+                    .retrieve()
+                    .toBodilessEntity();
             return new AdminUserBulkActionData(request.userIds().size(), 0, jobId);
+        }
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("userIds", request.userIds());
+        body.put("action", request.action().name());
+        if (request.reason() != null) {
+            body.put("reason", request.reason());
+        }
+        if (request.suspendedDays() != null) {
+            body.put("suspendedDays", request.suspendedDays());
         }
 
         userRestClient.post()
                 .uri("/internal/v1/users/bulk-actions")
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("userIds", request.userIds(), "action", request.action().name()))
+                .body(body)
                 .retrieve()
                 .toBodilessEntity();
 
@@ -383,15 +441,37 @@ public class AdminService {
     }
 
     @Transactional
-    public AdminPaymentActionData refundPayment(String paymentId) {
+    public AdminPaymentActionData refundPayment(String paymentId, AdminPaymentRefundRequest request) {
         recordOperation("PAYMENT_REFUND_REQUEST", "PAYMENT", paymentId, null);
+
+        InternalPaymentDto payment = listInternalPayments().stream()
+                .filter(candidate -> paymentId.equals(candidate.paymentId()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Payment not found: " + paymentId));
+
+        Map<String, InternalUserDto> usersById = new java.util.HashMap<>(userMap());
+        InternalUserDto user = resolveUser(normalizedUserId(payment.userId()), usersById);
 
         commerceRestClient.post()
                 .uri("/internal/v1/billing/payments/{paymentId}/refund", paymentId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(request == null ? new AdminPaymentRefundRequest(null, null) : request)
                 .retrieve()
                 .toBodilessEntity();
 
-        return new AdminPaymentActionData(paymentId, "REFUND_REQUESTED", OffsetDateTime.now());
+        OffsetDateTime refundedAt = OffsetDateTime.now();
+        refundNotificationService.sendRefundCompletedMail(
+                user == null ? null : user.email(),
+                displayName(user, normalizedUserId(payment.userId())),
+                payment.paymentId(),
+                payment.planId(),
+                request != null && request.amount() != null ? request.amount() : payment.amount(),
+                payment.method(),
+                request == null ? null : request.reason(),
+                refundedAt
+        );
+
+        return new AdminPaymentActionData(paymentId, "REFUND_REQUESTED", refundedAt);
     }
 
     @Transactional
@@ -561,12 +641,19 @@ public class AdminService {
         return plansByUser;
     }
 
-    private AdminUserRow mapUserRow(InternalUserDto user, String rawPlanId) {
+    private AdminUserRow mapUserRow(
+            InternalUserDto user,
+            String rawPlanId,
+            InternalUserWorkspaceStatsDto workspaceStats,
+            List<AdminUserLoginSession> sessions
+    ) {
         PlanId planId = toPlanId(rawPlanId);
         ManagedUserStatus userStatus = toManagedStatus(user.status());
         OffsetDateTime joinedAt = toOffset(user.createdAt(), BASE);
-        OffsetDateTime lastActiveAt = toOffset(user.updatedAt(), joinedAt);
-        AdminUserLoginSession lastLogin = buildLoginSession(user.userId(), lastActiveAt);
+        AdminUserLoginSession lastLogin = sessions != null && !sessions.isEmpty()
+                ? sessions.stream().max(Comparator.comparing(AdminUserLoginSession::lastSeenAt)).orElse(null)
+                : buildLoginSession(user, joinedAt);
+        OffsetDateTime lastActiveAt = resolveLastActiveAt(user, joinedAt, lastLogin);
 
         return new AdminUserRow(
                 user.userId(),
@@ -574,13 +661,23 @@ public class AdminService {
                 valueOr(user.email(), ""),
                 planId,
                 userStatus,
-                0,
-                0L,
+                workspaceStats.noteCount(),
+                workspaceStats.storageBytes(),
                 joinedAt,
                 lastActiveAt,
                 lastLogin,
-                buildActivities(user, planId, userStatus, lastActiveAt)
+                buildActivities(user, lastActiveAt)
         );
+    }
+
+    private OffsetDateTime resolveLastActiveAt(InternalUserDto user, OffsetDateTime joinedAt, AdminUserLoginSession lastLogin) {
+        if (lastLogin != null && lastLogin.lastSeenAt() != null) {
+            return lastLogin.lastSeenAt();
+        }
+        if (user.lastLoginAt() != null) {
+            return toOffset(user.lastLoginAt(), joinedAt);
+        }
+        return toOffset(user.updatedAt(), joinedAt);
     }
 
     private AdminPaymentRow mapPayment(InternalPaymentDto payment, InternalUserDto user) {
@@ -843,6 +940,9 @@ public class AdminService {
     }
 
     private PaymentStatus toPaymentStatus(String status, String failureReason) {
+        if ("REFUNDED".equals(status)) {
+            return PaymentStatus.REFUNDED;
+        }
         if (failureReason != null && failureReason.contains("Refunded by Admin")) {
             return PaymentStatus.REFUNDED;
         }
@@ -871,19 +971,28 @@ public class AdminService {
         };
     }
 
-    private List<AdminUserLoginSession> loadLoginSessions(String userId, InternalUserDto user) {
+    private List<AdminUserLoginSession> loadLoginSessions(String userId) {
         List<InternalUserLoginSessionDto> sessions = userRestClient.get()
                 .uri("/internal/v1/users/{userId}/login-sessions", userId)
                 .retrieve()
                 .body(new ParameterizedTypeReference<List<InternalUserLoginSessionDto>>() {});
 
         if (sessions == null || sessions.isEmpty()) {
-            return List.of(buildLoginSession(user, toOffset(user.updatedAt(), BASE)));
+            return List.of();
         }
 
         return sessions.stream()
                 .map(this::mapLoginSession)
                 .toList();
+    }
+
+    private InternalUserWorkspaceStatsDto loadWorkspaceStats(String userId) {
+        InternalApiEnvelope<InternalUserWorkspaceStatsDto> envelope = workspaceRestClient.get()
+                .uri("/internal/v1/workspace/users/{userId}/stats", userId)
+                .retrieve()
+                .body(new ParameterizedTypeReference<InternalApiEnvelope<InternalUserWorkspaceStatsDto>>() {});
+        InternalUserWorkspaceStatsDto stats = envelope != null ? envelope.data() : null;
+        return stats != null ? stats : new InternalUserWorkspaceStatsDto(0, 0L, List.of());
     }
 
     private AdminUserLoginSession mapLoginSession(InternalUserLoginSessionDto session) {
@@ -911,53 +1020,39 @@ public class AdminService {
             );
         }
 
-        int seed = Math.abs(user.userId().hashCode());
-        String[] devices = {"Chrome / Windows", "Safari / iOS", "Chrome / Android", "Edge / Windows"};
-        String[] locations = {"Seoul", "Busan", "Daejeon", "Suwon"};
-        int idx = seed % devices.length;
-
-        return new AdminUserLoginSession(
-                user.userId() + "-session",
-                devices[idx],
-                locations[idx],
-                "121.168." + (20 + idx) + "." + (100 + idx),
-                "ua-" + Integer.toHexString(seed),
-                lastSeenAt,
-                true
-        );
+        return null;
     }
 
-    private AdminUserLoginSession buildLoginSession(String userId, OffsetDateTime lastSeenAt) {
-        int seed = Math.abs(userId.hashCode());
-        String[] devices = {"Chrome / Windows", "Safari / iOS", "Chrome / Android", "Edge / Windows"};
-        String[] locations = {"Seoul", "Busan", "Daejeon", "Suwon"};
-        int idx = seed % devices.length;
-
-        return new AdminUserLoginSession(
-                userId + "-session",
-                devices[idx],
-                locations[idx],
-                "121.168." + (20 + idx) + "." + (100 + idx),
-                "ua-" + Integer.toHexString(seed),
-                lastSeenAt,
-                true
-        );
-    }
-
-    private List<AdminUserActivity> buildActivities(InternalUserDto user, PlanId planId, ManagedUserStatus status, OffsetDateTime occurredAt) {
+    private List<AdminUserActivity> buildActivities(InternalUserDto user, OffsetDateTime occurredAt) {
         List<AdminUserActivity> activities = new ArrayList<>();
-        activities.add(new AdminUserActivity(user.userId() + "-profile", "USER_SYNC", "사용자 정보 동기화", occurredAt));
-        activities.add(new AdminUserActivity(user.userId() + "-plan", "SUBSCRIPTION", "?꾩옱 ?뚮옖: " + planId.name(), occurredAt));
-        activities.add(new AdminUserActivity(user.userId() + "-status", "ACCOUNT_STATUS", "怨꾩젙 ?곹깭: " + status.name(), occurredAt));
+
+        operationEvents.findByTargetTypeAndTargetIdOrderByCreatedAtDesc("USER", user.userId())
+                .forEach(event -> activities.add(new AdminUserActivity(
+                        event.getEventId(),
+                        event.getAction(),
+                        describeOperation(event),
+                        event.getCreatedAt()
+                )));
+
         if (user.deletionScheduledAt() != null) {
             activities.add(new AdminUserActivity(
                     user.userId() + "-deletion",
                     "DELETION_REQUEST",
-                    "?덊눜 ?덉젙?? " + user.deletionScheduledAt().toLocalDate(),
+                    "탈퇴 예정일: " + user.deletionScheduledAt().toLocalDate(),
                     toOffset(user.deletionScheduledAt(), occurredAt)
             ));
         }
         return activities;
+    }
+
+    private String describeOperation(AdminOperationEvent event) {
+        String detail = event.getDetail();
+        return switch (event.getAction()) {
+            case "USER_PLAN_CHANGE" -> "관리자가 플랜을 변경함" + (detail != null ? " (" + detail + ")" : "");
+            case "USER_STATUS_CHANGE" -> "관리자가 계정 상태를 변경함" + (detail != null ? " (" + detail + ")" : "");
+            case "USER_WITHDRAWAL_REQUEST" -> "관리자가 탈퇴 처리를 요청함";
+            default -> event.getAction() + (detail != null ? " (" + detail + ")" : "");
+        };
     }
 
     private static String planDescription(String planId) {
@@ -1004,6 +1099,21 @@ public class AdminService {
             boolean current
     ) {}
 
+    public record InternalUserWorkspaceStatsDto(
+            int noteCount,
+            long storageBytes,
+            List<InternalUserActivityDto> activities
+    ) {}
+
+    public record InternalApiEnvelope<T>(boolean success, T data, String message) {}
+
+    public record InternalUserActivityDto(
+            String noteId,
+            String type,
+            String title,
+            Instant occurredAt
+    ) {}
+
     public enum UserStatusType {
         ACTIVE, SUSPENDED, WITHDRAWN
     }
@@ -1037,6 +1147,14 @@ public class AdminService {
             Instant paidAt,
             String failureReason
     ) {}
+
+    private List<InternalPaymentDto> listInternalPayments() {
+        List<InternalPaymentDto> payments = commerceRestClient.get()
+                .uri("/internal/v1/billing/payments")
+                .retrieve()
+                .body(new ParameterizedTypeReference<List<InternalPaymentDto>>() {});
+        return payments == null ? Collections.emptyList() : payments;
+    }
 
     public record InternalSubscriptionDto(
             String subscriptionId,

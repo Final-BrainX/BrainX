@@ -27,4 +27,9 @@ public class InternalWorkspaceController {
                                                                      @Valid @RequestBody InternalNoteContentPatchRequest request) {
         return ApiResponse.success(workspaceService.patchContentInternal(noteId, request));
     }
+
+    @GetMapping("/internal/v1/workspace/users/{userId}/stats")
+    public ApiResponse<InternalUserWorkspaceStatsData> getUserWorkspaceStatsInternal(@PathVariable String userId) {
+        return ApiResponse.success(workspaceService.getUserWorkspaceStats(userId));
+    }
 }

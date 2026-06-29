@@ -31,6 +31,14 @@ public class RestClientConfig {
     }
 
     @Bean
+    public RestClient workspaceRestClient() {
+        return RestClient.builder()
+                .baseUrl(gatewayServiceUrl)
+                .defaultHeader("X-Service-Token", serviceToken)
+                .build();
+    }
+
+    @Bean
     public RestClient defaultRestClient() {
         return RestClient.builder()
                 .defaultHeader("X-Service-Token", serviceToken)

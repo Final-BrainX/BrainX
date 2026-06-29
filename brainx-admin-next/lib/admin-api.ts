@@ -70,6 +70,7 @@ type ApiLoginSession = {
 
 type ApiUserDetail = ApiUserRow & {
   sessions: ApiLoginSession[];
+  activities?: Array<{ activityId?: string; type?: string; message: string; occurredAt: string }>;
 };
 
 type ApiTicket = {
@@ -251,18 +252,25 @@ const planToApi = (plan: Plan): ApiPlanId => plan;
 
 function formatDate(value?: string | null) {
   if (!value) return "";
-  return value.slice(0, 10);
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date(value));
 }
 
 function formatShortDateTime(value?: string | null) {
   if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value.slice(0, 16);
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hour = String(date.getHours()).padStart(2, "0");
-  const minute = String(date.getMinutes()).padStart(2, "0");
-  return `${month}-${day} ${hour}:${minute}`;
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(value));
 }
 
 function bytesToStorage(bytes?: number) {
@@ -284,6 +292,43 @@ function relativeTime(value?: string | null) {
   const days = Math.round(hours / 24);
   if (days === 1) return "어제";
   return `${days}일 전`;
+}
+
+function normalizeSessions(sessions: ApiLoginSession[]) {
+  const byDevice = new Map<string, ApiLoginSession>();
+  for (const session of [...sessions].sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))) {
+    const key = `${session.device}|${session.ipAddress ?? ""}`;
+    if (!byDevice.has(key)) {
+      byDevice.set(key, session);
+    }
+  }
+  return [...byDevice.values()].slice(0, 2);
+}
+
+function normalizeLocationLabel(value?: string | null) {
+  if (!value) return "대한민국 서울";
+  const trimmed = value.trim();
+  if (/^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(trimmed.replace(/\s+/g, ""))) {
+    return "대한민국 서울";
+  }
+  if (trimmed === "Asia/Seoul") {
+    return "대한민국 서울";
+  }
+  return trimmed;
+}
+
+function buildActivities(row: ApiUserRow | ApiUserDetail) {
+  const activities = (row.activities ?? []).map((activity) => ({
+    text: activity.message,
+    time: formatShortDateTime(activity.occurredAt)
+  }));
+  if (row.lastLogin?.lastSeenAt) {
+    activities.unshift({
+      text: "최근 접속",
+      time: formatShortDateTime(row.lastLogin.lastSeenAt)
+    });
+  }
+  return activities.slice(0, 5);
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -340,29 +385,24 @@ function buildPlanOverrides(
 ) {
   const overrides = new Map<string, Plan>();
 
-  const consider = (key: string, plan: Plan) => {
-    if (!key) return;
-    const current = overrides.get(key);
-    if (!current || planRank(plan) > planRank(current)) {
-      overrides.set(key, plan);
-    }
-  };
-
   subscriptions.forEach((subscription) => {
     const key = resolveUserKey(subscription.userId, subscription.userName, usersById, usersByName);
-    consider(key, planFromApi(subscription.planId));
+    if (!key) return;
+    overrides.set(key, planFromApi(subscription.planId));
   });
 
   payments.forEach((payment) => {
     if (payment.status !== "SUCCESS") return;
     const key = resolveUserKey(payment.userId, payment.userName, usersById, usersByName);
-    consider(key, planFromApi(payment.planId));
+    if (!key || overrides.has(key)) return;
+    overrides.set(key, planFromApi(payment.planId));
   });
 
   return overrides;
 }
 
 function mapUser(row: ApiUserRow, effectivePlan?: Plan): AdminUser {
+  const recentActiveAt = row.lastActiveAt ?? row.lastLogin?.lastSeenAt ?? null;
   return {
     id: row.userId,
     name: row.name,
@@ -372,13 +412,10 @@ function mapUser(row: ApiUserRow, effectivePlan?: Plan): AdminUser {
     joined: formatDate(row.joinedAt),
     notes: row.noteCount,
     storage: bytesToStorage(row.storageBytes),
-    lastActive: relativeTime(row.lastActiveAt),
+    lastActive: recentActiveAt ? formatShortDateTime(recentActiveAt) : "-",
     location: row.lastLogin?.location ?? "-",
     device: row.lastLogin?.device ?? "-",
-    activities: (row.activities ?? []).map((activity) => ({
-      text: activity.message,
-      time: relativeTime(activity.occurredAt)
-    }))
+    activities: buildActivities(row)
   };
 }
 
@@ -386,7 +423,7 @@ function mapSession(session: ApiLoginSession): AdminLoginSession {
   return {
     sessionId: session.sessionId,
     device: session.device,
-    location: session.location ?? "Unknown",
+    location: normalizeLocationLabel(session.location),
     ipAddress: session.ipAddress ?? "127.0.0.1",
     userAgentHash: session.userAgentHash ?? null,
     lastSeenAt: session.lastSeenAt,
@@ -551,17 +588,28 @@ export const adminApi = {
       method: "PATCH",
       body: JSON.stringify({ targetPlanId: planToApi(targetPlanId) })
     }),
-  changeUserStatus: (userId: string, status: UserStatus) =>
+  changeUserStatus: (userId: string, status: UserStatus, options?: { reason?: string; suspendedDays?: number }) =>
     apiFetch<{ userId: string; status: ApiUserStatus }>("/api/v1/admin/users/" + userId + "/status", {
       method: "PATCH",
-      body: JSON.stringify({ status: userStatusToApi[status] })
+      body: JSON.stringify({ status: userStatusToApi[status], reason: options?.reason, suspendedDays: options?.suspendedDays })
     }),
-  withdrawUser: (userId: string) =>
-    apiFetch<{ userId: string; deletionRequestId: string }>("/api/v1/admin/users/" + userId + "/withdrawal", { method: "POST", body: JSON.stringify({}) }),
-  runUserBulkAction: (userIds: string[], action: "CHANGE_PLAN" | "SUSPEND" | "REACTIVATE" | "WITHDRAW" | "SEND_NOTICE", targetPlanId?: Plan) =>
+  withdrawUser: (userId: string, reason?: string) =>
+    apiFetch<{ userId: string; deletionRequestId: string }>("/api/v1/admin/users/" + userId + "/withdrawal", { method: "POST", body: JSON.stringify({ reason }) }),
+  runUserBulkAction: (
+    userIds: string[],
+    action: "CHANGE_PLAN" | "SUSPEND" | "REACTIVATE" | "WITHDRAW" | "SEND_NOTICE",
+    options?: { targetPlanId?: Plan; notice?: { title: string; body: string }; reason?: string; suspendedDays?: number }
+  ) =>
     apiFetch<{ accepted: number; failed: number }>("/api/v1/admin/users/bulk-actions", {
       method: "POST",
-      body: JSON.stringify({ userIds, action, targetPlanId: targetPlanId ? planToApi(targetPlanId) : undefined })
+      body: JSON.stringify({
+        userIds,
+        action,
+        targetPlanId: options?.targetPlanId ? planToApi(options.targetPlanId) : undefined,
+        notice: options?.notice,
+        reason: options?.reason,
+        suspendedDays: options?.suspendedDays
+      })
     }),
   updateTicket: (ticketId: string, body: { status?: InquiryStatus; assigneeAdminUserId?: string | null }) =>
     apiFetch<{ ticket: ApiTicket }>("/api/v1/admin/support/tickets/" + ticketId, {
@@ -593,7 +641,8 @@ export const adminApi = {
   getUserDetail: (userId: string) =>
     apiFetch<ApiUserDetail>("/api/v1/admin/users/" + userId).then((row) => ({
       ...mapUser(row),
-      sessions: (row.sessions ?? []).map(mapSession)
+      sessions: normalizeSessions(row.sessions ?? []).map(mapSession),
+      activities: buildActivities(row)
     })),
   deleteTicket: (ticketId: string) =>
     apiFetch<void>("/api/v1/admin/support/tickets/" + ticketId, { method: "DELETE" }),

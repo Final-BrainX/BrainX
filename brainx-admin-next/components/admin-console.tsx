@@ -45,6 +45,8 @@ import { AdminAccountsPanel } from "@/components/admin-accounts-panel";
 
 type ConsoleView = SidebarTarget;
 
+const ADMIN_SCREEN_STORAGE_KEY = "brainx_admin_screen_v1";
+
 const titles: Record<ConsoleView, { title: string; desc: string }> = {
   admins: { title: "관리자 관리", desc: "관리자 계정 추가와 권한 관리를 할 수 있어요" },
   dashboard: { title: "모니터링", desc: "BrainX 운영 지표를 실시간으로 확인해요" },
@@ -75,7 +77,7 @@ const inquiryStatus: Record<InquiryStatus, { label: string; background: string; 
 const paymentStatus: Record<PaymentStatus, { label: string; background: string; color: string; dot: string }> = {
   success: { label: "성공", background: "#f0fdf4", color: "#15803d", dot: "#22c55e" },
   failed: { label: "실패", background: "#fef2f2", color: "#dc2626", dot: "#ef4444" },
-  refunded: { label: "환불완료", background: "#faf5ff", color: "#9333ea", dot: "#a855f7" },
+  refunded: { label: "환불", background: "#f5f5f4", color: "#57534e", dot: "#a8a29e" },
   canceled: { label: "취소", background: "#f5f5f4", color: "#78716c", dot: "#a8a29e" }
 };
 
@@ -118,7 +120,11 @@ function Tag({ meta, children }: { meta: { background: string; color: string; do
 export function AdminConsole() {
   const router = useRouter();
   const [authReady, setAuthReady] = useState(false);
-  const [screen, setScreen] = useState<ConsoleView>("dashboard");
+  const [screen, setScreen] = useState<ConsoleView>(() => {
+    if (typeof window === "undefined") return "dashboard";
+    const saved = window.localStorage.getItem(ADMIN_SCREEN_STORAGE_KEY) as ConsoleView | null;
+    return saved ?? "dashboard";
+  });
   const [adminData, setAdminData] = useState<AdminBootstrap | null>(null);
   const [adminLoading, setAdminLoading] = useState(true);
   const [adminError, setAdminError] = useState("");
@@ -212,6 +218,14 @@ export function AdminConsole() {
     }
     updateSessionAdmin(adminData.adminProfile);
   }, [adminLoading, adminError, adminData, router]);
+
+  useEffect(() => {
+    if (screen === "admins" && adminData && adminData.adminProfile.role !== "owner") {
+      setScreen("dashboard");
+      return;
+    }
+    window.localStorage.setItem(ADMIN_SCREEN_STORAGE_KEY, screen);
+  }, [screen, adminData]);
 
   const activeInquiry = adminData?.inquiries.find((item) => item.id === selectedInquiry) ?? adminData?.inquiries[0];
   const failedPayments = adminData?.billingTransactions.filter((payment) => payment.status === "failed") ?? [];
@@ -808,7 +822,12 @@ function AdminProfileRail({
         </div>
         <div className="rail-admin-list-body">
           {accounts.map((account) => (
-            <div className="rail-admin-row" key={account.adminId}>
+            <div
+              className="rail-admin-row"
+              key={account.adminId}
+              onClick={admin.role === "owner" ? onOpenAdmins : undefined}
+              style={admin.role === "owner" ? { cursor: "pointer" } : undefined}
+            >
               <div className="rail-mini-avatar">{account.name.trim().charAt(0) || "A"}</div>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ fontSize: 13.5, fontWeight: 700, color: "#111827" }}>{account.name}</div>
@@ -842,7 +861,7 @@ function ListModal({ title, onClose, children }: { title: string; onClose: () =>
 function formatHistoryTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleString("ko-KR", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 function AlertMetric({ title, left, leftValue, right, rightValue }: { title: string; left: string; leftValue: string; right: string; rightValue: string }) {
@@ -869,6 +888,10 @@ function UsersPanel({ users, onReload, onToast }: { users: AdminUser[]; onReload
   const [year, setYear] = useState<string>("all");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [detailUser, setDetailUser] = useState<AdminUserDetail | null>(null);
+  const [bulkPlanModalOpen, setBulkPlanModalOpen] = useState(false);
+  const [bulkSuspendModalOpen, setBulkSuspendModalOpen] = useState(false);
+  const [bulkWithdrawModalOpen, setBulkWithdrawModalOpen] = useState(false);
+  const [bulkNoticeModalOpen, setBulkNoticeModalOpen] = useState(false);
 
   const years = Array.from(new Set(users.map((user) => user.joined.slice(0, 4)))).sort((a, b) => b.localeCompare(a));
   const rows = users.filter((user) => {
@@ -879,6 +902,7 @@ function UsersPanel({ users, onReload, onToast }: { users: AdminUser[]; onReload
     return matchesText && matchesPlan && matchesStatus && matchesYear;
   });
   const allVisibleSelected = rows.length > 0 && rows.every((user) => selectedIds.includes(user.id));
+  const selectedUsers = users.filter((user) => selectedIds.includes(user.id));
 
   const toggleOne = (id: string) => {
     setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
@@ -891,14 +915,12 @@ function UsersPanel({ users, onReload, onToast }: { users: AdminUser[]; onReload
     });
   };
 
-  const bulkAction = async (label: string, action: "CHANGE_PLAN" | "SUSPEND" | "REACTIVATE" | "WITHDRAW" | "SEND_NOTICE") => {
+  const ensureSelection = () => {
     if (selectedIds.length === 0) {
       onToast("먼저 사용자를 선택해 주세요");
-      return;
+      return false;
     }
-    await adminApi.runUserBulkAction(selectedIds, action);
-    await onReload();
-    onToast(`${selectedIds.length}명의 사용자를 대상으로 ${label} 작업을 실행했어요`);
+    return true;
   };
 
   return (
@@ -930,10 +952,10 @@ function UsersPanel({ users, onReload, onToast }: { users: AdminUser[]; onReload
       {selectedIds.length > 0 ? (
         <div className="bulkbar">
           <b>{selectedIds.length}명 선택</b>
-          <button className="btn" onClick={() => bulkAction("플랜 변경", "CHANGE_PLAN")}><Repeat2 size={15} />플랜 변경</button>
-          <button className="btn" onClick={() => bulkAction("계정 정지", "SUSPEND")}><Ban size={15} />계정 정지</button>
-          <button className="btn danger" onClick={() => bulkAction("탈퇴 처리", "WITHDRAW")}><X size={15} />탈퇴 처리</button>
-          <button className="btn" onClick={() => bulkAction("공지 발송", "SEND_NOTICE")}><Megaphone size={15} />공지 발송</button>
+          <button className="btn" onClick={() => ensureSelection() && setBulkPlanModalOpen(true)}><Repeat2 size={15} />플랜 변경</button>
+          <button className="btn" onClick={() => ensureSelection() && setBulkSuspendModalOpen(true)}><Ban size={15} />계정 정지</button>
+          <button className="btn danger" onClick={() => ensureSelection() && setBulkWithdrawModalOpen(true)}><X size={15} />탈퇴 처리</button>
+          <button className="btn" onClick={() => ensureSelection() && setBulkNoticeModalOpen(true)}><Megaphone size={15} />공지 발송</button>
           <button className="btn ghost" onClick={() => setSelectedIds([])} style={{ marginLeft: "auto" }}>선택 해제</button>
         </div>
       ) : null}
@@ -974,11 +996,13 @@ function UsersPanel({ users, onReload, onToast }: { users: AdminUser[]; onReload
                 <td style={{ textAlign: "right" }}>
                   <div className="row-icons" onClick={(event) => event.stopPropagation()}>
                     <button aria-label={`${user.name} 상세 보기`} onClick={() => setDetailUser(user as AdminUserDetail)}><Eye size={15} /></button>
-                    <button aria-label={`${user.name} 플랜 변경`} onClick={() => onToast(`${user.name}의 플랜 변경을 준비했어요`)}><Repeat2 size={15} /></button>
-                    <button aria-label={`${user.name} 계정 정지`} onClick={async () => {
-                      await adminApi.changeUserStatus(user.id, "suspended");
-                      await onReload();
-                      onToast(`${user.name} 계정을 정지했어요`);
+                    <button aria-label={`${user.name} 플랜 변경`} onClick={() => {
+                      setSelectedIds([user.id]);
+                      setBulkPlanModalOpen(true);
+                    }}><Repeat2 size={15} /></button>
+                    <button aria-label={`${user.name} 계정 정지`} onClick={() => {
+                      setSelectedIds([user.id]);
+                      setBulkSuspendModalOpen(true);
                     }}><Ban size={15} /></button>
                   </div>
                 </td>
@@ -988,6 +1012,58 @@ function UsersPanel({ users, onReload, onToast }: { users: AdminUser[]; onReload
         </table>
       </div>
       {detailUser ? <UserDetailDrawer user={detailUser} onReload={onReload} onClose={() => setDetailUser(null)} onToast={onToast} /> : null}
+      {bulkPlanModalOpen ? (
+        <BulkPlanChangeModal
+          count={selectedUsers.length}
+          onClose={() => setBulkPlanModalOpen(false)}
+          onApply={async (targetPlanId) => {
+            await adminApi.runUserBulkAction(selectedIds, "CHANGE_PLAN", { targetPlanId });
+            await onReload();
+            onToast(`${selectedIds.length}명의 플랜을 ${planLabel[targetPlanId]}로 변경했어요`);
+            setBulkPlanModalOpen(false);
+            setSelectedIds([]);
+          }}
+        />
+      ) : null}
+      {bulkSuspendModalOpen ? (
+        <SuspendUsersModal
+          count={selectedUsers.length}
+          onClose={() => setBulkSuspendModalOpen(false)}
+          onApply={async ({ reason, suspendedDays }) => {
+            await adminApi.runUserBulkAction(selectedIds, "SUSPEND", { reason, suspendedDays });
+            await onReload();
+            onToast(`${selectedIds.length}명의 계정을 ${suspendedDays}일 정지했어요`);
+            setBulkSuspendModalOpen(false);
+            setSelectedIds([]);
+          }}
+        />
+      ) : null}
+      {bulkWithdrawModalOpen ? (
+        <WithdrawUsersModal
+          count={selectedUsers.length}
+          onClose={() => setBulkWithdrawModalOpen(false)}
+          onApply={async (reason) => {
+            await adminApi.runUserBulkAction(selectedIds, "WITHDRAW", { reason });
+            await onReload();
+            onToast(`${selectedIds.length}명의 탈퇴 처리를 요청했어요`);
+            setBulkWithdrawModalOpen(false);
+            setSelectedIds([]);
+          }}
+        />
+      ) : null}
+      {bulkNoticeModalOpen ? (
+        <SendNoticeModal
+          count={selectedUsers.length}
+          onClose={() => setBulkNoticeModalOpen(false)}
+          onApply={async ({ type, title, body }) => {
+            await adminApi.runUserBulkAction(selectedIds, "SEND_NOTICE", { notice: { title: `[${type}] ${title}`, body } });
+            await onReload();
+            onToast(`${selectedIds.length}명에게 공지를 발송했어요`);
+            setBulkNoticeModalOpen(false);
+            setSelectedIds([]);
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -1003,44 +1079,23 @@ function Avatar({ user, size = 38 }: { user: AdminUser; size?: number }) {
 }
 
 function loginSessions(user: AdminUserDetail | AdminUser) {
-  const fallbackDevices = ["Safari / iOS", "Chrome / Windows", "Edge / Windows", "Chrome / Android"];
-  const fallbackLocations = ["서울", "부산", "대전", "수원"];
-  const index = Math.abs(user.id.charCodeAt(user.id.length - 1) - 48) % fallbackDevices.length;
+  if (!("sessions" in user) || !user.sessions) return [];
 
-  if ("sessions" in user && user.sessions && user.sessions.length > 0) {
-    return user.sessions.map((session) => ({
-      id: session.sessionId,
-      device: session.device,
-      location: session.location,
-      lastSeen: session.lastSeenAt.slice(0, 16).replace("T", " "),
-      ip: session.ipAddress,
-      current: session.current
-    }));
-  }
-
-  return [
-    {
-      id: `${user.id}-current`,
-      device: user.device,
-      location: user.location,
-      lastSeen: user.lastActive,
-      ip: `121.168.${32 + index}.${104 + index}`,
-      current: true
-    },
-    {
-      id: `${user.id}-recent`,
-      device: fallbackDevices[index],
-      location: fallbackLocations[index],
-      lastSeen: index % 2 === 0 ? "어제" : "3시간 전",
-      ip: `211.45.${18 + index}.${72 + index}`,
-      current: false
-    }
-  ];
+  return user.sessions.map((session) => ({
+    id: session.sessionId,
+    device: session.device,
+    location: session.location,
+    lastSeen: formatHistoryTime(session.lastSeenAt),
+    ip: session.ipAddress,
+    current: session.current
+  }));
 }
 
 function UserDetailDrawer({ user, onReload, onClose, onToast }: { user: AdminUserDetail; onReload: () => Promise<void>; onClose: () => void; onToast: (message: string) => void }) {
     const [detail, setDetail] = useState<AdminUserDetail>(user);
     const [planModalOpen, setPlanModalOpen] = useState(false);
+    const [suspendModalOpen, setSuspendModalOpen] = useState(false);
+    const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
 
     useEffect(() => {
       let cancelled = false;
@@ -1060,11 +1115,9 @@ function UserDetailDrawer({ user, onReload, onClose, onToast }: { user: AdminUse
 
       setDetail(user);
       void refresh();
-      const timer = window.setInterval(refresh, 5000);
 
       return () => {
         cancelled = true;
-        window.clearInterval(timer);
       };
     }, [user.id]);
 
@@ -1096,19 +1149,23 @@ function UserDetailDrawer({ user, onReload, onClose, onToast }: { user: AdminUse
           <section className="device-section">
             <h3>로그인 기기</h3>
             <div className="device-list">
-              {sessions.map((session) => (
-                <div className={`device-item ${session.current ? "current" : ""}`} key={session.id}>
-                  <span className="device-icon"><MonitorSmartphone size={17} /></span>
-                  <div>
-                    <div className="device-title">
-                      <b>{session.device}</b>
-              {session.current ? <span>현재 접속</span> : null}
+              {sessions.length === 0 ? (
+                <p style={{ color: "#a8a29e", fontSize: 13, padding: "8px 0" }}>로그인 기록이 없습니다</p>
+              ) : (
+                sessions.map((session) => (
+                  <div className={`device-item ${session.current ? "current" : ""}`} key={session.id}>
+                    <span className="device-icon"><MonitorSmartphone size={17} /></span>
+                    <div>
+                      <div className="device-title">
+                        <b>{session.device}</b>
+                {session.current ? <span>현재 접속</span> : null}
+                      </div>
+                      <p>{session.location} · IP {session.ip}</p>
                     </div>
-                    <p>{session.location} · IP {session.ip}</p>
+                    <time>{session.lastSeen}</time>
                   </div>
-                  <time>{session.lastSeen}</time>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </section>
           <section className="activity-section">
@@ -1127,14 +1184,10 @@ function UserDetailDrawer({ user, onReload, onClose, onToast }: { user: AdminUse
             <h3>위험 구역</h3>
             <div className="danger-actions">
               <button className="danger-secondary" onClick={async () => {
-                await adminApi.changeUserStatus(user.id, "suspended");
-                await onReload();
-                onToast(`${detail.name} 계정을 정지했어요`);
+                setSuspendModalOpen(true);
               }}>계정 정지</button>
               <button className="danger-primary" onClick={async () => {
-                await adminApi.withdrawUser(user.id);
-                await onReload();
-                onToast(`${detail.name} 탈퇴 처리를 요청했어요`);
+                setWithdrawModalOpen(true);
               }}>탈퇴 처리</button>
             </div>
           </section>
@@ -1149,6 +1202,32 @@ function UserDetailDrawer({ user, onReload, onClose, onToast }: { user: AdminUse
             await onReload();
             onToast(`${detail.name}의 플랜을 ${planLabel[plan]}으로 변경했어요`);
             setPlanModalOpen(false);
+          }}
+        />
+      ) : null}
+      {suspendModalOpen ? (
+        <SuspendUsersModal
+          count={1}
+          onClose={() => setSuspendModalOpen(false)}
+          onApply={async ({ reason, suspendedDays }) => {
+            await adminApi.changeUserStatus(user.id, "suspended", { reason, suspendedDays });
+            await onReload();
+            onToast(`${detail.name} 계정을 ${suspendedDays}일 정지했어요`);
+            setSuspendModalOpen(false);
+            onClose();
+          }}
+        />
+      ) : null}
+      {withdrawModalOpen ? (
+        <WithdrawUsersModal
+          count={1}
+          onClose={() => setWithdrawModalOpen(false)}
+          onApply={async (reason) => {
+            await adminApi.withdrawUser(user.id, reason);
+            await onReload();
+            onToast(`${detail.name} 탈퇴 처리를 요청했어요`);
+            setWithdrawModalOpen(false);
+            onClose();
           }}
         />
       ) : null}
@@ -1185,6 +1264,132 @@ function PlanChangeModal({ user, onClose, onApply }: { user: AdminUser; onClose:
         <div className="modal-actions">
           <button onClick={onClose}>취소</button>
           <button onClick={() => onApply(selectedPlan)}>변경 적용</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BulkPlanChangeModal({ count, onClose, onApply }: { count: number; onClose: () => void; onApply: (plan: Plan) => void }) {
+  const [selectedPlan, setSelectedPlan] = useState<Plan>("free");
+  const planOptions: Plan[] = ["free", "pro", "max"];
+
+  return (
+    <div className="modal-backdrop">
+      <div className="price-modal plan-change-modal">
+        <div className="modal-icon"><Repeat2 size={22} /></div>
+        <h2>일괄 플랜 변경</h2>
+        <p>{count}명의 사용자를 한 번에 같은 플랜으로 변경합니다.</p>
+        <div className="plan-option-grid">
+          {planOptions.map((plan) => (
+            <button key={plan} className={selectedPlan === plan ? "active" : ""} onClick={() => setSelectedPlan(plan)}>
+              {planLabel[plan]}
+            </button>
+          ))}
+        </div>
+        <div className="modal-actions">
+          <button onClick={onClose}>취소</button>
+          <button onClick={() => onApply(selectedPlan)}>변경 적용</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SuspendUsersModal({
+  count,
+  onClose,
+  onApply
+}: {
+  count: number;
+  onClose: () => void;
+  onApply: (payload: { reason: string; suspendedDays: number }) => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [suspendedDays, setSuspendedDays] = useState("7");
+
+  return (
+    <div className="modal-backdrop">
+      <div className="price-modal plan-change-modal">
+        <div className="modal-icon"><Ban size={22} /></div>
+        <h2>계정 정지</h2>
+        <p>{count}명의 계정을 같은 조건으로 정지합니다.</p>
+        <label className="reply-label" htmlFor="suspend-reason">정지 사유</label>
+        <textarea id="suspend-reason" className="support-reply" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="정지 사유를 입력해 주세요." />
+        <label className="reply-label" htmlFor="suspend-days">정지 일수</label>
+        <input id="suspend-days" className="search user-search" value={suspendedDays} onChange={(event) => setSuspendedDays(event.target.value)} placeholder="예: 7" />
+        <div className="modal-actions">
+          <button onClick={onClose}>취소</button>
+          <button onClick={() => onApply({ reason: reason.trim(), suspendedDays: Math.max(1, Number(suspendedDays) || 1) })}>정지 적용</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WithdrawUsersModal({ count, onClose, onApply }: { count: number; onClose: () => void; onApply: (reason: string) => void }) {
+  const [reason, setReason] = useState("");
+
+  return (
+    <div className="modal-backdrop">
+      <div className="price-modal plan-change-modal">
+        <div className="modal-icon"><X size={22} /></div>
+        <h2>탈퇴 처리 확인</h2>
+        <p>{count}명의 탈퇴 처리를 요청합니다. 이 작업은 되돌리기 어렵습니다.</p>
+        <label className="reply-label" htmlFor="withdraw-reason">탈퇴 사유</label>
+        <textarea id="withdraw-reason" className="support-reply" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="내부 관리용 사유를 남길 수 있습니다." />
+        <div className="modal-actions">
+          <button onClick={onClose}>취소</button>
+          <button onClick={() => onApply(reason.trim())}>탈퇴 처리</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SendNoticeModal({
+  count,
+  onClose,
+  onApply
+}: {
+  count: number;
+  onClose: () => void;
+  onApply: (payload: { type: string; title: string; body: string }) => void;
+}) {
+  const [type, setType] = useState("일반");
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const fieldStyle = { width: "100%" };
+  const stackStyle = { display: "grid", gap: 12 };
+
+  return (
+    <div className="modal-backdrop">
+      <div className="price-modal plan-change-modal" style={{ width: "min(560px, calc(100vw - 32px))" }}>
+        <div className="modal-icon"><Megaphone size={22} /></div>
+        <h2>공지 발송</h2>
+        <p>{count}명의 알림함에 같은 공지를 발송합니다.</p>
+        <div style={stackStyle}>
+          <div>
+            <label className="reply-label" htmlFor="notice-type">공지 유형</label>
+            <select id="notice-type" className="select" style={fieldStyle} value={type} onChange={(event) => setType(event.target.value)}>
+              <option value="일반">일반</option>
+              <option value="운영">운영</option>
+              <option value="결제">결제</option>
+              <option value="보안">보안</option>
+            </select>
+          </div>
+          <div>
+            <label className="reply-label" htmlFor="notice-title">공지 제목</label>
+            <input id="notice-title" className="search" style={fieldStyle} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="공지 제목" />
+          </div>
+          <div>
+            <label className="reply-label" htmlFor="notice-body">공지 내용</label>
+            <textarea id="notice-body" className="support-reply" style={{ ...fieldStyle, minHeight: 160 }} value={body} onChange={(event) => setBody(event.target.value)} placeholder="공지 내용을 입력해 주세요." />
+          </div>
+        </div>
+        <div className="modal-actions">
+          <button onClick={onClose}>취소</button>
+          <button onClick={() => onApply({ type, title: title.trim(), body: body.trim() })}>발송</button>
         </div>
       </div>
     </div>
@@ -1486,45 +1691,100 @@ function BillingKpi({ label, value, accent, danger }: { label: string; value: st
 }
 
 function BillingHistory({ transactions, onReload, onToast }: { transactions: BillingTransaction[]; onReload: () => Promise<void>; onToast: (message: string) => void }) {
+  const [refundTarget, setRefundTarget] = useState<BillingTransaction | null>(null);
+
   return (
-    <div className="billing-table-card">
-      <table>
-        <thead><tr><th>거래 ID</th><th>사용자</th><th>플랜</th><th>금액</th><th>결제수단</th><th>상태</th><th>일시</th><th style={{ textAlign: "right" }}>관리</th></tr></thead>
-        <tbody>
-          {transactions.map((payment) => (
-            <tr key={payment.id}>
-              <td className="mono">{payment.id}</td>
-              <td><b>{payment.user}</b></td>
-              <td><Tag meta={planStyle[payment.plan]}>{planLabel[payment.plan] === "무료" ? "Free" : planLabel[payment.plan]}</Tag></td>
-              <td className="mono"><b>{money(payment.amount)}</b></td>
-              <td>{payment.method}</td>
-              <td><Tag meta={paymentStatus[payment.status]}>{paymentStatus[payment.status].label}</Tag></td>
-              <td className="mono" style={{ color: "#a8a29e" }}>{payment.date}</td>
-              <td style={{ textAlign: "right" }}>
-                <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                  {payment.status === "success" ? <button className="refund-button" onClick={async () => {
-                    await adminApi.refundPayment(payment.id);
-                    await onReload();
-                    onToast(`${payment.user} 결제 환불을 처리했어요`);
-                  }}>환불</button> : null}
-                  <button
-                    className="btn danger"
-                     title="삭제"
-                    style={{ width: 30, height: 30, padding: 0, justifyContent: "center" }}
-                    onClick={async () => {
-                      await adminApi.deletePayment(payment.id);
-                      await onReload();
-                      onToast(`${payment.user} 결제 기록을 삭제했어요`);
-                    }}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <>
+      <div className="billing-table-card">
+        <table>
+          <thead><tr><th>거래 ID</th><th>사용자</th><th>플랜</th><th>금액</th><th>결제수단</th><th>상태</th><th>일시</th><th style={{ textAlign: "right" }}>관리</th></tr></thead>
+          <tbody>
+            {transactions.map((payment) => (
+              <tr key={payment.id}>
+                <td className="mono">{payment.id}</td>
+                <td><b>{payment.user}</b></td>
+                <td><Tag meta={planStyle[payment.plan]}>{planLabel[payment.plan] === "무료" ? "Free" : planLabel[payment.plan]}</Tag></td>
+                <td className="mono"><b>{money(payment.amount)}</b></td>
+                <td>{payment.method}</td>
+                <td><Tag meta={paymentStatus[payment.status]}>{paymentStatus[payment.status].label}</Tag></td>
+                <td className="mono" style={{ color: "#a8a29e" }}>{payment.date}</td>
+                <td style={{ textAlign: "right" }}>
+                  <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                    {payment.status === "success" ? <button className="refund-button" onClick={() => setRefundTarget(payment)}>환불</button> : null}
+                    <button
+                      className="btn danger"
+                       title="삭제"
+                      style={{ width: 30, height: 30, padding: 0, justifyContent: "center" }}
+                      onClick={async () => {
+                        await adminApi.deletePayment(payment.id);
+                        await onReload();
+                        onToast(`${payment.user} 결제 기록을 삭제했어요`);
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {refundTarget ? (
+        <RefundConfirmModal
+          payment={refundTarget}
+          onClose={() => setRefundTarget(null)}
+          onConfirm={async () => {
+            await adminApi.refundPayment(refundTarget.id);
+            await onReload();
+            onToast(`${refundTarget.user} 결제 환불을 처리했어요`);
+            setRefundTarget(null);
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function RefundConfirmModal({
+  payment,
+  onClose,
+  onConfirm
+}: {
+  payment: BillingTransaction;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="price-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-icon"><WalletCards size={22} /></div>
+        <h2>환불 확인</h2>
+        <p>{payment.user} 사용자의 결제를 환불할까요? 환불 후 결제 상태는 환불로 유지되고, 사용자는 무료 플랜으로 전환됩니다.</p>
+        <div style={{ width: "100%", borderRadius: 16, background: "#f8fafc", border: "1px solid #e2e8f0", padding: 14, marginTop: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 14 }}><span style={{ color: "#64748b" }}>거래 ID</span><b className="mono">{payment.id}</b></div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 14, marginTop: 8 }}><span style={{ color: "#64748b" }}>사용자</span><b>{payment.user}</b></div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 14, marginTop: 8 }}><span style={{ color: "#64748b" }}>환불 금액</span><b>{money(payment.amount)}</b></div>
+        </div>
+        <div className="modal-actions">
+          <button onClick={onClose} disabled={submitting}>취소</button>
+          <button
+            onClick={async () => {
+              setSubmitting(true);
+              try {
+                await onConfirm();
+              } finally {
+                setSubmitting(false);
+              }
+            }}
+            disabled={submitting}
+          >
+            {submitting ? "처리 중..." : "환불 진행"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

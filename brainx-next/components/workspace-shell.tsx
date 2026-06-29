@@ -19,7 +19,7 @@ import {
   PAYMENT_RESULT_MESSAGE_TYPE,
   type Subscription,
 } from "@/lib/commerce-api";
-import { getMyProfile } from "@/lib/user-api";
+import { getMyNotifications, getMyProfile, markMyNotificationRead, type MyNotification } from "@/lib/user-api";
 
 const NAV = [
   { id: "home", labelKey: "nav.home" as const, icon: "home" as const, path: "/home" },
@@ -308,6 +308,19 @@ function Sidebar({ onOpenSettings, notesExplorerOpen }: { onOpenSettings: () => 
   );
 }
 
+function formatNotificationTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("ko-KR", {
+    timeZone: "Asia/Seoul",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+}
+
 function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { pushToast, t } = useBrainX();
   const router = useRouter();
@@ -315,6 +328,9 @@ function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
   const [profileName, setProfileName] = useState("");
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
   const [currentPlan, setCurrentPlan] = useState("Free");
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const [notifications, setNotifications] = useState<MyNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     setSession(readAuthSession());
@@ -406,6 +422,40 @@ function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
     };
   }, [session?.accessToken, session?.userId]);
 
+  useEffect(() => {
+    let active = true;
+
+    const refreshNotifications = () => {
+      if (!session?.accessToken) {
+        setNotifications([]);
+        setUnreadCount(0);
+        return;
+      }
+
+      getMyNotifications()
+        .then((data) => {
+          if (!active) return;
+          setNotifications(data.notifications);
+          setUnreadCount(data.unreadCount);
+        })
+        .catch(() => {
+          if (!active) return;
+          setNotifications([]);
+          setUnreadCount(0);
+        });
+    };
+
+    refreshNotifications();
+    window.addEventListener("focus", refreshNotifications);
+    window.addEventListener("brainx-auth-session-changed", refreshNotifications);
+
+    return () => {
+      active = false;
+      window.removeEventListener("focus", refreshNotifications);
+      window.removeEventListener("brainx-auth-session-changed", refreshNotifications);
+    };
+  }, [session?.accessToken, session?.userId]);
+
   const displayName =
     profileName ||
     session?.nickname?.trim() ||
@@ -448,16 +498,61 @@ function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
           </div>
           <button
             type="button"
-            onClick={() => pushToast("새 알림은 없습니다", "info")}
+            onClick={() => setNotificationOpen((open) => !open)}
             className="tutorial-target-notifications group relative grid h-8 w-8 place-items-center rounded-lg border border-line/60 text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt"
           >
             <Icon name="bell" size={15} />
-            <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-accent" />
+            {unreadCount > 0 ? <span className="absolute right-1 top-1 grid min-h-[16px] min-w-[16px] place-items-center rounded-full bg-accent px-1 text-[10px] font-semibold text-white">{Math.min(unreadCount, 9)}</span> : null}
             <span className={topTooltipClass}>
               알림
               <div className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt" style={{ zIndex: -1 }} />
             </span>
           </button>
+          {notificationOpen ? (
+            <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-[320px] overflow-hidden rounded-2xl border border-line/70 bg-bg shadow-soft">
+              <div className="flex items-center justify-between border-b border-line/50 px-4 py-3">
+                <div>
+                  <div className="text-[14px] font-semibold text-txt">알림</div>
+                  <div className="text-[12px] text-txt3">관리자 공지와 주요 안내를 확인할 수 있어요.</div>
+                </div>
+                <div className="text-[12px] font-semibold text-accent">{unreadCount}개 미확인</div>
+              </div>
+              <div className="max-h-[360px] overflow-y-auto">
+                {notifications.length === 0 ? (
+                  <div className="px-4 py-6 text-[13px] text-txt3">새 알림이 없습니다.</div>
+                ) : (
+                  notifications.map((notification) => (
+                    <button
+                      key={notification.notificationId}
+                      type="button"
+                      onClick={async () => {
+                        if (!notification.read) {
+                          const updated = await markMyNotificationRead(notification.notificationId);
+                          setNotifications((current) => current.map((item) => item.notificationId === updated.notificationId ? updated : item));
+                          setUnreadCount((count) => Math.max(0, count - 1));
+                        }
+                      }}
+                      className={cx(
+                        "w-full border-b border-line/40 px-4 py-3 text-left transition-colors hover:bg-surface2/50",
+                        notification.read ? "bg-transparent" : "bg-accent/[0.06]"
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-[13px] font-semibold text-txt">{notification.title}</div>
+                          <div className="mt-1 whitespace-pre-wrap text-[12px] leading-5 text-txt2">{notification.body}</div>
+                          <div className="mt-2 text-[11px] text-txt3">
+                            {(notification.sentByAdminName || "BrainX Admin") + " · " + formatNotificationTime(notification.createdAt)}
+                          </div>
+                        </div>
+                        {!notification.read ? <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-accent" /> : null}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : null}
           <div className="mx-1 hidden h-6 w-px bg-line/60 md:block" />
           <button
             type="button"

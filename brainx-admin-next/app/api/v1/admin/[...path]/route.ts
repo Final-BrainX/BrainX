@@ -23,15 +23,11 @@ async function dispatch(request: Request, context: RouteContext) {
     });
   };
 
-  const shouldPreferRealService = !mockEnabled || (request.method === "GET" && pathSegments[0] === "users");
-
-  if (shouldPreferRealService) {
-    try {
-      return await proxyToAdminService();
-    } catch (error) {
-      if (!mockEnabled) {
-        throw error;
-      }
+  try {
+    return await proxyToAdminService();
+  } catch (error) {
+    if (!mockEnabled) {
+      throw error;
     }
   }
 

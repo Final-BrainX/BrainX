@@ -13,6 +13,21 @@ spring:
     username: ${POSTGRES_USER:postgres}
     password: ${POSTGRES_PASSWORD:change_me}
     driver-class-name: ${DB_DRIVER:org.postgresql.Driver}
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
   jpa:
     hibernate:
       ddl-auto: ${JPA_DDL_AUTO:update}
@@ -30,6 +45,8 @@ brainx:
       login-id: ${SEED_ADMIN_LOGIN_ID:admin}
       password: ${SEED_ADMIN_PASSWORD:admin1234}
       name: ${SEED_ADMIN_NAME:최고관리자}
+  email:
+    from: ${MAIL_FROM:${spring.mail.username}}
   service-token: ${SERVICE_TOKEN:local-service-token}
   services:
     gateway-service-url: ${GATEWAY_SERVICE_URL:http://localhost:8088}

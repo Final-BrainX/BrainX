@@ -125,6 +125,31 @@ public class AdminAuthService {
     }
 
     @Transactional
+    public AdminAccountUpdateData updateAccount(String requesterAdminId, String targetAdminId, AdminAccountUpdateRequest request) {
+        AdminAccount target = findById(targetAdminId);
+
+        if (request.loginId() != null && !request.loginId().isBlank() && !request.loginId().equals(target.getLoginId())) {
+            if (adminAccountRepository.existsByLoginId(request.loginId())) {
+                throw AdminAuthException.conflict("이미 사용 중인 아이디입니다.");
+            }
+            target.setLoginId(request.loginId());
+        }
+        if (request.name() != null && !request.name().isBlank()) {
+            target.setName(request.name());
+        }
+        if (request.role() != null && request.role() != target.getRole()) {
+            if (target.getRole() == AdminRole.owner && adminAccountRepository.countByRole(AdminRole.owner) <= 1) {
+                throw AdminAuthException.conflict("마지막 최상위 관리자 계정의 권한은 변경할 수 없습니다.");
+            }
+            target.setRole(request.role());
+        }
+
+        adminAccountRepository.save(target);
+        recordOperation(requesterAdminId, "ADMIN_ACCOUNT_UPDATE", "ADMIN_ACCOUNT", targetAdminId, "role=" + target.getRole());
+        return new AdminAccountUpdateData(toAccountRow(target));
+    }
+
+    @Transactional
     public void deleteAccount(String requesterAdminId, String targetAdminId) {
         if (requesterAdminId.equals(targetAdminId)) {
             throw AdminAuthException.forbidden("본인 계정은 삭제할 수 없습니다.");

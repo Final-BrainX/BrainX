@@ -125,11 +125,20 @@ public class InternalCommerceController {
 
     @PostMapping("/billing/payments/{paymentId}/refund")
     @Transactional
-    public ResponseEntity<Map<String, Object>> refundPayment(@PathVariable String paymentId) {
-        CheckoutSession session = checkoutSessionRepository.findById(paymentId)
-                .orElseThrow(() -> new IllegalArgumentException("Payment not found: " + paymentId));
-        session.markFailed("Refunded by Admin", Instant.now());
-        return ResponseEntity.ok(Map.of("paymentId", paymentId, "status", "REFUNDED", "acceptedAt", Instant.now().toString()));
+    public ResponseEntity<Map<String, Object>> refundPayment(
+            @PathVariable String paymentId,
+            @RequestBody(required = false) RefundPaymentRequest request
+    ) {
+        CommerceService.PaymentRefundData refunded = commerceService.refundPayment(
+                paymentId,
+                request == null ? null : request.amount(),
+                request == null ? null : request.reason()
+        );
+        return ResponseEntity.ok(Map.of(
+                "paymentId", refunded.paymentId(),
+                "status", "REFUNDED",
+                "acceptedAt", refunded.refundedAt().toString()
+        ));
     }
 
     @PostMapping("/billing/payments/{paymentId}/retry")
@@ -183,7 +192,7 @@ public class InternalCommerceController {
                     session.getCurrency(),
                     session.getPaymentMethod() != null && !session.getPaymentMethod().isBlank()
                             ? session.getPaymentMethod()
-                            : session.getProvider().name(),
+                            : "기타",
                     session.getStatus().name(),
                     session.getConfirmedAt() != null ? session.getConfirmedAt() : session.getCreatedAt(),
                     session.getFailureReason()
@@ -266,4 +275,6 @@ public class InternalCommerceController {
         LocalDateTime value = LocalDateTime.ofInstant(instant, zone);
         return YearMonth.from(value).equals(month);
     }
+
+    public record RefundPaymentRequest(BigDecimal amount, String reason) {}
 }

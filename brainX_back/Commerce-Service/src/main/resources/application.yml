@@ -40,6 +40,7 @@ toss:
   client-key: ${TOSS_CLIENT_KEY:your_toss_client_key}
   secret-key: ${TOSS_SECRET_KEY:your_toss_secret_key}
   confirm-url: ${TOSS_CONFIRM_URL:https://api.tosspayments.com/v1/payments/confirm}
+  cancel-url: ${TOSS_CANCEL_URL:https://api.tosspayments.com/v1/payments/%s/cancel}
 
 logging:
   level:

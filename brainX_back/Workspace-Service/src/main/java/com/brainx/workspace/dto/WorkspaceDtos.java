@@ -200,6 +200,12 @@ public final class WorkspaceDtos {
                                            String folderId, int version, Instant updatedAt) {
     }
 
+    public record InternalUserWorkspaceStatsData(int noteCount, long storageBytes, List<InternalUserActivityDto> activities) {
+    }
+
+    public record InternalUserActivityDto(String noteId, String type, String title, Instant occurredAt) {
+    }
+
     public record InternalNoteContentPatchRequest(@NotBlank String sourceService, @NotNull Integer baseVersion,
                                                   @NotBlank String patchType, Map<String, Object> patch,
                                                   String causationId) {

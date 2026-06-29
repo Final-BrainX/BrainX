@@ -39,6 +39,11 @@ public class AdminController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(adminAuthService.createAccount(auth.getName(), request)));
     }
 
+    @PatchMapping("/admin-accounts/{adminId}")
+    public ApiResponse<AdminAccountUpdateData> updateAdminAccount(Authentication auth, @PathVariable String adminId, @RequestBody AdminAccountUpdateRequest request) {
+        return ApiResponse.success(adminAuthService.updateAccount(auth.getName(), adminId, request));
+    }
+
     @DeleteMapping("/admin-accounts/{adminId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteAdminAccount(Authentication auth, @PathVariable String adminId) {
@@ -100,13 +105,17 @@ public class AdminController {
     }
 
     @PostMapping("/users/{userId}/withdrawal")
-    public ResponseEntity<ApiResponse<AdminUserWithdrawalData>> withdrawUser(@PathVariable String userId) {
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(adminService.withdrawUser(userId)));
+    public ResponseEntity<ApiResponse<AdminUserWithdrawalData>> withdrawUser(@PathVariable String userId, @RequestBody(required = false) AdminUserWithdrawalRequest request) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(adminService.withdrawUser(userId, request)));
     }
 
     @PostMapping("/users/bulk-actions")
-    public ResponseEntity<ApiResponse<AdminUserBulkActionData>> runBulkAction(@Valid @RequestBody AdminUserBulkActionRequest request) {
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(adminService.runBulkAction(request)));
+    public ResponseEntity<ApiResponse<AdminUserBulkActionData>> runBulkAction(
+            Authentication auth,
+            @Valid @RequestBody AdminUserBulkActionRequest request
+    ) {
+        AdminMeData admin = adminAuthService.getMe(auth.getName());
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(adminService.runBulkAction(request, admin.adminUserId(), admin.name())));
     }
 
     @GetMapping("/me")
@@ -180,7 +189,7 @@ public class AdminController {
 
     @PostMapping("/billing/payments/{paymentId}/refund")
     public ResponseEntity<ApiResponse<AdminPaymentActionData>> refundPayment(@PathVariable String paymentId, @RequestBody(required = false) AdminPaymentRefundRequest request) {
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(adminService.refundPayment(paymentId)));
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(adminService.refundPayment(paymentId, request)));
     }
 
     @PostMapping("/billing/payments/{paymentId}/retry")

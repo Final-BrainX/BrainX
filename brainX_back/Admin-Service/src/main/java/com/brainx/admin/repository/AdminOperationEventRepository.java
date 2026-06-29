@@ -7,4 +7,5 @@ import java.util.List;
 
 public interface AdminOperationEventRepository extends JpaRepository<AdminOperationEvent, String> {
     List<AdminOperationEvent> findTop20ByOrderByCreatedAtDesc();
+    List<AdminOperationEvent> findByTargetTypeAndTargetIdOrderByCreatedAtDesc(String targetType, String targetId);
 }

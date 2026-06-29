@@ -73,6 +73,11 @@ spring:
               filters:
                 - RewritePath=/internal/v1/health/workspace,/actuator/health
 
+            - id: internal-workspace-service
+              uri: ${WORKSPACE_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/internal/v1/workspace/**
+
             - id: internal-ingestion-health
               uri: ${INGESTION_SERVICE_URL:http://localhost:8083}
               predicates:

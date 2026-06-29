@@ -75,6 +75,10 @@ public class AdminAccount {
         return loginId;
     }
 
+    public void setLoginId(String loginId) {
+        this.loginId = loginId;
+    }
+
     public String getName() {
         return name;
     }
@@ -101,6 +105,10 @@ public class AdminAccount {
 
     public AdminRole getRole() {
         return role;
+    }
+
+    public void setRole(AdminRole role) {
+        this.role = role;
     }
 
     public boolean isMustChangePassword() {
