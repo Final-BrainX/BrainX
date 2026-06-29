@@ -1,6 +1,6 @@
 "use client";
 
-import { clearAuthSession, isDemoSession, readAuthSession, saveAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { clearAuthSession, readAuthSession, saveAuthSession, type ApiResponse } from "@/lib/auth-api";
 import type { ThemeMode } from "@/components/brainx-provider";
 import type { LanguageCode } from "@/lib/i18n";
 
@@ -65,10 +65,6 @@ async function authedRequest<T>(path: string, init?: RequestInit) {
     throw new AuthRequiredError("로그인이 필요합니다.");
   }
 
-  if (isDemoSession(session)) {
-    return demoUserResponse<T>(path, init);
-  }
-
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
@@ -90,94 +86,6 @@ async function authedRequest<T>(path: string, init?: RequestInit) {
     throw new Error(messageFromResponse(payload, "요청 처리에 실패했습니다."));
   }
   return payload.data as T;
-}
-
-function parseBody<T>(init?: RequestInit): Partial<T> {
-  if (!init?.body || typeof init.body !== "string") return {};
-  try {
-    return JSON.parse(init.body) as Partial<T>;
-  } catch {
-    return {};
-  }
-}
-
-function demoProfile(): MyProfile {
-  const session = readAuthSession();
-  return {
-    userId: session?.userId ?? "usr_demo",
-    email: session?.email ?? "demo@brainx.local",
-    nickname: session?.nickname ?? "BrainX Demo",
-    profileImageUrl: session?.profileImageUrl ?? null,
-    language: readStoredLanguage(),
-    theme: readStoredTheme(),
-    role: session?.role ?? "ROLE_USER",
-    security: {
-      twoFactorEnabled: false,
-      linkedProviders: ["google"],
-      hasPassword: true
-    },
-    consents: {
-      termsRequired: true,
-      privacyRequired: true,
-      marketingOptional: true,
-      behaviorAnalyticsOptional: true,
-      updatedAt: new Date().toISOString()
-    }
-  };
-}
-
-function demoUserResponse<T>(path: string, init?: RequestInit): T {
-  const method = init?.method?.toUpperCase() ?? "GET";
-
-  if (path === "/api/v1/users/me" && method === "GET") {
-    return demoProfile() as T;
-  }
-
-  if (path === "/api/v1/users/me/profile" && method === "PATCH") {
-    const payload = parseBody<{ nickname?: string; language?: LanguageCode; theme?: ThemeMode }>(init);
-    const current = demoProfile();
-    const updated = {
-      userId: current.userId,
-      nickname: payload.nickname ?? current.nickname,
-      profileImageUrl: current.profileImageUrl,
-      language: payload.language ?? current.language,
-      theme: payload.theme ?? current.theme
-    };
-    saveAuthSession({ ...(readAuthSession() ?? {}), nickname: updated.nickname, profileImageUrl: updated.profileImageUrl });
-    return updated as T;
-  }
-
-  if (path === "/api/v1/users/me/password" && method === "PATCH") {
-    return null as T;
-  }
-
-  if (path === "/api/v1/users/me/2fa/email" && method === "POST") {
-    return { verificationId: "demo-verification" } as T;
-  }
-
-  if (path === "/api/v1/users/me/social-accounts" && method === "POST") {
-    const payload = parseBody<{ provider?: string }>(init);
-    return { provider: payload.provider ?? "google", linked: true } as T;
-  }
-
-  if (path.startsWith("/api/v1/users/me/social-accounts/") && method === "DELETE") {
-    return { provider: path.split("/").pop() ?? "google", linked: false } as T;
-  }
-
-  if (path === "/api/v1/users/me/consents" && method === "PUT") {
-    return { ...parseBody<ConsentPayload>(init), updatedAt: new Date().toISOString() } as T;
-  }
-
-  if (path === "/api/v1/users/me/deletion-request" && method === "POST") {
-    const deletionScheduledAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    return { deletionScheduledAt } as T;
-  }
-
-  if (path === "/api/v1/users/me/deletion-request" && method === "DELETE") {
-    return null as T;
-  }
-
-  throw new Error("데모 모드에서 지원하지 않는 사용자 API입니다.");
 }
 
 export async function getMyProfile() {

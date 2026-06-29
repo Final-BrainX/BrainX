@@ -43,7 +43,7 @@ import QuickSwitcher from "./QuickSwitcher";
 import NotesExplorer from "./NotesExplorer";
 import RightSidebar, { type PendingAiRequest } from "./RightSidebar";
 import { moveNoteIntoFolder, reorderNoteRelativeTo, moveFolderUnder, reorderFolderRelativeTo } from "@/lib/notes/folderDnd";
-import { exportNote, isNotionDemoSession, uploadAndImportFile, type ExportFormat } from "@/lib/ingestion-api";
+import { exportNote, uploadAndImportFile, type ExportFormat } from "@/lib/ingestion-api";
 import { downloadPdfFile, downloadTextFile, htmlToMarkdown, htmlToPlainText, safeFileName } from "@/lib/notes/exportNoteContent";
 import { useBrainX } from "@/components/brainx-provider";
 import { readAuthSession } from "@/lib/auth-api";
@@ -583,11 +583,10 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   }, [primaryPaneId, openNoteInPane]);
 
   /* 노트 탐색기 위로 OS 파일을 드래그&드롭하면 /import 화면과 동일한
-     uploadAndImportFile() 경로로 가져오기를 수행한다(현재 선택된 폴더로 들어감).
-     데모(Notion demo) 세션은 실제 자산 업로드 백엔드가 없어 지원하지 않는다. */
+     uploadAndImportFile() 경로로 가져오기를 수행한다(현재 선택된 폴더로 들어감). */
   const handleDropFiles = useCallback((files: FileList) => {
-    if (USE_MOCK_NOTES || isNotionDemoSession()) {
-      pushToast("데모 모드에서는 드래그&드롭 가져오기를 지원하지 않습니다.", "err");
+    if (USE_MOCK_NOTES) {
+      pushToast("목 데이터 모드에서는 드래그&드롭 가져오기를 지원하지 않습니다.", "err");
       return;
     }
     void (async () => {
@@ -1632,9 +1631,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     if (!activeNote) return;
     setExportingFormat(format);
     try {
-      if (!isNotionDemoSession()) {
-        exportNote(activeNote.id, format).catch(() => {});
-      }
+      exportNote(activeNote.id, format).catch(() => {});
       const fileName = safeFileName(activeNote.title);
       if (format === "TXT") {
         downloadTextFile(`${fileName}.txt`, htmlToPlainText(activeNote.content), "text/plain;charset=utf-8");

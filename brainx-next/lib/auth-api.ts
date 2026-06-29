@@ -88,20 +88,6 @@ const WORKSPACE_API_BASE_URL =
   process.env.NEXT_PUBLIC_WORKSPACE_API_BASE_URL ??
   process.env.NEXT_PUBLIC_API_BASE_URL ??
   "";
-export const DEMO_AUTH_SESSION: AuthSession = {
-  accessToken: "demo-access-token",
-  refreshToken: "demo-refresh-token",
-  tokenType: "Bearer",
-  userId: "usr_demo",
-  email: "demo@brainx.local",
-  nickname: "BrainX Demo",
-  profileImageUrl: null,
-  role: "ROLE_USER",
-  requires2fa: false,
-  onboardingToken: null,
-  next: "HOME"
-};
-
 let clientLocationPromise: Promise<string | null> | null = null;
 
 async function resolveClientLocation() {
@@ -173,7 +159,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 async function claimGuestDraftsAfterAuth(session: AuthSession) {
-  if (!session.accessToken || isDemoSession(session)) return null;
+  if (!session.accessToken) return null;
 
   try {
     const response = await fetch(`${WORKSPACE_API_BASE_URL}/api/v1/notes/drafts/claim`, {
@@ -258,15 +244,6 @@ export function readRecentSocialLoginProvider() {
   return value === "google" || value === "kakao" || value === "naver" ? value : null;
 }
 
-export function startDemoSession() {
-  saveAuthSession({ ...DEMO_AUTH_SESSION, provider: "email" });
-  return DEMO_AUTH_SESSION;
-}
-
-export function isDemoSession(session: AuthSession | null = readAuthSession()) {
-  return session?.accessToken === DEMO_AUTH_SESSION.accessToken || session?.userId === DEMO_AUTH_SESSION.userId;
-}
-
 export async function requestEmailVerification(email: string, purpose: EmailVerificationPurpose) {
   return request<EmailVerificationData>("/api/v1/auth/email-verifications", {
     method: "POST",
@@ -326,10 +303,6 @@ export async function loginLocal(email: string, password: string) {
 
 export async function logout() {
   const session = readAuthSession();
-  if (isDemoSession(session)) {
-    clearAuthSession();
-    return;
-  }
   await request<null>("/api/v1/auth/logout", {
       method: "POST",
       headers: await buildAuthHeaders(),
@@ -340,11 +313,6 @@ export async function logout() {
 
 export async function refreshToken() {
   const session = readAuthSession();
-  if (isDemoSession(session)) {
-    const demoSession = { ...DEMO_AUTH_SESSION, ...session };
-    saveAuthSession(demoSession);
-    return demoSession;
-  }
   const data = await request<AuthSession>("/api/v1/auth/token/refresh", {
       method: "POST",
       headers: await buildAuthHeaders(),

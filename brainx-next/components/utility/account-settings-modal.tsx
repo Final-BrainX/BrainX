@@ -18,10 +18,8 @@ import { ImportScreen } from "@/components/utility/import-screen";
 import { getOAuthAuthorization, logout, readAuthSession, type OAuthProvider } from "@/lib/auth-api";
 import {
   cancelSubscription,
-  changeSubscriptionDemo,
   getMySubscription,
   getPlans,
-  isCommerceDemoSession,
   PAYMENT_RESULT_MESSAGE_TYPE,
   type Plan as CommercePlan,
   type Subscription as CommerceSubscription
@@ -1491,19 +1489,6 @@ function UpgradePanel({
   const startUpgrade = async (plan: CommercePlan) => {
     if (pendingPlanId) return;
     setPendingPlanId(plan.planId);
-
-    if (isCommerceDemoSession()) {
-      try {
-        await changeSubscriptionDemo(plan.planId);
-        pushToast(`${plan.name} 플랜으로 변경됐어요 (데모)`, "ok");
-        await refresh();
-      } catch (error) {
-        pushToast(error instanceof Error ? error.message : "플랜 변경에 실패했습니다.", "err");
-      } finally {
-        setPendingPlanId(null);
-      }
-      return;
-    }
 
     const popup = window.open(
       `/billing/checkout?planId=${encodeURIComponent(plan.planId)}`,

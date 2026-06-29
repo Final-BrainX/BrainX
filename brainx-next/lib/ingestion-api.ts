@@ -1,6 +1,6 @@
 "use client";
 
-import { clearAuthSession, isDemoSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { clearAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
 
 const INGESTION_API_BASE_URL = process.env.NEXT_PUBLIC_INGESTION_API_BASE_URL ?? "http://localhost:8083";
 
@@ -80,12 +80,6 @@ function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
 async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const session = readAuthSession();
 
-  if (session?.accessToken && isDemoSession(session)) {
-    return demoIngestionResponse<T>(path, init);
-  }
-
-  // TEMP: 로그인 없이 Notion 가져오기 기능 테스트용. 실제 로그인 연동 완료 후
-  // 아래 두 줄을 제거하고 session?.accessToken이 없으면 에러를 던지도록 되돌릴 것.
   const response = await fetch(`${INGESTION_API_BASE_URL}${path}`, {
     ...init,
     headers: {
@@ -137,53 +131,6 @@ async function sha256Hex(file: File): Promise<string> {
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function parseBody<T>(init?: RequestInit): Partial<T> {
-  if (!init?.body || typeof init.body !== "string") return {};
-  try {
-    return JSON.parse(init.body) as Partial<T>;
-  } catch {
-    return {};
-  }
-}
-
-const DEMO_NOTION_PAGES: NotionPage[] = [
-  { id: "demo-page-msa", title: "BrainX MSA 설계 노트", icon: "🧠", lastEditedTime: new Date().toISOString() },
-  { id: "demo-page-meeting", title: "주간 회의록", icon: "📋", lastEditedTime: new Date().toISOString() },
-  { id: "demo-page-roadmap", title: "제품 로드맵 2026", icon: "🗺️", lastEditedTime: new Date().toISOString() }
-];
-
-function demoIngestionResponse<T>(path: string, init?: RequestInit): T {
-  const method = init?.method?.toUpperCase() ?? "GET";
-
-  if (path === "/api/v1/imports/notion/oauth/callback" && method === "POST") {
-    return { integrationAccountId: "demo-notion-account" } as T;
-  }
-
-  if (path.startsWith("/api/v1/imports/notion/pages") && method === "GET") {
-    return { pages: DEMO_NOTION_PAGES } as T;
-  }
-
-  if (path === "/api/v1/imports/notion/jobs" && method === "POST") {
-    const body = parseBody<{ sourceId?: string }>(init);
-    const page = DEMO_NOTION_PAGES.find((item) => item.id === body.sourceId);
-    return { importJobId: `demo-job-${body.sourceId}`, status: "COMPLETED", _demoPageTitle: page?.title } as T;
-  }
-
-  if (path.startsWith("/api/v1/imports/demo-job-") && method === "GET") {
-    const sourceId = path.replace("/api/v1/imports/demo-job-", "");
-    const page = DEMO_NOTION_PAGES.find((item) => item.id === sourceId);
-    return {
-      importJobId: path.split("/").pop(),
-      status: "COMPLETED",
-      createdNotes: [{ noteId: `demo-note-${sourceId}`, title: page?.title ?? "데모 노트" }],
-      failedFiles: [],
-      conflicts: []
-    } as T;
-  }
-
-  throw new Error("데모 모드에서 지원하지 않는 가져오기 API입니다.");
-}
-
 export function readNotionIntegration(): NotionIntegration | null {
   if (typeof window === "undefined") return null;
   try {
@@ -203,16 +150,6 @@ export function saveNotionIntegration(integrationAccountId: string) {
 export function clearNotionIntegration() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(NOTION_INTEGRATION_KEY);
-}
-
-export function isNotionDemoSession() {
-  return isDemoSession(readAuthSession());
-}
-
-// 데모 세션은 실제 Notion OAuth를 거칠 수 없으므로 즉시 연동 완료 처리한다.
-export function connectNotionDemo() {
-  saveNotionIntegration("demo-notion-account");
-  return readNotionIntegration() as NotionIntegration;
 }
 
 export async function startNotionOAuth() {
@@ -311,10 +248,7 @@ async function importFileJob(uploadedAssetId: string, targetFolderId?: string) {
   });
 }
 
-/**
- * 파일(ZIP 포함)을 업로드하고 가져오기 작업을 생성한 뒤 완료될 때까지 폴링한다.
- * 데모 세션에서는 실제 백엔드 자산 업로드 인프라가 없으므로 호출하지 않아야 한다 (isNotionDemoSession으로 분기).
- */
+/** 파일(ZIP 포함)을 업로드하고 가져오기 작업을 생성한 뒤 완료될 때까지 폴링한다. */
 export async function uploadAndImportFile(file: File, targetFolderId?: string) {
   const session = await createAssetUploadSession(file, targetFolderId);
   await authedUpload(`/api/v1/assets/upload-sessions/${session.uploadSessionId}/binary`, file);
@@ -360,8 +294,7 @@ async function getExportJobStatus(exportJobId: string) {
   return authedRequest<ExportJobData>(`/api/v1/exports/${exportJobId}`);
 }
 
-/** 내보내기 작업을 요청하고 완료(또는 실패)될 때까지 폴링한다. 데모 세션은 실제 백엔드가 없으므로
-    호출하는 쪽(NotesWorkspace)에서 isNotionDemoSession()으로 먼저 분기해야 한다. */
+/** 내보내기 작업을 요청하고 완료(또는 실패)될 때까지 폴링한다. */
 export async function exportNote(noteId: string, format: ExportFormat) {
   const accepted = await requestExportJob(noteId, format);
   let status = accepted.status;

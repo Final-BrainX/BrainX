@@ -11,10 +11,8 @@ import { Icon } from "@/components/brainx-ui";
 
 import {
   clearNotionIntegration,
-  connectNotionDemo,
   getImportJobStatus,
   importNotionPage,
-  isNotionDemoSession,
   listNotionPages,
   NOTION_OAUTH_MESSAGE_TYPE,
   readNotionIntegration,
@@ -97,16 +95,6 @@ export function ImportScreen() {
     setImporting(false);
   }, [progress]);
 
-  // 데모 세션은 실제 자산 업로드 백엔드가 없으므로 가짜 진행률만 보여준다.
-  const startDemoImport = (name: string) => {
-    if (importing) return;
-    setProgress(4);
-    setImporting(true);
-    window.setTimeout(() => {
-      pushToast(`${name} 가져오기를 완료했어요`, "ok");
-    }, 1700);
-  };
-
   const startRealImport = async (file: File) => {
     if (importing) return;
     setProgress(4);
@@ -140,10 +128,6 @@ export function ImportScreen() {
   };
 
   const startImport = (file: File) => {
-    if (isNotionDemoSession()) {
-      startDemoImport(file.name);
-      return;
-    }
     void startRealImport(file);
   };
 
@@ -176,13 +160,6 @@ export function ImportScreen() {
     if (notionConnecting) return;
     setNotionConnecting(true);
     try {
-      if (isNotionDemoSession()) {
-        const integration = connectNotionDemo();
-        setNotionIntegration(integration);
-        await loadNotionPages(integration.integrationAccountId);
-        pushToast("Notion 워크스페이스에 연결됐어요 (데모)", "ok");
-        return;
-      }
       const { authorizationUrl } = await startNotionOAuth();
       const popup = window.open(
         authorizationUrl,

@@ -10,7 +10,6 @@ import { AccountSettingsModal } from "@/components/utility/account-settings-moda
 import { PanelLeftClose, PanelLeft } from "lucide-react";
 import { cx } from "@/lib/utils";
 import {
-  isDemoSession,
   readAuthSession,
   type AuthSession,
 } from "@/lib/auth-api";
@@ -315,6 +314,8 @@ function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
   const [profileName, setProfileName] = useState("");
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
   const [currentPlan, setCurrentPlan] = useState("Free");
+  const [guestMenuOpen, setGuestMenuOpen] = useState(false);
+  const isGuest = !session?.accessToken;
 
   useEffect(() => {
     setSession(readAuthSession());
@@ -330,14 +331,6 @@ function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
     if (!session?.accessToken) {
       setProfileName("");
       setProfileImageUrl(null);
-      return () => {
-        active = false;
-      };
-    }
-
-    if (isDemoSession(session)) {
-      setProfileName(session.nickname?.trim() || "BrainX Demo");
-      setProfileImageUrl(session.profileImageUrl ?? null);
       return () => {
         active = false;
       };
@@ -406,11 +399,12 @@ function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
     };
   }, [session?.accessToken, session?.userId]);
 
-  const displayName =
-    profileName ||
-    session?.nickname?.trim() ||
-    session?.email?.split("@")[0] ||
-    "사용자";
+  const displayName = isGuest
+    ? "게스트"
+    : profileName ||
+      session?.nickname?.trim() ||
+      session?.email?.split("@")[0] ||
+      "사용자";
   const displayImageUrl = profileImageUrl ?? session?.profileImageUrl;
   const mobileNav = [
     { label: t("nav.home"), icon: "home" as const, path: "/home" },
@@ -459,25 +453,64 @@ function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
             </span>
           </button>
           <div className="mx-1 hidden h-6 w-px bg-line/60 md:block" />
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            className="tutorial-target-profile group relative flex h-8 items-center gap-2 rounded-lg px-2 transition-colors hover:bg-surface2/60"
-          >
-            <Avatar name={displayName} size={26} imageUrl={displayImageUrl} />
-            <div className="hidden text-left leading-tight sm:block">
-              <div className="max-w-[110px] truncate text-[12px] font-semibold text-txt">
-                {displayName}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => (isGuest ? setGuestMenuOpen((current) => !current) : onOpenSettings())}
+              className="tutorial-target-profile group relative flex h-8 items-center gap-1.5 rounded-lg px-2 transition-colors hover:bg-surface2/60"
+            >
+              <Avatar name={displayName} size={26} imageUrl={displayImageUrl} />
+              <div className="hidden text-left leading-tight sm:block">
+                <div className="max-w-[110px] truncate text-[12px] font-semibold text-txt">
+                  {displayName}
+                </div>
+                <div className="text-[10px] text-txt3">
+                  {isGuest ? "체험 중" : currentPlan}
+                </div>
               </div>
-              <div className="text-[10px] text-txt3">
-                {currentPlan}
+              {isGuest ? <Icon name="chevD" size={12} className="text-txt3" /> : null}
+              {!isGuest ? (
+                <span className={topTooltipClass}>
+                  사용자 프로필
+                  <div className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt" style={{ zIndex: -1 }} />
+                </span>
+              ) : null}
+            </button>
+            {isGuest && guestMenuOpen ? (
+              <div
+                className="fade-up absolute right-0 top-[calc(100%+8px)] z-50 w-64 rounded-xl border border-line/60 bg-surface p-3 shadow-soft"
+                onMouseLeave={() => setGuestMenuOpen(false)}
+              >
+                <div className="px-1">
+                  <div className="text-[13px] font-semibold text-txt">체험 모드 사용 중</div>
+                  <div className="mt-1 text-[12px] leading-relaxed text-txt2">
+                    가입하면 현재 작성한 노트와 폴더를 계정에 저장할 수 있어요.
+                  </div>
+                </div>
+                <div className="my-2 h-px bg-line/50" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGuestMenuOpen(false);
+                    router.push("/signup");
+                  }}
+                  className="flex h-9 w-full items-center rounded-lg px-2 text-left text-[13px] font-medium text-txt hover:bg-surface2/60"
+                >
+                  회원가입
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGuestMenuOpen(false);
+                    router.push("/login");
+                  }}
+                  className="flex h-9 w-full items-center rounded-lg px-2 text-left text-[13px] text-txt2 hover:bg-surface2/60 hover:text-txt"
+                >
+                  로그인
+                </button>
               </div>
-            </div>
-            <span className={topTooltipClass}>
-              사용자 프로필
-              <div className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt" style={{ zIndex: -1 }} />
-            </span>
-          </button>
+            ) : null}
+          </div>
         </div>
       </div>
       <div className="border-t border-line/40 px-4 py-2 md:hidden">
@@ -517,7 +550,9 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (pathname === "/mypage") {
-      setSettingsOpen(true);
+      if (readAuthSession()?.accessToken) {
+        setSettingsOpen(true);
+      }
       router.replace("/home");
     }
   }, [pathname, router]);
