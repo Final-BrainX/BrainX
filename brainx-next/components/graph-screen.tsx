@@ -234,6 +234,30 @@ function settleLayout(notes: BrainXNote[], iterations = 260) {
     };
   });
 
+  const minDistance = 132;
+  for (let pass = 0; pass < 12; pass += 1) {
+    let moved = false;
+    for (let i = 0; i < notes.length; i += 1) {
+      for (let j = i + 1; j < notes.length; j += 1) {
+        const a = positions[notes[i].id];
+        const b = positions[notes[j].id];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.hypot(dx, dy) || 0.001;
+        if (dist >= minDistance) continue;
+        const push = (minDistance - dist) / 2;
+        const ux = dx / dist;
+        const uy = dy / dist;
+        a.x -= ux * push;
+        a.y -= uy * push;
+        b.x += ux * push;
+        b.y += uy * push;
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+
   return positions;
 }
 
@@ -293,14 +317,22 @@ function GraphCanvasFlow({
   // Sync positionsRef with notes to handle async data loading
   useEffect(() => {
     let added = false;
+    let removed = false;
     const settled = settleLayout(notes);
+    const noteIdSet = new Set(notes.map((note) => note.id));
+    for (const id of Object.keys(positionsRef.current)) {
+      if (!noteIdSet.has(id)) {
+        delete positionsRef.current[id];
+        removed = true;
+      }
+    }
     notes.forEach(note => {
       if (!positionsRef.current[note.id]) {
         positionsRef.current[note.id] = settled[note.id];
         added = true;
       }
     });
-    if (added && controls.current) {
+    if ((added || removed) && controls.current) {
       controls.current.reheat();
     }
   }, [notes]);

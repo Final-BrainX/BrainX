@@ -146,10 +146,12 @@ export function clusterById(id: string) {
 
 export function deriveGraphEdges(notes: BrainXNote[]) {
   const seen = new Set<string>();
+  const noteIds = new Set(notes.map((note) => note.id));
   const edges: Array<{ source: string; target: string; bridge?: boolean }> = [];
 
   for (const note of notes) {
     for (const target of note.links ?? []) {
+      if (!noteIds.has(target) || target === note.id) continue;
       const key = [note.id, target].sort().join("-");
       if (!seen.has(key)) {
         seen.add(key);
@@ -163,8 +165,9 @@ export function deriveGraphEdges(notes: BrainXNote[]) {
     ["n12", "n5"],
     ["n9", "n8"]
   ] as const) {
+    if (!noteIds.has(source) || !noteIds.has(target)) continue;
     const key = [source, target].sort().join("-");
-    if (!seen.has(key) && notes.some((note) => note.id === source || note.id === target)) {
+    if (!seen.has(key)) {
       seen.add(key);
       edges.push({ source, target, bridge: true });
     }
