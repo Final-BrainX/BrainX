@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const INTELLIGENCE_API_BASE_URL = process.env.INTELLIGENCE_API_BASE_URL ?? "http://localhost:8086";
-const FORWARDED_REQUEST_HEADERS = ["authorization", "content-type", "accept", "idempotency-key"] as const;
+const FORWARDED_REQUEST_HEADERS = ["authorization", "content-type", "accept", "idempotency-key", "x-user-id"] as const;
 const FORWARDED_RESPONSE_HEADERS = ["content-type", "cache-control"] as const;
 
 type RouteContext = {

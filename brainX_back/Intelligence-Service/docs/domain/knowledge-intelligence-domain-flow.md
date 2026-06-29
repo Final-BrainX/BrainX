@@ -93,9 +93,9 @@ flowchart LR
 - `User Profile`은 문체와 AI 선호처럼 개인화에 필요한 정보를 제공한다.
 - 사용자는 최종적으로 제안, 추천, 분석 결과를 검토하고 선택한다.
 
-## 도메인 구현 우선순위와의 연결
+## 도메인 구현 순서와의 연결
 
-이 문서의 흐름은 `vaults/agents/domain-implementation-order.md`의 TODO 순서와 연결된다.
+이 문서의 흐름은 `vaults/agents/domain-implementation-order.md`의 기능 구현 순서와 연결된다.
 
 1. AI 사용 준비
 2. 지식 탐색 기본 기능

@@ -47,6 +47,7 @@
 - `brainx-next` 프론트 요구를 기준으로 Intelligence Service API 구현 범위를 확인할 때는 `vaults/agents/frontend-integration.md`를 함께 읽습니다.
 - 기능 구현 순서 질문은 `vaults/agents/domain-implementation-order.md`를 기준으로 답합니다.
 - 도메인 흐름이나 기획자와 공유할 설명은 `docs/domain/knowledge-intelligence-domain-flow.md`를 기준으로 답합니다.
+- Intelligence-Service 데이터 소유권, 파생 지식 상태, 운영 DB table의 도메인 의미는 `docs/domain/knowledge-intelligence-data-ownership.md`를 기준으로 답합니다.
 - Intelligence-Service가 consumer로 받는 이벤트와 도메인 기능 연결은 `docs/domain/consumed-events-domain-map.md`를 기준으로 답합니다.
 - 구현된 consumed event와 AsyncAPI SSOT의 일치 여부는 `docs/technical/consumed-event-contract-alignment.md`를 기준으로 답합니다.
 - Intelligence-Service consumer 이벤트별 구현 체크포인트는 `docs/technical/consumed-events-implementation-checkpoints.md`를 기준으로 답합니다.
@@ -54,6 +55,7 @@
 - 문체 설정 UX나 `StyleProfile` 입력 방향은 `docs/domain/style-profile-input-direction.md`를 기준으로 답합니다.
 - Spring Boot conditional bean 등록이나 Qdrant adapter 조건부 등록은 `docs/technical/conditional-on-bean.md`를 기준으로 답합니다.
 - AI 모델 비용, cached input token, usage event payload, RAG usage cost estimate는 `docs/technical/ai-model-pricing-and-usage.md`를 기준으로 답합니다.
+- 운영 PostgreSQL schema baseline DDL, 부분 적용 DB 체크리스트, 권장 인덱스는 `docs/technical/intelligence-operational-db-ddl.md`를 기준으로 답합니다.
 - 외부 자료 검색 port, OpenAI `web_search` provider, 검색 CLI 실행 방법, RAG chat router 연결 방향은 `docs/technical/external-search.md`를 기준으로 답합니다.
 - `brainx-next`의 AI context 관리, `clientContext` payload, `noteScope` 검증 역할, RightSidebar/NoteEditor context 조립 방식은 `docs/technical/frontend-ai-context-management.md`를 기준으로 답합니다.
 - 프론트 inline assist SSE 요청이 사용자 메시지만 표시되고 응답이 비는 문제는 `docs/technical/inline-assist-frontend-stream-lifecycle.md`를 기준으로 답합니다.

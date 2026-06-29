@@ -88,6 +88,8 @@ const WORKSPACE_API_BASE_URL =
   process.env.NEXT_PUBLIC_WORKSPACE_API_BASE_URL ??
   process.env.NEXT_PUBLIC_API_BASE_URL ??
   "";
+const DEV_AUTH_BYPASS = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true";
+const DEV_AUTH_USER_ID = process.env.NEXT_PUBLIC_WORKSPACE_DEV_USER_ID?.trim() || "dev-test-user";
 export const DEMO_AUTH_SESSION: AuthSession = {
   accessToken: "demo-access-token",
   refreshToken: "demo-refresh-token",
@@ -100,6 +102,14 @@ export const DEMO_AUTH_SESSION: AuthSession = {
   requires2fa: false,
   onboardingToken: null,
   next: "HOME"
+};
+
+const DEV_AUTH_SESSION: AuthSession = {
+  ...DEMO_AUTH_SESSION,
+  userId: DEV_AUTH_USER_ID,
+  email: `${DEV_AUTH_USER_ID}@brainx.local`,
+  nickname: "BrainX Dev",
+  provider: "email",
 };
 
 let clientLocationPromise: Promise<string | null> | null = null;
@@ -235,10 +245,18 @@ export function readAuthSession() {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(AUTH_SESSION_KEY);
-    return raw ? (JSON.parse(raw) as AuthSession) : null;
+    return raw ? (JSON.parse(raw) as AuthSession) : DEV_AUTH_BYPASS ? DEV_AUTH_SESSION : null;
   } catch {
-    return null;
+    return DEV_AUTH_BYPASS ? DEV_AUTH_SESSION : null;
   }
+}
+
+export function ensureDevAuthSession() {
+  if (typeof window === "undefined" || !DEV_AUTH_BYPASS) return null;
+  const session = readAuthSession();
+  if (session?.accessToken) return session;
+  saveAuthSession(DEV_AUTH_SESSION);
+  return DEV_AUTH_SESSION;
 }
 
 export function clearAuthSession() {

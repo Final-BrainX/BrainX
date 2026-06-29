@@ -38,14 +38,19 @@ import { DragHandle } from "./DragHandleExtension";
 import { WikiLinkSuggestion } from "./WikiLinkSuggestion";
 import { WikiLinkAutocomplete } from "./WikiLinkAutocomplete";
 import { useWikiLinkContext } from "./WikiLinkContext";
-import { SlashCommandSuggestion } from "./SlashCommand";
+import { SlashCommandKey, SlashCommandSuggestion } from "./SlashCommand";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { TagSuggestion } from "./TagSuggestion";
 import { TagAutocomplete } from "./TagAutocomplete";
 import { TagNode } from "./TagNode";
 import { TaskListMarkdownBridge } from "./TaskListMarkdownBridge";
 import { createInlineAssistStream, decideAiSuggestion } from "@/lib/intelligence-api";
-import { AI_CONTEXT_AROUND_CURSOR_CHARS, buildInlineAssistContext, validateAiContextSufficiency } from "@/lib/ai-context";
+import {
+  AI_CONTEXT_AROUND_CURSOR_CHARS,
+  AI_CONTEXT_MIN_CONTINUE_BEFORE_CHARS,
+  buildInlineAssistContext,
+  validateAiContextSufficiency,
+} from "@/lib/ai-context";
 // 표를 쓰지 않는 노트에서는 이 작은 플로팅 툴바조차 메인 청크에 묶이지 않도록 분리한다.
 // Table/TableCell 등 TipTap extension 자체는 그대로 유지(동적 등록은 사이드 이펙트 위험이
 // 커서 시도하지 않음) — 여기서 지연시키는 건 순수 React UI뿐이다.
@@ -1449,13 +1454,12 @@ function continueSuggestionId(draft: ContinueSuggestionState | null | undefined)
   return draft?.status === "ready" || draft?.status === "error" ? draft.suggestionId : undefined;
 }
 
-/* "이어쓰기" 제안 UI — 예전엔 ProseMirror Decoration.widget으로 캐럿 위치의 텍스트 흐름
-   안(같은 줄)에 꽂아 넣었다(첫 수정: inline-flex → flex로 바꿔 최소한 다음 줄로는 내렸지만,
-   여전히 "본문 블록 일부"처럼 보여 작성 중인 줄과 위치가 애매했다). 이제는 일반 React
-   컴포넌트로 빼서 SlashCommandMenu/CursorContinueButton과 같은 방식 — editor 트랜잭션을
-   구독해 상태를 읽고, coordsAtPos로 계산한 caret 좌표를 기준으로 절대 위치 배치한다(아래
-   NoteEditor의 continueDraftAnchor 계산 참고) — 그래서 문서 흐름/구조에는 전혀 영향이 없고
-   캐럿 오른쪽 아래에 보조 UI로만 떠 있다. */
+const CONTINUE_TRIGGER_IDLE_MS = 600;
+const CONTINUE_TRIGGER_SAFE_WIDTH = 124;
+const CONTINUE_DRAFT_SAFE_WIDTH = 420;
+
+/* "이어쓰기" 제안 UI는 본문 흐름 안에 직접 꽂지 않고 editor shell 위에 띄운다. 트리거 버튼은
+   idle 상태에서만 작게 보이고, 결과 위젯은 커서 라인 아래 여백 쪽에 둬 현재 줄을 덮지 않게 한다. */
 function InlineContinueFloatingWidget({
   draft,
   anchor,
@@ -1470,7 +1474,7 @@ function InlineContinueFloatingWidget({
   const isLoading = draft.status === "loading";
   const isError = draft.status === "error";
   const bodyText = isError
-    ? draft.message
+    ? "앞 문맥이 조금 더 필요합니다."
     : draft.text.trim()
       ? draft.text
       : "이어 쓰는 중...";
@@ -1482,10 +1486,10 @@ function InlineContinueFloatingWidget({
   };
 
   return (
-    <div className="absolute z-40" style={{ left: anchor.left, top: anchor.top }} data-inline-continue-widget="true">
-      <span
+    <div className="absolute z-40 max-w-[min(420px,calc(100%-16px))]" style={{ left: anchor.left, top: anchor.top }} data-inline-continue-widget="true">
+      <div
         className={cx(
-          "flex w-fit max-w-full items-center gap-1.5 rounded-md border px-1.5 py-0.5 text-[12.5px] leading-relaxed shadow-sm",
+          "flex w-fit max-w-full items-start gap-1.5 rounded-md border px-2 py-1 text-[12px] leading-relaxed shadow-sm",
           isError
             ? "border-red-400/40 bg-red-500/10 text-red-300"
             : "border-primary/30 bg-primary/10 text-txt"
@@ -1497,7 +1501,7 @@ function InlineContinueFloatingWidget({
         </span>
         <span
           className={cx(
-            "min-w-0 whitespace-pre-wrap border-b border-dashed",
+            "max-h-28 min-w-0 overflow-y-auto break-words border-b border-dashed pr-1",
             isError ? "border-red-400/50" : "border-primary/50"
           )}
         >
@@ -1524,7 +1528,7 @@ function InlineContinueFloatingWidget({
         >
           <X size={12} />
         </button>
-      </span>
+      </div>
     </div>
   );
 }
@@ -1947,14 +1951,16 @@ function CursorContinueButton({
   return (
     <button
       type="button"
+      aria-label="AI로 이어쓰기"
       onMouseDown={(event) => event.preventDefault()}
       onClick={onRequest}
       title="AI로 이어쓰기"
-      className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line/60 bg-surface px-2.5 text-[11.5px] font-semibold text-txt2 transition-colors hover:bg-surface2/70 hover:text-txt"
-      style={{ boxShadow: "0 8px 20px -4px rgba(2,6,23,0.30)" }}
+      className="group inline-flex h-7 items-center gap-1 rounded-full border border-line/60 bg-surface/95 px-1.5 text-[11px] font-semibold text-txt3 opacity-80 shadow-sm transition-opacity duration-150 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45"
     >
-      <Sparkles size={13} />
-      이어쓰기
+      <Sparkles size={13} className="shrink-0 text-primary" />
+      <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-[max-width,opacity] duration-150 group-hover:max-w-14 group-hover:opacity-100 group-focus-visible:max-w-14 group-focus-visible:opacity-100">
+        이어쓰기
+      </span>
     </button>
   );
 }
@@ -2668,6 +2674,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
   const editorShellRef = useRef<HTMLDivElement>(null);
   const continueAbortRef = useRef<AbortController | null>(null);
   const continueRequestIdRef = useRef(0);
+  const cursorAiIdleTimerRef = useRef<number | null>(null);
   const suppressInlineContinueAutoRejectRef = useRef(false);
   const lastInlineContinueDraftRef = useRef<ContinueSuggestionState | null>(null);
   const syncedNoteIdRef = useRef(note.id);
@@ -2998,12 +3005,15 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
   useEffect(() => {
     if (!editor) return;
 
-    const updateCursorAiAnchor = () => {
-      // "이어쓰기" 제안 위젯의 위치 — 트리거 버튼과 달리 포커스/selection 상태와 무관하게(
-      // 제안이 떠 있는 동안 다른 곳을 잠깐 봐도 사라지면 안 됨) draft.insertPos(캐럿이 있던
-      // 자리, 문서 변경 시 매핑됨) 기준으로 매번 다시 계산한다. coordsAtPos가 돌려주는 위치는
-      // 그 문자의 "오른쪽 아래" 경계와 가깝게 잡혀 있어(left/top=시작, right/bottom=끝) 거기서
-      // 살짝만 띄우면 캐럿을 가리지 않으면서 바로 오른쪽 아래에 자연스럽게 붙는다.
+    const clearPendingCursorAiAnchor = () => {
+      if (cursorAiIdleTimerRef.current) {
+        window.clearTimeout(cursorAiIdleTimerRef.current);
+        cursorAiIdleTimerRef.current = null;
+      }
+      setCursorAiAnchor(null);
+    };
+
+    const updateContinueDraftAnchor = () => {
       const draft = getInlineContinueDraft(editor);
       const shellRectForDraft = editorShellRef.current?.getBoundingClientRect();
       if (draft && shellRectForDraft) {
@@ -3011,40 +3021,67 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
         const draftCoords = safeCoordsAtPos(editor.view, pos, 1);
         const left = Math.max(
           8,
-          Math.min(draftCoords.right - shellRectForDraft.left + 6, shellRectForDraft.width - 280)
+          Math.min(draftCoords.left - shellRectForDraft.left, shellRectForDraft.width - CONTINUE_DRAFT_SAFE_WIDTH)
         );
-        const top = Math.max(8, draftCoords.bottom - shellRectForDraft.top + 4);
+        const top = Math.max(8, draftCoords.bottom - shellRectForDraft.top + 10);
         setContinueDraftAnchor({ left, top });
       } else {
         setContinueDraftAnchor(null);
       }
+    };
+
+    const updateCursorAiAnchor = () => {
+      updateContinueDraftAnchor();
 
       const editorHasFocus = editor.view.dom.contains(document.activeElement);
-      if (!editor.isEditable || !editorHasFocus) {
-        setCursorAiAnchor(null);
+      const slashCommandOpen = SlashCommandKey.getState(editor.state)?.active ?? false;
+      if (!editor.isEditable || !editorHasFocus || contextMenu || slashCommandOpen || getInlineContinueDraft(editor)) {
+        clearPendingCursorAiAnchor();
         return;
       }
       if (!editor.state.selection.empty || editor.isActive("codeBlock") || editor.isActive("table")) {
-        setCursorAiAnchor(null);
+        clearPendingCursorAiAnchor();
         return;
       }
 
       const shellRect = editorShellRef.current?.getBoundingClientRect();
       if (!shellRect) {
-        setCursorAiAnchor(null);
+        clearPendingCursorAiAnchor();
         return;
       }
       const coords = safeCoordsAtPos(editor.view, editor.state.selection.from, 1);
-      const left = Math.max(8, Math.min(coords.left - shellRect.left - 12, shellRect.width - 120));
-      const top = Math.max(8, coords.top - shellRect.top - 42);
-      setCursorAiAnchor({ left, top });
+      const context = inlineContext(editor, {
+        from: editor.state.selection.from,
+        to: editor.state.selection.from,
+      });
+      if (context.contextBefore.trim().length < AI_CONTEXT_MIN_CONTINUE_BEFORE_CHARS) {
+        clearPendingCursorAiAnchor();
+        return;
+      }
+
+      const candidateLeft = coords.right - shellRect.left + 8;
+      if (candidateLeft + CONTINUE_TRIGGER_SAFE_WIDTH > shellRect.width) {
+        clearPendingCursorAiAnchor();
+        return;
+      }
+
+      const nextAnchor = {
+        left: Math.max(8, candidateLeft),
+        top: Math.max(8, coords.top - shellRect.top - 3),
+      };
+      if (cursorAiIdleTimerRef.current) window.clearTimeout(cursorAiIdleTimerRef.current);
+      setCursorAiAnchor(null);
+      cursorAiIdleTimerRef.current = window.setTimeout(() => {
+        cursorAiIdleTimerRef.current = null;
+        setCursorAiAnchor(nextAnchor);
+      }, CONTINUE_TRIGGER_IDLE_MS);
     };
     const scheduleCursorAiAnchorUpdate = () => {
       window.requestAnimationFrame(updateCursorAiAnchor);
     };
 
     const handleBlur = () => {
-      setCursorAiAnchor(null);
+      clearPendingCursorAiAnchor();
     };
 
     editor.on("focus", scheduleCursorAiAnchorUpdate);
@@ -3067,8 +3104,12 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       editor.view.dom.removeEventListener("mouseup", scheduleCursorAiAnchorUpdate);
       window.removeEventListener("scroll", updateCursorAiAnchor, true);
       window.removeEventListener("resize", updateCursorAiAnchor);
+      if (cursorAiIdleTimerRef.current) {
+        window.clearTimeout(cursorAiIdleTimerRef.current);
+        cursorAiIdleTimerRef.current = null;
+      }
     };
-  }, [editor]);
+  }, [contextMenu, editor]);
 
   /* note 변경(탭 전환 등) → 내용만 갱신한다. 모드는 여기서 설정하지 않는다 — mode prop은
      부모가 탭(노트 인스턴스) 단위로 들고 있고, 새로 생성된 탭은 기본값 자체가 "edit"이므로

@@ -6,6 +6,7 @@
 
 - `conditional-on-bean.md`: Spring Boot `@ConditionalOnBean` 동작과 Qdrant adapter 연결 방식
 - `ai-model-pricing-and-usage.md`: AI 모델 카탈로그 가격과 token usage / cost 추정 메모
+- `intelligence-operational-db-ddl.md`: 운영 PostgreSQL schema baseline DDL과 부분 적용 DB 체크리스트
 - `connection-api.md`: 연결 추천 공개 API와 event / usage 경계
 - `external-search.md`: OpenAI `web_search` 기반 검색 port와 품질 캡처 메모
 - `frontend-ai-context-management.md`: 프론트엔드 AI context 흐름과 chat / inline assist 전달

@@ -7,13 +7,15 @@ export type PlanetNodeData = {
   color: string;
   radius: number;
   selected: boolean;
+  bridgeSelected?: boolean;
+  bridgeSelectionOrder?: number | null;
   dimmed: boolean;
   isDirect: boolean;
   layer: 'front' | 'middle' | 'back';
 };
 
 export function PlanetNode({ data }: NodeProps) {
-  const { label, color, radius, selected, dimmed, isDirect, layer, theme } = data as PlanetNodeData & { theme?: '2d' | 'universe' };
+  const { label, color, radius, selected, bridgeSelected, bridgeSelectionOrder, dimmed, isDirect, layer, theme } = data as PlanetNodeData & { theme?: '2d' | 'universe' };
 
   const is2D = theme === '2d';
   const r = radius;
@@ -61,6 +63,16 @@ export function PlanetNode({ data }: NodeProps) {
           transition={{ type: "spring", stiffness: 400, damping: 30 }}
           style={{ position: 'absolute', inset: 0 }}
         >
+          {bridgeSelected && (
+            <div
+              className="pointer-events-none absolute rounded-full border-2 border-accent"
+              style={{
+                inset: `-${Math.max(5, r * 0.45)}px`,
+                boxShadow: "0 0 0 3px rgb(var(--accent) / 0.16), 0 0 18px rgb(var(--accent) / 0.35)",
+              }}
+            />
+          )}
+
           {/* 2D: halo ring */}
           {is2D && (
             <div className="absolute inset-0 rounded-full planet-halo" />
@@ -91,6 +103,12 @@ export function PlanetNode({ data }: NodeProps) {
             <div className="absolute rounded-full pointer-events-none planet-rim-light" />
           )}
         </motion.div>
+
+        {bridgeSelected && bridgeSelectionOrder ? (
+          <div className="pointer-events-none absolute -right-3 -top-3 grid h-5 min-w-5 place-items-center rounded-full border border-bg bg-accent px-1 text-[10px] font-bold leading-none text-white shadow-sm">
+            {bridgeSelectionOrder}
+          </div>
+        ) : null}
 
         {/* 노드 라벨 */}
         {layer !== 'back' && (

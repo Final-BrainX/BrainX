@@ -1383,8 +1383,12 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
             handleReplaceActiveTab(livePaneId, targetNoteId);
             return;
           }
-          if (!openNoteId && initialTab.kind === "note" && nextNotes.length > 0) {
-            handleReplaceActiveTab(livePaneId, nextNotes[0].id);
+          if (!openNoteId && nextNotes.length > 0 && (initialTab.kind === "note" || isInitialLoad)) {
+            const firstNoteId =
+              initialTab.kind === "note" && nextNotes.some((note) => note.id === initialTab.noteId)
+                ? initialTab.noteId
+                : nextNotes[0].id;
+            handleReplaceActiveTab(livePaneId, firstNoteId);
           }
         })
         .catch((error) => {

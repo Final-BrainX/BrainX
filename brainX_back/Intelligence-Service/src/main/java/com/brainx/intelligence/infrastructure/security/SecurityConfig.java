@@ -33,10 +33,14 @@ import jakarta.servlet.http.HttpServletResponse;
 @Configuration
 public class SecurityConfig {
 
+    private static final String DEV_USER_ID_HEADER = "X-User-Id";
+
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper objectMapper, Environment environment) throws Exception {
-        boolean localApiPermitAll = environment.acceptsProfiles(Profiles.of("local"));
+        boolean localApiPermitAll = environment.acceptsProfiles(Profiles.of("local"))
+            || environment.getProperty("brainx.security.dev-auth.enabled", Boolean.class, false);
         boolean devUi = environment.acceptsProfiles(Profiles.of("dev-ui"));
+        String devUserId = environment.getProperty("brainx.security.dev-auth.user-id", "dev-test-user");
 
         http
             .formLogin(AbstractHttpConfigurer::disable)
@@ -55,7 +59,7 @@ public class SecurityConfig {
         }
 
         if (localApiPermitAll) {
-            http.addFilterBefore(new LocalDevelopmentAuthenticationFilter(), AnonymousAuthenticationFilter.class);
+            http.addFilterBefore(new LocalDevelopmentAuthenticationFilter(devUserId), AnonymousAuthenticationFilter.class);
         }
 
         return http
@@ -73,6 +77,12 @@ public class SecurityConfig {
 
     private static final class LocalDevelopmentAuthenticationFilter extends OncePerRequestFilter {
 
+        private final String devUserId;
+
+        private LocalDevelopmentAuthenticationFilter(String devUserId) {
+            this.devUserId = hasText(devUserId) ? devUserId : "dev-test-user";
+        }
+
         @Override
         protected void doFilterInternal(
             HttpServletRequest request,
@@ -82,7 +92,7 @@ public class SecurityConfig {
             Authentication previousAuthentication = SecurityContextHolder.getContext().getAuthentication();
             if (previousAuthentication == null && request.getRequestURI().startsWith("/api/v1/")) {
                 SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
-                    "anonymousUser",
+                    userId(request),
                     "local-development",
                     AuthorityUtils.NO_AUTHORITIES
                 ));
@@ -98,6 +108,15 @@ public class SecurityConfig {
                 }
             }
         }
+
+        private String userId(HttpServletRequest request) {
+            String userId = request.getHeader(DEV_USER_ID_HEADER);
+            return hasText(userId) ? userId : devUserId;
+        }
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private static void writeError(

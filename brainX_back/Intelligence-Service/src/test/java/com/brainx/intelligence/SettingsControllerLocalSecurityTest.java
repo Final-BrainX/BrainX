@@ -63,6 +63,22 @@ class SettingsControllerLocalSecurityTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success").value(true));
 
-        verify(listAiModelsUseCase).listAiModels(argThat(query -> query.userId().equals("anonymousUser")));
+        verify(listAiModelsUseCase).listAiModels(argThat(query -> query.userId().equals("dev-test-user")));
+    }
+
+    @Test
+    void localProfileUsesDevUserHeaderWhenPresent() throws Exception {
+        when(listAiModelsUseCase.listAiModels(any(ListAiModelsQuery.class)))
+            .thenReturn(new AiModelsResult(
+                List.of(),
+                List.of(),
+                new AiPricingPolicyView("TOKEN", "", Map.of())
+            ));
+
+        mockMvc.perform(get("/api/v1/ai/models").header("X-User-Id", "user-from-header"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true));
+
+        verify(listAiModelsUseCase).listAiModels(argThat(query -> query.userId().equals("user-from-header")));
     }
 }
