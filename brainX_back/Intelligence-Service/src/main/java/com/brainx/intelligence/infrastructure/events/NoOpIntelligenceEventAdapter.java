@@ -10,11 +10,12 @@ import com.brainx.intelligence.connection.application.port.outbound.ConnectionEv
 import com.brainx.intelligence.exploration.application.port.outbound.ExplorationEventPort;
 import com.brainx.intelligence.infrastructure.events.producer.KafkaIntelligenceEventAdapter;
 import com.brainx.intelligence.insight.application.port.outbound.InsightEventPort;
+import com.brainx.intelligence.organization.application.port.outbound.OrganizationEventPort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 
 @Component
 @ConditionalOnMissingBean(KafkaIntelligenceEventAdapter.class)
-public class NoOpIntelligenceEventAdapter implements ExplorationEventPort, TokenUsagePort, AssistEventPort, ChatEventPort, ConnectionEventPort, ClusteringEventPort, InsightEventPort {
+public class NoOpIntelligenceEventAdapter implements ExplorationEventPort, TokenUsagePort, AssistEventPort, ChatEventPort, ConnectionEventPort, ClusteringEventPort, InsightEventPort, OrganizationEventPort {
 
     @Override
     public void semanticSearchPerformed(SemanticSearchPerformedEvent event) {
@@ -43,6 +44,11 @@ public class NoOpIntelligenceEventAdapter implements ExplorationEventPort, Token
 
     @Override
     public void bridgeConceptCreated(BridgeConceptCreatedEvent event) {
+        // Keeps local/test runs runnable when event producer is disabled.
+    }
+
+    @Override
+    public void folderOrganizationProposalCreated(FolderOrganizationProposalCreatedEvent event) {
         // Keeps local/test runs runnable when event producer is disabled.
     }
 

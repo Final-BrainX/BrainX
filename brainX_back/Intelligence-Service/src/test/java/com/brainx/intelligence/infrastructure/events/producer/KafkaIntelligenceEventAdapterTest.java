@@ -24,6 +24,7 @@ import com.brainx.intelligence.exploration.application.port.outbound.Exploration
 import com.brainx.intelligence.exploration.domain.SearchScope;
 import com.brainx.intelligence.insight.application.port.outbound.InsightEventPort.InsightReportCompletedEvent;
 import com.brainx.intelligence.insight.application.port.outbound.InsightEventPort.InsightReportRequestedEvent;
+import com.brainx.intelligence.organization.application.port.outbound.OrganizationEventPort.FolderOrganizationProposalCreatedEvent;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -217,6 +218,35 @@ class KafkaIntelligenceEventAdapterTest {
         assertThat(root.get("payload").get("featureId").asText()).isEqualTo("bridge-concepts");
         assertThat(root.get("payload").get("noteId").isNull()).isTrue();
         assertThat(root.get("payload").get("modelId").asText()).isEqualTo("gpt-bridge");
+    }
+
+    @Test
+    void aiSuggestionCreatedPublishesFolderOrganizationPayload() throws Exception {
+        KafkaTemplate<String, String> kafkaTemplate = kafkaTemplate();
+        var adapter = new KafkaIntelligenceEventAdapter(kafkaTemplate, objectMapper, properties);
+
+        adapter.folderOrganizationProposalCreated(new FolderOrganizationProposalCreatedEvent(
+            "user-1",
+            "proposal-1",
+            "folder-organization",
+            null,
+            "gpt-organization"
+        ));
+
+        ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+        verify(kafkaTemplate).send(
+            eq("ai-suggestion-created-topic"),
+            eq("user-1"),
+            payload.capture()
+        );
+        var root = objectMapper.readTree(payload.getValue());
+
+        assertThat(root.get("eventType").asText()).isEqualTo("AiSuggestionCreated");
+        assertThat(root.get("idempotencyKey").asText()).isEqualTo("proposal-1");
+        assertThat(root.get("payload").get("suggestionId").asText()).isEqualTo("proposal-1");
+        assertThat(root.get("payload").get("featureId").asText()).isEqualTo("folder-organization");
+        assertThat(root.get("payload").get("noteId").isNull()).isTrue();
+        assertThat(root.get("payload").get("modelId").asText()).isEqualTo("gpt-organization");
     }
 
     @Test

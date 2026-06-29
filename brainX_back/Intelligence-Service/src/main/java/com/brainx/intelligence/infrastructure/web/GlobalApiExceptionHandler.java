@@ -22,6 +22,11 @@ import com.brainx.intelligence.insight.domain.InsightConflictException;
 import com.brainx.intelligence.insight.domain.InsightDomainException;
 import com.brainx.intelligence.insight.domain.InsightForbiddenException;
 import com.brainx.intelligence.insight.domain.InsightNotFoundException;
+import com.brainx.intelligence.organization.domain.OrganizationConflictException;
+import com.brainx.intelligence.organization.domain.OrganizationDomainException;
+import com.brainx.intelligence.organization.domain.OrganizationForbiddenException;
+import com.brainx.intelligence.organization.domain.OrganizationNotFoundException;
+import com.brainx.intelligence.organization.domain.OrganizationProviderUnavailableException;
 import com.brainx.intelligence.settings.domain.SettingsDomainException;
 
 /**
@@ -38,6 +43,7 @@ public class GlobalApiExceptionHandler {
         ClusteringDomainException.class,
         ExplorationDomainException.class,
         InsightDomainException.class,
+        OrganizationDomainException.class,
         SettingsDomainException.class,
         IllegalArgumentException.class
     })
@@ -49,7 +55,8 @@ public class GlobalApiExceptionHandler {
     @ExceptionHandler({
         ClusteringForbiddenException.class,
         ConnectionForbiddenException.class,
-        InsightForbiddenException.class
+        InsightForbiddenException.class,
+        OrganizationForbiddenException.class
     })
     public ResponseEntity<ApiErrorResponse> handleForbidden(Exception exception) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
@@ -59,7 +66,8 @@ public class GlobalApiExceptionHandler {
     @ExceptionHandler({
         ClusteringNotFoundException.class,
         ConnectionNotFoundException.class,
-        InsightNotFoundException.class
+        InsightNotFoundException.class,
+        OrganizationNotFoundException.class
     })
     public ResponseEntity<ApiErrorResponse> handleNotFound(Exception exception) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -69,15 +77,19 @@ public class GlobalApiExceptionHandler {
     @ExceptionHandler({
         ClusteringConflictException.class,
         ConnectionConflictException.class,
-        InsightConflictException.class
+        InsightConflictException.class,
+        OrganizationConflictException.class
     })
     public ResponseEntity<ApiErrorResponse> handleConflict(Exception exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
             .body(ApiErrorResponse.of("CONFLICT", safeMessage(exception)));
     }
 
-    @ExceptionHandler(ConnectionProviderUnavailableException.class)
-    public ResponseEntity<ApiErrorResponse> handleProviderUnavailable(ConnectionProviderUnavailableException exception) {
+    @ExceptionHandler({
+        ConnectionProviderUnavailableException.class,
+        OrganizationProviderUnavailableException.class
+    })
+    public ResponseEntity<ApiErrorResponse> handleProviderUnavailable(Exception exception) {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
             .body(ApiErrorResponse.of("INTERNAL_SERVER_ERROR", safeMessage(exception)));
     }
