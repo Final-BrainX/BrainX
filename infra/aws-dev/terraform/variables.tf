@@ -81,6 +81,24 @@ variable "rds_username" {
   default     = "brainx_admin"
 }
 
+variable "asset_bucket_name" {
+  description = "Optional explicit S3 bucket name for user-uploaded assets. Leave empty to use the default BrainX dev name."
+  type        = string
+  default     = ""
+}
+
+variable "asset_bucket_force_destroy" {
+  description = "Whether Terraform can delete non-empty user asset buckets. Keep false unless intentionally tearing down dev data."
+  type        = bool
+  default     = false
+}
+
+variable "asset_bucket_cors_allowed_origins" {
+  description = "Allowed browser origins for future direct-to-S3 upload/download flows. Empty uses configured public/admin domains."
+  type        = list(string)
+  default     = []
+}
+
 variable "rds_runtime_state" {
   description = "Desired RDS runtime state for the dev PostgreSQL instance. Use stopped to pause DB instance-hour cost; storage and backups still incur cost."
   type        = string

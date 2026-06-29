@@ -7,6 +7,7 @@
 - Region: `ap-northeast-2`
 - Compute: single EC2 `r7i.xlarge` with Docker, 32 GiB RAM, 8 GiB swap
 - Database: one RDS PostgreSQL instance, service-specific logical databases
+- Object storage: private S3 bucket for future user assets, note images, and attachments
 - Container runtime on EC2:
   - `gateway-service`, `user-service`, `workspace-service`, `ingestion-service`, `commerce-service`, `admin-service`, `intelligence-service`
   - `frontend`, `admin-frontend`
@@ -67,6 +68,8 @@ gh variable set AWS_REGION --body "$(terraform output -raw aws_region)"
 gh variable set AWS_ROLE_TO_ASSUME --body "$(terraform output -raw github_actions_role_arn)"
 gh variable set AWS_DEV_INSTANCE_ID --body "$(terraform output -raw ec2_instance_id)"
 gh variable set AWS_DEV_ARTIFACT_BUCKET --body "$(terraform output -raw artifact_bucket_name)"
+gh variable set AWS_DEV_ASSET_BUCKET --body "$(terraform output -raw asset_bucket_name)"
+gh variable set AWS_DEV_ASSET_BUCKET_REGION --body "$(terraform output -raw asset_bucket_region)"
 gh variable set AWS_ECR_REGISTRY --body "$(terraform output -raw ecr_registry)"
 gh variable set AWS_DEV_RDS_SECRET_ARN --body "$(terraform output -raw rds_secret_arn)"
 gh variable set AWS_DEV_RDS_HOST --body "$(terraform output -raw rds_address)"
@@ -107,6 +110,27 @@ https://<public-domain>/oauth/google/callback
 https://<public-domain>/oauth/kakao/callback
 https://<public-domain>/oauth/naver/callback
 ```
+
+## User Asset S3 Bucket
+
+`aws_s3_bucket.assets`는 사용자 업로드 파일, 노트 이미지, 첨부파일을 위한 private object storage다. 현재 Ingestion-Service는 아직 로컬 디스크 기반 `AssetStorageService`를 사용하므로, 이 버킷은 S3 adapter/presigned URL 구현을 위한 인프라 준비 단계다.
+
+Default bucket name:
+
+```text
+brainx-dev-assets-<aws-account-id>-<region>
+```
+
+Security/cost defaults:
+
+- Public access block enabled
+- Bucket owner enforced object ownership
+- AES256 server-side encryption
+- Incomplete multipart uploads aborted after 7 days
+- EC2 instance profile has read/write/delete access to this bucket only
+- `asset_bucket_force_destroy=false` by default to avoid accidental asset loss
+
+If direct browser upload is implemented later, CORS defaults to the configured public/admin domains. Override with `asset_bucket_cors_allowed_origins` when needed.
 
 ## AWS SSM Runtime Secrets
 

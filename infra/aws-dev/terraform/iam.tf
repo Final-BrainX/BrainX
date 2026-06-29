@@ -68,6 +68,23 @@ resource "aws_iam_policy" "ec2_runtime" {
         ]
       },
       {
+        Sid    = "ReadWriteUserAssets"
+        Effect = "Allow"
+        Action = [
+          "s3:AbortMultipartUpload",
+          "s3:DeleteObject",
+          "s3:GetObject",
+          "s3:ListBucket",
+          "s3:ListBucketMultipartUploads",
+          "s3:ListMultipartUploadParts",
+          "s3:PutObject"
+        ]
+        Resource = [
+          aws_s3_bucket.assets.arn,
+          "${aws_s3_bucket.assets.arn}/*"
+        ]
+      },
+      {
         Sid      = "ReadRdsManagedSecret"
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]

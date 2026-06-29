@@ -18,6 +18,11 @@ locals {
   availability_zones   = slice(data.aws_availability_zones.available.names, 0, 2)
 
   github_oidc_provider_arn = var.github_oidc_provider_arn != "" ? var.github_oidc_provider_arn : aws_iam_openid_connect_provider.github[0].arn
+  asset_bucket_name        = var.asset_bucket_name != "" ? var.asset_bucket_name : "${local.name_prefix}-assets-${data.aws_caller_identity.current.account_id}-${var.aws_region}"
+  asset_bucket_cors_allowed_origins = length(var.asset_bucket_cors_allowed_origins) > 0 ? var.asset_bucket_cors_allowed_origins : compact([
+    var.public_domain_name != "" ? "https://${var.public_domain_name}" : "",
+    var.admin_domain_name != "" ? "https://${var.admin_domain_name}" : ""
+  ])
 
   tags = merge(
     {

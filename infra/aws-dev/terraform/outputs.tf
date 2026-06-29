@@ -42,6 +42,18 @@ output "artifact_bucket_name" {
   value = aws_s3_bucket.deploy_artifacts.bucket
 }
 
+output "asset_bucket_name" {
+  value = aws_s3_bucket.assets.bucket
+}
+
+output "asset_bucket_arn" {
+  value = aws_s3_bucket.assets.arn
+}
+
+output "asset_bucket_region" {
+  value = var.aws_region
+}
+
 output "ecr_registry" {
   value = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
 }
