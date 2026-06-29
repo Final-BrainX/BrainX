@@ -19,12 +19,14 @@ import com.brainx.intelligence.connection.application.port.outbound.ConnectionNo
 import com.brainx.intelligence.infrastructure.events.note.NoteProjection;
 import com.brainx.intelligence.infrastructure.events.note.NoteProjectionStore;
 import com.brainx.intelligence.infrastructure.events.note.NoteSearchIndexStatus;
+import com.brainx.intelligence.organization.application.port.outbound.OrganizationNoteSourcePort;
+import com.brainx.intelligence.organization.application.port.outbound.OrganizationNoteSourcePort.OrganizationNoteSource;
 import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysisNoteSourcePort;
 import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysisNoteSourcePort.KnowledgeAnalysisNote;
 import com.brainx.intelligence.shared.domain.DocumentGroups;
 
 @Repository
-public class NoteProjectionJpaAdapter implements NoteProjectionStore, AutoLinkNoteSourcePort, ConnectionNoteSourcePort, KnowledgeAnalysisNoteSourcePort {
+public class NoteProjectionJpaAdapter implements NoteProjectionStore, AutoLinkNoteSourcePort, ConnectionNoteSourcePort, KnowledgeAnalysisNoteSourcePort, OrganizationNoteSourcePort {
 
     private final NoteProjectionJpaRepository repository;
 
@@ -194,6 +196,39 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AutoLinkNo
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<OrganizationNoteSource> findOrganizationSourceNotes(String userId, String documentGroupId, int limit) {
+        return findSearchableByUserIdAndDocumentGroupId(userId, documentGroupId, limit).stream()
+            .filter(NoteProjectionJpaAdapter::canAnalyze)
+            .map(NoteProjectionJpaAdapter::toOrganizationNoteSource)
+            .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrganizationNoteSource> findOrganizationSourceNotesByFolder(
+        String userId,
+        String documentGroupId,
+        String folderId,
+        int limit
+    ) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        return repository.findSearchableByFolder(
+                userId,
+                DocumentGroups.normalize(documentGroupId),
+                folderId,
+                NoteSearchIndexStatus.INDEXED,
+                PageRequest.of(0, limit)
+            ).stream()
+            .map(NoteProjectionJpaEntity::toDomain)
+            .filter(NoteProjectionJpaAdapter::canAnalyze)
+            .map(NoteProjectionJpaAdapter::toOrganizationNoteSource)
+            .toList();
+    }
+
+    @Override
     @Transactional
     public NoteProjection save(NoteProjection projection) {
         NoteProjectionJpaEntity entity = NoteProjectionJpaEntity.fromDomain(projection);
@@ -224,6 +259,21 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AutoLinkNo
             projection.userId(),
             projection.documentGroupId(),
             projection.noteId(),
+            projection.title(),
+            projection.tags(),
+            headings(markdown),
+            excerpt(markdown),
+            projection.updatedAt()
+        );
+    }
+
+    private static OrganizationNoteSource toOrganizationNoteSource(NoteProjection projection) {
+        String markdown = projection.markdown();
+        return new OrganizationNoteSource(
+            projection.userId(),
+            projection.documentGroupId(),
+            projection.noteId(),
+            projection.folderId(),
             projection.title(),
             projection.tags(),
             headings(markdown),

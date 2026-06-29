@@ -15,8 +15,9 @@ import com.brainx.intelligence.chat.application.port.outbound.ChatEventPort;
 import com.brainx.intelligence.clustering.application.port.outbound.ClusteringEventPort;
 import com.brainx.intelligence.connection.application.port.outbound.ConnectionEventPort;
 import com.brainx.intelligence.exploration.application.port.outbound.ExplorationEventPort;
-import com.brainx.intelligence.insight.application.port.outbound.InsightEventPort;
 import com.brainx.intelligence.exploration.domain.SearchScope;
+import com.brainx.intelligence.insight.application.port.outbound.InsightEventPort;
+import com.brainx.intelligence.organization.application.port.outbound.OrganizationEventPort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.domain.DocumentGroups;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -24,7 +25,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Component
 @ConditionalOnProperty(prefix = "brainx.events.producer", name = "enabled", havingValue = "true")
-public class KafkaIntelligenceEventAdapter implements ExplorationEventPort, TokenUsagePort, AssistEventPort, ChatEventPort, ConnectionEventPort, ClusteringEventPort, InsightEventPort {
+public class KafkaIntelligenceEventAdapter implements ExplorationEventPort, TokenUsagePort, AssistEventPort, ChatEventPort, ConnectionEventPort, ClusteringEventPort, InsightEventPort, OrganizationEventPort {
 
     private static final String PRODUCER = "Intelligence-Service";
     private static final int EVENT_VERSION = 1;
@@ -146,6 +147,25 @@ public class KafkaIntelligenceEventAdapter implements ExplorationEventPort, Toke
 
     @Override
     public void bridgeConceptCreated(BridgeConceptCreatedEvent event) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("userId", event.userId());
+        payload.put("suggestionId", event.suggestionId());
+        payload.put("featureId", event.featureId());
+        payload.put("noteId", event.noteId());
+        payload.put("modelId", event.modelId());
+        publish(
+            properties.getAiSuggestionCreatedTopic(),
+            event.userId(),
+            AI_SUGGESTION_CREATED,
+            event.userId(),
+            null,
+            event.suggestionId(),
+            payload
+        );
+    }
+
+    @Override
+    public void folderOrganizationProposalCreated(FolderOrganizationProposalCreatedEvent event) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("userId", event.userId());
         payload.put("suggestionId", event.suggestionId());

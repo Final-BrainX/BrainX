@@ -407,4 +407,89 @@ class NoteProjectionJpaAdapterTest {
         assertThat(notes.getFirst().excerpt()).doesNotContain("ignored code fence");
         assertThat(byIds).extracting("noteId").containsExactly("note-1");
     }
+
+    @Test
+    void findOrganizationSourceNotesReturnsIndexedMarkdownCardsByAllOrFolderScope() {
+        adapter.save(new NoteProjection(
+            "user-1",
+            "default",
+            "note-1",
+            "Architecture",
+            "folder-a",
+            List.of("backend"),
+            1,
+            "hash-1",
+            """
+                # Architecture
+
+                BrainX folder organization note.
+                """,
+            false,
+            false,
+            false,
+            false,
+            "evt-1",
+            Instant.parse("2026-06-19T00:00:00Z")
+        ).indexed(1, "hash-1", Instant.parse("2026-06-19T00:00:01Z")));
+        adapter.save(new NoteProjection(
+            "user-1",
+            "default",
+            "note-2",
+            "Database",
+            "folder-b",
+            List.of("sql"),
+            1,
+            "hash-2",
+            "# Database\n\nPostgreSQL note.",
+            false,
+            false,
+            false,
+            false,
+            "evt-2",
+            Instant.parse("2026-06-19T00:00:02Z")
+        ).indexed(1, "hash-2", Instant.parse("2026-06-19T00:00:03Z")));
+        adapter.save(new NoteProjection(
+            "user-1",
+            "default",
+            "pending-note",
+            "Pending",
+            "folder-a",
+            List.of(),
+            1,
+            "hash-3",
+            "pending markdown",
+            true,
+            false,
+            false,
+            false,
+            "evt-3",
+            Instant.parse("2026-06-19T00:00:04Z")
+        ));
+        adapter.save(new NoteProjection(
+            "user-1",
+            "default",
+            "archived-note",
+            "Archived",
+            "folder-a",
+            List.of(),
+            1,
+            "hash-4",
+            "archived markdown",
+            false,
+            true,
+            false,
+            false,
+            "evt-4",
+            Instant.parse("2026-06-19T00:00:05Z")
+        ));
+
+        var allNotes = adapter.findOrganizationSourceNotes("user-1", "default", 10);
+        var folderNotes = adapter.findOrganizationSourceNotesByFolder("user-1", "default", "folder-a", 10);
+
+        assertThat(allNotes).extracting("noteId").containsExactly("note-2", "note-1");
+        assertThat(folderNotes).extracting("noteId").containsExactly("note-1");
+        assertThat(folderNotes.getFirst().folderId()).isEqualTo("folder-a");
+        assertThat(folderNotes.getFirst().headings()).containsExactly("Architecture");
+        assertThat(folderNotes.getFirst().excerpt()).contains("BrainX folder organization note");
+    }
 }

@@ -57,6 +57,11 @@ brainx:
     default-model: ${OPENAI_CHAT_MODEL:gpt-5.4-mini}
     max-notes: ${BRAINX_INSIGHT_MAX_NOTES:50}
     max-recommendations: ${BRAINX_INSIGHT_MAX_RECOMMENDATIONS:8}
+  organization:
+    default-model: ${OPENAI_CHAT_MODEL:gpt-5.4-mini}
+    max-notes: ${BRAINX_ORGANIZATION_MAX_NOTES:50}
+    max-proposed-folders: ${BRAINX_ORGANIZATION_MAX_PROPOSED_FOLDERS:8}
+    max-proposed-moves: ${BRAINX_ORGANIZATION_MAX_PROPOSED_MOVES:20}
   connection:
     bridge:
       default-model: ${OPENAI_CHAT_MODEL:gpt-5.4-mini}
