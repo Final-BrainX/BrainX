@@ -1865,7 +1865,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
                       disabled={!activeNote}
                       className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[12px] text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt disabled:cursor-not-allowed disabled:text-txt3/50"
                     >
-                      <Download size={13} />
+                      <Upload size={13} />
                       <span>내보내기</span>
                     </button>
                   ) : (
