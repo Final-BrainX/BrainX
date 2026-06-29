@@ -53,8 +53,8 @@ Workspace 외부의 source-of-truth 도메인이 보내는 이벤트도 Intellig
 
 ## 현재 구현과의 차이
 
-현재 구현은 공통 consumer dispatcher, event idempotency/failed-event store, note projection, Workspace snapshot 기반 note 색인 갱신까지 붙은 상태다. Kafka listener는 기본 비활성화되어 있으며 `brainx.events.consumer.enabled=true`일 때 dispatcher에 연결된다.
+현재 구현은 공통 consumer dispatcher, event idempotency/failed-event store, note projection, Workspace snapshot 기반 note 색인 갱신, capture/link/folder/user deletion projection 갱신까지 붙은 상태다. Kafka listener는 기본 비활성화되어 있으며 `brainx.events.consumer.enabled=true`일 때 dispatcher에 연결된다.
 
-구현된 note 이벤트는 `NoteCreated`, `NoteContentSaved`, `NoteMetadataChanged`, `NoteTagsChanged`, `NoteTrashed`, `NoteDeleted`, `NotesMoved`이다. 링크, 폴더, 클러스터링, 인사이트, 사용자 삭제 계열 이벤트는 아직 도메인 목표 상태 문서와 체크포인트 기준으로 후속 구현이 필요하다.
+현재 checkpoint상 구현된 추가 consumed event는 `CaptureReceived`, `NoteLinkCreated`, `NoteLinkDeleted`, `FolderCreated`, `FolderChanged`, `FolderDeleted`, `UserDeletionRequested`이다. 남은 후속 작업은 note link graph refresh와 이웃 cache 무효화, folder 하위 경로 전파, user deletion에 따른 AI projection/cache 일괄 정리다.
 
 이벤트별 구현 체크포인트는 `docs/technical/consumed-events-implementation-checkpoints.md`를 따른다.

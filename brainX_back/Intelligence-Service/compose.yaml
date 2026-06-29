@@ -13,16 +13,13 @@ services:
       - SPRING_DATASOURCE_USERNAME=postgres
       - SPRING_DATASOURCE_PASSWORD=change_me
       - SPRING_JPA_HIBERNATE_DDL_AUTO=update
-      - SPRING_AI_MODEL_CHAT
-      - OPENAI_API_KEY
-      - OPENAI_CHAT_MODEL
-      - VOYAGE_API_KEY
-      - BRAINX_AI_EMBEDDING_PROVIDER
       - QDRANT_HOST=qdrant
       - QDRANT_GRPC_PORT=6334
       - QDRANT_COLLECTION
       - BRAINX_WORKSPACE_BASE_URL=http://workspace-service:8082
       - BRAINX_WORKSPACE_SERVICE_TOKEN=local-service-token
+      - BRAINX_SECURITY_DEV_AUTH_ENABLED=true
+      - BRAINX_SECURITY_DEV_USER_ID=dev-test-user
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - BRAINX_EVENTS_CONSUMER_ENABLED=true
       - BRAINX_EVENTS_PRODUCER_ENABLED=true
@@ -99,7 +96,7 @@ services:
     volumes:
       - intelligence_kafka_data:/bitnami/kafka
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
       interval: 10s
       timeout: 10s
       retries: 10

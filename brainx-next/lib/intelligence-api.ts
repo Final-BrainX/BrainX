@@ -13,8 +13,11 @@ export type AiSuggestionDecisionRequest = Schemas["AiSuggestionDecisionRequest"]
 export type AiSuggestionDecisionData = Schemas["AiSuggestionDecisionData"];
 export type ChatThreadCreateRequest = Schemas["ChatThreadCreateRequest"];
 export type ChatThreadData = Schemas["ChatThreadData"];
+export type ChatThreadListData = Schemas["ChatThreadListData"];
 export type ChatMessageCreateRequest = Schemas["ChatMessageCreateRequest"];
 export type ChatThreadDetailData = Schemas["ChatThreadDetailData"];
+export type BridgeConceptsRequest = Schemas["BridgeConceptsRequest"];
+export type BridgeConceptsData = Schemas["BridgeConceptsData"];
 export type AiModelsData = Schemas["AiModelsData"];
 export type AiModelSettingsPutRequest = Schemas["AiModelSettingsPutRequest"];
 export type AiModelSettingsData = Schemas["AiModelSettingsData"];
@@ -49,6 +52,7 @@ type SseFrame = {
 };
 
 const INTELLIGENCE_API_BASE_URL = "";
+const DEV_USER_ID = process.env.NEXT_PUBLIC_WORKSPACE_DEV_USER_ID?.trim();
 
 function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
   return response.message ?? response.error?.message ?? fallback;
@@ -178,6 +182,9 @@ function buildHeaders(headers?: HeadersInit, options?: IntelligenceRequestOption
   if (session?.accessToken) {
     next.set("Authorization", `${session.tokenType ?? "Bearer"} ${session.accessToken}`);
   }
+  if (DEV_USER_ID) {
+    next.set("X-User-Id", DEV_USER_ID);
+  }
   if (options?.idempotencyKey) {
     next.set("Idempotency-Key", options.idempotencyKey);
   }
@@ -228,6 +235,25 @@ export function createChatThread(payload: ChatThreadCreateRequest, options?: Int
   );
 }
 
+export function listChatThreads(
+  params: { limit?: number; cursor?: string | null } = {},
+  options?: IntelligenceRequestOptions
+) {
+  const searchParams = new URLSearchParams();
+  if (params.limit) {
+    searchParams.set("limit", String(params.limit));
+  }
+  if (params.cursor) {
+    searchParams.set("cursor", params.cursor);
+  }
+  const query = searchParams.toString();
+  return authedRequest<ChatThreadListData>(
+    `/api/intelligence/ai/chat-threads${query ? `?${query}` : ""}`,
+    undefined,
+    options
+  );
+}
+
 export function sendChatMessageStream(
   threadId: string,
   payload: ChatMessageCreateRequest,
@@ -244,6 +270,17 @@ export function getChatThread(threadId: string, options?: IntelligenceRequestOpt
   return authedRequest<ChatThreadDetailData>(
     `/api/intelligence/ai/chat-threads/${encodeURIComponent(threadId)}`,
     undefined,
+    options
+  );
+}
+
+export function createBridgeConcepts(payload: BridgeConceptsRequest, options?: IntelligenceRequestOptions) {
+  return authedRequest<BridgeConceptsData>(
+    "/api/intelligence/ai/bridge-concepts",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
     options
   );
 }

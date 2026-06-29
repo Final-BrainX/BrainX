@@ -272,6 +272,75 @@ paths:
       security:
       - bearerAuth: []
   /api/v1/ai/chat-threads:
+    get:
+      operationId: listChatThreads
+      summary: AI 채팅 스레드 목록 조회
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.chat
+        type: frontend
+        description: RAG 챗봇 UI
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 20
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          description: 이전 응답의 nextCursor. 값은 opaque cursor로 취급한다.
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ChatThreadListData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
     post:
       operationId: createChatThread
       summary: AI 채팅 스레드 생성
@@ -1637,6 +1706,65 @@ components:
       - title
       - modelId
       - createdAt
+      additionalProperties: false
+    ChatThreadListItemData:
+      type: object
+      properties:
+        threadId:
+          type: string
+        documentGroupId:
+          type: string
+        title:
+          type: string
+        modelId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        lastMessageAt:
+          type: string
+          format: date-time
+        lastMessagePreview:
+          type: string
+          nullable: true
+        messageCount:
+          type: integer
+          format: int64
+      required:
+      - threadId
+      - documentGroupId
+      - title
+      - modelId
+      - createdAt
+      - lastMessageAt
+      - messageCount
+      additionalProperties: false
+    ChatThreadListPaginationData:
+      type: object
+      properties:
+        limit:
+          type: integer
+        nextCursor:
+          type: string
+          nullable: true
+        hasMore:
+          type: boolean
+      required:
+      - limit
+      - hasMore
+      additionalProperties: false
+    ChatThreadListData:
+      type: object
+      properties:
+        threads:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatThreadListItemData'
+        pagination:
+          $ref: '#/components/schemas/ChatThreadListPaginationData'
+      required:
+      - threads
+      - pagination
       additionalProperties: false
     ChatMessageCreateRequest:
       type: object

@@ -5,6 +5,7 @@ import type { MockFolder, MockNote, NoteTypography } from "@/lib/notes/noteTypes
 
 const WORKSPACE_API_BASE_URL = process.env.NEXT_PUBLIC_WORKSPACE_API_BASE_URL ?? "http://localhost:8082";
 export const USE_MOCK_NOTES = process.env.NEXT_PUBLIC_NOTES_USE_MOCK !== "false";
+const WORKSPACE_DEV_USER_ID = process.env.NEXT_PUBLIC_WORKSPACE_DEV_USER_ID?.trim();
 
 export type NoteDetail = {
   noteId: string;
@@ -130,7 +131,8 @@ async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...(session?.accessToken ? { Authorization: `${session.tokenType ?? "Bearer"} ${session.accessToken}` } : {}),
+      ...(WORKSPACE_DEV_USER_ID ? { "X-User-Id": WORKSPACE_DEV_USER_ID } : {}),
+      ...(session?.accessToken && !WORKSPACE_DEV_USER_ID ? { Authorization: `${session.tokenType ?? "Bearer"} ${session.accessToken}` } : {}),
       ...(init?.headers ?? {})
     }
   });

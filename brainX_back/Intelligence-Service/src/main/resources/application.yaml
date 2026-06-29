@@ -31,6 +31,10 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
 brainx:
+  security:
+    dev-auth:
+      enabled: ${BRAINX_SECURITY_DEV_AUTH_ENABLED:false}
+      user-id: ${BRAINX_SECURITY_DEV_USER_ID:dev-test-user}
   events:
     producer:
       enabled: ${BRAINX_EVENTS_PRODUCER_ENABLED:false}

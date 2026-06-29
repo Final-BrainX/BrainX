@@ -107,6 +107,10 @@ public class ChatMessageJpaEntity {
         );
     }
 
+    String content() {
+        return content;
+    }
+
     private static ChatCitation citationFromMap(Map<String, Object> values) {
         return new ChatCitation(
             stringValue(values, "noteId"),

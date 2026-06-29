@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { CollapseChevron } from "./CollapseChevron";
 import { cx } from "@/lib/utils";
 import { Icon } from "@/components/brainx-ui";
@@ -41,6 +41,165 @@ function parseHeadings(content: string) {
       return { id: `h-${index}`, level: m[1].length, text: m[2].trim() };
     })
     .filter((x): x is { id: string; level: number; text: string } => Boolean(x));
+}
+
+function safeMarkdownHref(href: string) {
+  if (href.startsWith("/")) return href;
+  try {
+    const url = new URL(href);
+    return ["http:", "https:", "mailto:"].includes(url.protocol) ? href : null;
+  } catch {
+    return null;
+  }
+}
+
+function renderInlineMarkdown(text: string, keyPrefix: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const tokenPattern = /(\*\*[^*\n]+?\*\*|~~[^~\n]+?~~|`[^`\n]+?`|\[([^\]\n]+)\]\(([^)\s]+)\))/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let index = 0;
+
+  while ((match = tokenPattern.exec(text))) {
+    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
+
+    const token = match[0];
+    const key = `${keyPrefix}-inline-${index++}`;
+    if (token.startsWith("**")) {
+      nodes.push(<strong key={key}>{renderInlineMarkdown(token.slice(2, -2), key)}</strong>);
+    } else if (token.startsWith("~~")) {
+      nodes.push(<s key={key}>{renderInlineMarkdown(token.slice(2, -2), key)}</s>);
+    } else if (token.startsWith("`")) {
+      nodes.push(
+        <code key={key} className="rounded bg-surface2/70 px-1 py-0.5 text-[11px] text-accent">
+          {token.slice(1, -1)}
+        </code>
+      );
+    } else {
+      const href = safeMarkdownHref(match[3] ?? "");
+      nodes.push(
+        href ? (
+          <a key={key} href={href} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">
+            {renderInlineMarkdown(match[2] ?? "", key)}
+          </a>
+        ) : (
+          token
+        )
+      );
+    }
+
+    lastIndex = tokenPattern.lastIndex;
+  }
+
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
+}
+
+function MarkdownLine({ text, id }: { text: string; id: string }) {
+  return <>{renderInlineMarkdown(text, id)}</>;
+}
+
+function AiMarkdownMessage({ text, streaming }: { text: string; streaming?: boolean }) {
+  const blocks: React.ReactNode[] = [];
+  const paragraph: string[] = [];
+  const listItems: string[] = [];
+  let listType: "ul" | "ol" | null = null;
+
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return;
+    const key = `p-${blocks.length}`;
+    blocks.push(
+      <p key={key} className="whitespace-normal">
+        {paragraph.map((line, index) => (
+          <span key={`${key}-${index}`}>
+            {index > 0 && <br />}
+            <MarkdownLine text={line} id={`${key}-${index}`} />
+          </span>
+        ))}
+      </p>
+    );
+    paragraph.length = 0;
+  };
+
+  const flushList = () => {
+    if (!listType || listItems.length === 0) return;
+    const key = `list-${blocks.length}`;
+    const Tag = listType;
+    blocks.push(
+      <Tag key={key} className="ml-4 space-y-1 pl-1 marker:text-txt3">
+        {listItems.map((item, index) => (
+          <li key={`${key}-${index}`} className={listType === "ul" ? "list-disc" : "list-decimal"}>
+            <MarkdownLine text={item} id={`${key}-${index}`} />
+          </li>
+        ))}
+      </Tag>
+    );
+    listItems.length = 0;
+    listType = null;
+  };
+
+  text.replace(/\r\n/g, "\n").split("\n").forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+
+    const heading = /^(#{1,6})\s+(.+)$/.exec(trimmed);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      blocks.push(
+        <p key={`h-${blocks.length}`} className="font-semibold text-txt">
+          <MarkdownLine text={heading[2]} id={`h-${blocks.length}`} />
+        </p>
+      );
+      return;
+    }
+
+    const quote = /^>\s+(.+)$/.exec(trimmed);
+    if (quote) {
+      flushParagraph();
+      flushList();
+      blocks.push(
+        <blockquote key={`q-${blocks.length}`} className="border-l-2 border-line/70 pl-2 text-txt3">
+          <MarkdownLine text={quote[1]} id={`q-${blocks.length}`} />
+        </blockquote>
+      );
+      return;
+    }
+
+    const unordered = /^[-*]\s+(.+)$/.exec(trimmed);
+    if (unordered) {
+      flushParagraph();
+      if (listType && listType !== "ul") flushList();
+      listType = "ul";
+      listItems.push(unordered[1]);
+      return;
+    }
+
+    const ordered = /^\d+\.\s+(.+)$/.exec(trimmed);
+    if (ordered) {
+      flushParagraph();
+      if (listType && listType !== "ol") flushList();
+      listType = "ol";
+      listItems.push(ordered[1]);
+      return;
+    }
+
+    flushList();
+    paragraph.push(line.trimEnd());
+  });
+
+  flushParagraph();
+  flushList();
+
+  return (
+    <div className={cx("space-y-1.5 break-words", streaming ? "stream-caret" : "")}>
+      {blocks.length > 0 ? blocks : <span>&nbsp;</span>}
+    </div>
+  );
 }
 
 /* ── 사이드 카드 ─────────────────────────────────────── */
@@ -182,6 +341,17 @@ export interface PendingAiRequest {
 
 const DEFAULT_DOCUMENT_GROUP_ID = "default";
 const DEFAULT_CHAT_MODEL_ID = "gpt-5.4-mini";
+const INLINE_AI_HEIGHT_KEY = "brainx_notes_inline_ai_height_v1";
+const INLINE_AI_DEFAULT_HEIGHT = 260;
+const INLINE_AI_MIN_HEIGHT = 180;
+const INLINE_AI_MAX_HEIGHT = 640;
+const INLINE_AI_TOP_RESERVE = 140;
+
+function clampInlineAiHeight(height: number, sidebarHeight: number) {
+  const measuredMax = sidebarHeight > 0 ? sidebarHeight - INLINE_AI_TOP_RESERVE : INLINE_AI_MAX_HEIGHT;
+  const max = Math.max(INLINE_AI_MIN_HEIGHT, Math.min(INLINE_AI_MAX_HEIGHT, measuredMax));
+  return Math.max(INLINE_AI_MIN_HEIGHT, Math.min(max, height));
+}
 
 interface Props {
   activeNote: MockNote | null;
@@ -198,6 +368,15 @@ export default function RightSidebar({ activeNote, allNotes, onCollapse, pending
     { role: "ai", text: "이 노트에 대해 무엇이든 물어보세요. 관련 노트도 함께 찾아드려요." },
   ]);
   const [chatOpen, setChatOpen] = useState(true);
+  const [inlineAiHeight, setInlineAiHeight] = useState<number>(() => {
+    if (typeof window === "undefined") return INLINE_AI_DEFAULT_HEIGHT;
+    const saved = Number(window.localStorage.getItem(INLINE_AI_HEIGHT_KEY));
+    return Number.isFinite(saved)
+      ? clampInlineAiHeight(saved, 0)
+      : INLINE_AI_DEFAULT_HEIGHT;
+  });
+  const [sidebarHeight, setSidebarHeight] = useState(0);
+  const sidebarRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const aiRequestAbortRef = useRef<AbortController | null>(null);
   const aiMockTimerRef = useRef<number | null>(null);
@@ -212,6 +391,55 @@ export default function RightSidebar({ activeNote, allNotes, onCollapse, pending
       if (aiMockTimerRef.current !== null) window.clearInterval(aiMockTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    const element = sidebarRef.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(([entry]) => {
+      const nextHeight = entry?.contentRect.height ?? 0;
+      setSidebarHeight(nextHeight);
+      setInlineAiHeight((current) => clampInlineAiHeight(current, nextHeight));
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const persistInlineAiHeight = useCallback((height: number) => {
+    try {
+      window.localStorage.setItem(INLINE_AI_HEIGHT_KEY, String(height));
+    } catch {
+      // localStorage 접근 불가
+    }
+  }, []);
+
+  const setClampedInlineAiHeight = useCallback((height: number, persist = false) => {
+    const next = clampInlineAiHeight(height, sidebarHeight);
+    setInlineAiHeight(next);
+    if (persist) persistInlineAiHeight(next);
+  }, [persistInlineAiHeight, sidebarHeight]);
+
+  const handleInlineAiResizePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = inlineAiHeight;
+    let latest = startHeight;
+
+    const onMove = (moveEvent: PointerEvent) => {
+      latest = clampInlineAiHeight(startHeight - (moveEvent.clientY - startY), sidebarHeight);
+      setInlineAiHeight(latest);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      persistInlineAiHeight(latest);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  }, [inlineAiHeight, persistInlineAiHeight, sidebarHeight]);
 
   const updateLatestAiMessage = (text: string, streaming: boolean) => {
     setAiMessages((m) => {
@@ -434,6 +662,7 @@ export default function RightSidebar({ activeNote, allNotes, onCollapse, pending
 
   return (
     <div
+      ref={sidebarRef}
       className="flex h-full w-full min-w-0 flex-col border-l border-line/70"
       style={{ background: "rgb(var(--bg2))" }}
     >
@@ -559,6 +788,29 @@ export default function RightSidebar({ activeNote, allNotes, onCollapse, pending
         className="shrink-0 border-t border-line/70"
         style={{ background: "rgb(var(--surface))" }}
       >
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-valuemin={INLINE_AI_MIN_HEIGHT}
+          aria-valuemax={clampInlineAiHeight(INLINE_AI_MAX_HEIGHT, sidebarHeight)}
+          aria-valuenow={inlineAiHeight}
+          tabIndex={0}
+          onPointerDown={handleInlineAiResizePointerDown}
+          onKeyDown={(event) => {
+            if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            const next = event.key === "Home"
+              ? INLINE_AI_MIN_HEIGHT
+              : event.key === "End"
+                ? INLINE_AI_MAX_HEIGHT
+                : inlineAiHeight + (event.key === "ArrowUp" ? 20 : -20);
+            setClampedInlineAiHeight(next, true);
+          }}
+          className="group grid h-2 cursor-row-resize touch-none place-items-center outline-none"
+          title="인라인 AI 높이 조절"
+        >
+          <span className="h-px w-10 rounded-full bg-line/70 transition-all group-hover:h-0.5 group-hover:bg-primary/60 group-focus-visible:h-0.5 group-focus-visible:bg-primary/70" />
+        </div>
         {/* 채팅 헤더 */}
         <button
           type="button"
@@ -571,7 +823,7 @@ export default function RightSidebar({ activeNote, allNotes, onCollapse, pending
         </button>
 
         {chatOpen && (
-          <div className="flex flex-col" style={{ height: "200px" }}>
+          <div className="flex flex-col" style={{ height: inlineAiHeight }}>
             {/* 메시지 목록 */}
             <div className="no-scrollbar flex-1 space-y-2 overflow-y-auto p-3">
               {aiMessages.map((msg, i) => (
@@ -589,7 +841,11 @@ export default function RightSidebar({ activeNote, allNotes, onCollapse, pending
                       : "rgb(var(--surface2) / 0.6)",
                   }}
                 >
-                  <span className={cx("whitespace-pre-wrap", msg.streaming ? "stream-caret" : "")}>{msg.text}</span>
+                  {msg.role === "ai" ? (
+                    <AiMarkdownMessage text={msg.text} streaming={msg.streaming} />
+                  ) : (
+                    <span className="whitespace-pre-wrap">{msg.text}</span>
+                  )}
                 </div>
               ))}
               <div ref={chatEndRef} />

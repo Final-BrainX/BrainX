@@ -34,9 +34,15 @@ import com.brainx.intelligence.chat.application.port.inbound.GetChatThreadUseCas
 import com.brainx.intelligence.chat.application.port.inbound.GetChatThreadUseCase.ChatThreadDetailResult;
 import com.brainx.intelligence.chat.application.port.inbound.GetChatThreadUseCase.GetChatThreadQuery;
 import com.brainx.intelligence.chat.application.port.inbound.GetChatThreadUseCase.ThreadView;
+import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase;
+import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ChatThreadListItem;
+import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ChatThreadListPagination;
+import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ChatThreadListResult;
+import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ListChatThreadsQuery;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.ChatStreamEvent;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.SendChatMessageCommand;
+import com.brainx.intelligence.chat.domain.ChatDomainException;
 import com.brainx.intelligence.infrastructure.security.SecurityConfig;
 import com.brainx.intelligence.infrastructure.web.GlobalApiExceptionHandler;
 
@@ -51,6 +57,9 @@ class ChatControllerTest {
 
     @MockitoBean
     private CreateChatThreadUseCase createChatThreadUseCase;
+
+    @MockitoBean
+    private ListChatThreadsUseCase listChatThreadsUseCase;
 
     @MockitoBean
     private SendChatMessageUseCase sendChatMessageUseCase;
@@ -87,6 +96,58 @@ class ChatControllerTest {
                 && command.title().equals("RAG 질문")
                 && command.modelId().equals("gpt-test")
         ));
+    }
+
+    @Test
+    void listChatThreadsReturnsPagedWrappedData() throws Exception {
+        Instant createdAt = Instant.parse("2026-06-23T00:00:00Z");
+        Instant lastMessageAt = Instant.parse("2026-06-23T00:01:00Z");
+        when(listChatThreadsUseCase.listChatThreads(any(ListChatThreadsQuery.class)))
+            .thenReturn(new ChatThreadListResult(
+                List.of(new ChatThreadListItem(
+                    "thread-1",
+                    "group-1",
+                    "RAG 질문",
+                    "gpt-test",
+                    createdAt,
+                    lastMessageAt,
+                    "최근 답변",
+                    2
+                )),
+                new ChatThreadListPagination(10, "next-cursor", true)
+            ));
+
+        mockMvc.perform(get("/api/v1/ai/chat-threads")
+                .with(user("user-1"))
+                .param("limit", "10")
+                .param("cursor", "cursor-1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true))
+            .andExpect(jsonPath("$.data.threads[0].threadId").value("thread-1"))
+            .andExpect(jsonPath("$.data.threads[0].lastMessagePreview").value("최근 답변"))
+            .andExpect(jsonPath("$.data.threads[0].messageCount").value(2))
+            .andExpect(jsonPath("$.data.pagination.limit").value(10))
+            .andExpect(jsonPath("$.data.pagination.nextCursor").value("next-cursor"))
+            .andExpect(jsonPath("$.data.pagination.hasMore").value(true));
+
+        verify(listChatThreadsUseCase).listChatThreads(argThat(query ->
+            query.userId().equals("user-1")
+                && query.limit().equals(10)
+                && query.cursor().equals("cursor-1")
+        ));
+    }
+
+    @Test
+    void listChatThreadsInvalidCursorReturnsBadRequestWrapper() throws Exception {
+        when(listChatThreadsUseCase.listChatThreads(any(ListChatThreadsQuery.class)))
+            .thenThrow(new ChatDomainException("Invalid chat thread cursor."));
+
+        mockMvc.perform(get("/api/v1/ai/chat-threads")
+                .with(user("user-1"))
+                .param("cursor", "bad"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.success").value(false))
+            .andExpect(jsonPath("$.error.code").value("BAD_REQUEST"));
     }
 
     @Test

@@ -19,8 +19,10 @@ import {
   seedNotes,
   updateNoteDerived
 } from "@/lib/brainx-data";
-import { readAuthSession } from "@/lib/auth-api";
+import { ensureDevAuthSession, readAuthSession } from "@/lib/auth-api";
 import { translate, type I18nKey, type LanguageCode } from "@/lib/i18n";
+import { USE_MOCK_NOTES } from "@/lib/workspace-api";
+import { loadWorkspaceBrainXNotes } from "@/lib/workspace-live-notes";
 
 export type ThemeMode = "dark" | "light" | "system";
 export type EffectiveTheme = "dark" | "light";
@@ -98,6 +100,7 @@ function readSidebarCollapsed() {
 
 function readNotes(): BrainXNote[] {
   if (typeof window === "undefined") return [];
+  if (!USE_MOCK_NOTES) return [];
   const session = readAuthSession();
   if (session && session.accessToken !== "demo-access-token") return [];
   const parsed = readJson<BrainXNote[] | null>(NOTES_KEY, null);
@@ -121,6 +124,7 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
   }, [notes]);
 
   useEffect(() => {
+    ensureDevAuthSession();
     const nextTheme = readTheme();
     const nextLanguage = readLanguage();
     const nextSidebarCollapsed = readSidebarCollapsed();
@@ -133,7 +137,7 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || !USE_MOCK_NOTES) return;
     const handle = window.setTimeout(() => {
       try {
         writeJson(NOTES_KEY, notes);
@@ -145,6 +149,34 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
     setSaveStatus("saving");
     return () => window.clearTimeout(handle);
   }, [hydrated, notes]);
+
+  useEffect(() => {
+    if (!hydrated || USE_MOCK_NOTES) return;
+    let active = true;
+
+    const loadLiveNotes = () => {
+      setSaveStatus("saving");
+      loadWorkspaceBrainXNotes()
+        .then((nextNotes) => {
+          if (!active) return;
+          setNotes(nextNotes);
+          setSaveStatus("saved");
+        })
+        .catch(() => {
+          if (!active) return;
+          setSaveStatus("error");
+        });
+    };
+
+    loadLiveNotes();
+    window.addEventListener("brainx-auth-session-changed", loadLiveNotes);
+    window.addEventListener("brainx:notes-refresh", loadLiveNotes);
+    return () => {
+      active = false;
+      window.removeEventListener("brainx-auth-session-changed", loadLiveNotes);
+      window.removeEventListener("brainx:notes-refresh", loadLiveNotes);
+    };
+  }, [hydrated]);
 
   useEffect(() => {
     if (!hydrated) return;

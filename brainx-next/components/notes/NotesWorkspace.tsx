@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { WikiLinkContext, resolveWikiLinkTitle, type WikiLinkContextValue } from "./WikiLinkContext";
-import { AlertCircle, Check, ChevronLeft, Download, LoaderCircle, MoreHorizontal, PanelRightClose, PanelRight, RotateCcw, Save } from "lucide-react";
+import { AlertCircle, Check, ChevronLeft, Download, LoaderCircle, MoreHorizontal, PanelRightClose, PanelRight, RotateCcw, Save, Upload } from "lucide-react";
 import { cx } from "@/lib/utils";
 import { MockFolder, MockNote, PaneNode, PaneTabsState, Tab, NotesWorkspaceSession, DragPayload } from "@/lib/notes/noteTypes";
 import type { EditMode, AiActionType } from "./NoteEditor";
@@ -1383,8 +1383,12 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
             handleReplaceActiveTab(livePaneId, targetNoteId);
             return;
           }
-          if (!openNoteId && initialTab.kind === "note" && nextNotes.length > 0) {
-            handleReplaceActiveTab(livePaneId, nextNotes[0].id);
+          if (!openNoteId && nextNotes.length > 0 && (initialTab.kind === "note" || isInitialLoad)) {
+            const firstNoteId =
+              initialTab.kind === "note" && nextNotes.some((note) => note.id === initialTab.noteId)
+                ? initialTab.noteId
+                : nextNotes[0].id;
+            handleReplaceActiveTab(livePaneId, firstNoteId);
           }
         })
         .catch((error) => {
