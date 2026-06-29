@@ -73,4 +73,24 @@ public class UserResponses {
             LocalDateTime deletionScheduledAt
     ) {
     }
+
+    @Builder
+    public record NotificationItemResponse(
+            String notificationId,
+            String type,
+            String title,
+            String body,
+            String sentByAdminName,
+            boolean read,
+            LocalDateTime createdAt,
+            LocalDateTime readAt
+    ) {
+    }
+
+    @Builder
+    public record NotificationsResponse(
+            List<NotificationItemResponse> notifications,
+            long unreadCount
+    ) {
+    }
 }

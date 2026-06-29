@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Copy, Plus, Trash2 } from "lucide-react";
+import { Copy, Pencil, Plus, Trash2 } from "lucide-react";
 import { adminApi, type AdminAccountRow } from "@/lib/admin-api";
 import { getSession } from "@/lib/admin-auth";
 import type { AdminRole } from "@/lib/admin-data";
@@ -25,6 +25,7 @@ export function AdminAccountsPanel({ onToast }: { onToast: (message: string) => 
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [issuedPassword, setIssuedPassword] = useState<{ loginId: string; password: string } | null>(null);
+  const [editingAccount, setEditingAccount] = useState<AdminAccountRow | null>(null);
   const selfAdminId = getSession()?.admin.adminUserId;
 
   const load = () => {
@@ -101,18 +102,28 @@ export function AdminAccountsPanel({ onToast }: { onToast: (message: string) => 
                   {account.lastLoginAt ? account.lastLoginAt.slice(0, 16).replace("T", " ") : "-"}
                 </td>
                 <td style={{ textAlign: "right" }}>
-                  {account.adminId === selfAdminId ? (
-                    <span style={{ color: "#a8a29e", fontSize: 12 }}>본인 계정</span>
-                  ) : (
+                  <div style={{ display: "inline-flex", gap: 6 }}>
                     <button
-                      className="btn danger"
-                      title="삭제"
+                      className="btn"
+                      title="수정"
                       style={{ width: 30, height: 30, padding: 0, justifyContent: "center" }}
-                      onClick={() => handleDelete(account)}
+                      onClick={() => setEditingAccount(account)}
                     >
-                      <Trash2 size={14} />
+                      <Pencil size={14} />
                     </button>
-                  )}
+                    {account.adminId === selfAdminId ? (
+                      <span style={{ color: "#a8a29e", fontSize: 12, alignSelf: "center" }}>본인 계정</span>
+                    ) : (
+                      <button
+                        className="btn danger"
+                        title="삭제"
+                        style={{ width: 30, height: 30, padding: 0, justifyContent: "center" }}
+                        onClick={() => handleDelete(account)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -145,7 +156,81 @@ export function AdminAccountsPanel({ onToast }: { onToast: (message: string) => 
           onToast={onToast}
         />
       ) : null}
+      {editingAccount ? (
+        <EditAdminModal
+          account={editingAccount}
+          onClose={() => setEditingAccount(null)}
+          onSaved={() => {
+            setEditingAccount(null);
+            load();
+          }}
+          onToast={onToast}
+        />
+      ) : null}
     </>
+  );
+}
+
+function EditAdminModal({
+  account,
+  onClose,
+  onSaved,
+  onToast
+}: {
+  account: AdminAccountRow;
+  onClose: () => void;
+  onSaved: () => void;
+  onToast: (message: string) => void;
+}) {
+  const [name, setName] = useState(account.name);
+  const [loginId, setLoginId] = useState(account.loginId);
+  const [role, setRole] = useState<AdminRole>(account.role);
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    if (!name.trim() || !loginId.trim()) {
+      onToast("이름과 아이디를 입력해 주세요");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await adminApi.updateAdminAccount(account.adminId, { name: name.trim(), loginId: loginId.trim(), role });
+      onToast(`${name.trim()} 관리자 계정을 수정했습니다`);
+      onSaved();
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "관리자 수정에 실패했습니다");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="price-modal" onClick={(event) => event.stopPropagation()}>
+        <h2>관리자 수정</h2>
+        <label className="price-label">
+          이름
+          <input value={name} onChange={(event) => setName(event.target.value)} />
+        </label>
+        <label className="price-label" style={{ marginTop: 12, display: "block" }}>
+          아이디
+          <input value={loginId} onChange={(event) => setLoginId(event.target.value.trim())} />
+        </label>
+        <div className="modal-label">권한</div>
+        <select className="select" style={{ width: "100%", marginTop: 7 }} value={role} onChange={(event) => setRole(event.target.value as AdminRole)}>
+          <option value="owner">최고관리자 (owner)</option>
+          <option value="admin">관리자 (admin)</option>
+          <option value="support">문의 담당 (support)</option>
+          <option value="billing">결제 담당 (billing)</option>
+        </select>
+        <div className="modal-actions">
+          <button onClick={onClose}>취소</button>
+          <button onClick={submit} disabled={submitting}>
+            {submitting ? "저장 중..." : "저장"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

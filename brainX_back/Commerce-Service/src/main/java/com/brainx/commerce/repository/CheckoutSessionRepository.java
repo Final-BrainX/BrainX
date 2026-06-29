@@ -8,6 +8,7 @@ import java.util.Optional;
 
 public interface CheckoutSessionRepository extends JpaRepository<CheckoutSession, String> {
     Optional<CheckoutSession> findByCheckoutSessionIdAndUserId(String checkoutSessionId, String userId);
+    Optional<CheckoutSession> findByPaymentId(String paymentId);
 
     List<CheckoutSession> findByStatusOrderByConfirmedAtDesc(CheckoutSession.Status status);
 

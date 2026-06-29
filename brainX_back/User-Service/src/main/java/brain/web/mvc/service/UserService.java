@@ -48,6 +48,7 @@ public class UserService {
     @Transactional(readOnly = true)
     public MyProfileResponse getMyProfile(String userId) {
         User user = getUser(userId);
+        normalizeExpiredSuspension(user);
         ConsentRecord consent = consentRecordRepository.findById(userId).orElse(null);
         List<String> linkedProviders = oAuthAccountRepository.findByUserUserId(userId)
                 .stream()
@@ -186,6 +187,12 @@ public class UserService {
     private User getUser(String userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "인증 정보가 올바르지 않습니다."));
+    }
+
+    public void normalizeExpiredSuspension(User user) {
+        if (user.isSuspensionExpired(LocalDateTime.now())) {
+            user.reactivateFromExpiredSuspension();
+        }
     }
 
     private ConsentInfo toConsentInfo(ConsentRecord consent) {

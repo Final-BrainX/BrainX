@@ -520,6 +520,23 @@ public class WorkspaceService {
                 note.getVersion(), note.getUpdatedAt());
     }
 
+    @Transactional(readOnly = true)
+    public InternalUserWorkspaceStatsData getUserWorkspaceStats(String userId) {
+        long noteCount = noteRepository.countByUserIdAndDeletedFalse(userId);
+        long storageBytes = noteRepository.findByUserIdAndDeletedFalseOrderByUpdatedAtDesc(userId).stream()
+                .mapToLong(note -> note.getMarkdown().getBytes(StandardCharsets.UTF_8).length)
+                .sum();
+        List<InternalUserActivityDto> activities = noteRepository.findTop5ByUserIdAndDeletedFalseOrderByUpdatedAtDesc(userId).stream()
+                .map(note -> new InternalUserActivityDto(
+                        note.getNoteId(),
+                        note.getVersion() > 1 ? "NOTE_UPDATED" : "NOTE_CREATED",
+                        note.getTitle(),
+                        note.getUpdatedAt()
+                ))
+                .toList();
+        return new InternalUserWorkspaceStatsData((int) noteCount, storageBytes, activities);
+    }
+
     public NoteContentSaveData patchContentInternal(String noteId, InternalNoteContentPatchRequest request) {
         Note note = noteRepository.findById(noteId).orElseThrow(() -> notFound("NOTE_NOT_FOUND", "Note not found."));
         Map<String, Object> patch = request.patch() == null ? Map.of() : request.patch();

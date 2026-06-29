@@ -85,7 +85,7 @@ public final class AdminDtos {
 
     public record AdminUserPlanChangeRequest(@NotNull PlanId targetPlanId, String reason) {}
     public record AdminUserPlanChangeData(String userId, PlanId planId, OffsetDateTime changedAt) {}
-    public record AdminUserStatusChangeRequest(@NotNull ManagedUserStatus status, String reason) {}
+    public record AdminUserStatusChangeRequest(@NotNull ManagedUserStatus status, String reason, @Min(1) Integer suspendedDays) {}
     public record AdminUserStatusChangeData(String userId, ManagedUserStatus status, OffsetDateTime changedAt) {}
     public record AdminUserWithdrawalRequest(String reason) {}
     public record AdminUserWithdrawalData(String userId, String deletionRequestId, String status) {}
@@ -96,7 +96,8 @@ public final class AdminDtos {
             @NotNull BulkAction action,
             PlanId targetPlanId,
             NoticeRequest notice,
-            String reason
+            String reason,
+            @Min(1) Integer suspendedDays
     ) {}
     public record AdminUserBulkActionData(int accepted, int failed, String jobId) {}
 
@@ -128,6 +129,8 @@ public final class AdminDtos {
     public record AdminAccountsData(List<AdminAccountRow> admins) {}
     public record AdminAccountCreateRequest(@NotBlank String name, @NotBlank String loginId, @NotNull AdminRole role) {}
     public record AdminAccountCreateData(AdminAccountRow admin, String temporaryPassword) {}
+    public record AdminAccountUpdateRequest(String name, String loginId, AdminRole role) {}
+    public record AdminAccountUpdateData(AdminAccountRow admin) {}
 
     public record SupportTicketData(
             String ticketId,

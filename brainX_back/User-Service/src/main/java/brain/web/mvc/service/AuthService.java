@@ -17,6 +17,7 @@ import brain.web.mvc.entity.RefreshToken;
 import brain.web.mvc.entity.User;
 import brain.web.mvc.entity.UserOnboardingProfile;
 import brain.web.mvc.entity.UserRole;
+import brain.web.mvc.entity.UserStatus;
 import brain.web.mvc.exception.ApiException;
 import brain.web.mvc.repository.ConsentRecordRepository;
 import brain.web.mvc.repository.OAuthAccountRepository;
@@ -172,6 +173,16 @@ public class AuthService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "존재하지 않는 이메일입니다."));
 
+        if (user.isSuspensionExpired(LocalDateTime.now())) {
+            user.reactivateFromExpiredSuspension();
+        }
+        if (user.getStatus() == UserStatus.SUSPENDED) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "정지된 계정입니다. 관리자에게 문의해 주세요.");
+        }
+        if (user.getStatus() == UserStatus.WITHDRAWN) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "탈퇴 처리된 계정입니다.");
+        }
+
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "비밀번호가 올바르지 않습니다.");
         }
@@ -229,6 +240,15 @@ public class AuthService {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Refresh Token이 만료되었습니다.");
         }
 
+        if (storedToken.getUser().isSuspensionExpired(LocalDateTime.now())) {
+            storedToken.getUser().reactivateFromExpiredSuspension();
+        }
+        if (storedToken.getUser().getStatus() == UserStatus.SUSPENDED) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "정지된 계정입니다. 관리자에게 문의해 주세요.");
+        }
+        if (storedToken.getUser().getStatus() == UserStatus.WITHDRAWN) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "탈퇴 처리된 계정입니다.");
+        }
         storedToken.revoke();
         String sessionId = jwtTokenProvider.getSessionId(refreshToken);
         if (!StringUtils.hasText(sessionId)) {
@@ -389,6 +409,15 @@ public class AuthService {
     }
 
     private AuthTokenResponse issueFreshAuthTokenResponse(User user, String next, HttpServletRequest httpRequest) {
+        if (user.isSuspensionExpired(LocalDateTime.now())) {
+            user.reactivateFromExpiredSuspension();
+        }
+        if (user.getStatus() == UserStatus.SUSPENDED) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "정지된 계정입니다. 관리자에게 문의해 주세요.");
+        }
+        if (user.getStatus() == UserStatus.WITHDRAWN) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "탈퇴 처리된 계정입니다.");
+        }
         String sessionId = createSessionId();
         String accessToken = jwtTokenProvider.createAccessToken(user, sessionId);
         RefreshToken refreshToken = saveRefreshToken(user, jwtTokenProvider.createRefreshToken(user, sessionId));

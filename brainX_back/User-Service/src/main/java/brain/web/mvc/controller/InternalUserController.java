@@ -4,6 +4,8 @@ import brain.web.mvc.entity.User;
 import brain.web.mvc.entity.UserStatus;
 import brain.web.mvc.repository.UserRepository;
 import brain.web.mvc.service.UserLoginSessionService;
+import brain.web.mvc.service.UserNotificationService;
+import brain.web.mvc.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +22,8 @@ public class InternalUserController {
 
     private final UserRepository userRepository;
     private final UserLoginSessionService userLoginSessionService;
+    private final UserNotificationService userNotificationService;
+    private final UserService userService;
 
     @GetMapping
     public ResponseEntity<List<UserDto>> listUsers(
@@ -28,6 +32,7 @@ public class InternalUserController {
             @RequestParam(required = false) Integer joinedYear
     ) {
         List<User> users = userRepository.findUsersInternal(q, status, joinedYear);
+        users.forEach(userService::normalizeExpiredSuspension);
         List<UserDto> dtos = users.stream()
                 .map(user -> UserDto.from(user, userLoginSessionService.latestSession(user.getUserId())))
                 .toList();
@@ -38,6 +43,7 @@ public class InternalUserController {
     public ResponseEntity<UserDto> getUserDetail(@PathVariable String userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
+        userService.normalizeExpiredSuspension(user);
         return ResponseEntity.ok(UserDto.from(user, userLoginSessionService.latestSession(userId)));
     }
 
@@ -58,7 +64,12 @@ public class InternalUserController {
         UserStatus newStatus = UserStatus.valueOf(body.get("status"));
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
-        user.changeStatus(newStatus);
+        if (newStatus == UserStatus.SUSPENDED) {
+            int suspendedDays = parseInteger(body.get("suspendedDays"), 7);
+            user.suspend(body.get("reason"), LocalDateTime.now().plusDays(Math.max(1, suspendedDays)));
+        } else {
+            user.changeStatus(newStatus);
+        }
         return ResponseEntity.ok(UserDto.from(user, userLoginSessionService.latestSession(userId)));
     }
 
@@ -88,7 +99,8 @@ public class InternalUserController {
                 User user = userRepository.findById(userId).orElse(null);
                 if (user != null) {
                     if ("SUSPEND".equals(action)) {
-                        user.changeStatus(UserStatus.SUSPENDED);
+                        int suspendedDays = parseInteger(String.valueOf(body.get("suspendedDays")), 7);
+                        user.suspend((String) body.get("reason"), LocalDateTime.now().plusDays(Math.max(1, suspendedDays)));
                     } else if ("REACTIVATE".equals(action)) {
                         user.changeStatus(UserStatus.ACTIVE);
                     } else if ("WITHDRAW".equals(action)) {
@@ -103,6 +115,29 @@ public class InternalUserController {
             }
         }
         return ResponseEntity.ok(Map.of("accepted", accepted, "failed", failed, "jobId", "JOB-BULK-" + System.currentTimeMillis()));
+    }
+
+    @PostMapping("/notifications/bulk")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> sendBulkNotifications(@RequestBody Map<String, Object> body) {
+        List<String> userIds = (List<String>) body.get("userIds");
+        userNotificationService.createNotifications(
+                userIds,
+                String.valueOf(body.getOrDefault("type", "ADMIN_NOTICE")),
+                String.valueOf(body.getOrDefault("title", "")),
+                String.valueOf(body.getOrDefault("body", "")),
+                body.get("sentByAdminUserId") != null ? String.valueOf(body.get("sentByAdminUserId")) : null,
+                body.get("sentByAdminName") != null ? String.valueOf(body.get("sentByAdminName")) : null
+        );
+        return ResponseEntity.ok(Map.of("accepted", userIds.size(), "failed", 0, "jobId", "JOB-NOTICE-" + System.currentTimeMillis()));
+    }
+
+    private int parseInteger(String value, int defaultValue) {
+        try {
+            return Integer.parseInt(value);
+        } catch (Exception ignored) {
+            return defaultValue;
+        }
     }
 
     public record UserDto(
@@ -121,7 +156,9 @@ public class InternalUserController {
             String lastLoginLocation,
             String lastLoginIpAddress,
             String lastLoginUserAgentHash,
-            Boolean lastLoginCurrent
+            Boolean lastLoginCurrent,
+            LocalDateTime suspendedUntil,
+            String suspensionReason
     ) {
         public static UserDto from(User user, UserLoginSessionService.LoginSessionSnapshot lastLogin) {
             return new UserDto(
@@ -140,7 +177,9 @@ public class InternalUserController {
                     lastLogin != null ? lastLogin.location() : null,
                     lastLogin != null ? lastLogin.ipAddress() : null,
                     lastLogin != null ? lastLogin.userAgentHash() : null,
-                    lastLogin != null ? lastLogin.current() : null
+                    lastLogin != null ? lastLogin.current() : null,
+                    user.getSuspendedUntil(),
+                    user.getSuspensionReason()
             );
         }
     }

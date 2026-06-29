@@ -60,6 +60,12 @@ public class User {
     @Column(name = "deletion_scheduled_at")
     private LocalDateTime deletionScheduledAt;
 
+    @Column(name = "suspension_reason", length = 500)
+    private String suspensionReason;
+
+    @Column(name = "suspended_until")
+    private LocalDateTime suspendedUntil;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
@@ -119,6 +125,28 @@ public class User {
 
     public void changeStatus(UserStatus status) {
         this.status = status;
+        if (status != UserStatus.SUSPENDED) {
+            this.suspensionReason = null;
+            this.suspendedUntil = null;
+        }
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void suspend(String reason, LocalDateTime suspendedUntil) {
+        this.status = UserStatus.SUSPENDED;
+        this.suspensionReason = reason;
+        this.suspendedUntil = suspendedUntil;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public boolean isSuspensionExpired(LocalDateTime now) {
+        return status == UserStatus.SUSPENDED && suspendedUntil != null && !suspendedUntil.isAfter(now);
+    }
+
+    public void reactivateFromExpiredSuspension() {
+        this.status = UserStatus.ACTIVE;
+        this.suspensionReason = null;
+        this.suspendedUntil = null;
         this.updatedAt = LocalDateTime.now();
     }
 }

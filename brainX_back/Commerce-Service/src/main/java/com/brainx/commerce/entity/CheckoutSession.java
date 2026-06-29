@@ -24,7 +24,7 @@ import java.time.Instant;
 @Table(name = "commerce_checkout_sessions", indexes = @Index(name = "idx_checkout_user", columnList = "userId"))
 public class CheckoutSession {
     public enum Status {
-        PENDING, SUCCEEDED, FAILED, CANCELLED, EXPIRED
+        PENDING, SUCCEEDED, FAILED, REFUNDED, CANCELLED, EXPIRED
     }
 
     public enum Provider {
@@ -85,6 +85,12 @@ public class CheckoutSession {
 
     public void markFailed(String reason, Instant now) {
         this.status = Status.FAILED;
+        this.failureReason = reason;
+        this.confirmedAt = now;
+    }
+
+    public void markRefunded(String reason, Instant now) {
+        this.status = Status.REFUNDED;
         this.failureReason = reason;
         this.confirmedAt = now;
     }

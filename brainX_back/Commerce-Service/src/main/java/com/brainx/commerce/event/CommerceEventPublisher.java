@@ -79,6 +79,7 @@ public class CommerceEventPublisher {
             case "SubscriptionChanged" -> "brainx.commerce.operations.subscription-changed.v1";
             case "PaymentSucceeded" -> "brainx.commerce.operations.payment-succeeded.v1";
             case "PaymentFailed" -> "brainx.commerce.operations.payment-failed.v1";
+            case "PaymentRefunded" -> "brainx.commerce.operations.payment-refunded.v1";
             case "InvoiceIssued" -> "brainx.commerce.operations.invoice-issued.v1";
             default -> "brainx.commerce.operations.unknown.v1";
         };

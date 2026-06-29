@@ -3,6 +3,7 @@ package com.brainx.admin.config;
 import com.brainx.admin.security.AdminJwtAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -27,6 +28,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers("/api/v1/admin/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/admin-accounts/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/admin/admin-accounts/**").hasRole("OWNER")
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()

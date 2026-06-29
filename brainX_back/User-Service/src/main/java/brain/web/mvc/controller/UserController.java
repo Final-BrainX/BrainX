@@ -10,9 +10,12 @@ import brain.web.mvc.dto.response.ApiResponse;
 import brain.web.mvc.dto.response.UserResponses.ConsentUpdateResponse;
 import brain.web.mvc.dto.response.UserResponses.DeletionResponse;
 import brain.web.mvc.dto.response.UserResponses.MyProfileResponse;
+import brain.web.mvc.dto.response.UserResponses.NotificationItemResponse;
+import brain.web.mvc.dto.response.UserResponses.NotificationsResponse;
 import brain.web.mvc.dto.response.UserResponses.ProfileUpdateResponse;
 import brain.web.mvc.dto.response.UserResponses.SocialAccountResponse;
 import brain.web.mvc.dto.response.UserResponses.TwoFactorResponse;
+import brain.web.mvc.service.UserNotificationService;
 import brain.web.mvc.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class UserController {
     private final UserService userService;
+    private final UserNotificationService userNotificationService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<MyProfileResponse>> getMyProfile(@AuthenticationPrincipal UserDetails userDetails) {
@@ -101,5 +105,17 @@ public class UserController {
     public ResponseEntity<ApiResponse<Void>> cancelDeletion(@AuthenticationPrincipal UserDetails userDetails) {
         userService.cancelDeletion(userDetails.getUsername());
         return ResponseEntity.ok(ApiResponse.success(null, "회원 탈퇴 요청이 취소되었습니다."));
+    }
+    @GetMapping("/notifications")
+    public ResponseEntity<ApiResponse<NotificationsResponse>> getNotifications(@AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(ApiResponse.success(userNotificationService.getMyNotifications(userDetails.getUsername()), "알림을 조회했습니다."));
+    }
+
+    @PostMapping("/notifications/{notificationId}/read")
+    public ResponseEntity<ApiResponse<NotificationItemResponse>> markNotificationRead(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable String notificationId
+    ) {
+        return ResponseEntity.ok(ApiResponse.success(userNotificationService.markAsRead(userDetails.getUsername(), notificationId), "알림을 읽음 처리했습니다."));
     }
 }
