@@ -94,6 +94,8 @@ aws ssm put-parameter --name /brainx/dev/SEED_ADMIN_LOGIN_ID --type SecureString
 aws ssm put-parameter --name /brainx/dev/SEED_ADMIN_NAME --type SecureString --value "BrainX Admin"
 ```
 
+`deploy_remote.sh` also writes Admin-Service's non-secret runtime defaults into `/opt/brainx/env/runtime.env` on every CI/CD deploy so the compose file can consume the same values automatically: `ADMIN_DB_NAME`, `GATEWAY_SERVICE_URL`, `MAIL_HOST`, and `MAIL_PORT`.
+
 RDS master username/password는 AWS Secrets Manager에서 읽는다. GitHub secrets나 SSM에 복사하지 않는다.
 
 ### Add A Backend Runtime Env Variable

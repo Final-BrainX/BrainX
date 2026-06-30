@@ -74,6 +74,7 @@ BrainX/
 
 - `next.config.mjs`에서 Turbopack root를 `brainx-next` 폴더로 고정해, 루트에 다른 lockfile이 있어도 개발 서버가 잘못된 워크스페이스 루트를 잡지 않도록 했습니다.
 - 관리자 콘솔 mock 기준으로 관리자 계정 이메일 입력, 미확인 문의 수 배지, 답변 완료 문의의 답변 입력 숨김, 환불 시 무료 플랜 전환, 로그인 기기 국가만 표시, 구독 다음 결제일의 월간/연간 표기를 반영했습니다.
+- 관리자 모니터링 우측 레일에는 관리자 목록 아래 게임 채팅형 메시지함이 있으며, 전체 발송/선택 발송과 unread `SMS` 건수, `읽음` 모달을 함께 지원합니다.
 - 환불은 관리자 사유를 함께 전달하고, 환불 안내 메일 발송과 Commerce 구독의 `free` 전환을 기준으로 사용자 화면이 주기적으로 최신 플랜을 다시 읽어오도록 맞췄습니다.
 - Commerce 환불은 `REFUNDED` 상태를 DB 체크 제약에 포함하도록 보정했고, 결제사에서 이미 취소된 결제라면 로컬 원장과 구독 상태를 `환불 완료 + free 전환`으로 재동기화하도록 처리했습니다.
 - `/notes` 우측 인라인 AI는 질문 모드와 작성 모드를 지원하며, 작성 요청은 Intelligence Service의 `DRAFT` inline assist action으로 현재 편집기 커서에 스트리밍 삽입됩니다.
@@ -307,7 +308,7 @@ cd C:\Edu\Final\BrainX\brainX_back
 docker compose --profile apps up -d --build admin-service
 ```
 
-관리자 프론트(`BrainX-Admin/brainx-admin-next`)는 기본적으로 실제 Admin-Service 프록시를 사용합니다. 개발 중에만 `.env.local`에 `ADMIN_MOCK_ENABLED=true`를 명시했을 때 mock API를 켜고, 그 외에는 `ADMIN_SERVICE_URL=http://localhost:8085`로 프록시합니다.
+관리자 프론트(`BrainX-Admin/brainx-admin-next`)는 기본적으로 실제 Admin-Service 프록시를 사용합니다. 개발 중에만 `.env.local`에 `ADMIN_MOCK_ENABLED=true`를 명시했을 때 mock API를 켜고, 그 외에는 `ADMIN_SERVICE_URL=http://localhost:8085`로 프록시합니다. 단, 관리자 메시지(`/api/v1/admin/messages*`)는 Admin-Service가 아직 준비되지 않은 개발 구간에서도 레일 채팅을 검증할 수 있도록 `brainx-admin-next`의 API route가 `.dev-data/admin-messages.json` 공용 로컬 파일 저장소를 직접 처리하며, 브라우저별 localStorage fallback 없이 같은 메시지 원장을 공유합니다.
 
 각 서비스는 자기 폴더 기준으로 실행하면 아래 파일을 자동으로 읽습니다.
 
@@ -321,6 +322,7 @@ docker compose --profile apps up -d --build admin-service
 | Commerce-Service | `../.env`, `../env/commerce-service.env` |
 
 `JWT_SECRET`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, `DB_DRIVER`, `JPA_DDL_AUTO`처럼 모든 서비스가 공유하는 값은 `.env`에 둡니다. 서비스별 논리 DB 이름도 `.env`의 `USER_DB_NAME`, `WORKSPACE_DB_NAME`, `INGESTION_DB_NAME`, `COMMERCE_DB_NAME`으로 관리합니다.
+Admin-Service는 관리자 시드용 `SEED_ADMIN_LOGIN_ID`, `SEED_ADMIN_PASSWORD`, `SEED_ADMIN_NAME`도 `../env/admin-service.env`에서 함께 읽습니다.
 Docker Compose로 앱을 실행할 때는 앱 컨테이너에만 `POSTGRES_HOST=postgres`를 자동으로 덮어씁니다. 로컬 Gradle/IDE 실행은 `.env`의 `POSTGRES_HOST=localhost`를 그대로 사용합니다.
 
 기본 DB 접속 정보:
@@ -523,10 +525,12 @@ overview summary는 결제/사용자 지표 외에 `Workspace-Service`의 `/inte
 | 관리자 비밀번호 | PATCH | `/api/v1/admin/me/password` | User-Service credential 변경, `PasswordChanged` |
 | 관리자 목록 | GET | `/api/v1/admin/admin-accounts` | 모든 관리자(owner 포함) 조회 가능, 모니터링 화면 관리자 목록에서 사용 |
 | 관리자 추가/수정/삭제 | POST/PATCH/DELETE | `/api/v1/admin/admin-accounts`, `/api/v1/admin/admin-accounts/{adminId}` | 최고관리자(owner)만 호출 가능 |
+| 관리자 메시지 목록/전송 | GET/POST | `/api/v1/admin/messages` | 모니터링 우측 레일 채팅창, 전체 발송/선택 발송 |
+| 관리자 메시지 읽음 | POST | `/api/v1/admin/messages/{messageId}/read` | 우측 프로필 `SMS` 건수와 `읽음` 모달 |
 
 사용자 알림함은 `brainx-next` 상단 종 아이콘과 연결되며, 관리자 `SEND_NOTICE` 일괄 액션이 실행되면 `GET /api/v1/users/me/notifications`, `POST /api/v1/users/me/notifications/{notificationId}/read`로 확인할 수 있습니다.
 
-관리자 목록 조회(GET)는 모든 관리자에게 열려 있지만, 계정 생성/수정/삭제는 owner 역할만 가능합니다. 최고관리자가 아닌 관리자는 관리자 관리 화면 자체에 진입할 수 없습니다(사이드바 메뉴 비노출 + 화면 가드).
+관리자 목록 조회(GET)는 모든 관리자에게 열려 있지만, 계정 생성/수정/삭제는 owner 역할만 가능합니다. 최고관리자가 아닌 관리자는 관리자 관리 화면 자체에 진입할 수 없습니다(사이드바 메뉴 비노출 + 화면 가드). 관리자 메시지는 모든 관리자가 조회/전송/읽음 처리할 수 있고, 선택 발송 메시지는 수신 대상과 발신자에게만 노출됩니다.
 
 AsyncAPI에는 Admin 화면에서 새로 필요한 `PaymentRefunded`, `PlanPriceChanged`, `SupportTicketUpdated` 이벤트를 추가했습니다. 결제/플랜 이벤트는 Commerce-Service가 발행하고, 문의 상태 변경 이벤트는 Admin-Service가 발행합니다.
 

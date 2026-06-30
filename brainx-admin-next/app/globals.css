@@ -402,6 +402,179 @@ button {
   background: #f8fafc;
 }
 
+.admin-message-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.admin-message-feed {
+  display: flex;
+  max-height: 280px;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.admin-message-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.admin-message-row.mine {
+  align-items: flex-end;
+}
+
+.admin-message-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #6b7280;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.admin-message-unread {
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #dc2626;
+  padding: 2px 7px;
+  font-size: 10.5px;
+}
+
+.admin-message-bubble {
+  max-width: 100%;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px 14px 14px 6px;
+  background: #f8fafc;
+  padding: 10px 12px;
+  color: #111827;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.admin-message-bubble.mine {
+  border-color: #99f6e4;
+  border-radius: 14px 14px 6px 14px;
+  background: #ecfeff;
+}
+
+.admin-message-time {
+  color: #9ca3af;
+  font-size: 11px;
+}
+
+.admin-message-empty {
+  padding: 18px 0;
+  color: #6b7280;
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.admin-message-empty.inline {
+  padding: 10px 0 2px;
+}
+
+.admin-message-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-top: 1px solid #eef2f7;
+  padding-top: 14px;
+}
+
+.admin-message-composer.compact {
+  gap: 10px;
+}
+
+.admin-message-audience {
+  display: flex;
+  gap: 8px;
+}
+
+.admin-message-scope {
+  border: 1px solid #dbe3ef;
+  border-radius: 999px;
+  background: #fff;
+  color: #475569;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-message-scope.active {
+  border-color: #14b8a6;
+  background: #ecfeff;
+  color: #0f766e;
+}
+
+.admin-message-recipient-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-message-recipient {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid #dbe3ef;
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.admin-message-recipient span:last-child {
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.admin-message-recipient.active {
+  border-color: #14b8a6;
+  background: #ecfeff;
+}
+
+.admin-message-compose-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.admin-message-compose-box textarea {
+  resize: vertical;
+  min-height: 88px;
+  border: 1px solid #dbe3ef;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 12px;
+  color: #111827;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.admin-message-compose-box textarea::placeholder {
+  color: #94a3b8;
+}
+
+.admin-message-compose-box .btn {
+  align-self: flex-end;
+}
+
+.admin-message-modal {
+  width: min(760px, calc(100vw - 32px));
+}
+
+.admin-message-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .admin-setting-card {
   padding: 0;
   overflow: hidden;
@@ -885,6 +1058,20 @@ input[type="checkbox"] {
 .chart-line {
   width: 100%;
   height: 150px;
+}
+
+.revenue-card {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+}
+
+.revenue-chart {
+  display: flex;
+  flex: 1;
+  align-items: flex-end;
+  gap: 7px;
+  min-height: 150px;
 }
 
 .toast {

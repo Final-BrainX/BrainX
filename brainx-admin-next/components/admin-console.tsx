@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Repeat2,
   Search,
+  SendHorizonal,
   LogOut,
   ShieldCheck,
   Trash2,
@@ -23,6 +24,9 @@ import {
   adminApi,
   loadAdminBootstrap,
   type AdminBootstrap,
+  type AdminMessage,
+  type AdminMessageScope,
+  type AdminMessageViewer,
   type AdminKafkaLagData,
   type AdminMonitoringSnapshot,
   type AdminServiceHealthSnapshot,
@@ -492,6 +496,7 @@ function Dashboard({ data, onToast }: { data: AdminBootstrap; onToast: (message:
   const activeUserPath = linePath(activeUserSeries);
   const activeUserArea = `${activeUserPath} L560,150 L0,150 Z`;
   const maxRevenueBar = Math.max(...revenueBars, 1);
+  const visibleKpis = data.kpis.slice(0, 3);
   const [snapshots, setSnapshots] = useState<AdminMonitoringSnapshot[]>(() => data.monitoringSnapshots);
   const [healthSnapshots, setHealthSnapshots] = useState<AdminServiceHealthSnapshot[]>([]);
   const [kafkaLag, setKafkaLag] = useState<AdminKafkaLagData | null>(null);
@@ -596,8 +601,8 @@ function Dashboard({ data, onToast }: { data: AdminBootstrap; onToast: (message:
           <button className="btn primary" onClick={() => onToast("운영 리포트 다운로드를 준비했어요")}><Download size={15} />리포트 다운로드</button>
         </div>
       </div>
-      <div className="grid-4">
-        {data.kpis.map((item) => (
+      <div className="grid-4" style={{ gridTemplateColumns: `repeat(${visibleKpis.length}, minmax(0, 1fr))` }}>
+        {visibleKpis.map((item) => (
           <div className="card" key={item.label}>
             <div style={{ display: "flex", justifyContent: "space-between", color: "#78716c", fontSize: 13, fontWeight: 500 }}>
               <span>{item.label}</span>
@@ -641,12 +646,12 @@ function Dashboard({ data, onToast }: { data: AdminBootstrap; onToast: (message:
         </div>
       </div>
       <div className="grid-bottom">
-          <div className="card">
+          <div className="card revenue-card">
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
             <div className="card-title">매출 분석 <span style={{ color: "#a8a29e", fontSize: 12, fontWeight: 500 }}>{revenueTrendMeta.periodLabel}</span></div>
             <span className="mono" style={{ color: "#0d9488", fontSize: 13, fontWeight: 600 }}>{revenueTrendMeta.timezone}</span>
           </div>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 7, height: 150 }}>
+          <div className="revenue-chart">
             {revenueBars.map((bar, index) => (
               <div key={`${bar}-${index}`} style={{ flex: 1, height: `${Math.max(4, (bar / maxRevenueBar) * 100)}%`, borderRadius: "7px 7px 3px 3px", background: index > 10 ? "#0d9488" : "#d6d3d1" }} />
             ))}
@@ -794,6 +799,13 @@ function AdminProfileRail({
 }) {
   const [accounts, setAccounts] = useState<Awaited<ReturnType<typeof adminApi.listAdminAccounts>>> ([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
+  const [messages, setMessages] = useState<AdminMessage[]>([]);
+  const [loadingMessages, setLoadingMessages] = useState(true);
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [messageDraft, setMessageDraft] = useState("");
+  const [messageScope, setMessageScope] = useState<AdminMessageScope>("ALL");
+  const [selectedRecipientIds, setSelectedRecipientIds] = useState<string[]>([]);
+  const [messageModalOpen, setMessageModalOpen] = useState(false);
   const [loginId, setLoginId] = useState("");
   const [email, setEmail] = useState(admin.email ?? "");
   const [currentPassword, setCurrentPassword] = useState("");
@@ -803,6 +815,10 @@ function AdminProfileRail({
   const railRef = useRef<HTMLElement | null>(null);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const currentAccount = accounts.find((account) => account.adminId === admin.adminUserId) ?? accounts[0];
+  const messageViewer: AdminMessageViewer = { adminUserId: admin.adminUserId, name: admin.name };
+  const unreadMessages = messages.filter((message) => !message.isRead);
+  const availableRecipients = accounts.filter((account) => account.adminId !== admin.adminUserId);
+  const previewMessages = messages.slice(-5);
 
   const hasLength = newPassword.length >= 8;
   const hasMix = /[A-Za-z]/.test(newPassword) && /\d/.test(newPassword);
@@ -859,6 +875,80 @@ function AdminProfileRail({
       active = false;
     };
   }, []);
+
+  const loadMessages = async () => {
+    try {
+      const data = await adminApi.listAdminMessages(messageViewer);
+      setMessages(data.messages);
+    } catch {
+      return;
+    } finally {
+      setLoadingMessages(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadMessages();
+    const timer = window.setInterval(() => {
+      void loadMessages();
+    }, 3000);
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadMessages();
+      }
+    };
+    window.addEventListener("focus", handleVisible);
+    document.addEventListener("visibilitychange", handleVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", handleVisible);
+      document.removeEventListener("visibilitychange", handleVisible);
+    };
+  }, [messageViewer.adminUserId, messageViewer.name]);
+
+  const toggleRecipient = (adminId: string) => {
+    setSelectedRecipientIds((current) => (current.includes(adminId) ? current.filter((id) => id !== adminId) : [...current, adminId]));
+  };
+
+  const sendAdminMessage = async () => {
+    if (sendingMessage) return;
+    const nextBody = messageDraft.trim();
+    if (!nextBody) {
+      onToast("메시지 내용을 입력해 주세요");
+      return;
+    }
+    if (messageScope === "SELECTED" && selectedRecipientIds.length === 0) {
+      onToast("선택 발송 대상을 하나 이상 골라 주세요");
+      return;
+    }
+
+    try {
+      setSendingMessage(true);
+      await adminApi.sendAdminMessage({
+        recipientScope: messageScope,
+        recipientAdminUserIds: messageScope === "SELECTED" ? selectedRecipientIds : [],
+        body: nextBody
+      }, messageViewer);
+      setMessageDraft("");
+      if (messageScope === "SELECTED") {
+        setSelectedRecipientIds([]);
+      }
+      await loadMessages();
+      onToast(messageScope === "ALL" ? "전체 메시지를 보냈어요" : "선택한 관리자에게 메시지를 보냈어요");
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "메시지 전송에 실패했어요");
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  const openMessageModal = async () => {
+    setMessageModalOpen(true);
+    const unreadIds = unreadMessages.map((message) => message.messageId);
+    if (unreadIds.length === 0) return;
+    await Promise.all(unreadIds.map((messageId) => adminApi.markAdminMessageRead(messageId, messageViewer).catch(() => null)));
+    await loadMessages();
+  };
 
   const saveLoginId = async () => {
     if (!currentAccount) {
@@ -1014,8 +1104,8 @@ function AdminProfileRail({
           ) : null}
           <div className="admin-setting-meta-row">
             <span className="admin-setting-meta-label">SMS</span>
-            <span className="admin-setting-meta-value">0건</span>
-            <button className="admin-setting-link" type="button" onClick={onOpenAdmins}>충전</button>
+            <span className="admin-setting-meta-value">{unreadMessages.length}건</span>
+            <button className={`admin-setting-link${unreadMessages.length === 0 ? " muted" : ""}`} type="button" onClick={() => void openMessageModal()}>읽음</button>
           </div>
           <div className="admin-setting-meta-row">
             <span className="admin-setting-meta-label">역할</span>
@@ -1060,9 +1150,250 @@ function AdminProfileRail({
           ) : null}
         </div>
       </section>
+
+      <section className="rail-card admin-message-card">
+        <div className="rail-head">
+          <div>
+            <div className="rail-title">관리자 메시지</div>
+            <div className="rail-subtitle">전체 공지 또는 선택 발송으로 빠르게 소통해요</div>
+          </div>
+          <button className="btn" type="button" onClick={() => void openMessageModal()}>
+            읽음 {unreadMessages.length > 0 ? `(${unreadMessages.length})` : ""}
+          </button>
+        </div>
+        <AdminMessageFeed
+          messages={previewMessages}
+          currentAdminUserId={admin.adminUserId}
+          loading={loadingMessages}
+          resolveRecipientLabel={(message) => describeAdminMessageAudience(message, accounts)}
+        />
+        <AdminMessageComposer
+          scope={messageScope}
+          onScopeChange={setMessageScope}
+          draft={messageDraft}
+          onDraftChange={setMessageDraft}
+          recipientOptions={availableRecipients}
+          selectedRecipientIds={selectedRecipientIds}
+          onRecipientToggle={toggleRecipient}
+          onSend={() => void sendAdminMessage()}
+          sending={sendingMessage}
+          compact
+        />
+      </section>
+
+      {messageModalOpen ? (
+        <AdminMessageModal
+          currentAdminUserId={admin.adminUserId}
+          messages={messages}
+          loading={loadingMessages}
+          scope={messageScope}
+          onScopeChange={setMessageScope}
+          draft={messageDraft}
+          onDraftChange={setMessageDraft}
+          recipientOptions={availableRecipients}
+          selectedRecipientIds={selectedRecipientIds}
+          onRecipientToggle={toggleRecipient}
+          onSend={() => void sendAdminMessage()}
+          sending={sendingMessage}
+          resolveRecipientLabel={(message) => describeAdminMessageAudience(message, accounts)}
+          onClose={() => setMessageModalOpen(false)}
+        />
+      ) : null}
     </aside>
   );
 }
+
+function describeAdminMessageAudience(message: AdminMessage, accounts: Array<{ adminId: string; name: string }>) {
+  if (message.recipientScope === "ALL") return "전체";
+  const names = message.recipientAdminUserIds
+    .map((adminId) => accounts.find((account) => account.adminId === adminId)?.name)
+    .filter((value): value is string => Boolean(value));
+  if (names.length > 0) return names.join(", ");
+  return `${message.recipientAdminUserIds.length}명 선택`;
+}
+
+function AdminMessageFeed({
+  messages,
+  currentAdminUserId,
+  loading,
+  resolveRecipientLabel
+}: {
+  messages: AdminMessage[];
+  currentAdminUserId: string;
+  loading: boolean;
+  resolveRecipientLabel: (message: AdminMessage) => string;
+}) {
+  const feedRef = useRef<HTMLDivElement | null>(null);
+  const lastMessageId = messages.at(-1)?.messageId ?? "";
+
+  useEffect(() => {
+    const node = feedRef.current;
+    if (!node) return;
+    const scrollToBottom = () => {
+      node.scrollTop = node.scrollHeight;
+    };
+    scrollToBottom();
+    const frameId = window.requestAnimationFrame(scrollToBottom);
+    const timerId = window.setTimeout(scrollToBottom, 80);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.clearTimeout(timerId);
+    };
+  }, [lastMessageId, messages.length, loading]);
+
+  if (loading) {
+    return <div className="admin-message-empty">메시지를 불러오는 중이에요</div>;
+  }
+
+  if (messages.length === 0) {
+    return <div className="admin-message-empty">아직 주고받은 메시지가 없어요</div>;
+  }
+
+  return (
+    <div className="admin-message-feed" ref={feedRef}>
+      {messages.map((message) => {
+        const mine = message.senderAdminUserId === currentAdminUserId;
+        return (
+          <div key={message.messageId} className={`admin-message-row${mine ? " mine" : ""}`}>
+            <div className="admin-message-meta">
+              <span>{mine ? "나" : message.senderName}</span>
+              <span>{resolveRecipientLabel(message)}</span>
+              {!mine && !message.isRead ? <span className="admin-message-unread">NEW</span> : null}
+            </div>
+            <div className={`admin-message-bubble${mine ? " mine" : ""}`}>{message.body}</div>
+            <div className="admin-message-time">{formatHistoryTime(message.sentAt)}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AdminMessageComposer({
+  scope,
+  onScopeChange,
+  draft,
+  onDraftChange,
+  recipientOptions,
+  selectedRecipientIds,
+  onRecipientToggle,
+  onSend,
+  sending = false,
+  compact = false
+}: {
+  scope: AdminMessageScope;
+  onScopeChange: (scope: AdminMessageScope) => void;
+  draft: string;
+  onDraftChange: (value: string) => void;
+  recipientOptions: Array<{ adminId: string; name: string; loginId: string; role: string }>;
+  selectedRecipientIds: string[];
+  onRecipientToggle: (adminId: string) => void;
+  onSend: () => void;
+  sending?: boolean;
+  compact?: boolean;
+}) {
+  return (
+    <div className={`admin-message-composer${compact ? " compact" : ""}`}>
+      <div className="admin-message-audience">
+        <button className={`admin-message-scope${scope === "ALL" ? " active" : ""}`} type="button" onClick={() => onScopeChange("ALL")}>
+          전체 보내기
+        </button>
+        <button className={`admin-message-scope${scope === "SELECTED" ? " active" : ""}`} type="button" onClick={() => onScopeChange("SELECTED")}>
+          선택해서 보내기
+        </button>
+      </div>
+      {scope === "SELECTED" ? (
+        <div className="admin-message-recipient-list">
+          {recipientOptions.map((account) => (
+            <button
+              key={account.adminId}
+              type="button"
+              className={`admin-message-recipient${selectedRecipientIds.includes(account.adminId) ? " active" : ""}`}
+              onClick={() => onRecipientToggle(account.adminId)}
+            >
+              <span>{account.name}</span>
+              <span>{account.loginId}</span>
+            </button>
+          ))}
+          {recipientOptions.length === 0 ? <div className="admin-message-empty inline">보낼 다른 관리자가 없어요</div> : null}
+        </div>
+      ) : null}
+      <div className="admin-message-compose-box">
+        <textarea
+          value={draft}
+          onChange={(event) => onDraftChange(event.target.value)}
+          placeholder="운영 이슈나 전달 사항을 게임 채팅처럼 빠르게 남겨 보세요"
+          rows={compact ? 3 : 4}
+        />
+        <button className="btn primary" type="button" onClick={onSend} disabled={sending}>
+          <SendHorizonal size={14} />
+          {sending ? "보내는 중..." : "보내기"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AdminMessageModal({
+  currentAdminUserId,
+  messages,
+  loading,
+  scope,
+  onScopeChange,
+  draft,
+  onDraftChange,
+  recipientOptions,
+  selectedRecipientIds,
+  onRecipientToggle,
+  onSend,
+  sending,
+  resolveRecipientLabel,
+  onClose
+}: {
+  currentAdminUserId: string;
+  messages: AdminMessage[];
+  loading: boolean;
+  scope: AdminMessageScope;
+  onScopeChange: (scope: AdminMessageScope) => void;
+  draft: string;
+  onDraftChange: (value: string) => void;
+  recipientOptions: Array<{ adminId: string; name: string; loginId: string; role: string }>;
+  selectedRecipientIds: string[];
+  onRecipientToggle: (adminId: string) => void;
+  onSend: () => void;
+  sending: boolean;
+  resolveRecipientLabel: (message: AdminMessage) => string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="list-modal admin-message-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="list-modal-head">
+          <div>
+            <div className="card-title">관리자 메시지함</div>
+            <div style={{ color: "#6b7280", fontSize: 12, marginTop: 4 }}>받은 메시지를 확인하고 바로 답장을 보낼 수 있어요</div>
+          </div>
+          <button className="btn" onClick={onClose} style={{ width: 30, height: 30, padding: 0, justifyContent: "center" }}><X size={16} /></button>
+        </div>
+        <div className="admin-message-modal-body">
+          <AdminMessageFeed messages={messages} currentAdminUserId={currentAdminUserId} loading={loading} resolveRecipientLabel={resolveRecipientLabel} />
+          <AdminMessageComposer
+            scope={scope}
+            onScopeChange={onScopeChange}
+            draft={draft}
+            onDraftChange={onDraftChange}
+            recipientOptions={recipientOptions}
+            selectedRecipientIds={selectedRecipientIds}
+            onRecipientToggle={onRecipientToggle}
+            onSend={onSend}
+            sending={sending}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ListModal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>

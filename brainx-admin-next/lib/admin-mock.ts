@@ -37,16 +37,51 @@ type MockAdminAccount = {
   lastLoginAt: string | null;
 };
 
+type MockAdminMessage = {
+  messageId: string;
+  senderAdminUserId: string;
+  senderName: string;
+  recipientScope: "ALL" | "SELECTED";
+  recipientAdminUserIds: string[];
+  body: string;
+  sentAt: string;
+  readByAdminUserIds: string[];
+};
+
 const mockUsers: AdminUser[] = users.map((user) => ({ ...user, activities: [...user.activities] }));
 const mockInquiries: AdminInquiry[] = inquiries.map((ticket) => ({ ...ticket }));
 const mockBillingTransactions: BillingTransaction[] = billingTransactions.map((payment) => ({ ...payment }));
 const mockBillingSubscriptions: BillingSubscription[] = billingSubscriptions.map((subscription) => ({ ...subscription }));
 
 const mockAdminAccounts: MockAdminAccount[] = [
-  { adminId: "adm_001", name: adminProfile.name, loginId: "admin", email: adminProfile.email, password: "admin1234", role: "owner", mustChangePassword: false, createdAt: adminProfile.createdAt, lastLoginAt: adminProfile.lastLoginAt }
+  { adminId: "adm_001", name: adminProfile.name, loginId: "admin", email: adminProfile.email, password: "admin1234", role: "owner", mustChangePassword: false, createdAt: adminProfile.createdAt, lastLoginAt: adminProfile.lastLoginAt },
+  { adminId: "adm_002", name: "운영 관리자", loginId: "ops_admin", email: "ops@brainx.io", password: "admin1234", role: "admin", mustChangePassword: false, createdAt: "2024-02-12T09:00:00+09:00", lastLoginAt: "2026-06-25T08:52:00+09:00" },
+  { adminId: "adm_003", name: "문의 담당", loginId: "support_admin", email: "support@brainx.io", password: "admin1234", role: "support", mustChangePassword: false, createdAt: "2024-05-07T09:00:00+09:00", lastLoginAt: "2026-06-25T08:44:00+09:00" }
 ];
 
 const currentAdminProfile: AdminProfile = { ...adminProfile };
+const mockAdminMessages: MockAdminMessage[] = [
+  {
+    messageId: "adm_msg_001",
+    senderAdminUserId: "adm_002",
+    senderName: "운영 관리자",
+    recipientScope: "ALL",
+    recipientAdminUserIds: [],
+    body: "09:30 배포 이후 Kafka lag를 같이 확인해 주세요.",
+    sentAt: "2026-06-25T09:32:00+09:00",
+    readByAdminUserIds: ["adm_002"]
+  },
+  {
+    messageId: "adm_msg_002",
+    senderAdminUserId: "adm_003",
+    senderName: "문의 담당",
+    recipientScope: "SELECTED",
+    recipientAdminUserIds: ["adm_001"],
+    body: "결제 장애 문의가 늘어서 결제 로그를 우선 봐주시면 좋겠습니다.",
+    sentAt: "2026-06-25T09:41:00+09:00",
+    readByAdminUserIds: ["adm_003"]
+  }
+];
 
 function apiAdminAccount(account: MockAdminAccount) {
   return {
@@ -58,6 +93,51 @@ function apiAdminAccount(account: MockAdminAccount) {
     mustChangePassword: account.mustChangePassword,
     createdAt: account.createdAt,
     lastLoginAt: account.lastLoginAt
+  };
+}
+
+function resolveCurrentAdminAccount(request: Request) {
+  const authorization = request.headers.get("authorization") ?? "";
+  const token = authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
+  const adminId = token.startsWith("mock-token-") ? token.slice("mock-token-".length) : "";
+  return mockAdminAccounts.find((account) => account.adminId === adminId) ?? mockAdminAccounts[0];
+}
+
+function apiAdminProfile(account: MockAdminAccount): AdminProfile {
+  return {
+    ...currentAdminProfile,
+    adminUserId: account.adminId,
+    name: account.name,
+    email: account.email,
+    role: account.role,
+    mustChangePassword: account.mustChangePassword,
+    createdAt: account.createdAt,
+    lastLoginAt: account.lastLoginAt
+  };
+}
+
+function visibleToAdmin(message: MockAdminMessage, adminId: string) {
+  return message.senderAdminUserId === adminId || message.recipientScope === "ALL" || message.recipientAdminUserIds.includes(adminId);
+}
+
+function apiAdminMessagesFor(account: MockAdminAccount) {
+  const messages = mockAdminMessages
+    .filter((message) => visibleToAdmin(message, account.adminId))
+    .sort((left, right) => new Date(left.sentAt).getTime() - new Date(right.sentAt).getTime())
+    .map((message) => ({
+      messageId: message.messageId,
+      senderAdminUserId: message.senderAdminUserId,
+      senderName: message.senderName,
+      recipientScope: message.recipientScope,
+      recipientAdminUserIds: message.recipientAdminUserIds,
+      body: message.body,
+      sentAt: message.sentAt,
+      isRead: message.senderAdminUserId === account.adminId || message.readByAdminUserIds.includes(account.adminId)
+    }));
+
+  return {
+    messages,
+    unreadCount: messages.filter((message) => !message.isRead).length
   };
 }
 
@@ -244,6 +324,7 @@ function apiPlan(plan: typeof planCards[number]) {
 export async function handleAdminMockRequest(request: Request, segments: string[]) {
   const method = request.method;
   const path = segments.join("/");
+  const currentAccount = resolveCurrentAdminAccount(request);
 
   if (method === "GET" && path === "dashboard/overview") {
     const activeUsers = traffic[traffic.length - 1] ?? 0;
@@ -392,7 +473,7 @@ export async function handleAdminMockRequest(request: Request, segments: string[
       const body = await request.json().catch(() => ({} as { status?: "OPEN" | "IN_PROGRESS" | "RESOLVED"; assigneeAdminUserId?: string | null }));
       if (ticket) {
         if (body.status) ticket.status = body.status === "IN_PROGRESS" ? "progress" : body.status === "RESOLVED" ? "done" : "pending";
-        ticket.agent = body.assigneeAdminUserId ? "김대영" : "";
+        ticket.agent = body.assigneeAdminUserId ? currentAccount.name : "";
       }
       return json({ ticket: ticket ? apiTicket(ticket) : null });
     }
@@ -400,7 +481,7 @@ export async function handleAdminMockRequest(request: Request, segments: string[
       const body = await request.json().catch(() => ({ body: "" }));
       if (ticket) {
         ticket.status = "done";
-        ticket.agent = currentAdminProfile.name;
+        ticket.agent = currentAccount.name;
         ticket.replyContent = body.body;
         ticket.repliedAt = "2026-06-29 21:46";
       }
@@ -478,12 +559,58 @@ export async function handleAdminMockRequest(request: Request, segments: string[
     account.lastLoginAt = now;
     return json({
       accessToken: `mock-token-${account.adminId}`,
-      admin: { ...currentAdminProfile, ...apiAdminAccount(account), adminUserId: account.adminId }
+      admin: apiAdminProfile(account)
     });
   }
 
   if (method === "GET" && path === "admin-accounts") {
     return json({ admins: mockAdminAccounts.map(apiAdminAccount) });
+  }
+
+  if (method === "GET" && path === "messages") {
+    return json(apiAdminMessagesFor(currentAccount));
+  }
+
+  if (method === "POST" && path === "messages") {
+    const body = await request.json().catch(() => ({ recipientScope: "ALL", recipientAdminUserIds: [], body: "" }));
+    const recipientScope = body.recipientScope === "SELECTED" ? "SELECTED" : "ALL";
+    const recipientAdminUserIds: string[] =
+      recipientScope === "SELECTED"
+        ? ([...new Set(Array.isArray(body.recipientAdminUserIds) ? body.recipientAdminUserIds.filter((value: unknown): value is string => typeof value === "string" && value.trim().length > 0) : [])] as string[])
+        : [];
+
+    if (!String(body.body ?? "").trim()) {
+      return Response.json({ error: { code: "INVALID_INPUT", message: "메시지 내용을 입력해 주세요." } }, { status: 400 });
+    }
+
+    if (recipientScope === "SELECTED" && recipientAdminUserIds.length === 0) {
+      return Response.json({ error: { code: "INVALID_INPUT", message: "선택 발송 대상을 하나 이상 고르세요." } }, { status: 400 });
+    }
+
+    const nextMessage: MockAdminMessage = {
+      messageId: `adm_msg_${Date.now()}`,
+      senderAdminUserId: currentAccount.adminId,
+      senderName: currentAccount.name,
+      recipientScope,
+      recipientAdminUserIds,
+      body: String(body.body).trim(),
+      sentAt: new Date().toISOString(),
+      readByAdminUserIds: [currentAccount.adminId]
+    };
+    mockAdminMessages.push(nextMessage);
+    const messageData = apiAdminMessagesFor(currentAccount);
+    return json({ message: messageData.messages.find((message) => message.messageId === nextMessage.messageId), unreadCount: messageData.unreadCount }, 201);
+  }
+
+  if (method === "POST" && segments[0] === "messages" && segments[1] && segments[2] === "read") {
+    const message = mockAdminMessages.find((item) => item.messageId === segments[1]);
+    if (!message) {
+      return Response.json({ error: { code: "NOT_FOUND", message: "메시지를 찾을 수 없습니다." } }, { status: 404 });
+    }
+    if (!message.readByAdminUserIds.includes(currentAccount.adminId)) {
+      message.readByAdminUserIds.push(currentAccount.adminId);
+    }
+    return json({ messageId: message.messageId, unreadCount: apiAdminMessagesFor(currentAccount).unreadCount });
   }
 
   if (method === "POST" && path === "admin-accounts") {
@@ -537,22 +664,18 @@ export async function handleAdminMockRequest(request: Request, segments: string[
   }
 
   if (method === "GET" && path === "me") {
-    return json(currentAdminProfile);
+    return json(apiAdminProfile(currentAccount));
   }
 
   if (method === "PATCH" && path === "me/profile") {
     const body = await request.json().catch(() => ({} as { name?: string; email?: string | null }));
     if (typeof body.name === "string") {
-      currentAdminProfile.name = body.name;
-      const selfAccount = mockAdminAccounts.find((account) => account.adminId === currentAdminProfile.adminUserId);
-      if (selfAccount) {
-        selfAccount.name = body.name;
-      }
+      currentAccount.name = body.name;
     }
     if (typeof body.email === "string" || body.email === null) {
-      currentAdminProfile.email = body.email;
+      currentAccount.email = body.email;
     }
-    return json(currentAdminProfile);
+    return json(apiAdminProfile(currentAccount));
   }
 
   if (method === "PATCH" && path === "me/password") {

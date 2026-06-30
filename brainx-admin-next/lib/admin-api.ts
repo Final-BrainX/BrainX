@@ -23,7 +23,7 @@ import {
   type UserStatus,
   type InquiryStatus
 } from "@/lib/admin-data";
-import { clearSession, getToken, type AdminRole, type AdminSession } from "@/lib/admin-auth";
+import { clearSession, getSession, getToken, type AdminRole, type AdminSession } from "@/lib/admin-auth";
 
 type ApiSuccess<T> = {
   success: true;
@@ -150,6 +150,29 @@ export type AdminAccountRow = {
   mustChangePassword: boolean;
   createdAt: string;
   lastLoginAt: string | null;
+};
+
+export type AdminMessageScope = "ALL" | "SELECTED";
+
+export type AdminMessage = {
+  messageId: string;
+  senderAdminUserId: string;
+  senderName: string;
+  recipientScope: AdminMessageScope;
+  recipientAdminUserIds: string[];
+  body: string;
+  sentAt: string;
+  isRead: boolean;
+};
+
+export type AdminMessagesData = {
+  messages: AdminMessage[];
+  unreadCount: number;
+};
+
+export type AdminMessageViewer = {
+  adminUserId: string;
+  name: string;
 };
 
 export type AdminServiceHealthSummary = {
@@ -465,6 +488,64 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return (payload as ApiSuccess<T>).data;
 }
 
+async function apiFetchOptional<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getToken();
+  const response = await fetch(path, {
+    ...init,
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {})
+    }
+  });
+
+  const payload = response.status === 204 ? null : ((await response.json().catch(() => null)) as ApiSuccess<T> | ApiFailure | null);
+  const errorMessage =
+    payload && "error" in payload && payload.error?.message
+      ? payload.error.message
+      : payload && "message" in payload && payload.message
+        ? payload.message
+        : `Admin API ${response.status}: ${path}`;
+
+  if (!response.ok) {
+    throw new Error(errorMessage);
+  }
+
+  if (response.status === 204 || !payload) {
+    return undefined as T;
+  }
+
+  return (payload as ApiSuccess<T>).data;
+}
+
+function currentAdminSession() {
+  return getSession()?.admin ?? null;
+}
+
+function currentAdminMessageHeaders(viewer?: AdminMessageViewer) {
+  const admin = viewer ?? currentAdminSession();
+  const headers: Record<string, string> = {};
+  if (!admin) {
+    return headers;
+  }
+  headers["X-Admin-User-Id"] = admin.adminUserId;
+  return headers;
+}
+
+function buildAdminMessagePath(path: string, viewer?: AdminMessageViewer) {
+  const admin = viewer ?? currentAdminSession();
+  if (!admin) {
+    return path;
+  }
+
+  const search = new URLSearchParams({
+    viewerAdminId: admin.adminUserId,
+    viewerName: admin.name
+  });
+  return `${path}?${search.toString()}`;
+}
+
 function mapUser(row: ApiUserRow): AdminUser {
   const recentActiveAt = row.lastActiveAt ?? row.lastLogin?.lastSeenAt ?? null;
   return {
@@ -653,6 +734,21 @@ export const adminApi = {
     }),
   getMe: () => apiFetch<AdminProfile>("/api/v1/admin/me"),
   listAdminAccounts: () => apiFetch<{ admins: AdminAccountRow[] }>("/api/v1/admin/admin-accounts").then((data) => data.admins),
+  listAdminMessages: (viewer?: AdminMessageViewer) =>
+    apiFetchOptional<AdminMessagesData>(buildAdminMessagePath("/api/v1/admin/messages", viewer), {
+      headers: currentAdminMessageHeaders(viewer)
+    }),
+  sendAdminMessage: (body: { recipientScope: AdminMessageScope; recipientAdminUserIds?: string[]; body: string }, viewer?: AdminMessageViewer) =>
+    apiFetchOptional<{ message: AdminMessage; unreadCount: number }>(buildAdminMessagePath("/api/v1/admin/messages", viewer), {
+      method: "POST",
+      headers: currentAdminMessageHeaders(viewer),
+      body: JSON.stringify(body)
+    }),
+  markAdminMessageRead: (messageId: string, viewer?: AdminMessageViewer) =>
+    apiFetchOptional<{ messageId: string; unreadCount: number }>(buildAdminMessagePath("/api/v1/admin/messages/" + messageId + "/read", viewer), {
+      method: "POST",
+      headers: currentAdminMessageHeaders(viewer)
+    }),
   createAdminAccount: (body: { name: string; loginId: string; email?: string | null; role: AdminRole }) =>
     apiFetch<{ admin: AdminAccountRow; temporaryPassword: string }>("/api/v1/admin/admin-accounts", {
       method: "POST",
