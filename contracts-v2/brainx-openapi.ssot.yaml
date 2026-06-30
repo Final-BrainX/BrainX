@@ -8559,6 +8559,131 @@ paths:
       security:
       - bearerAuth:
         - ROLE_OWNER
+  /api/v1/admin/messages:
+    get:
+      operationId: listAdminMessages
+      summary: 관리자 메시지 목록 조회
+      tags:
+      - Admin
+      x-producer-service: admin-service
+      x-visibility: public
+      x-consumers:
+      - id: web.admin.dashboard
+        type: frontend
+        description: 관리자 모니터링 우측 메시지 레일과 읽음 모달
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      x-implementation-note: local 개발 환경에서는 Next admin route가 shared `.dev-data/admin-messages.json` 원장을 사용해 다중 관리자 브라우저가 같은 메시지 목록을 본다.
+      description: 로그인 관리자가 볼 수 있는 전체 공지 및 선택 메시지 목록과 읽지 않은 건수를 함께 반환한다.
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/AdminMessagesData'
+      security:
+      - bearerAuth:
+        - ROLE_ADMIN
+    post:
+      operationId: createAdminMessage
+      summary: 관리자 메시지 전송
+      tags:
+      - Admin
+      x-producer-service: admin-service
+      x-visibility: public
+      x-consumers:
+      - id: web.admin.dashboard
+        type: frontend
+        description: 관리자 모니터링 우측 메시지 작성기
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      x-implementation-note: local 개발 환경에서는 Next admin route가 shared `.dev-data/admin-messages.json` 원장에 메시지를 기록한다.
+      description: 전체 발송 또는 선택 발송으로 관리자 메시지를 등록한다.
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminMessageCreateRequest'
+      responses:
+        '201':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/AdminMessageCreateData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth:
+        - ROLE_ADMIN
+  /api/v1/admin/messages/{messageId}/read:
+    post:
+      operationId: markAdminMessageRead
+      summary: 관리자 메시지 읽음 처리
+      tags:
+      - Admin
+      x-producer-service: admin-service
+      x-visibility: public
+      x-consumers:
+      - id: web.admin.dashboard
+        type: frontend
+        description: 관리자 모니터링 우측 메시지 읽음 버튼과 메시지 모달
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: messageId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/AdminMessageReadData'
+        '404':
+          description: 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth:
+        - ROLE_ADMIN
   /api/v1/admin/users/{userId}:
     get:
       operationId: getAdminUserDetail
@@ -14907,6 +15032,93 @@ components:
           $ref: '#/components/schemas/AdminAccountRow'
       required:
       - admin
+      additionalProperties: false
+    AdminMessageScope:
+      type: string
+      enum:
+      - ALL
+      - SELECTED
+    AdminMessageRow:
+      type: object
+      properties:
+        messageId:
+          type: string
+        senderAdminUserId:
+          type: string
+        senderName:
+          type: string
+        recipientScope:
+          $ref: '#/components/schemas/AdminMessageScope'
+        recipientAdminUserIds:
+          type: array
+          items:
+            type: string
+        body:
+          type: string
+        sentAt:
+          type: string
+          format: date-time
+        isRead:
+          type: boolean
+      required:
+      - messageId
+      - senderAdminUserId
+      - senderName
+      - recipientScope
+      - recipientAdminUserIds
+      - body
+      - sentAt
+      - isRead
+      additionalProperties: false
+    AdminMessagesData:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminMessageRow'
+        unreadCount:
+          type: integer
+      required:
+      - messages
+      - unreadCount
+      additionalProperties: false
+    AdminMessageCreateRequest:
+      type: object
+      properties:
+        recipientScope:
+          $ref: '#/components/schemas/AdminMessageScope'
+        recipientAdminUserIds:
+          type: array
+          items:
+            type: string
+        body:
+          type: string
+      required:
+      - recipientScope
+      - body
+      additionalProperties: false
+    AdminMessageCreateData:
+      type: object
+      properties:
+        message:
+          $ref: '#/components/schemas/AdminMessageRow'
+        unreadCount:
+          type: integer
+      required:
+      - message
+      - unreadCount
+      additionalProperties: false
+    AdminMessageReadData:
+      type: object
+      properties:
+        messageId:
+          type: string
+        unreadCount:
+          type: integer
+      required:
+      - messageId
+      - unreadCount
       additionalProperties: false
     AdminTokenUsageData:
       type: object

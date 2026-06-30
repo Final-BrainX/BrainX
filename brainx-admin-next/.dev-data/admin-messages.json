@@ -1,0 +1,42 @@
+{
+  "messages": [
+    {
+      "messageId": "adm_msg_1782827454622_46yt9m",
+      "senderAdminUserId": "adm_4d447d73cd4642fb92562d5dd3dc2578",
+      "senderName": "채영",
+      "recipientScope": "ALL",
+      "recipientAdminUserIds": [],
+      "body": "dd",
+      "sentAt": "2026-06-30T13:50:54.622Z",
+      "readByAdminUserIds": [
+        "adm_4d447d73cd4642fb92562d5dd3dc2578",
+        "adm_76ede01854f34dc08559f428c3a817b7"
+      ]
+    },
+    {
+      "messageId": "adm_msg_1782827458093_elax7i",
+      "senderAdminUserId": "adm_4d447d73cd4642fb92562d5dd3dc2578",
+      "senderName": "채영",
+      "recipientScope": "ALL",
+      "recipientAdminUserIds": [],
+      "body": "ddd",
+      "sentAt": "2026-06-30T13:50:58.093Z",
+      "readByAdminUserIds": [
+        "adm_4d447d73cd4642fb92562d5dd3dc2578",
+        "adm_76ede01854f34dc08559f428c3a817b7"
+      ]
+    },
+    {
+      "messageId": "adm_msg_1782827476415_fwg162",
+      "senderAdminUserId": "adm_76ede01854f34dc08559f428c3a817b7",
+      "senderName": "최고관리자",
+      "recipientScope": "ALL",
+      "recipientAdminUserIds": [],
+      "body": "ㅇㅇ",
+      "sentAt": "2026-06-30T13:51:16.415Z",
+      "readByAdminUserIds": [
+        "adm_76ede01854f34dc08559f428c3a817b7"
+      ]
+    }
+  ]
+}

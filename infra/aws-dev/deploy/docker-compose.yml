@@ -217,13 +217,18 @@ services:
       POSTGRES_PORT: ${RDS_PORT}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      ADMIN_DB_NAME: brainx_admin
+      ADMIN_DB_NAME: ${ADMIN_DB_NAME:-brainx_admin}
       JWT_SECRET: ${JWT_SECRET}
       SERVICE_TOKEN: ${SERVICE_TOKEN}
-      GATEWAY_SERVICE_URL: http://gateway-service:8088
+      GATEWAY_SERVICE_URL: ${GATEWAY_SERVICE_URL:-http://gateway-service:8088}
       SEED_ADMIN_LOGIN_ID: ${SEED_ADMIN_LOGIN_ID:-admin}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
       SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-BrainX Admin}
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
       JPA_DDL_AUTO: update
     expose:
       - "8085"
