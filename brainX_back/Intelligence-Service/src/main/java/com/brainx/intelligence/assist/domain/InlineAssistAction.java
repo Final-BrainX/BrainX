@@ -4,5 +4,6 @@ public enum InlineAssistAction {
     SUMMARIZE,
     REWRITE,
     CONTINUE,
-    TRANSLATE
+    TRANSLATE,
+    DRAFT
 }

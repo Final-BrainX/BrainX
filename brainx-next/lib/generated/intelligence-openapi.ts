@@ -369,7 +369,14 @@ export interface components {
             contextBefore?: string | null;
             contextAfter?: string | null;
             /** @enum {string} */
-            action: "SUMMARIZE" | "REWRITE" | "CONTINUE" | "TRANSLATE";
+            action: "SUMMARIZE" | "REWRITE" | "CONTINUE" | "TRANSLATE" | "DRAFT";
+            /** @description DRAFT action에서 새 초안을 생성할 주제와 요구사항. DRAFT일 때 필수다. */
+            draftPrompt?: string | null;
+            /**
+             * @description DRAFT action에서 목표로 삼을 본문 길이(문자 수). 생략 시 600자를 사용한다.
+             * @default 600
+             */
+            targetLength?: number | null;
             /** @example ko */
             language?: string;
         };

@@ -82,7 +82,9 @@ public class InlineAssistApplicationRunner implements ApplicationRunner {
             textOrEmpty(scenario.contextBefore()),
             textOrEmpty(scenario.contextAfter()),
             scenario.action(),
-            textOrDefault(scenario.language(), properties.getLanguage())
+            textOrDefault(scenario.language(), properties.getLanguage()),
+            textOrDefault(scenario.draftPrompt(), properties.getDraftPrompt()),
+            scenario.targetLength() == null ? properties.getTargetLength() : scenario.targetLength()
         ));
         return new InlineAssistCliResponse(
             scenario.id(),
@@ -102,7 +104,9 @@ public class InlineAssistApplicationRunner implements ApplicationRunner {
             properties.getSelectedText(),
             properties.getContextBefore(),
             properties.getContextAfter(),
-            properties.getLanguage()
+            properties.getLanguage(),
+            properties.getDraftPrompt(),
+            properties.getTargetLength()
         );
     }
 
@@ -133,7 +137,9 @@ public class InlineAssistApplicationRunner implements ApplicationRunner {
         String selectedText,
         String contextBefore,
         String contextAfter,
-        String language
+        String language,
+        String draftPrompt,
+        Integer targetLength
     ) {
     }
 

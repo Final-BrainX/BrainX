@@ -2375,10 +2375,25 @@ const NOTE_EDITOR_EXTENSIONS = [
   SlashCommandSuggestion,
 ];
 
+export type InlineDraftSession = {
+  contextBefore: string;
+  contextAfter: string;
+  appendDelta: (text: string) => void;
+  commit: (text: string) => void;
+  rollback: () => void;
+};
+
+type ActiveInlineDraftSession = {
+  from: number;
+  to: number;
+  active: boolean;
+};
+
 export interface NoteEditorHandle {
   focusStart: () => void;
   focusEnd: () => void;
   flushPendingSave: () => void;
+  startInlineDraftSession: () => InlineDraftSession | null;
   /** 패널 레벨(EditorPanel.tsx)의 항상-보이는 삽입 버튼이 호출한다 — 본문 안에 버튼을 두면
       노트 길이에 따라 스크롤해야 보이는 위치에 가는 버그가 있었음(고정 위치 버튼은 패널
       기준으로 둬야 함). */
@@ -2674,6 +2689,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
   const editorShellRef = useRef<HTMLDivElement>(null);
   const continueAbortRef = useRef<AbortController | null>(null);
   const continueRequestIdRef = useRef(0);
+  const inlineDraftSessionRef = useRef<ActiveInlineDraftSession | null>(null);
   const cursorAiIdleTimerRef = useRef<number | null>(null);
   const suppressInlineContinueAutoRejectRef = useRef(false);
   const lastInlineContinueDraftRef = useRef<ContinueSuggestionState | null>(null);
@@ -2805,6 +2821,65 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
     },
   });
 
+  const rollbackInlineDraftSession = useCallback((session: ActiveInlineDraftSession | null) => {
+    if (!editor || !session?.active) return;
+    session.active = false;
+    if (inlineDraftSessionRef.current === session) inlineDraftSessionRef.current = null;
+    const from = Math.min(session.from, editor.state.doc.content.size);
+    const to = Math.min(Math.max(from, session.to), editor.state.doc.content.size);
+    if (to > from) {
+      editor.chain().focus().insertContentAt({ from, to }, "").run();
+    }
+  }, [editor]);
+
+  const startInlineDraftSession = useCallback((): InlineDraftSession | null => {
+    if (!editor || mode !== "edit" || !editor.isEditable) return null;
+
+    rollbackInlineDraftSession(inlineDraftSessionRef.current);
+
+    const insertPos = Math.min(editor.state.selection.from, editor.state.doc.content.size);
+    editor.chain().focus().setTextSelection(insertPos).run();
+    const context = buildInlineAssistContext({
+      task: "editor.draft",
+      contextBefore: serializeRangeAsMarkdown(editor, {
+        from: Math.max(0, insertPos - AI_CONTEXT_AROUND_CURSOR_CHARS),
+        to: insertPos,
+      }),
+      contextAfter: serializeRangeAsMarkdown(editor, {
+        from: insertPos,
+        to: Math.min(editor.state.doc.content.size, insertPos + AI_CONTEXT_AROUND_CURSOR_CHARS),
+      }),
+    });
+    const session: ActiveInlineDraftSession = { from: insertPos, to: insertPos, active: true };
+    inlineDraftSessionRef.current = session;
+
+    return {
+      contextBefore: context.contextBefore,
+      contextAfter: context.contextAfter,
+      appendDelta: (text) => {
+        if (!editor || !session.active || inlineDraftSessionRef.current !== session || !text) return;
+        const pos = Math.min(session.to, editor.state.doc.content.size);
+        editor.view.dispatch(editor.state.tr.insertText(text, pos, pos));
+        session.to = editor.state.selection.from;
+      },
+      commit: (text) => {
+        if (!editor || !session.active || inlineDraftSessionRef.current !== session) return;
+        if (!text.trim()) {
+          rollbackInlineDraftSession(session);
+          return;
+        }
+        session.active = false;
+        inlineDraftSessionRef.current = null;
+        const from = Math.min(session.from, editor.state.doc.content.size);
+        const to = Math.min(Math.max(from, session.to), editor.state.doc.content.size);
+        insertMarkdownContent(editor, { from, to }, text);
+      },
+      rollback: () => {
+        rollbackInlineDraftSession(session);
+      },
+    };
+  }, [editor, mode, rollbackInlineDraftSession]);
+
   useImperativeHandle(ref, () => ({
     focusStart: () => {
       editor?.chain().focus("start").run();
@@ -2820,6 +2895,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       }
       onContentChange(note.id, editor.getHTML());
     },
+    startInlineDraftSession,
     insertImageFile: (file) => {
       if (!editor) return;
       insertImageBlockFromFile(editor.view, file);
@@ -2830,7 +2906,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
     insertTable: (rows, cols) => {
       editor?.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
     },
-  }), [editor, note.id, onContentChange]);
+  }), [editor, note.id, onContentChange, startInlineDraftSession]);
 
   const requestInlineContinue = useCallback(async () => {
     if (!editor) return;
@@ -2999,8 +3075,9 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
   useEffect(() => {
     return () => {
       continueAbortRef.current?.abort();
+      rollbackInlineDraftSession(inlineDraftSessionRef.current);
     };
-  }, []);
+  }, [rollbackInlineDraftSession]);
 
   useEffect(() => {
     if (!editor) return;

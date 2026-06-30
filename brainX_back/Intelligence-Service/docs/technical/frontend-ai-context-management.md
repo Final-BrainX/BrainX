@@ -89,6 +89,7 @@
 | `note.explain.selection` | 선택 텍스트 최대 `6000`자 + 앞뒤 각 `800`자 |
 | `editor.rewrite` | 선택 markdown-like 텍스트 최대 `6000`자 + 앞뒤 각 `1000`자 |
 | `editor.continue` | 커서 앞뒤 각 `1000`자 |
+| `editor.draft` | 커서 앞뒤 각 `1000`자를 문체/흐름 참고용으로 포함하고, 작성 주제와 목표 글자수는 별도 request field로 보낸다 |
 | `workspace.compose` | 사용자가 붙인 선택/노트가 있으면 포함하고, 없으면 `NONE` |
 
 길이가 초과되면 item에 `truncated: true`와 `metadata.sourceRange` 또는 `metadata.sourceRanges`를 남긴다. 이 metadata는 AI prompt 품질 분석과 디버깅용이며, 현재 backend authorization 판단에는 쓰지 않는다.
@@ -110,12 +111,13 @@
 
 ## Editor Inline Assist Flow
 
-편집기 inline AI는 public API 계약을 바꾸지 않는다. 계속 `POST /api/intelligence/ai/inline-assists`를 사용하며, request body도 기존 `selectedText`, `contextBefore`, `contextAfter`, `action`, `language` shape를 유지한다.
+편집기 inline AI는 계속 `POST /api/intelligence/ai/inline-assists`를 사용한다. 기존 `selectedText`, `contextBefore`, `contextAfter`, `action`, `language` shape에 더해, `DRAFT` action은 `draftPrompt`, `targetLength`를 보낸다.
 
 다만 payload 생성은 `buildInlineAssistContext()`를 통과한다.
 
 - `REWRITE`: ProseMirror selection을 markdown-like text로 직렬화한 뒤 선택/앞뒤 문맥 budget을 적용한다.
 - `CONTINUE`: 선택 텍스트 없이 커서 앞뒤 markdown-like 문맥만 보낸다.
+- `DRAFT`: 우측 인라인 AI 패널의 작성 요청을 현재 active editor 커서 위치로 라우팅하고, 커서 앞뒤 문맥과 `draftPrompt`, `targetLength`를 보낸다. 응답 delta는 임시 plain text로 즉시 삽입하고 완료 시 markdown HTML로 정규화한다.
 
 `inline-assists`는 chat thread를 만들지 않고, suggestion 수락/거절은 기존 `POST /api/intelligence/ai/suggestions/{suggestionId}/decision`로 기록한다.
 

@@ -54,6 +54,13 @@ DEFAULT_SCENARIOS = [
         "selectedText": "BrainX helps users connect notes while they are writing.",
         "language": "ko",
     },
+    {
+        "id": "draft",
+        "action": "DRAFT",
+        "draftPrompt": "RAG형 오토 브레인의 핵심 장점을 처음 읽는 사용자에게 설명하는 문단을 작성해줘.",
+        "targetLength": 500,
+        "contextBefore": LONG_CONTEXT,
+    },
 ]
 
 PROPERTY_ALIASES = {

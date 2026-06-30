@@ -16,6 +16,8 @@ public class InlineAssistDevProperties {
     private String contextBefore = "";
     private String contextAfter = "";
     private String language = "ko";
+    private String draftPrompt = "";
+    private Integer targetLength;
 
     public boolean isEnabled() {
         return enabled;
@@ -87,5 +89,21 @@ public class InlineAssistDevProperties {
 
     public void setLanguage(String language) {
         this.language = language == null ? "" : language;
+    }
+
+    public String getDraftPrompt() {
+        return draftPrompt;
+    }
+
+    public void setDraftPrompt(String draftPrompt) {
+        this.draftPrompt = draftPrompt == null ? "" : draftPrompt;
+    }
+
+    public Integer getTargetLength() {
+        return targetLength;
+    }
+
+    public void setTargetLength(Integer targetLength) {
+        this.targetLength = targetLength;
     }
 }

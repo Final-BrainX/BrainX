@@ -6,8 +6,17 @@ import { cx } from "@/lib/utils";
 import { Icon } from "@/components/brainx-ui";
 import { MockNote } from "@/lib/notes/noteTypes";
 import { MOCK_CONTEXT_DATA } from "@/lib/notes/mockNotes";
-import { createChatThread, sendChatMessageStream } from "@/lib/intelligence-api";
-import { buildNoteAiContext, validateAiContextSufficiency } from "@/lib/ai-context";
+import { createChatThread, createInlineAssistStream, decideAiSuggestion, sendChatMessageStream } from "@/lib/intelligence-api";
+import {
+  DEFAULT_DRAFT_TARGET_LENGTH,
+  clampDraftTargetLength,
+  routeInlineAiInput,
+  buildNoteAiContext,
+  validateAiContextSufficiency,
+  type InlineAiMode,
+  type InlineAiRoute,
+} from "@/lib/ai-context";
+import type { EditMode, InlineDraftSession, NoteEditorHandle } from "./NoteEditor";
 
 /* ── 헤딩 파싱 ─────────────────────────────────────────────────────────────
    note.content는 두 가지 형태일 수 있다 — 한 번도 편집 안 한 시드 노트는 원문 마크다운
@@ -359,11 +368,23 @@ interface Props {
   onCollapse: () => void;
   pendingAiRequest?: PendingAiRequest | null;
   onAiRequestHandled?: () => void;
+  activeEditor?: NoteEditorHandle | null;
+  activeEditorMode?: EditMode;
 }
 
-export default function RightSidebar({ activeNote, allNotes, onCollapse, pendingAiRequest, onAiRequestHandled }: Props) {
+export default function RightSidebar({
+  activeNote,
+  allNotes,
+  onCollapse,
+  pendingAiRequest,
+  onAiRequestHandled,
+  activeEditor,
+  activeEditorMode = "edit",
+}: Props) {
   const [activeTocId, setActiveTocId] = useState<string | null>(null);
   const [aiInput, setAiInput] = useState("");
+  const [inlineAiMode, setInlineAiMode] = useState<InlineAiMode>("ask");
+  const [draftTargetLength, setDraftTargetLength] = useState(DEFAULT_DRAFT_TARGET_LENGTH);
   const [aiMessages, setAiMessages] = useState<Array<{ role: "ai" | "user"; text: string; streaming?: boolean }>>([
     { role: "ai", text: "이 노트에 대해 무엇이든 물어보세요. 관련 노트도 함께 찾아드려요." },
   ]);
@@ -380,17 +401,28 @@ export default function RightSidebar({ activeNote, allNotes, onCollapse, pending
   const chatEndRef = useRef<HTMLDivElement>(null);
   const aiRequestAbortRef = useRef<AbortController | null>(null);
   const aiMockTimerRef = useRef<number | null>(null);
+  const activeDraftSessionRef = useRef<InlineDraftSession | null>(null);
   const chatThreadIdsRef = useRef<Record<string, string>>({});
 
   const toc = useMemo(() => (activeNote ? parseHeadings(activeNote.content) : []), [activeNote]);
   const ctx = (activeNote && MOCK_CONTEXT_DATA[activeNote.id]) || { backlinks: [], connections: [], aiSuggestions: [] };
 
+  const cancelActiveAiRequest = useCallback(() => {
+    aiRequestAbortRef.current?.abort();
+    aiRequestAbortRef.current = null;
+    activeDraftSessionRef.current?.rollback();
+    activeDraftSessionRef.current = null;
+    if (aiMockTimerRef.current !== null) {
+      window.clearInterval(aiMockTimerRef.current);
+      aiMockTimerRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     return () => {
-      aiRequestAbortRef.current?.abort();
-      if (aiMockTimerRef.current !== null) window.clearInterval(aiMockTimerRef.current);
+      cancelActiveAiRequest();
     };
-  }, []);
+  }, [cancelActiveAiRequest]);
 
   useEffect(() => {
     const element = sidebarRef.current;
@@ -461,21 +493,92 @@ export default function RightSidebar({ activeNote, allNotes, onCollapse, pending
     return created.threadId;
   };
 
+  const sendDraftToEditor = async (note: MockNote, route: Extract<InlineAiRoute, { kind: "draft" }>) => {
+    if (!activeEditor || activeEditorMode !== "edit") {
+      updateLatestAiMessage("편집 가능한 노트를 열어 주세요.", false);
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
+    const draftSession = activeEditor.startInlineDraftSession();
+    if (!draftSession) {
+      updateLatestAiMessage("편집 가능한 노트를 열어 주세요.", false);
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
+
+    const controller = new AbortController();
+    aiRequestAbortRef.current = controller;
+    activeDraftSessionRef.current = draftSession;
+    let streamedText = "";
+    updateLatestAiMessage("편집기에 초안을 작성 중입니다.", true);
+
+    try {
+      const done = await createInlineAssistStream(
+        {
+          noteId: note.id,
+          selectedText: "",
+          contextBefore: draftSession.contextBefore,
+          contextAfter: draftSession.contextAfter,
+          action: "DRAFT",
+          draftPrompt: route.prompt,
+          targetLength: route.targetLength,
+          language: "ko",
+        },
+        {
+          signal: controller.signal,
+          onDelta: (delta) => {
+            streamedText += delta;
+            draftSession.appendDelta(delta);
+          },
+        }
+      );
+      if (aiRequestAbortRef.current === controller) aiRequestAbortRef.current = null;
+      if (activeDraftSessionRef.current === draftSession) activeDraftSessionRef.current = null;
+      if (!done) throw new Error("AI 작성 완료 이벤트를 받지 못했습니다.");
+      if (!streamedText.trim()) {
+        draftSession.rollback();
+        decideAiSuggestion(done.suggestionId, { decision: "REJECTED" }).catch((error) => {
+          console.warn("Failed to record rejected AI draft suggestion.", error);
+        });
+        updateLatestAiMessage("작성 결과가 비어 있습니다.", false);
+        return;
+      }
+
+      draftSession.commit(streamedText);
+      updateLatestAiMessage(`${route.targetLength}자 기준 초안을 편집기에 삽입했습니다.`, false);
+      decideAiSuggestion(done.suggestionId, { decision: "ACCEPTED" }).catch((error) => {
+        console.warn("Failed to record accepted AI draft suggestion.", error);
+      });
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      if (aiRequestAbortRef.current === controller) aiRequestAbortRef.current = null;
+      if (activeDraftSessionRef.current === draftSession) activeDraftSessionRef.current = null;
+      draftSession.rollback();
+      const message = error instanceof Error ? error.message : "AI 작성 요청에 실패했습니다.";
+      updateLatestAiMessage(message, false);
+    }
+  };
+
   const sendAi = async () => {
     if (!activeNote || !aiInput.trim()) return;
     const note = activeNote;
     const prompt = aiInput.trim();
+    const route = routeInlineAiInput(prompt, {
+      mode: inlineAiMode,
+      targetLength: draftTargetLength,
+    });
 
-    aiRequestAbortRef.current?.abort();
-    aiRequestAbortRef.current = null;
-    if (aiMockTimerRef.current !== null) {
-      window.clearInterval(aiMockTimerRef.current);
-      aiMockTimerRef.current = null;
-    }
+    cancelActiveAiRequest();
 
     setAiMessages((m) => [...m, { role: "user", text: prompt }]);
     setAiInput("");
     setAiMessages((m) => [...m, { role: "ai", text: "", streaming: true }]);
+
+    if (route.kind === "draft") {
+      await sendDraftToEditor(note, route);
+      return;
+    }
 
     const clientContext = buildNoteAiContext({
       task: "note.ask",
@@ -536,12 +639,7 @@ export default function RightSidebar({ activeNote, allNotes, onCollapse, pending
     const preview = selectedText ? (selectedText.length > 60 ? `${selectedText.slice(0, 60)}…` : selectedText) : "(선택된 텍스트 없음)";
     const label = type === "summarize" ? "선택한 텍스트 요약 요청" : "선택한 텍스트 다시쓰기 요청";
 
-    aiRequestAbortRef.current?.abort();
-    aiRequestAbortRef.current = null;
-    if (aiMockTimerRef.current !== null) {
-      window.clearInterval(aiMockTimerRef.current);
-      aiMockTimerRef.current = null;
-    }
+    cancelActiveAiRequest();
 
     setChatOpen(true);
     setAiMessages((m) => [...m, { role: "user", text: `${label}: "${preview}"` }]);
@@ -852,23 +950,63 @@ export default function RightSidebar({ activeNote, allNotes, onCollapse, pending
             </div>
 
             {/* 입력창 */}
-            <div className="flex items-center gap-2 border-t border-line/40 p-2.5">
-              <input
-                value={aiInput}
-                onChange={(e) => setAiInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") sendAi(); }}
-                placeholder={`${activeNote.title.length > 10 ? activeNote.title.slice(0, 10) + "…" : activeNote.title}에 질문…`}
-                className="h-8 flex-1 rounded-lg border border-line/70 px-2.5 text-[12px] text-txt outline-none placeholder:text-txt3 transition-colors focus:border-primary/50"
-                style={{ background: "rgb(var(--bg2))" }}
-              />
-              <button
-                type="button"
-                onClick={sendAi}
-                className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white transition-all hover:brightness-110 active:scale-95"
-                style={{ background: "rgb(var(--primary))" }}
-              >
-                <Icon name="send" size={14} />
-              </button>
+            <div className="border-t border-line/40 p-2.5">
+              <div className="mb-2 flex items-center gap-2">
+                <div className="grid h-7 grid-cols-2 rounded-lg border border-line/60 bg-surface2/40 p-0.5">
+                  {(["ask", "draft"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setInlineAiMode(mode)}
+                      className={cx(
+                        "min-w-12 rounded-md px-2 text-[11px] font-medium transition-colors",
+                        inlineAiMode === mode
+                          ? "bg-primary text-white"
+                          : "text-txt3 hover:bg-surface2/70 hover:text-txt"
+                      )}
+                    >
+                      {mode === "ask" ? "질문" : "작성"}
+                    </button>
+                  ))}
+                </div>
+                {inlineAiMode === "draft" ? (
+                  <label className="flex min-w-0 items-center gap-1.5 text-[11px] text-txt3">
+                    <span className="shrink-0">길이</span>
+                    <input
+                      type="number"
+                      min={100}
+                      max={3000}
+                      step={50}
+                      value={draftTargetLength}
+                      onChange={(event) => setDraftTargetLength(Number(event.target.value))}
+                      onBlur={() => setDraftTargetLength((value) => clampDraftTargetLength(value))}
+                      className="h-7 w-20 rounded-md border border-line/60 bg-bg2 px-2 text-right text-[11px] text-txt outline-none focus:border-primary/50"
+                    />
+                  </label>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  value={aiInput}
+                  onChange={(e) => setAiInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") sendAi(); }}
+                  placeholder={
+                    inlineAiMode === "draft"
+                      ? "주제와 원하는 형식 입력…"
+                      : `${activeNote.title.length > 10 ? activeNote.title.slice(0, 10) + "…" : activeNote.title}에 질문…`
+                  }
+                  className="h-8 flex-1 rounded-lg border border-line/70 px-2.5 text-[12px] text-txt outline-none placeholder:text-txt3 transition-colors focus:border-primary/50"
+                  style={{ background: "rgb(var(--bg2))" }}
+                />
+                <button
+                  type="button"
+                  onClick={sendAi}
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white transition-all hover:brightness-110 active:scale-95"
+                  style={{ background: "rgb(var(--primary))" }}
+                >
+                  <Icon name="send" size={14} />
+                </button>
+              </div>
             </div>
           </div>
         )}

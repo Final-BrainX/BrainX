@@ -37,6 +37,7 @@ interface Props {
   onTabClose: (tabId: string) => void;
   onNewTab: () => void;
   onAiAction: (type: AiActionType, text: string) => void;
+  onEditorHandleChange?: (paneId: string, tabId: string, handle: NoteEditorHandle | null) => void;
   onCreateNoteInTab: () => void;
   onOpenQuickSwitcher: () => void;
   quickSwitcherOpen: boolean;
@@ -80,6 +81,7 @@ export default function EditorPanel({
   onTabClose,
   onNewTab,
   onAiAction,
+  onEditorHandleChange,
   onCreateNoteInTab,
   onOpenQuickSwitcher,
   quickSwitcherOpen,
@@ -103,7 +105,7 @@ export default function EditorPanel({
 }: Props) {
   const [hoverZone, setHoverZone] = useState<DropZone | "replace" | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
-  const editorRef = useRef<NoteEditorHandle>(null);
+  const editorRef = useRef<NoteEditorHandle | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   /* mousedown이 실제로 시작된 가장 안쪽 DOM 노드를 기록 — 제목 input 등에서 드래그(텍스트
      선택)를 시작해 마우스를 그 바깥(빈 패딩 영역)으로 빼고 거기서 떼면, 브라우저가 click
@@ -113,6 +115,19 @@ export default function EditorPanel({
      버블링되므로, 이 ref와 클릭 타겟을 함께 검사하면 "정말로 빈 배경에서 시작하고 끝난
      클릭"만 통과시킬 수 있다. */
   const mouseDownTargetRef = useRef<EventTarget | null>(null);
+
+  const setNoteEditorRef = useCallback((handle: NoteEditorHandle | null) => {
+    editorRef.current = handle;
+    if (onEditorHandleChange && activeTab.kind === "note" && note && isActive) {
+      onEditorHandleChange(node.id, activeTabId, handle);
+    }
+  }, [activeTab.kind, activeTabId, isActive, node.id, note?.id, onEditorHandleChange]);
+
+  useEffect(() => {
+    if (!onEditorHandleChange || activeTab.kind !== "note" || !note || !isActive) return;
+    onEditorHandleChange(node.id, activeTabId, editorRef.current);
+    return () => onEditorHandleChange(node.id, activeTabId, null);
+  }, [activeTab.kind, activeTabId, isActive, mode, node.id, note?.id, onEditorHandleChange]);
 
   /* titleDragGuard 해제 안전망 — 제목 input 자신의 onMouseUp은 stopPropagation 되어 있어
      (아래 input 참고) 드래그가 input 경계를 벗어나 다른 곳에서 끝나도 가드를 반드시 꺼야
@@ -432,7 +447,7 @@ export default function EditorPanel({
             )}
 
             <NoteEditor
-              ref={editorRef}
+              ref={setNoteEditorRef}
               note={note}
               mode={mode}
               onActivate={onActivate}

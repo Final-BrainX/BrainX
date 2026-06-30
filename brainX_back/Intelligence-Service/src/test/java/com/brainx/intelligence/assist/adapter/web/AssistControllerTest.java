@@ -87,6 +87,49 @@ class AssistControllerTest {
     }
 
     @Test
+    void createInlineAssistMapsDraftRequestFields() throws Exception {
+        when(createInlineAssistUseCase.createInlineAssist(any(InlineAssistCommand.class)))
+            .thenReturn(new InlineAssistResult(
+                "suggestion-draft",
+                InlineAssistAction.DRAFT,
+                "gpt-test",
+                "drafted"
+            ));
+
+        mockMvc.perform(post("/api/v1/ai/inline-assists")
+                .with(user("user-1"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "noteId": "note-1",
+                      "contextBefore": "before",
+                      "contextAfter": "after",
+                      "action": "DRAFT",
+                      "draftPrompt": "RAG를 소개하는 문단을 작성해줘",
+                      "targetLength": 500,
+                      "language": "ko"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
+            .andExpect(content().string(containsString("data: {\"text\":\"drafted\"}")))
+            .andExpect(content().string(containsString(
+                "data: {\"suggestionId\":\"suggestion-draft\",\"action\":\"DRAFT\",\"modelId\":\"gpt-test\"}"
+            )));
+
+        verify(createInlineAssistUseCase).createInlineAssist(argThat(command ->
+            command.userId().equals("user-1")
+                && command.noteId().equals("note-1")
+                && command.contextBefore().equals("before")
+                && command.contextAfter().equals("after")
+                && command.action() == InlineAssistAction.DRAFT
+                && command.draftPrompt().equals("RAG를 소개하는 문단을 작성해줘")
+                && command.targetLength().equals(500)
+                && command.language().equals("ko")
+        ));
+    }
+
+    @Test
     void decideAiSuggestionReturnsWrappedDecisionData() throws Exception {
         when(decideAiSuggestionUseCase.decideAiSuggestion(any(AiSuggestionDecisionCommand.class)))
             .thenReturn(new AiSuggestionDecisionResult("suggestion-1", AiSuggestionDecision.REJECTED));

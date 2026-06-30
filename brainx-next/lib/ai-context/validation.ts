@@ -41,6 +41,7 @@ export function validateAiContextSufficiency(
         "설명할 선택 영역이 너무 짧습니다. 최소 한 문장 이상 선택한 뒤 다시 시도해 주세요."
       );
     case "workspace.compose":
+    case "editor.draft":
       return { ok: true };
   }
 }

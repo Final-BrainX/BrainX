@@ -13788,6 +13788,18 @@ components:
           - REWRITE
           - CONTINUE
           - TRANSLATE
+          - DRAFT
+        draftPrompt:
+          type: string
+          nullable: true
+          description: DRAFT action에서 새 초안을 생성할 주제와 요구사항. DRAFT일 때 필수다.
+        targetLength:
+          type: integer
+          nullable: true
+          minimum: 100
+          maximum: 3000
+          default: 600
+          description: DRAFT action에서 목표로 삼을 본문 길이(문자 수). 생략 시 600자를 사용한다.
         language:
           type: string
           example: ko

@@ -5,7 +5,7 @@ import { WikiLinkContext, resolveWikiLinkTitle, type WikiLinkContextValue } from
 import { AlertCircle, Check, ChevronLeft, Download, LoaderCircle, MoreHorizontal, PanelRightClose, PanelRight, RotateCcw, Save, Upload } from "lucide-react";
 import { cx } from "@/lib/utils";
 import { MockFolder, MockNote, PaneNode, PaneTabsState, Tab, NotesWorkspaceSession, DragPayload } from "@/lib/notes/noteTypes";
-import type { EditMode, AiActionType } from "./NoteEditor";
+import type { EditMode, AiActionType, NoteEditorHandle } from "./NoteEditor";
 import { MOCK_NOTES, MOCK_FOLDERS } from "@/lib/notes/mockNotes";
 import {
   USE_MOCK_NOTES,
@@ -458,6 +458,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isInitialWorkspaceLoading, setIsInitialWorkspaceLoading] = useState(!USE_MOCK_NOTES);
   const aiNonceRef = useRef(0);
+  const editorHandlesRef = useRef<Record<string, NoteEditorHandle>>({});
+  const [editorHandleRevision, setEditorHandleRevision] = useState(0);
   const hydratedRef = useRef(false);
   const initialServerLoadDoneRef = useRef(USE_MOCK_NOTES);
   const prevActiveNoteIdRef = useRef<string | null>(null);
@@ -504,6 +506,12 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const activeTab = activeTabsState?.tabs.find((t) => t.id === activeTabsState.activeTabId) ?? null;
   const activeNoteId = activeTab?.kind === "note" ? activeTab.noteId : null;
   const activeNote = activeNoteId ? notes.find((n) => n.id === activeNoteId) ?? null : null;
+  const activeEditorKey = activeTabsState?.activeTabId ? `${state.activeId}:${activeTabsState.activeTabId}` : "";
+  const activeEditorHandle = useMemo(
+    () => (activeEditorKey ? editorHandlesRef.current[activeEditorKey] ?? null : null),
+    [activeEditorKey, editorHandleRevision]
+  );
+  const activeEditorMode = activeTabsState?.activeTabId ? tabMode[activeTabsState.activeTabId] ?? "edit" : "edit";
 
   /* ── 핸들러 ────────────────────────────────────────── */
 
@@ -1221,11 +1229,23 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setAiRequest({ type, text, nonce: aiNonceRef.current });
   }, []);
 
+  const handleEditorHandleChange = useCallback((paneId: string, tabId: string, handle: NoteEditorHandle | null) => {
+    const key = `${paneId}:${tabId}`;
+    if (handle) {
+      editorHandlesRef.current[key] = handle;
+    } else {
+      delete editorHandlesRef.current[key];
+    }
+    setEditorHandleRevision((current) => current + 1);
+  }, []);
+
   const handleReset = useCallback(() => {
     const fresh = createInitialPaneState(initialTab);
     setState({ root: fresh.root, activeId: fresh.activeId });
     setPaneTabs(fresh.paneTabs);
     setTabMode({});
+    editorHandlesRef.current = {};
+    setEditorHandleRevision((current) => current + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1723,6 +1743,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       onTabClose={handleTabClose}
       onNewTab={handleNewTab}
       onAiAction={handleAiAction}
+      onEditorHandleChange={handleEditorHandleChange}
       onCreateNoteInTab={(paneId) => requestNewNote(paneId)}
       onOpenQuickSwitcher={(paneId, tabId) => requestQuickSwitcher(paneId, tabId)}
       onQuickSwitcherSelect={handleQuickSwitcherSelect}
@@ -1971,6 +1992,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
                     onCollapse={() => setContextOpen(false)}
                     pendingAiRequest={aiRequest}
                     onAiRequestHandled={() => setAiRequest(null)}
+                    activeEditor={activeEditorHandle}
+                    activeEditorMode={activeEditorMode}
                   />
                 </div>
               </>

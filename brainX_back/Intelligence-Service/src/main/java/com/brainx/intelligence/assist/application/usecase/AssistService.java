@@ -37,6 +37,9 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
     private static final int MIN_SUMMARIZE_CONTEXT_CHARS = 80;
     private static final int MIN_CONTINUE_BEFORE_CHARS = 120;
     private static final int MIN_REWRITE_SELECTED_CHARS = 10;
+    private static final int DEFAULT_DRAFT_TARGET_LENGTH = 600;
+    private static final int MIN_DRAFT_TARGET_LENGTH = 100;
+    private static final int MAX_DRAFT_TARGET_LENGTH = 3000;
 
     private final AssistProperties properties;
     private final AiModelSettingsPort aiModelSettingsPort;
@@ -73,11 +76,13 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
         String contextBefore = normalize(command.contextBefore());
         String contextAfter = normalize(command.contextAfter());
         String language = StringUtils.hasText(command.language()) ? command.language().trim() : DEFAULT_LANGUAGE;
-        validateInput(action, selectedText, contextBefore, contextAfter);
+        String draftPrompt = normalize(command.draftPrompt());
+        int targetLength = normalizeTargetLength(command.targetLength());
+        validateInput(action, selectedText, contextBefore, contextAfter, draftPrompt);
 
         String modelId = resolveModelId(userId);
         String systemPrompt = systemPrompt();
-        String userPrompt = userPrompt(action, language, selectedText, contextBefore, contextAfter);
+        String userPrompt = userPrompt(action, language, selectedText, contextBefore, contextAfter, draftPrompt, targetLength);
         int tokenEstimate = estimateTokens(systemPrompt + "\n" + userPrompt);
         var entitlement = entitlementPort.checkEntitlement(new EntitlementRequest(
             userId,
@@ -183,6 +188,7 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
             You are BrainX inline writing assistant.
             Follow the action-specific output scope in the user message.
             For REWRITE and TRANSLATE, Before and After are immutable reference context only; return only a replacement for Selected.
+            For DRAFT, Before and After are style and flow reference only; write a new draft that satisfies the user's draft prompt.
             Never include, paraphrase, move, summarize, or rewrite Before/After in a REWRITE or TRANSLATE output.
             Return only the final text to insert or replace.
             Preserve meaningful Markdown syntax from Selected, including headings, lists, links, emphasis, inline code, and code blocks.
@@ -195,11 +201,16 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
         String language,
         String selectedText,
         String contextBefore,
-        String contextAfter
+        String contextAfter,
+        String draftPrompt,
+        int targetLength
     ) {
         return """
             Action: %s
             Language: %s
+            Draft Prompt:
+            %s
+            Target Length: about %d characters
 
             Context Before (reference only; do not rewrite or include in REWRITE/TRANSLATE output):
             %s
@@ -215,9 +226,12 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
             - If Action is TRANSLATE, return only the translation of Selected.
             - If Action is CONTINUE, return only the newly continued text.
             - If Action is SUMMARIZE, return only the summary.
+            - If Action is DRAFT, write only a new draft near Target Length that satisfies Draft Prompt. Use Before/After only to match tone and flow, and do not repeat them.
             """.formatted(
             action.name(),
             language,
+            blankToMarker(draftPrompt),
+            targetLength,
             blankToMarker(contextBefore),
             blankToMarker(selectedText),
             blankToMarker(contextAfter)
@@ -228,7 +242,8 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
         InlineAssistAction action,
         String selectedText,
         String contextBefore,
-        String contextAfter
+        String contextAfter,
+        String draftPrompt
     ) {
         switch (action) {
             case REWRITE, TRANSLATE -> {
@@ -247,7 +262,19 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
                     throw new IllegalArgumentException("요약에 필요한 노트 내용이 너무 짧습니다. 더 긴 본문이나 선택 영역을 제공해 주세요.");
                 }
             }
+            case DRAFT -> {
+                if (!StringUtils.hasText(draftPrompt)) {
+                    throw new IllegalArgumentException("작성할 주제나 요구사항을 입력해 주세요.");
+                }
+            }
         }
+    }
+
+    private static int normalizeTargetLength(Integer targetLength) {
+        if (targetLength == null) {
+            return DEFAULT_DRAFT_TARGET_LENGTH;
+        }
+        return Math.max(MIN_DRAFT_TARGET_LENGTH, Math.min(MAX_DRAFT_TARGET_LENGTH, targetLength));
     }
 
     private static int charCount(String value) {

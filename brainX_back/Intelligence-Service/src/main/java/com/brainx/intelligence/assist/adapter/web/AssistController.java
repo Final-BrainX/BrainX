@@ -59,7 +59,9 @@ public class AssistController {
             request.contextBefore(),
             request.contextAfter(),
             request.action(),
-            request.language()
+            request.language(),
+            request.draftPrompt(),
+            request.targetLength()
         ));
 
         return ResponseEntity.ok()
@@ -127,6 +129,8 @@ public class AssistController {
         String contextBefore,
         String contextAfter,
         @NotNull InlineAssistAction action,
+        String draftPrompt,
+        Integer targetLength,
         String language
     ) {
     }

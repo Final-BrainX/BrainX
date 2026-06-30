@@ -7,6 +7,7 @@ export type AiTaskType =
   | "note.explain.selection"
   | "editor.rewrite"
   | "editor.continue"
+  | "editor.draft"
   | "workspace.compose";
 
 export type AiSurface = "RIGHT_SIDEBAR" | "EDITOR_INLINE" | "WORKSPACE_CHAT";

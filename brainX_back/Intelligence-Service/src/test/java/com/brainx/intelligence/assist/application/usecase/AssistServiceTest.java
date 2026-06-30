@@ -269,6 +269,90 @@ class AssistServiceTest {
     }
 
     @Test
+    void draftUsesPromptDefaultTargetLengthAndRecordsUsageAndCreatedEvent() {
+        var result = service.createInlineAssist(new InlineAssistCommand(
+            "user-1",
+            "note-1",
+            null,
+            LONG_CONTEXT_BEFORE,
+            LONG_CONTEXT_AFTER,
+            InlineAssistAction.DRAFT,
+            "ko",
+            "RAG 개념을 처음 접하는 독자를 위해 설명 문단을 작성해줘",
+            null
+        ));
+
+        assertThat(result.action()).isEqualTo(InlineAssistAction.DRAFT);
+        assertThat(result.text()).isEqualTo("generated text");
+        assertThat(chatPort.lastRequest.messages().get(1).content())
+            .contains("Action: DRAFT")
+            .contains("Draft Prompt:\nRAG 개념을 처음 접하는 독자를 위해 설명 문단을 작성해줘")
+            .contains("Target Length: about 600 characters")
+            .contains("If Action is DRAFT, write only a new draft near Target Length")
+            .contains("do not repeat them");
+        assertThat(entitlementPort.lastRequest.capability()).isEqualTo("INLINE_ASSIST");
+        assertThat(tokenUsagePort.records).hasSize(1);
+        assertThat(tokenUsagePort.records.getFirst().featureId()).isEqualTo("inline-assist-chat");
+        assertThat(tokenUsagePort.records.getFirst().causationId()).isEqualTo(result.suggestionId());
+        assertThat(assistEventPort.createdEvents).hasSize(1);
+        assertThat(assistEventPort.createdEvents.getFirst().noteId()).isEqualTo("note-1");
+    }
+
+    @Test
+    void draftTargetLengthIsClampedToAllowedRange() {
+        service.createInlineAssist(new InlineAssistCommand(
+            "user-1",
+            "note-1",
+            null,
+            null,
+            null,
+            InlineAssistAction.DRAFT,
+            null,
+            "짧은 초안 작성",
+            50
+        ));
+
+        assertThat(chatPort.lastRequest.messages().get(1).content())
+            .contains("Target Length: about 100 characters");
+
+        service.createInlineAssist(new InlineAssistCommand(
+            "user-1",
+            "note-1",
+            null,
+            null,
+            null,
+            InlineAssistAction.DRAFT,
+            null,
+            "긴 초안 작성",
+            5000
+        ));
+
+        assertThat(chatPort.lastRequest.messages().get(1).content())
+            .contains("Target Length: about 3000 characters");
+    }
+
+    @Test
+    void draftRequiresPrompt() {
+        assertThatThrownBy(() -> service.createInlineAssist(new InlineAssistCommand(
+            "user-1",
+            "note-1",
+            null,
+            LONG_CONTEXT_BEFORE,
+            LONG_CONTEXT_AFTER,
+            InlineAssistAction.DRAFT,
+            null,
+            " ",
+            600
+        )))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("작성할 주제나 요구사항을 입력해 주세요");
+
+        assertThat(chatPort.calls).isZero();
+        assertThat(assistEventPort.createdEvents).isEmpty();
+        assertThat(tokenUsagePort.records).isEmpty();
+    }
+
+    @Test
     void entitlementDeniedStopsBeforeAiUsageAndEvents() {
         entitlementPort.allowed = false;
         entitlementPort.reasonCode = "QUOTA_EXHAUSTED";

@@ -32,7 +32,7 @@ type BuildNoteAiContextInput = {
 };
 
 type BuildInlineAssistContextInput = {
-  task: Extract<AiTaskType, "editor.rewrite" | "editor.continue">;
+  task: Extract<AiTaskType, "editor.rewrite" | "editor.continue" | "editor.draft">;
   selectedText?: string;
   contextBefore?: string;
   contextAfter?: string;

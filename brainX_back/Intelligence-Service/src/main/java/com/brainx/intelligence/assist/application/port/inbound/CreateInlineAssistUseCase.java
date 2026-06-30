@@ -13,8 +13,21 @@ public interface CreateInlineAssistUseCase {
         String contextBefore,
         String contextAfter,
         InlineAssistAction action,
-        String language
+        String language,
+        String draftPrompt,
+        Integer targetLength
     ) {
+        public InlineAssistCommand(
+            String userId,
+            String noteId,
+            String selectedText,
+            String contextBefore,
+            String contextAfter,
+            InlineAssistAction action,
+            String language
+        ) {
+            this(userId, noteId, selectedText, contextBefore, contextAfter, action, language, null, null);
+        }
     }
 
     record InlineAssistResult(
