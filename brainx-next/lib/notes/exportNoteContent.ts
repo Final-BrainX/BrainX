@@ -205,6 +205,49 @@ async function inlineImagesAsDataUrls(container: HTMLElement) {
   );
 }
 
+/** markdownToHtml이 헤딩을 `<h2>## 제목</h2>` 형태로 생성한다(에디터 라이브 프리뷰 방식과
+    동일하게 기호를 텍스트에 포함시킴). 에디터는 CSS로 이 기호를 스타일링하지만 PDF 컨테이너에는
+    그 CSS가 없어서 `## 제목`이 그대로 찍힌다 — 여기서 헤딩 기호를 제거한다. */
+function stripMarkdownHeadingPrefixes(container: HTMLElement) {
+  for (let i = 1; i <= 6; i++) {
+    const prefix = "#".repeat(i) + " ";
+    container.querySelectorAll(`h${i}`).forEach((heading) => {
+      const firstText = heading.firstChild;
+      if (firstText?.nodeType === Node.TEXT_NODE && firstText.textContent?.startsWith(prefix)) {
+        firstText.textContent = firstText.textContent.slice(prefix.length);
+      }
+    });
+  }
+}
+
+/** PDF 컨테이너는 에디터 CSS 없이 독립 렌더링되므로 헤딩·리스트·인라인 서식 등의
+    기본 스타일을 직접 주입한다. */
+function injectPdfBaseStyles(container: HTMLElement) {
+  const style = document.createElement("style");
+  style.textContent = `
+    * { box-sizing: border-box; }
+    h1 { font-size: 2em; font-weight: 700; margin: 0.6em 0 0.3em; }
+    h2 { font-size: 1.5em; font-weight: 700; margin: 0.6em 0 0.3em; }
+    h3 { font-size: 1.17em; font-weight: 700; margin: 0.6em 0 0.3em; }
+    h4, h5, h6 { font-weight: 700; margin: 0.5em 0 0.2em; }
+    p { margin: 0.4em 0; }
+    ul { list-style-type: disc; padding-left: 1.5em; margin: 0.4em 0; }
+    ol { list-style-type: decimal; padding-left: 1.5em; margin: 0.4em 0; }
+    li p { margin: 0; }
+    strong, b { font-weight: 700; }
+    em, i { font-style: italic; }
+    hr { border: none; border-top: 2px solid #e0e0e0; margin: 1em 0; }
+    blockquote { border-left: 4px solid #d0d0d0; padding-left: 1em; color: #555; margin: 0.5em 0; }
+    code { background: #f0f0f0; border-radius: 3px; padding: 0.1em 0.3em; font-family: monospace; font-size: 0.9em; }
+    pre { background: #f0f0f0; border-radius: 5px; padding: 1em; margin: 0.5em 0; }
+    pre code { background: none; padding: 0; }
+    table { border-collapse: collapse; width: 100%; margin: 0.5em 0; }
+    th, td { border: 1px solid #ccc; padding: 0.4em 0.8em; text-align: left; }
+    th { background: #f5f5f5; font-weight: 700; }
+  `;
+  container.prepend(style);
+}
+
 /** 컨테이너 안의 모든 이미지가 로드(또는 실패)될 때까지 기다린다. html2canvas는 호출 시점의
     레이아웃을 그대로 캡처하므로, 이미지가 아직 네트워크에서 받아오는 중이면 0높이/빈 칸으로
     찍혀서 위쪽에 빈 공간만 남는 버그가 있었다. data URL로 바꾼 뒤에도 디코딩에 실패하는
@@ -261,6 +304,8 @@ export async function downloadPdfFile(title: string, html: string, fileName: str
   container.innerHTML = `<h1 style="margin:0 0 20px;font-size:24px;">${title}</h1>${html}`;
   resolveAssetImagePlaceholders(container);
   applyColumnLayoutStyles(container);
+  stripMarkdownHeadingPrefixes(container);
+  injectPdfBaseStyles(container);
   container.querySelectorAll("img").forEach((img) => {
     (img as HTMLImageElement).style.maxWidth = "100%";
   });
