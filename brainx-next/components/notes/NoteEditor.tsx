@@ -2393,6 +2393,7 @@ export interface NoteEditorHandle {
   focusStart: () => void;
   focusEnd: () => void;
   flushPendingSave: () => void;
+  getHTML: () => string;
   startInlineDraftSession: () => InlineDraftSession | null;
   /** 패널 레벨(EditorPanel.tsx)의 항상-보이는 삽입 버튼이 호출한다 — 본문 안에 버튼을 두면
       노트 길이에 따라 스크롤해야 보이는 위치에 가는 버그가 있었음(고정 위치 버튼은 패널
@@ -2909,6 +2910,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       }
       onContentChange(note.id, editor.getHTML());
     },
+    getHTML: () => editor?.getHTML() ?? "",
     startInlineDraftSession,
     insertImageFile: (file) => {
       if (!editor) return;

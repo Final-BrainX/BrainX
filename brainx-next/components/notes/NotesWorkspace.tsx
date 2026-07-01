@@ -1683,12 +1683,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     try {
       exportNote(activeNote.id, format).catch(() => {});
       const fileName = safeFileName(activeNote.title);
+      // 에디터가 렌더링한 HTML을 우선 사용한다. 노션에서 가져온 노트처럼 content가
+      // 마크다운으로 저장된 경우, 에디터는 이미 HTML로 변환해 표시하고 있으므로
+      // getHTML()이 정확한 렌더링 결과를 반환한다.
+      const html = activeEditorHandle?.getHTML() || activeNote.content;
       if (format === "TXT") {
-        downloadTextFile(`${fileName}.txt`, htmlToPlainText(activeNote.content), "text/plain;charset=utf-8");
+        downloadTextFile(`${fileName}.txt`, htmlToPlainText(html), "text/plain;charset=utf-8");
       } else if (format === "MD") {
-        downloadTextFile(`${fileName}.md`, htmlToMarkdown(activeNote.content), "text/markdown;charset=utf-8");
+        downloadTextFile(`${fileName}.md`, htmlToMarkdown(html), "text/markdown;charset=utf-8");
       } else {
-        await downloadPdfFile(activeNote.title, activeNote.content, `${fileName}.pdf`);
+        await downloadPdfFile(activeNote.title, html, `${fileName}.pdf`);
       }
       pushToast(`${format} 내보내기를 시작했어요`, "ok");
     } catch (error) {
@@ -1698,7 +1702,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       setMoreMenuOpen(false);
       setExportSubmenuOpen(false);
     }
-  }, [activeNote, pushToast]);
+  }, [activeNote, activeEditorHandle, pushToast]);
 
   /* ── 키보드 단축키 (Ctrl/Cmd+N 새 파일, Ctrl/Cmd+O 파일로 이동, Ctrl/Cmd+S 저장) ── */
   useEffect(() => {
