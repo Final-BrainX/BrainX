@@ -31,6 +31,7 @@ import com.brainx.intelligence.settings.domain.VendorTokenCost;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
 
 import reactor.core.publisher.Flux;
@@ -327,6 +328,7 @@ class SampleRagServiceTest {
         if (usageRecorder != null) {
             beanFactory.registerSingleton("sampleRagTokenUsageRecorder", usageRecorder);
         }
+        AiTokenUsageCostEstimator usageCostEstimator = new AiTokenUsageCostEstimator(new FakeAiModelCatalog());
         return new SampleRagService(
             properties,
             new SampleNoteLoader(),
@@ -335,8 +337,8 @@ class SampleRagServiceTest {
             searchIndex,
             chunkRetrieval,
             beanFactory.getBeanProvider(AiChatPort.class),
-            tokenUsagePort,
-            new AiTokenUsageCostEstimator(new FakeAiModelCatalog()),
+            new AiUsageRecorder(tokenUsagePort, usageCostEstimator),
+            usageCostEstimator,
             beanFactory.getBeanProvider(SampleRagTokenUsageRecorder.class)
         );
     }

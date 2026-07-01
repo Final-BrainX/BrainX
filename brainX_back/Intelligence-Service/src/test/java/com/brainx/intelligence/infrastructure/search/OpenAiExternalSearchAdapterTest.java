@@ -31,6 +31,7 @@ import com.brainx.intelligence.settings.domain.VendorTokenCost;
 import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchRequest;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
 
 class OpenAiExternalSearchAdapterTest {
@@ -207,7 +208,7 @@ class OpenAiExternalSearchAdapterTest {
         var adapter = new OpenAiExternalSearchAdapter(
             builder.build(),
             properties(),
-            tokenUsagePort,
+            new AiUsageRecorder(tokenUsagePort, new AiTokenUsageCostEstimator(new FakeAiModelCatalog())),
             new AiTokenUsageCostEstimator(new FakeAiModelCatalog())
         );
         return new Fixture(adapter, server, tokenUsagePort);

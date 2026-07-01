@@ -65,7 +65,6 @@ class ChatServiceTest {
         retrievalPort,
         entitlementPort,
         aiChatPort,
-        tokenUsagePort,
         new AiTokenUsageCostEstimator(catalogPort),
         chatEventPort
     );
@@ -245,10 +244,7 @@ class ChatServiceTest {
 
         assertThat(chatEventPort.messageEvents).hasSize(1);
         assertThat(chatEventPort.messageEvents.getFirst().citationNoteIds()).containsExactly("note-1");
-        assertThat(tokenUsagePort.records).hasSize(1);
-        assertThat(tokenUsagePort.records.getFirst().featureId()).isEqualTo("rag-chat");
-        assertThat(tokenUsagePort.records.getFirst().modelId()).isEqualTo("gpt-test");
-        assertThat(tokenUsagePort.records.getFirst().estimatedCost()).isNotNull();
+        assertThat(tokenUsagePort.records).isEmpty();
     }
 
     @Test
@@ -535,7 +531,7 @@ class ChatServiceTest {
         assertThat(persistencePort.messages).hasSize(2);
         assertThat(persistencePort.messages.get(1).role()).isEqualTo(ChatRole.ASSISTANT);
         assertThat(chatEventPort.messageEvents).hasSize(1);
-        assertThat(tokenUsagePort.records).hasSize(1);
+        assertThat(tokenUsagePort.records).isEmpty();
     }
 
     @Test

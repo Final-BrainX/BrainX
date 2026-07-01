@@ -32,6 +32,7 @@ import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiRol
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTokenUsage;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
 
 import reactor.core.publisher.Flux;
@@ -58,8 +59,7 @@ class AssistServiceTest {
         settingsPort,
         entitlementPort,
         chatPort,
-        tokenUsagePort,
-        new AiTokenUsageCostEstimator(catalogPort),
+        new AiUsageRecorder(tokenUsagePort, new AiTokenUsageCostEstimator(catalogPort)),
         assistEventPort
     );
 

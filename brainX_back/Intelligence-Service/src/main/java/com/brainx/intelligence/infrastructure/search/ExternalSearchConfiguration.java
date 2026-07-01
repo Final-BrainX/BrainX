@@ -10,7 +10,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 
 import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort;
-import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
 
 @Configuration
@@ -21,7 +21,7 @@ public class ExternalSearchConfiguration {
     @ConditionalOnProperty(prefix = "brainx.external-search", name = "provider", havingValue = "openai")
     ExternalSearchPort openAiExternalSearchPort(
         ExternalSearchProperties properties,
-        TokenUsagePort tokenUsagePort,
+        AiUsageRecorder aiUsageRecorder,
         AiTokenUsageCostEstimator usageCostEstimator
     ) {
         if (!StringUtils.hasText(properties.getOpenai().getApiKey())) {
@@ -43,7 +43,7 @@ public class ExternalSearchConfiguration {
         return new OpenAiExternalSearchAdapter(
             restClient,
             properties,
-            tokenUsagePort,
+            aiUsageRecorder,
             usageCostEstimator
         );
     }

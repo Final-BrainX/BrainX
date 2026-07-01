@@ -29,10 +29,7 @@ import com.brainx.intelligence.shared.application.port.outbound.AiEmbeddingPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiEmbeddingPort.AiEmbeddingRequest;
 import com.brainx.intelligence.shared.application.port.outbound.AiEmbeddingPort.AiEmbeddingResponse;
 import com.brainx.intelligence.shared.application.port.outbound.AiEmbeddingPort.InputType;
-import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
-import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
-import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
-import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator.TokenCostEstimate;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.domain.DocumentGroups;
 
 @Component
@@ -52,7 +49,6 @@ public class QdrantNoteSearchIndexAdapter implements NoteSearchIndexPort, NoteCh
     private static final String DOC_CONTENT = "doc_content";
     private static final String SOURCE_PATH = "sourcePath";
     private static final String SOURCE_FILENAME = "sourceFilename";
-    private static final String SOURCE_SERVICE = "Intelligence-Service";
     private static final String INDEX_EMBEDDING_FEATURE_ID = "note-search-index-embedding";
     private static final String QUERY_EMBEDDING_FEATURE_ID = "note-search-query-embedding";
     private static final int MIN_SEARCH_TOP_K = 10;
@@ -61,19 +57,16 @@ public class QdrantNoteSearchIndexAdapter implements NoteSearchIndexPort, NoteCh
 
     private final ObjectProvider<QdrantVectorIndexClient> vectorIndexClientProvider;
     private final ObjectProvider<AiEmbeddingPort> aiEmbeddingPortProvider;
-    private final TokenUsagePort tokenUsagePort;
-    private final AiTokenUsageCostEstimator usageCostEstimator;
+    private final AiUsageRecorder aiUsageRecorder;
 
     public QdrantNoteSearchIndexAdapter(
         ObjectProvider<QdrantVectorIndexClient> vectorIndexClientProvider,
         ObjectProvider<AiEmbeddingPort> aiEmbeddingPortProvider,
-        TokenUsagePort tokenUsagePort,
-        AiTokenUsageCostEstimator usageCostEstimator
+        AiUsageRecorder aiUsageRecorder
     ) {
         this.vectorIndexClientProvider = vectorIndexClientProvider;
         this.aiEmbeddingPortProvider = aiEmbeddingPortProvider;
-        this.tokenUsagePort = tokenUsagePort;
-        this.usageCostEstimator = usageCostEstimator;
+        this.aiUsageRecorder = aiUsageRecorder;
     }
 
     @Override
@@ -251,30 +244,7 @@ public class QdrantNoteSearchIndexAdapter implements NoteSearchIndexPort, NoteCh
     }
 
     private void recordEmbeddingUsage(String userId, String featureId, AiEmbeddingResponse embedding) {
-        if (embedding == null || embedding.totalTokens() == null || embedding.totalTokens() <= 0) {
-            return;
-        }
-        int inputTokens = embedding.totalTokens();
-        TokenCostEstimate cost = usageCostEstimator.estimate(embedding.modelId(), inputTokens, 0, 0);
-        tokenUsagePort.recordTokenUsage(new TokenUsageRecord(
-            UUID.randomUUID().toString(),
-            userId,
-            SOURCE_SERVICE,
-            featureId,
-            embedding.modelId(),
-            inputTokens,
-            0,
-            inputTokens,
-            0,
-            0,
-            inputTokens,
-            cost.inputCost(),
-            cost.cachedInputCost(),
-            cost.outputCost(),
-            cost.totalCost(),
-            cost.currencyCode(),
-            UUID.randomUUID().toString()
-        ));
+        aiUsageRecorder.recordEmbeddingUsage(userId, featureId, null, embedding);
     }
 
     private static List<QdrantVectorPoint> toVectorPoints(

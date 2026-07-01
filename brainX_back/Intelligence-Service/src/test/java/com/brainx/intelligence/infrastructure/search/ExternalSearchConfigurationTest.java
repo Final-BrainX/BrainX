@@ -13,6 +13,7 @@ import com.brainx.intelligence.settings.domain.AiModel;
 import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
 
 class ExternalSearchConfigurationTest {
@@ -20,7 +21,11 @@ class ExternalSearchConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
         .withUserConfiguration(ExternalSearchConfiguration.class)
         .withBean(TokenUsagePort.class, FakeTokenUsagePort::new)
-        .withBean(AiTokenUsageCostEstimator.class, () -> new AiTokenUsageCostEstimator(new FakeAiModelCatalog()));
+        .withBean(AiTokenUsageCostEstimator.class, () -> new AiTokenUsageCostEstimator(new FakeAiModelCatalog()))
+        .withBean(AiUsageRecorder.class, () -> new AiUsageRecorder(
+            new FakeTokenUsagePort(),
+            new AiTokenUsageCostEstimator(new FakeAiModelCatalog())
+        ));
 
     @Test
     void registersNoOpWhenProviderIsNone() {

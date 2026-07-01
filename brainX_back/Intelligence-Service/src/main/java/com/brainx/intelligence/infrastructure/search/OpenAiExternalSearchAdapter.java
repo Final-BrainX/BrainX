@@ -6,7 +6,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.UUID;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.util.StringUtils;
@@ -15,8 +14,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort;
-import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
-import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator.TokenCostEstimate;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -25,7 +23,6 @@ public class OpenAiExternalSearchAdapter implements ExternalSearchPort {
 
     static final String PROVIDER = "openai";
     static final String FEATURE_ID = "external-search-web";
-    private static final String SOURCE_SERVICE = "Intelligence-Service";
     private static final String RESPONSES_PATH = "/v1/responses";
     private static final String WEB_SEARCH_TOOL = "web_search";
     private static final String SOURCES_INCLUDE = "web_search_call.action.sources";
@@ -33,18 +30,18 @@ public class OpenAiExternalSearchAdapter implements ExternalSearchPort {
 
     private final RestClient restClient;
     private final ExternalSearchProperties properties;
-    private final TokenUsagePort tokenUsagePort;
+    private final AiUsageRecorder aiUsageRecorder;
     private final AiTokenUsageCostEstimator usageCostEstimator;
 
     public OpenAiExternalSearchAdapter(
         RestClient restClient,
         ExternalSearchProperties properties,
-        TokenUsagePort tokenUsagePort,
+        AiUsageRecorder aiUsageRecorder,
         AiTokenUsageCostEstimator usageCostEstimator
     ) {
         this.restClient = restClient;
         this.properties = properties;
-        this.tokenUsagePort = tokenUsagePort;
+        this.aiUsageRecorder = aiUsageRecorder;
         this.usageCostEstimator = usageCostEstimator;
     }
 
@@ -293,26 +290,17 @@ public class OpenAiExternalSearchAdapter implements ExternalSearchPort {
         if (tokenUsage == null) {
             return;
         }
-        ExternalSearchCostEstimate cost = tokenUsage.costEstimate();
-        tokenUsagePort.recordTokenUsage(new TokenUsageRecord(
-            UUID.randomUUID().toString(),
+        aiUsageRecorder.recordRawUsage(
             userId,
-            SOURCE_SERVICE,
             FEATURE_ID,
             modelId,
+            responseId,
             tokenUsage.inputTokens(),
             tokenUsage.cachedInputTokens(),
-            tokenUsage.billableInputTokens(),
             tokenUsage.outputTokens(),
             tokenUsage.reasoningTokens(),
-            tokenUsage.totalTokens(),
-            cost.inputCost(),
-            cost.cachedInputCost(),
-            cost.outputCost(),
-            cost.totalCost(),
-            cost.currencyCode(),
-            StringUtils.hasText(responseId) ? responseId : UUID.randomUUID().toString()
-        ));
+            tokenUsage.totalTokens()
+        );
     }
 
     private static String citedText(String answer, JsonNode startIndex, JsonNode endIndex) {

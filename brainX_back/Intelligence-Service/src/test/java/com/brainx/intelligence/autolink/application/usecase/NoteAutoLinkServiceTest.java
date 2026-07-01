@@ -25,6 +25,7 @@ import com.brainx.intelligence.settings.domain.VendorTokenCost;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -445,13 +446,13 @@ class NoteAutoLinkServiceTest {
         beanFactory.registerSingleton("autoLinkUsageCapturePort", usageCapture);
         FakeTokenUsagePort tokenUsagePort = new FakeTokenUsagePort();
         usageCapture.delegate = tokenUsagePort;
+        AiTokenUsageCostEstimator usageCostEstimator = new AiTokenUsageCostEstimator(new FakeAiModelCatalog());
         return new NoteAutoLinkService(
             properties,
             projectionStore,
             chunkRetrieval,
             aiChatPort,
-            usageCapture,
-            new AiTokenUsageCostEstimator(new FakeAiModelCatalog()),
+            new AiUsageRecorder(usageCapture, usageCostEstimator),
             new ObjectMapper().findAndRegisterModules(),
             beanFactory.getBeanProvider(AutoLinkUsageCapturePort.class)
         );

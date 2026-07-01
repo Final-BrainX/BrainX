@@ -20,6 +20,7 @@ import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiCha
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTokenUsage;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -33,8 +34,7 @@ class ChatRouteDeciderTest {
     private final LlmChatRouteDecider decider = new LlmChatRouteDecider(
         properties,
         chatPort,
-        tokenUsagePort,
-        new AiTokenUsageCostEstimator(new FakeAiModelCatalogPort()),
+        new AiUsageRecorder(tokenUsagePort, new AiTokenUsageCostEstimator(new FakeAiModelCatalogPort())),
         new ObjectMapper().findAndRegisterModules()
     );
 

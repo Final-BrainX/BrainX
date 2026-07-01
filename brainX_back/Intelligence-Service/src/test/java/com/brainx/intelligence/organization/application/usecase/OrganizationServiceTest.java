@@ -36,6 +36,7 @@ import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort.
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort.EntitlementRequest;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -55,8 +56,7 @@ class OrganizationServiceTest {
         entitlementPort,
         settingsPort,
         chatPort,
-        tokenUsagePort,
-        new AiTokenUsageCostEstimator(new EmptyAiModelCatalogPort()),
+        new AiUsageRecorder(tokenUsagePort, new AiTokenUsageCostEstimator(new EmptyAiModelCatalogPort())),
         eventPort,
         properties,
         new ObjectMapper()
@@ -168,9 +168,7 @@ class OrganizationServiceTest {
         assertThat(noteSource.lastFolderId).isEqualTo("folder-a");
         assertThat(noteSource.lastDocumentGroupId).isEqualTo("default");
         assertThat(chatPort.lastRequest.modelId()).isEqualTo("gpt-organization");
-        assertThat(tokenUsagePort.records).hasSize(1);
-        assertThat(tokenUsagePort.records.getFirst().inputTokens()).isGreaterThan(0);
-        assertThat(tokenUsagePort.records.getFirst().outputTokens()).isGreaterThan(0);
+        assertThat(tokenUsagePort.records).isEmpty();
         assertThat(eventPort.createdEvents).hasSize(1);
     }
 

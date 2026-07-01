@@ -5,7 +5,6 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -23,8 +22,8 @@ import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiCha
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiRole;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTokenUsage;
-import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator.TokenCostEstimate;
 
@@ -33,7 +32,6 @@ public class SampleRagService {
 
     private static final int CONTEXT_SNIPPET_LENGTH = 1_200;
     private static final String RETRIEVAL_ONLY_MODEL = "none";
-    private static final String SOURCE_SERVICE = "Intelligence-Service";
     private static final String RAG_CHAT_FEATURE_ID = "sample-rag-chat";
 
     private final SampleRagProperties properties;
@@ -43,7 +41,7 @@ public class SampleRagService {
     private final NoteSearchIndexPort noteSearchIndexPort;
     private final NoteChunkRetrievalPort noteChunkRetrievalPort;
     private final ObjectProvider<AiChatPort> aiChatPortProvider;
-    private final TokenUsagePort tokenUsagePort;
+    private final AiUsageRecorder aiUsageRecorder;
     private final AiTokenUsageCostEstimator usageCostEstimator;
     private final ObjectProvider<SampleRagTokenUsageRecorder> usageRecorderProvider;
 
@@ -55,7 +53,7 @@ public class SampleRagService {
         NoteSearchIndexPort noteSearchIndexPort,
         NoteChunkRetrievalPort noteChunkRetrievalPort,
         ObjectProvider<AiChatPort> aiChatPortProvider,
-        TokenUsagePort tokenUsagePort,
+        AiUsageRecorder aiUsageRecorder,
         AiTokenUsageCostEstimator usageCostEstimator,
         ObjectProvider<SampleRagTokenUsageRecorder> usageRecorderProvider
     ) {
@@ -66,7 +64,7 @@ public class SampleRagService {
         this.noteSearchIndexPort = noteSearchIndexPort;
         this.noteChunkRetrievalPort = noteChunkRetrievalPort;
         this.aiChatPortProvider = aiChatPortProvider;
-        this.tokenUsagePort = tokenUsagePort;
+        this.aiUsageRecorder = aiUsageRecorder;
         this.usageCostEstimator = usageCostEstimator;
         this.usageRecorderProvider = usageRecorderProvider;
     }
@@ -269,26 +267,17 @@ public class SampleRagService {
         if (tokenUsage == null) {
             return;
         }
-        SampleRagCostEstimate cost = tokenUsage.costEstimate();
-        tokenUsagePort.recordTokenUsage(new TokenUsageRecord(
-            UUID.randomUUID().toString(),
+        aiUsageRecorder.recordRawUsage(
             properties.getUserId(),
-            SOURCE_SERVICE,
             RAG_CHAT_FEATURE_ID,
             properties.getChatModel(),
+            null,
             tokenUsage.inputTokens(),
             tokenUsage.cachedInputTokens(),
-            tokenUsage.billableInputTokens(),
             tokenUsage.outputTokens(),
             tokenUsage.reasoningTokens(),
-            tokenUsage.totalTokens(),
-            cost.inputCost(),
-            cost.cachedInputCost(),
-            cost.outputCost(),
-            cost.totalCost(),
-            cost.currencyCode(),
-            UUID.randomUUID().toString()
-        ));
+            tokenUsage.totalTokens()
+        );
     }
 
     private static int tokenCount(Integer value) {

@@ -36,10 +36,7 @@ import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort.EntitlementRequest;
 import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysisNoteSourcePort;
 import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysisNoteSourcePort.KnowledgeAnalysisNote;
-import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
-import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
-import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
-import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator.TokenCostEstimate;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.domain.DocumentGroups;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -50,7 +47,6 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
 
     static final String INSIGHT_REPORT_CAPABILITY = "INSIGHT_REPORT";
     static final String INSIGHT_REPORT_FEATURE_ID = "insight-report-chat";
-    private static final String SOURCE_SERVICE = "Intelligence-Service";
     private static final int HARD_MAX_NOTES = 50;
     private static final int HARD_MAX_RECOMMENDATIONS = 20;
 
@@ -59,8 +55,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
     private final EntitlementPort entitlementPort;
     private final AiModelSettingsPort aiModelSettingsPort;
     private final AiChatPort aiChatPort;
-    private final TokenUsagePort tokenUsagePort;
-    private final AiTokenUsageCostEstimator usageCostEstimator;
+    private final AiUsageRecorder aiUsageRecorder;
     private final InsightEventPort insightEventPort;
     private final InsightProperties properties;
     private final ObjectMapper objectMapper;
@@ -73,8 +68,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
         EntitlementPort entitlementPort,
         AiModelSettingsPort aiModelSettingsPort,
         AiChatPort aiChatPort,
-        TokenUsagePort tokenUsagePort,
-        AiTokenUsageCostEstimator usageCostEstimator,
+        AiUsageRecorder aiUsageRecorder,
         InsightEventPort insightEventPort,
         InsightProperties properties,
         ObjectMapper objectMapper
@@ -85,8 +79,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
             entitlementPort,
             aiModelSettingsPort,
             aiChatPort,
-            tokenUsagePort,
-            usageCostEstimator,
+            aiUsageRecorder,
             insightEventPort,
             properties,
             objectMapper,
@@ -100,8 +93,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
         EntitlementPort entitlementPort,
         AiModelSettingsPort aiModelSettingsPort,
         AiChatPort aiChatPort,
-        TokenUsagePort tokenUsagePort,
-        AiTokenUsageCostEstimator usageCostEstimator,
+        AiUsageRecorder aiUsageRecorder,
         InsightEventPort insightEventPort,
         InsightProperties properties,
         ObjectMapper objectMapper,
@@ -112,8 +104,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
         this.entitlementPort = entitlementPort;
         this.aiModelSettingsPort = aiModelSettingsPort;
         this.aiChatPort = aiChatPort;
-        this.tokenUsagePort = tokenUsagePort;
-        this.usageCostEstimator = usageCostEstimator;
+        this.aiUsageRecorder = aiUsageRecorder;
         this.insightEventPort = insightEventPort;
         this.properties = properties;
         this.objectMapper = objectMapper;
@@ -181,7 +172,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
                 )
             ));
             String content = response == null || response.content() == null ? "" : response.content();
-            recordUsage(userId, modelId, reportId, systemPrompt + "\n" + userPrompt, content, response == null ? null : response.tokenUsage());
+            recordUsage(userId, modelId, reportId, response == null ? null : response.tokenUsage());
             ParsedInsight parsed = parseInsight(content, notes, includeLearningRecommendations, maxRecommendations);
             InsightReport completed = insightReportStore.save(running.completed(
                 parsed.summary(),
@@ -341,49 +332,9 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
         String userId,
         String modelId,
         String reportId,
-        String prompt,
-        String responseContent,
         AiTokenUsage tokenUsage
     ) {
-        int inputTokens;
-        int cachedInputTokens;
-        int outputTokens;
-        int reasoningTokens;
-        int totalTokens;
-        if (tokenUsage != null && tokenUsage.hasKnownTokens()) {
-            inputTokens = tokenCount(tokenUsage.promptTokens());
-            cachedInputTokens = tokenCount(tokenUsage.cachedPromptTokens());
-            outputTokens = tokenCount(tokenUsage.completionTokens());
-            reasoningTokens = tokenCount(tokenUsage.reasoningTokens());
-            totalTokens = tokenUsage.totalTokens() == null ? inputTokens + outputTokens : Math.max(0, tokenUsage.totalTokens());
-        } else {
-            inputTokens = estimateTokens(prompt);
-            cachedInputTokens = 0;
-            outputTokens = estimateTokens(responseContent);
-            reasoningTokens = 0;
-            totalTokens = inputTokens + outputTokens;
-        }
-        int billableInputTokens = Math.max(0, inputTokens - cachedInputTokens);
-        TokenCostEstimate cost = usageCostEstimator.estimate(modelId, inputTokens, cachedInputTokens, outputTokens);
-        tokenUsagePort.recordTokenUsage(new TokenUsageRecord(
-            UUID.randomUUID().toString(),
-            userId,
-            SOURCE_SERVICE,
-            INSIGHT_REPORT_FEATURE_ID,
-            modelId,
-            inputTokens,
-            cachedInputTokens,
-            billableInputTokens,
-            outputTokens,
-            reasoningTokens,
-            totalTokens,
-            cost.inputCost(),
-            cost.cachedInputCost(),
-            cost.outputCost(),
-            cost.totalCost(),
-            cost.currencyCode(),
-            reportId
-        ));
+        aiUsageRecorder.recordChatUsage(userId, INSIGHT_REPORT_FEATURE_ID, modelId, reportId, tokenUsage);
     }
 
     private String toJson(Object value) {
@@ -397,10 +348,6 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
     private static boolean learningRecommendation(String type) {
         String normalized = type == null ? "" : type.trim().toUpperCase();
         return normalized.contains("LEARNING") || normalized.contains("STUDY");
-    }
-
-    private static int tokenCount(Integer value) {
-        return value == null ? 0 : Math.max(0, value);
     }
 
     private static int estimateTokens(String text) {

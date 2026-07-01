@@ -45,14 +45,27 @@ estimatedCost = estimatedInputCost + estimatedCachedInputCost + estimatedOutputC
 
 `cachedInputCostPer1kTokens`가 null이면 해당 provider/model은 cached input 할인 단가가 없다고 보고 일반 input 단가를 사용한다.
 
+## AiUsageRecorder 사용 규칙
+
+AI 호출 결과를 Commerce usage ledger로 넘길 때 각 usecase/adapter가 직접 `TokenUsageRecord`를 만들지 않는다. 모든 실제 provider usage 기록은 `AiUsageRecorder`를 통해 생성한다.
+
+- chat provider usage는 `recordChatUsage(userId, featureId, modelId, causationId, tokenUsage)`를 사용한다.
+- embedding provider usage는 `recordEmbeddingUsage(userId, featureId, causationId, embeddingResponse)`를 사용한다. Voyage embedding의 `totalTokens`는 input token으로 기록한다.
+- external search처럼 별도 usage DTO를 쓰는 adapter는 `recordRawUsage(...)`를 사용한다.
+- `sourceService`는 `Intelligence-Service`로 고정한다.
+- provider usage가 없거나 token count가 모두 불명확한 estimate-only 흐름은 Commerce ledger 이벤트를 발행하지 않는다.
+
+Commerce-Service는 이 이벤트를 소비해 credit policy, ledger 저장, 기간별 token/credit usage 조회 API를 소유한다. Intelligence-Service는 별도 usage ledger DB나 public 조회 API를 만들지 않는다.
+
 ## 현재 기록 범위
 
 - `SampleRagService.ask(...)`: `AiChatPort.generate(...)` 응답의 token usage를 기록하고, catalog에 모델 단가가 있으면 estimated cost를 채운다. 개발용 RAG CLI 응답은 실행 중 기록된 query embedding/chat usage를 `usageRecords[]`에도 함께 노출한다.
 - `AssistService.createInlineAssist(...)`: 사용자 기본 모델(`AiModelSettings.defaultModelId`)을 우선 사용하고 없으면 `brainx.assist.default-model`을 사용한다. `AiChatPort.generate(...)` 응답의 token usage를 `inline-assist-chat` featureId로 기록하고, catalog에 모델 단가가 있으면 estimated cost를 채운다.
 - `LlmChatRouteDecider.decide(...)`: 본 채팅 1차 route classifier 호출 usage를 답변 생성 usage와 분리해 `chat-router-classifier` featureId로 기록한다. 기본 router model은 `brainx.chat.router.model` 또는 `BRAINX_CHAT_ROUTER_MODEL`로 지정하며 local/dev 기본값은 `gpt-5.4-nano`다.
+- `ChatService.sendChatMessage(...)`: stream 기반 답변은 provider token usage를 받지 못하므로 chat message 내부 표시용 추정 `ChatTokenUsage`만 저장하고 Commerce ledger 이벤트는 발행하지 않는다.
 - `OpenAiExternalSearchAdapter.search(...)`: OpenAI Responses API `web_search` 응답의 token usage를 `external-search-web` featureId로 기록하고, catalog에 모델 단가가 있으면 estimated cost를 채운다. web search tool call 자체의 별도 과금은 v1 catalog에 없으므로 token usage 중심으로만 기록한다.
-- `ClusteringService.requestClusterJob(...)`: note card 기반 지식 구조 분석 LLM 호출 usage를 `ai-clustering-chat` featureId로 기록하고, catalog에 모델 단가가 있으면 estimated cost를 채운다.
-- `InsightService.requestInsightReport(...)`: 지식 공백/추천사항 리포트 LLM 호출 usage를 `insight-report-chat` featureId로 기록하고, catalog에 모델 단가가 있으면 estimated cost를 채운다.
+- `ClusteringService.requestClusterJob(...)`: note card 기반 지식 구조 분석 LLM 호출에서 provider usage가 있으면 `ai-clustering-chat` featureId로 기록하고, catalog에 모델 단가가 있으면 estimated cost를 채운다.
+- `InsightService.requestInsightReport(...)`: 지식 공백/추천사항 리포트 LLM 호출에서 provider usage가 있으면 `insight-report-chat` featureId로 기록하고, catalog에 모델 단가가 있으면 estimated cost를 채운다.
 - `NoteAutoLinkService`: `VECTOR_LLM`의 LLM refine call은 `note-auto-link-vector-refine-chat`, `LLM_ONLY`의 LLM call은 `note-auto-link-llm-only-chat`, 애매한 자동 링크 후보의 relation verifier call은 `note-auto-link-relation-verifier-chat` featureId로 기록한다. dev CLI에서는 strategy별 usage recorder가 이 chat usage와 `VECTOR_LLM`의 `note-search-query-embedding` usage를 함께 캡처해 비용 비교 JSON에 포함한다.
 - `QdrantNoteSearchIndexAdapter.search(...)` / `searchChunks(...)`: query embedding의 Voyage `usage.total_tokens`를 `note-search-query-embedding` usage로 기록하고, catalog에 단가가 있으면 estimated cost를 채운다.
 - `QdrantNoteSearchIndexAdapter.replaceNoteChunks(...)` / `save(...)`: document embedding의 Voyage `usage.total_tokens`를 `note-search-index-embedding` usage로 기록하고, catalog에 단가가 있으면 estimated cost를 채운다.

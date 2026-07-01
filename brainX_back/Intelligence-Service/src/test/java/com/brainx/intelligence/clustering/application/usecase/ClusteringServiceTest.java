@@ -39,6 +39,7 @@ import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysi
 import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysisNoteSourcePort.KnowledgeAnalysisNote;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -60,8 +61,7 @@ class ClusteringServiceTest {
         entitlementPort,
         settingsPort,
         chatPort,
-        tokenUsagePort,
-        new AiTokenUsageCostEstimator(new EmptyAiModelCatalogPort()),
+        new AiUsageRecorder(tokenUsagePort, new AiTokenUsageCostEstimator(new EmptyAiModelCatalogPort())),
         eventPort,
         properties,
         new ObjectMapper(),

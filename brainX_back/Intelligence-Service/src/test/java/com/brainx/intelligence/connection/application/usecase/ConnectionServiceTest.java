@@ -45,6 +45,7 @@ import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTok
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -69,8 +70,7 @@ class ConnectionServiceTest {
         bridgeProperties,
         aiModelSettingsPort,
         aiChatPort,
-        tokenUsagePort,
-        usageCostEstimator,
+        new AiUsageRecorder(tokenUsagePort, usageCostEstimator),
         new ObjectMapper()
     );
 
@@ -250,7 +250,7 @@ class ConnectionServiceTest {
     }
 
     @Test
-    void bridgeRecordsEstimatedUsageWhenProviderUsageIsMissing() {
+    void bridgeDoesNotRecordLedgerUsageWhenProviderUsageIsMissing() {
         bridgeProperties.setDefaultModel("gpt-fallback");
         noteSourcePort.bridgeSources = List.of(
             new ConnectionBridgeSourceNote("user-1", "default", "note-1", "Java", List.of()),
@@ -267,11 +267,7 @@ class ConnectionServiceTest {
 
         assertThat(aiChatPort.lastRequest.modelId()).isEqualTo("gpt-fallback");
         assertThat(result.recommendations()).hasSize(1);
-        assertThat(tokenUsagePort.records).hasSize(1);
-        assertThat(tokenUsagePort.records.getFirst().inputTokens()).isPositive();
-        assertThat(tokenUsagePort.records.getFirst().outputTokens()).isPositive();
-        assertThat(tokenUsagePort.records.getFirst().totalTokens())
-            .isEqualTo(tokenUsagePort.records.getFirst().inputTokens() + tokenUsagePort.records.getFirst().outputTokens());
+        assertThat(tokenUsagePort.records).isEmpty();
     }
 
     @Test
@@ -286,7 +282,7 @@ class ConnectionServiceTest {
 
         assertThat(result.recommendations()).isEmpty();
         assertThat(connectionEventPort.bridgeEvents).isEmpty();
-        assertThat(tokenUsagePort.records).hasSize(1);
+        assertThat(tokenUsagePort.records).isEmpty();
     }
 
     @Test

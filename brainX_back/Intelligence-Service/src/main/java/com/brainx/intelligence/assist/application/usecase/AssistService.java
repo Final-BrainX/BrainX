@@ -19,20 +19,15 @@ import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiRole;
-import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTokenUsage;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort.EntitlementRequest;
-import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
-import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
-import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
-import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator.TokenCostEstimate;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 
 @Service
 public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggestionUseCase {
 
     static final String INLINE_ASSIST_CAPABILITY = "INLINE_ASSIST";
     static final String INLINE_ASSIST_FEATURE_ID = "inline-assist-chat";
-    private static final String SOURCE_SERVICE = "Intelligence-Service";
     private static final String DEFAULT_LANGUAGE = "ko";
     private static final int MIN_SUMMARIZE_CONTEXT_CHARS = 80;
     private static final int MIN_CONTINUE_BEFORE_CHARS = 120;
@@ -45,8 +40,7 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
     private final AiModelSettingsPort aiModelSettingsPort;
     private final EntitlementPort entitlementPort;
     private final AiChatPort aiChatPort;
-    private final TokenUsagePort tokenUsagePort;
-    private final AiTokenUsageCostEstimator usageCostEstimator;
+    private final AiUsageRecorder aiUsageRecorder;
     private final AssistEventPort assistEventPort;
 
     public AssistService(
@@ -54,16 +48,14 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
         AiModelSettingsPort aiModelSettingsPort,
         EntitlementPort entitlementPort,
         AiChatPort aiChatPort,
-        TokenUsagePort tokenUsagePort,
-        AiTokenUsageCostEstimator usageCostEstimator,
+        AiUsageRecorder aiUsageRecorder,
         AssistEventPort assistEventPort
     ) {
         this.properties = properties;
         this.aiModelSettingsPort = aiModelSettingsPort;
         this.entitlementPort = entitlementPort;
         this.aiChatPort = aiChatPort;
-        this.tokenUsagePort = tokenUsagePort;
-        this.usageCostEstimator = usageCostEstimator;
+        this.aiUsageRecorder = aiUsageRecorder;
         this.assistEventPort = assistEventPort;
     }
 
@@ -101,7 +93,7 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
             )
         ));
         String suggestionId = UUID.randomUUID().toString();
-        recordTokenUsage(userId, modelId, suggestionId, response.tokenUsage());
+        aiUsageRecorder.recordChatUsage(userId, INLINE_ASSIST_FEATURE_ID, modelId, suggestionId, response.tokenUsage());
         assistEventPort.aiSuggestionCreated(new AiSuggestionCreatedEvent(
             userId,
             suggestionId,
@@ -141,46 +133,6 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
             .map(settings -> settings.defaultModelId())
             .filter(StringUtils::hasText)
             .orElseGet(properties::getDefaultModel);
-    }
-
-    private void recordTokenUsage(String userId, String modelId, String suggestionId, AiTokenUsage tokenUsage) {
-        if (tokenUsage == null || !tokenUsage.hasKnownTokens()) {
-            return;
-        }
-        int inputTokens = tokenCount(tokenUsage.promptTokens());
-        int cachedInputTokens = tokenCount(tokenUsage.cachedPromptTokens());
-        int billableInputTokens = Math.max(0, inputTokens - cachedInputTokens);
-        int outputTokens = tokenCount(tokenUsage.completionTokens());
-        int reasoningTokens = tokenCount(tokenUsage.reasoningTokens());
-        int totalTokens = tokenUsage.totalTokens() == null
-            ? inputTokens + outputTokens
-            : Math.max(0, tokenUsage.totalTokens());
-        TokenCostEstimate cost = usageCostEstimator.estimate(
-            modelId,
-            inputTokens,
-            cachedInputTokens,
-            outputTokens
-        );
-
-        tokenUsagePort.recordTokenUsage(new TokenUsageRecord(
-            UUID.randomUUID().toString(),
-            userId,
-            SOURCE_SERVICE,
-            INLINE_ASSIST_FEATURE_ID,
-            modelId,
-            inputTokens,
-            cachedInputTokens,
-            billableInputTokens,
-            outputTokens,
-            reasoningTokens,
-            totalTokens,
-            cost.inputCost(),
-            cost.cachedInputCost(),
-            cost.outputCost(),
-            cost.totalCost(),
-            cost.currencyCode(),
-            suggestionId
-        ));
     }
 
     private static String systemPrompt() {
@@ -301,10 +253,6 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
 
     private static String blankToMarker(String value) {
         return StringUtils.hasText(value) ? value : "(empty)";
-    }
-
-    private static int tokenCount(Integer value) {
-        return value == null ? 0 : Math.max(0, value);
     }
 
     private static int estimateTokens(String text) {

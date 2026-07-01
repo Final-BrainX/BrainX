@@ -27,6 +27,7 @@ import com.brainx.intelligence.settings.domain.VendorTokenCost;
 import com.brainx.intelligence.shared.application.port.outbound.AiEmbeddingPort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
 
 class QdrantNoteSearchIndexAdapterTest {
@@ -405,8 +406,7 @@ class QdrantNoteSearchIndexAdapterTest {
         return new QdrantNoteSearchIndexAdapter(
             beanFactory.getBeanProvider(QdrantVectorIndexClient.class),
             beanFactory.getBeanProvider(AiEmbeddingPort.class),
-            tokenUsagePort,
-            new AiTokenUsageCostEstimator(new FakeAiModelCatalog())
+            new AiUsageRecorder(tokenUsagePort, new AiTokenUsageCostEstimator(new FakeAiModelCatalog()))
         );
     }
 

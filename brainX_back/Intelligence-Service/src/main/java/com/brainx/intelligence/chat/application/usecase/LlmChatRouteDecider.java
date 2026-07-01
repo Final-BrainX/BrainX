@@ -2,7 +2,6 @@ package com.brainx.intelligence.chat.application.usecase;
 
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -14,11 +13,7 @@ import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiRole;
-import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTokenUsage;
-import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
-import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
-import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
-import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator.TokenCostEstimate;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -26,25 +21,21 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class LlmChatRouteDecider implements ChatRouteDecider {
 
     static final String CHAT_ROUTER_FEATURE_ID = "chat-router-classifier";
-    private static final String SOURCE_SERVICE = "Intelligence-Service";
 
     private final ChatRouterProperties properties;
     private final AiChatPort aiChatPort;
-    private final TokenUsagePort tokenUsagePort;
-    private final AiTokenUsageCostEstimator usageCostEstimator;
+    private final AiUsageRecorder aiUsageRecorder;
     private final ObjectMapper objectMapper;
 
     public LlmChatRouteDecider(
         ChatRouterProperties properties,
         AiChatPort aiChatPort,
-        TokenUsagePort tokenUsagePort,
-        AiTokenUsageCostEstimator usageCostEstimator,
+        AiUsageRecorder aiUsageRecorder,
         ObjectMapper objectMapper
     ) {
         this.properties = properties;
         this.aiChatPort = aiChatPort;
-        this.tokenUsagePort = tokenUsagePort;
-        this.usageCostEstimator = usageCostEstimator;
+        this.aiUsageRecorder = aiUsageRecorder;
         this.objectMapper = objectMapper;
     }
 
@@ -56,7 +47,13 @@ public class LlmChatRouteDecider implements ChatRouteDecider {
         }
         try {
             AiChatResponseWithPrompt routed = routeWithPrompt(request, routerModel);
-            recordTokenUsage(request.userId(), routerModel, routed.response().tokenUsage());
+            aiUsageRecorder.recordChatUsage(
+                request.userId(),
+                CHAT_ROUTER_FEATURE_ID,
+                routerModel,
+                null,
+                routed.response().tokenUsage()
+            );
             return parseDecision(routed.response().content(), routerModel);
         } catch (RuntimeException exception) {
             return ChatRouteDecision.outOfScope("router failed", routerModel);
@@ -86,41 +83,6 @@ public class LlmChatRouteDecider implements ChatRouteDecider {
         } catch (Exception exception) {
             return ChatRouteDecision.outOfScope("invalid router response", routerModel);
         }
-    }
-
-    private void recordTokenUsage(String userId, String modelId, AiTokenUsage tokenUsage) {
-        if (tokenUsage == null || !tokenUsage.hasKnownTokens()) {
-            return;
-        }
-        int inputTokens = tokenCount(tokenUsage.promptTokens());
-        int cachedInputTokens = tokenCount(tokenUsage.cachedPromptTokens());
-        int billableInputTokens = Math.max(0, inputTokens - cachedInputTokens);
-        int outputTokens = tokenCount(tokenUsage.completionTokens());
-        int reasoningTokens = tokenCount(tokenUsage.reasoningTokens());
-        int totalTokens = tokenUsage.totalTokens() == null
-            ? inputTokens + outputTokens
-            : Math.max(0, tokenUsage.totalTokens());
-        TokenCostEstimate cost = usageCostEstimator.estimate(modelId, inputTokens, cachedInputTokens, outputTokens);
-
-        tokenUsagePort.recordTokenUsage(new TokenUsageRecord(
-            UUID.randomUUID().toString(),
-            userId,
-            SOURCE_SERVICE,
-            CHAT_ROUTER_FEATURE_ID,
-            modelId,
-            inputTokens,
-            cachedInputTokens,
-            billableInputTokens,
-            outputTokens,
-            reasoningTokens,
-            totalTokens,
-            cost.inputCost(),
-            cost.cachedInputCost(),
-            cost.outputCost(),
-            cost.totalCost(),
-            cost.currencyCode(),
-            UUID.randomUUID().toString()
-        ));
     }
 
     private static String systemPrompt() {
@@ -175,10 +137,6 @@ public class LlmChatRouteDecider implements ChatRouteDecider {
 
     private static String stringValue(Object value) {
         return value == null ? "" : value.toString();
-    }
-
-    private static int tokenCount(Integer value) {
-        return value == null ? 0 : Math.max(0, value);
     }
 
     private record AiChatResponseWithPrompt(AiChatPort.AiChatResponse response) {

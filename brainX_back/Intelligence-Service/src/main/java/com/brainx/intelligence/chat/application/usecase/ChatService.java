@@ -51,8 +51,6 @@ import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiCha
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiRole;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort.EntitlementRequest;
-import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
-import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator.TokenCostEstimate;
 import com.brainx.intelligence.shared.domain.DocumentGroups;
@@ -69,7 +67,6 @@ public class ChatService implements
 
     static final String RAG_CHAT_CAPABILITY = "RAG_CHAT";
     static final String RAG_CHAT_FEATURE_ID = "rag-chat";
-    private static final String SOURCE_SERVICE = "Intelligence-Service";
     private static final String NO_CONTEXT_ANSWER = "관련 노트 근거를 찾지 못했습니다.";
     private static final String OUT_OF_SCOPE_ANSWER = "BrainX 본 채팅은 내 노트 검색, 노트 기반 질문, 글 작성, 노트 적용 초안만 처리합니다.";
     private static final String INSUFFICIENT_CONTEXT_ANSWER =
@@ -93,7 +90,6 @@ public class ChatService implements
     private final NoteChunkRetrievalPort noteChunkRetrievalPort;
     private final EntitlementPort entitlementPort;
     private final AiChatPort aiChatPort;
-    private final TokenUsagePort tokenUsagePort;
     private final AiTokenUsageCostEstimator usageCostEstimator;
     private final ChatEventPort chatEventPort;
 
@@ -104,7 +100,6 @@ public class ChatService implements
         NoteChunkRetrievalPort noteChunkRetrievalPort,
         EntitlementPort entitlementPort,
         AiChatPort aiChatPort,
-        TokenUsagePort tokenUsagePort,
         AiTokenUsageCostEstimator usageCostEstimator,
         ChatEventPort chatEventPort
     ) {
@@ -114,7 +109,6 @@ public class ChatService implements
         this.noteChunkRetrievalPort = noteChunkRetrievalPort;
         this.entitlementPort = entitlementPort;
         this.aiChatPort = aiChatPort;
-        this.tokenUsagePort = tokenUsagePort;
         this.usageCostEstimator = usageCostEstimator;
         this.chatEventPort = chatEventPort;
     }
@@ -346,25 +340,6 @@ public class ChatService implements
                 .map(ChatCitation::noteId)
                 .distinct()
                 .toList()
-        ));
-        tokenUsagePort.recordTokenUsage(new TokenUsageRecord(
-            UUID.randomUUID().toString(),
-            thread.userId(),
-            SOURCE_SERVICE,
-            RAG_CHAT_FEATURE_ID,
-            assistantMessage.modelId(),
-            tokenUsage.inputTokens(),
-            tokenUsage.cachedInputTokens(),
-            tokenUsage.billableInputTokens(),
-            tokenUsage.outputTokens(),
-            tokenUsage.reasoningTokens(),
-            tokenUsage.totalTokens(),
-            tokenUsage.estimatedInputCost(),
-            tokenUsage.estimatedCachedInputCost(),
-            tokenUsage.estimatedOutputCost(),
-            tokenUsage.estimatedCost(),
-            tokenUsage.costCurrency(),
-            assistantMessage.messageId()
         ));
     }
 
