@@ -61,11 +61,12 @@ public class NotionApiService {
                     (String) data.get("workspace_name")
             );
         } catch (HttpClientErrorException e) {
-            log.error("Notion 토큰 교환 실패: status={}, body={}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw BrainXException.badRequest("NOTION_TOKEN_ERROR", "Notion 인증 코드 교환에 실패했습니다.");
+            String notionBody = e.getResponseBodyAsString();
+            log.error("Notion 토큰 교환 실패: status={}, body={}", e.getStatusCode(), notionBody);
+            throw BrainXException.badRequest("NOTION_TOKEN_ERROR", "Notion 인증 코드 교환에 실패했습니다. (" + notionBody + ")");
         } catch (Exception e) {
             log.error("Notion 토큰 교환 실패(기타 예외): {}", e.toString(), e);
-            throw BrainXException.badRequest("NOTION_TOKEN_ERROR", "Notion 인증 코드 교환에 실패했습니다.");
+            throw BrainXException.badRequest("NOTION_TOKEN_ERROR", "Notion 인증 코드 교환에 실패했습니다. (" + e.getMessage() + ")");
         }
     }
 
