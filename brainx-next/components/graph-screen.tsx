@@ -7,12 +7,12 @@ import { Compass, FileUp, PencilLine, Pin, PinOff, Sparkles } from "lucide-react
 import { buildAuthPath, isDevAuthSession, readAuthSession } from "@/lib/auth-api";
 import { deriveGraphEdges, noteById, clusterById, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
 import { draftsToBrainXNotes, getGraph, graphEdgesForFlow, graphToBrainXNotes, USE_MOCK_GRAPH, USE_MOCK_GRAPH_CLUSTERS } from "@/lib/graph-api";
-import { createBridgeConcepts, type BridgeConceptsData } from "@/lib/intelligence-api";
-import { createWorkspaceNote, listWorkspaceNoteDrafts, type NoteCreated } from "@/lib/workspace-api";
+import { createBridgeConcepts, createLinkSuggestions, type BridgeConceptsData, type LinkSuggestionsData } from "@/lib/intelligence-api";
+import { createWorkspaceNote, createWorkspaceNoteLink, listWorkspaceNoteDrafts, type NoteCreated } from "@/lib/workspace-api";
 import { useBrainX } from "@/components/brainx-provider";
 import { Avatar, Badge, Btn, Card, Icon } from "@/components/brainx-ui";
 import { cx } from "@/lib/utils";
-import { ReactFlow, ReactFlowProvider, SelectionMode, useNodesState, useEdgesState, useReactFlow, useStoreApi, type Edge, type Node } from "@xyflow/react";
+import { ReactFlow, ReactFlowProvider, SelectionMode, useNodesState, useEdgesState, useReactFlow, useStoreApi, type Edge, type Node, type SelectionRect, type Transform } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { UniverseBackground } from "./universe-background";
 import { PlanetNode } from "./planet-node";
@@ -207,6 +207,23 @@ type BridgeSaveState = {
   noteId?: string;
   error?: string;
 };
+type LinkSuggestion = LinkSuggestionsData["suggestions"][number];
+type LinkSuggestionGroup = {
+  sourceNoteId: string;
+  sourceTitle: string;
+  suggestions: LinkSuggestion[];
+};
+type LinkSuggestionStatus = "idle" | "loading" | "success" | "error";
+type LinkSuggestionProgress = {
+  current: number;
+  total: number;
+};
+type LinkAcceptStatus = "saving" | "saved" | "error";
+type LinkAcceptState = {
+  status: LinkAcceptStatus;
+  linkId?: string;
+  error?: string;
+};
 
 type OrbitFlowEdge = Edge<{
   isBridge: boolean;
@@ -294,6 +311,9 @@ const ageRank: Record<string, number> = {
 const BRIDGE_MIN_NOTE_COUNT = 2;
 const BRIDGE_MAX_NOTE_COUNT = 10;
 const BRIDGE_RECOMMENDATION_TAGS = ["bridge", "ai-suggestion"];
+const LINK_MIN_NOTE_COUNT = 1;
+const LINK_MAX_NOTE_COUNT = 10;
+const AI_BOX_SELECTION_MIN_SIZE = 4;
 
 function isFilteredOutByTime(note: BrainXNote, timeFilter: string) {
   if (timeFilter === "전체") return false;
@@ -309,7 +329,7 @@ function isBridgeSelectableNote(
   return !hiddenClusters[note.cluster] && !isFilteredOutByTime(note, timeFilter);
 }
 
-function mergeBridgeSelectedIds(currentIds: string[], incomingIds: string[]) {
+function mergeSelectedIds(currentIds: string[], incomingIds: string[], maxCount: number) {
   const nextIds: string[] = [...currentIds];
   const seen = new Set(nextIds);
   for (const id of incomingIds) {
@@ -318,9 +338,59 @@ function mergeBridgeSelectedIds(currentIds: string[], incomingIds: string[]) {
     nextIds.push(id);
   }
   return {
-    ids: nextIds.slice(0, BRIDGE_MAX_NOTE_COUNT),
-    truncated: nextIds.length > BRIDGE_MAX_NOTE_COUNT
+    ids: nextIds.slice(0, maxCount),
+    truncated: nextIds.length > maxCount
   };
+}
+
+function mergeBridgeSelectedIds(currentIds: string[], incomingIds: string[]) {
+  return mergeSelectedIds(currentIds, incomingIds, BRIDGE_MAX_NOTE_COUNT);
+}
+
+function mergeLinkSelectedIds(currentIds: string[], incomingIds: string[]) {
+  return mergeSelectedIds(currentIds, incomingIds, LINK_MAX_NOTE_COUNT);
+}
+
+function mergeDragSelectionIds(baseIds: string[], incomingIds: string[]) {
+  const nextIds = [...baseIds];
+  const seen = new Set(nextIds);
+  for (const id of incomingIds) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    nextIds.push(id);
+  }
+  return nextIds;
+}
+
+function flowBoundsFromSelectionRect(rect: SelectionRect, transform: Transform) {
+  const [viewportX, viewportY, zoom] = transform;
+  const minX = (rect.x - viewportX) / zoom;
+  const minY = (rect.y - viewportY) / zoom;
+  const maxX = (rect.x + rect.width - viewportX) / zoom;
+  const maxY = (rect.y + rect.height - viewportY) / zoom;
+  return { minX, minY, maxX, maxY };
+}
+
+function getAiBoxSelectedNodeIds(
+  rect: SelectionRect,
+  transform: Transform,
+  notes: BrainXNote[],
+  positions: Record<string, GraphNode>,
+  hiddenClusters: Partial<Record<ClusterId, boolean>>,
+  timeFilter: string
+) {
+  if (rect.width < AI_BOX_SELECTION_MIN_SIZE || rect.height < AI_BOX_SELECTION_MIN_SIZE) {
+    return [];
+  }
+  const bounds = flowBoundsFromSelectionRect(rect, transform);
+  return notes
+    .filter((note) => {
+      if (!isBridgeSelectableNote(note, hiddenClusters, timeFilter)) return false;
+      const point = positions[note.id];
+      if (!point) return false;
+      return point.x >= bounds.minX && point.x <= bounds.maxX && point.y >= bounds.minY && point.y <= bounds.maxY;
+    })
+    .map((note) => note.id);
 }
 
 function bridgeErrorMessage(error: unknown) {
@@ -345,12 +415,83 @@ function bridgeSaveErrorMessage(error: unknown) {
   return message || "노트 저장에 실패했습니다. 잠시 후 다시 시도하세요.";
 }
 
+function linkSuggestionErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  if (message.includes("만료") || message.includes("권한") || message.includes("403") || message.includes("401")) {
+    return "로그인 또는 AI 연결 추천 권한을 확인하고 다시 시도하세요.";
+  }
+  if (message.includes("찾을 수") || message.includes("not found") || message.includes("404")) {
+    return "선택한 노트를 아직 AI가 분석할 수 없습니다. 그래프를 새로고침하거나 색인 후 다시 시도하세요.";
+  }
+  if (message.includes("conflict") || message.includes("409") || message.includes("unavailable") || message.includes("실패")) {
+    return "AI 추천 생성이 잠시 불안정합니다. 잠시 후 다시 시도하세요.";
+  }
+  return message || "AI 연결 추천 생성에 실패했습니다. 선택한 노트를 확인하고 다시 시도하세요.";
+}
+
+function linkAcceptErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  if (message.includes("만료") || message.includes("권한")) {
+    return "로그인 또는 링크 생성 권한을 확인하고 다시 시도하세요.";
+  }
+  if (message.includes("찾을 수") || message.includes("not found")) {
+    return "연결할 노트를 찾을 수 없습니다. 그래프를 새로고침하고 다시 시도하세요.";
+  }
+  return message || "링크 생성에 실패했습니다. 잠시 후 다시 시도하세요.";
+}
+
+function linkSuggestionKey(sourceNoteId: string, suggestion: LinkSuggestion) {
+  return `${sourceNoteId}::${suggestion.suggestionId || suggestion.targetNoteId}`;
+}
+
+function hasExistingEdge(
+  edges: Array<{ source: string; target: string; bridge?: boolean }>,
+  sourceNoteId: string,
+  targetNoteId: string
+) {
+  return edges.some((edge) =>
+    (edge.source === sourceNoteId && edge.target === targetNoteId) ||
+    (edge.source === targetNoteId && edge.target === sourceNoteId)
+  );
+}
+
+function filterLinkSuggestions(
+  sourceNoteId: string,
+  suggestions: LinkSuggestion[],
+  notes: BrainXNote[],
+  edges: Array<{ source: string; target: string; bridge?: boolean }>
+) {
+  const noteIds = new Set(notes.map((note) => note.id));
+  const seenTargets = new Set<string>();
+  return suggestions.filter((suggestion) => {
+    const targetNoteId = suggestion.targetNoteId?.trim();
+    if (!targetNoteId || targetNoteId === sourceNoteId) return false;
+    if (!noteIds.has(targetNoteId)) return false;
+    if (seenTargets.has(targetNoteId)) return false;
+    if (hasExistingEdge(edges, sourceNoteId, targetNoteId)) return false;
+    seenTargets.add(targetNoteId);
+    return true;
+  });
+}
+
 function normalizeMarkdownText(value: string) {
   return value.replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
 }
 
-function escapeMarkdownLinkText(value: string) {
-  return normalizeMarkdownText(value).replace(/[\\[\]]/g, "\\$&");
+function wikiLink(value: string) {
+  const title = normalizeMarkdownText(value) || "무제 노트";
+  return `[[${title}]]`;
+}
+
+function bridgeSourceNotes(sourceNotes: BrainXNote[]) {
+  return sourceNotes.slice(0, 2);
+}
+
+function ensureBridgeReasonWikiLinks(reason: string, sourceNotes: BrainXNote[]) {
+  const requiredLinks = bridgeSourceNotes(sourceNotes).map((note) => wikiLink(note.title));
+  const missingLinks = requiredLinks.filter((link) => !reason.includes(link));
+  if (missingLinks.length === 0) return reason;
+  return `${reason} 연결 원본: ${missingLinks.join(", ")}.`;
 }
 
 function buildBridgeRecommendationMarkdown(recommendation: BridgeRecommendation, sourceNotes: BrainXNote[]) {
@@ -358,9 +499,10 @@ function buildBridgeRecommendationMarkdown(recommendation: BridgeRecommendation,
   const reason =
     recommendation.bridgeReason?.trim() ||
     "선택한 노트 사이를 이어줄 새 문서 주제로 제안되었습니다.";
-  const sourceLines = sourceNotes.map((note, index) => {
+  const linkedReason = ensureBridgeReasonWikiLinks(reason, sourceNotes);
+  const sourceLines = bridgeSourceNotes(sourceNotes).map((note, index) => {
     const tags = note.tags.length > 0 ? ` ${note.tags.map((tag) => `#${normalizeMarkdownText(tag)}`).join(" ")}` : "";
-    return `${index + 1}. [${escapeMarkdownLinkText(note.title)}](/notes/${encodeURIComponent(note.id)})${tags}`;
+    return `${index + 1}. ${wikiLink(note.title)}${tags}`;
   });
 
   return [
@@ -370,7 +512,7 @@ function buildBridgeRecommendationMarkdown(recommendation: BridgeRecommendation,
     "",
     "## 제안 이유",
     "",
-    reason,
+    linkedReason,
     "",
     "## 연결한 노트",
     "",
@@ -423,8 +565,13 @@ function GraphCanvasFlow({
   bridgeMode,
   bridgeSelectedIds,
   bridgeSelectionLocked,
+  linkMode,
+  linkSelectedIds,
+  linkSelectionLocked,
   onBridgeSelect,
   onBridgeSelectMany,
+  onLinkSelect,
+  onLinkSelectMany,
   onSelect
 }: {
   theme: '2d' | 'universe';
@@ -439,8 +586,13 @@ function GraphCanvasFlow({
   bridgeMode: boolean;
   bridgeSelectedIds: string[];
   bridgeSelectionLocked: boolean;
+  linkMode: boolean;
+  linkSelectedIds: string[];
+  linkSelectionLocked: boolean;
   onBridgeSelect: (id: string) => void;
-  onBridgeSelectMany: (ids: string[]) => void;
+  onBridgeSelectMany: (ids: string[], replace?: boolean) => void;
+  onLinkSelect: (id: string) => void;
+  onLinkSelectMany: (ids: string[], replace?: boolean) => void;
   onSelect: (id: string | null) => void;
 }) {
   const { setCenter, fitView, zoomTo, getViewport, fitBounds } = useReactFlow();
@@ -452,11 +604,14 @@ function GraphCanvasFlow({
   const isDraggingRef = useRef(false);
   const bridgeBoxSelectingRef = useRef(false);
   const reactFlowSelectionIdsRef = useRef<Set<string>>(new Set());
+  const selectionDragBaseIdsRef = useRef<string[]>([]);
   const bridgeSelectionSignatureRef = useRef("");
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   
   const positionsRef = useRef<Record<string, GraphNode>>(settleLayout(notes));
   const raf = useRef(0);
+  const selectionModeActive = bridgeMode || linkMode;
+  const selectionLocked = bridgeSelectionLocked || linkSelectionLocked;
 
   const clearReactFlowNodeSelection = useCallback(() => {
     store.setState({
@@ -474,6 +629,36 @@ function GraphCanvasFlow({
       return changed ? next : current;
     });
   }, [setRfNodes, store]);
+
+  useEffect(() => {
+    return store.subscribe((state) => {
+      if (!selectionModeActive || selectionLocked || !bridgeBoxSelectingRef.current) return;
+      if (!state.userSelectionRect) return;
+
+      const rectSelectedIds = getAiBoxSelectedNodeIds(
+        state.userSelectionRect,
+        state.transform,
+        notes,
+        positionsRef.current,
+        hiddenClusters,
+        timeFilter
+      );
+      const mergedSelectedIds = mergeDragSelectionIds(selectionDragBaseIdsRef.current, rectSelectedIds);
+      const selectedNodeIds = linkMode
+        ? mergeLinkSelectedIds([], mergedSelectedIds).ids
+        : mergeBridgeSelectedIds([], mergedSelectedIds).ids;
+      const signature = selectedNodeIds.join("|");
+      if (signature === bridgeSelectionSignatureRef.current) return;
+
+      bridgeSelectionSignatureRef.current = signature;
+      reactFlowSelectionIdsRef.current = new Set(selectedNodeIds);
+      if (linkMode) {
+        onLinkSelectMany(selectedNodeIds, true);
+      } else if (bridgeMode) {
+        onBridgeSelectMany(selectedNodeIds, true);
+      }
+    });
+  }, [bridgeMode, hiddenClusters, linkMode, notes, onBridgeSelectMany, onLinkSelectMany, selectionLocked, selectionModeActive, store, timeFilter]);
 
   // Sync positionsRef with notes to handle async data loading
   useEffect(() => {
@@ -793,9 +978,10 @@ function GraphCanvasFlow({
       });
     }
 
-    const bridgeSelectionOrder = new Map<string, number>();
-    bridgeSelectedIds.forEach((id, index) => {
-      bridgeSelectionOrder.set(id, index + 1);
+    const aiSelectionOrder = new Map<string, number>();
+    const aiSelectedIds = linkMode ? linkSelectedIds : bridgeMode ? bridgeSelectedIds : [];
+    aiSelectedIds.forEach((id, index) => {
+      aiSelectionOrder.set(id, index + 1);
     });
 
     // bridgeMode: bridge 엣지에 연결된 노드 집합
@@ -814,7 +1000,7 @@ function GraphCanvasFlow({
       const linkCount = note.links.length;
       const baseRadius = 3.5 + Math.min(4, linkCount * 0.75);
       const selected = activeId === note.id;
-      const bridgeSelected = bridgeSelectionOrder.has(note.id);
+      const bridgeSelected = aiSelectionOrder.has(note.id);
       const isDirect = activeId ? direct.has(note.id) : false;
       const radius = selected || bridgeSelected ? baseRadius + 4 : (isDirect ? baseRadius + 1.5 : baseRadius);
       const dimmed = isFilteredOutByTime(note, timeFilter);
@@ -848,14 +1034,14 @@ function GraphCanvasFlow({
           radius,
           selected,
           bridgeSelected,
-          bridgeSelectionOrder: bridgeSelectionOrder.get(note.id) ?? null,
+          bridgeSelectionOrder: aiSelectionOrder.get(note.id) ?? null,
           dimmed,
           isDirect,
           layer,
           theme
         },
         hidden,
-        selectable: bridgeMode && !bridgeSelectionLocked && !hidden && !dimmed,
+        selectable: selectionModeActive && !selectionLocked && !hidden && !dimmed,
         draggable: true,
         className: dimmed ? 'pointer-events-none' : ''
       };
@@ -899,12 +1085,7 @@ function GraphCanvasFlow({
       if (!bridgeBoxSelectingRef.current) {
         return newNodes;
       }
-      const selectedIds = new Set<string>(reactFlowSelectionIdsRef.current);
-      currentNodes.forEach((node) => {
-        if (node.selected) {
-          selectedIds.add(node.id);
-        }
-      });
+      const selectedIds = reactFlowSelectionIdsRef.current;
       if (selectedIds.size === 0) {
         return newNodes;
       }
@@ -916,7 +1097,7 @@ function GraphCanvasFlow({
       });
     });
     setRfEdges(newEdges);
-  }, [notes, edges, selectedId, hovered, draggingNodeId, timeFilter, hiddenClusters, setRfNodes, setRfEdges, theme, bridgeMode, bridgeSelectedIds, bridgeSelectionLocked]);
+  }, [notes, edges, selectedId, hovered, draggingNodeId, timeFilter, hiddenClusters, setRfNodes, setRfEdges, theme, bridgeMode, bridgeSelectedIds, bridgeSelectionLocked, linkMode, linkSelectedIds, selectionModeActive, selectionLocked]);
 
   // Camera zoom on select
   useEffect(() => {
@@ -944,37 +1125,28 @@ function GraphCanvasFlow({
             onBridgeSelect(node.id);
             return;
           }
+          if (linkMode) {
+            onLinkSelect(node.id);
+            return;
+          }
           onSelect(selectedId === node.id ? null : node.id);
         }}
         onPaneClick={() => {
           if (!bridgeMode) onSelect(null);
         }}
-        selectionKeyCode={bridgeMode && !bridgeSelectionLocked ? "Shift" : null}
-        selectionMode={SelectionMode.Partial}
+        selectionKeyCode={selectionModeActive && !selectionLocked ? "Shift" : null}
+        selectionMode={SelectionMode.Full}
         onSelectionStart={() => {
-          if (!bridgeMode || bridgeSelectionLocked) return;
+          if (!selectionModeActive || selectionLocked) return;
           bridgeBoxSelectingRef.current = true;
           reactFlowSelectionIdsRef.current = new Set();
-          bridgeSelectionSignatureRef.current = "";
-        }}
-        onSelectionChange={({ nodes: selectedNodes }) => {
-          if (!bridgeMode || bridgeSelectionLocked || !bridgeBoxSelectingRef.current) return;
-          const selectedNodeIds = selectedNodes
-            .filter((node) => !node.data.dimmed)
-            .map((node) => node.id);
-          reactFlowSelectionIdsRef.current = new Set(selectedNodeIds);
-          if (selectedNodeIds.length === 0) {
-            bridgeSelectionSignatureRef.current = "";
-            return;
-          }
-          const signature = selectedNodeIds.join("|");
-          if (signature === bridgeSelectionSignatureRef.current) return;
-          bridgeSelectionSignatureRef.current = signature;
-          onBridgeSelectMany(selectedNodeIds);
+          selectionDragBaseIdsRef.current = linkMode ? linkSelectedIds.slice() : bridgeSelectedIds.slice();
+          bridgeSelectionSignatureRef.current = selectionDragBaseIdsRef.current.join("|");
         }}
         onSelectionEnd={() => {
           bridgeBoxSelectingRef.current = false;
           reactFlowSelectionIdsRef.current = new Set();
+          selectionDragBaseIdsRef.current = [];
           bridgeSelectionSignatureRef.current = "";
           clearReactFlowNodeSelection();
           window.requestAnimationFrame(clearReactFlowNodeSelection);
@@ -1170,6 +1342,14 @@ function GraphScreenInner() {
   const [bridgeRecommendations, setBridgeRecommendations] = useState<BridgeRecommendation[]>([]);
   const [bridgeError, setBridgeError] = useState<string | null>(null);
   const [bridgeSaveStates, setBridgeSaveStates] = useState<Record<string, BridgeSaveState>>({});
+  const [linkMode, setLinkMode] = useState(false);
+  const [linkSelectedIds, setLinkSelectedIds] = useState<string[]>([]);
+  const [linkStatus, setLinkStatus] = useState<LinkSuggestionStatus>("idle");
+  const [linkGroups, setLinkGroups] = useState<LinkSuggestionGroup[]>([]);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [linkProgress, setLinkProgress] = useState<LinkSuggestionProgress | null>(null);
+  const [linkAcceptStates, setLinkAcceptStates] = useState<Record<string, LinkAcceptState>>({});
+  const [linkAcceptAllLoading, setLinkAcceptAllLoading] = useState(false);
   const [sidebarsVisible, setSidebarsVisible] = useState(true);
   const [sidebarsLocked, setSidebarsLocked] = useState(false);
   const controls = useRef<GraphControls | null>(null);
@@ -1206,6 +1386,34 @@ function GraphScreenInner() {
     bridgeSelectedIds.length <= BRIDGE_MAX_NOTE_COUNT &&
     !bridgeSelectionLocked;
   const bridgePanelVisible = bridgeMode || bridgeStatus === "success" || bridgeStatus === "error";
+  const linkSelectableIds = bridgeSelectableIds;
+  const linkSelectAllIds = useMemo(
+    () => linkSelectableIds.slice(0, LINK_MAX_NOTE_COUNT),
+    [linkSelectableIds]
+  );
+  const linkSelectedNotes = useMemo(
+    () => linkSelectedIds.map((id) => notes.find((note) => note.id === id)).filter((note): note is BrainXNote => !!note),
+    [linkSelectedIds, notes]
+  );
+  const linkSelectionLocked = linkStatus === "loading" || linkAcceptAllLoading;
+  const linkAllSelectableSelected =
+    linkSelectAllIds.length > 0 &&
+    linkSelectedIds.length === linkSelectAllIds.length &&
+    linkSelectAllIds.every((id) => linkSelectedIds.includes(id));
+  const canCreateLinkSuggestions =
+    linkSelectedIds.length >= LINK_MIN_NOTE_COUNT &&
+    linkSelectedIds.length <= LINK_MAX_NOTE_COUNT &&
+    !linkSelectionLocked;
+  const linkPanelVisible = linkMode || linkStatus === "success" || linkStatus === "error";
+  const linkSuggestionCount = linkGroups.reduce((sum, group) => sum + group.suggestions.length, 0);
+  const linkAcceptableSuggestions = useMemo(
+    () => linkGroups.flatMap((group) =>
+      group.suggestions
+        .filter((suggestion) => linkAcceptStates[linkSuggestionKey(group.sourceNoteId, suggestion)]?.status !== "saved")
+        .map((suggestion) => ({ group, suggestion }))
+    ),
+    [linkAcceptStates, linkGroups]
+  );
 
   const refreshGraph = useCallback(
     async ({
@@ -1296,9 +1504,24 @@ function GraphScreenInner() {
     setBridgeSaveStates({});
   };
 
+  const clearLinkState = () => {
+    setLinkSelectedIds([]);
+    setLinkStatus("idle");
+    setLinkGroups([]);
+    setLinkError(null);
+    setLinkProgress(null);
+    setLinkAcceptStates({});
+    setLinkAcceptAllLoading(false);
+  };
+
   const closeBridgeMode = () => {
     setBridgeMode(false);
     clearBridgeState();
+  };
+
+  const closeLinkMode = () => {
+    setLinkMode(false);
+    clearLinkState();
   };
 
   const toggleBridgeMode = () => {
@@ -1307,10 +1530,26 @@ function GraphScreenInner() {
       return;
     }
     setSelectedId(null);
+    setLinkMode(false);
+    clearLinkState();
     setBridgeMode(true);
     setSidebarsVisible(true);
     setSidebarsLocked(true);
     clearBridgeState();
+  };
+
+  const toggleLinkMode = () => {
+    if (linkMode) {
+      closeLinkMode();
+      return;
+    }
+    setSelectedId(null);
+    setBridgeMode(false);
+    clearBridgeState();
+    setLinkMode(true);
+    setSidebarsVisible(true);
+    setSidebarsLocked(true);
+    clearLinkState();
   };
 
   const clearBridgeGeneratedState = () => {
@@ -1320,11 +1559,21 @@ function GraphScreenInner() {
     setBridgeSaveStates({});
   };
 
+  const clearLinkGeneratedState = () => {
+    setLinkStatus("idle");
+    setLinkError(null);
+    setLinkGroups([]);
+    setLinkProgress(null);
+    setLinkAcceptStates({});
+    setLinkAcceptAllLoading(false);
+  };
+
   const selectBridgeNotes = (noteIds: string[], replace = false) => {
-    if (bridgeSelectionLocked || noteIds.length === 0) return;
+    if (bridgeSelectionLocked || (!replace && noteIds.length === 0)) return;
     clearBridgeGeneratedState();
     const hasNewIncoming = noteIds.some((id) => !bridgeSelectedIds.includes(id));
-    setBridgeSelectedIds((current) => mergeBridgeSelectedIds(replace ? [] : current, noteIds).ids);
+    const result = mergeBridgeSelectedIds(replace ? [] : bridgeSelectedIds, noteIds);
+    setBridgeSelectedIds(result.ids);
     if (!replace && hasNewIncoming && bridgeSelectedIds.length >= BRIDGE_MAX_NOTE_COUNT) {
       pushToast(`징검다리 추천은 최대 ${BRIDGE_MAX_NOTE_COUNT}개 노트까지 선택할 수 있어요.`, "info");
     }
@@ -1358,6 +1607,45 @@ function GraphScreenInner() {
     }
   };
 
+  const selectLinkNotes = (noteIds: string[], replace = false) => {
+    if (linkSelectionLocked || (!replace && noteIds.length === 0)) return;
+    clearLinkGeneratedState();
+    const hasNewIncoming = noteIds.some((id) => !linkSelectedIds.includes(id));
+    const result = mergeLinkSelectedIds(replace ? [] : linkSelectedIds, noteIds);
+    setLinkSelectedIds(result.ids);
+    if (!replace && hasNewIncoming && linkSelectedIds.length >= LINK_MAX_NOTE_COUNT) {
+      pushToast(`AI 연결 추천은 최대 ${LINK_MAX_NOTE_COUNT}개 노트까지 선택할 수 있어요.`, "info");
+    }
+  };
+
+  const toggleLinkSelectAll = () => {
+    if (linkSelectionLocked || linkSelectableIds.length === 0) return;
+    clearLinkGeneratedState();
+    if (linkAllSelectableSelected) {
+      setLinkSelectedIds([]);
+      return;
+    }
+    const result = mergeLinkSelectedIds([], linkSelectableIds);
+    setLinkSelectedIds(result.ids);
+    if (result.truncated) {
+      pushToast(`보이는 노트 중 ${LINK_MAX_NOTE_COUNT}개까지만 선택했어요.`, "info");
+    }
+  };
+
+  const toggleLinkNote = (noteId: string) => {
+    if (linkSelectionLocked) return;
+    clearLinkGeneratedState();
+    if (linkSelectedIds.includes(noteId)) {
+      setLinkSelectedIds(linkSelectedIds.filter((id) => id !== noteId));
+      return;
+    }
+    const result = mergeLinkSelectedIds(linkSelectedIds, [noteId]);
+    setLinkSelectedIds(result.ids);
+    if (result.truncated) {
+      pushToast(`AI 연결 추천은 최대 ${LINK_MAX_NOTE_COUNT}개 노트까지 선택할 수 있어요.`, "info");
+    }
+  };
+
   const handleCreateBridgeConcepts = async () => {
     if (!canCreateBridgeConcepts) return;
     const session = readAuthSession();
@@ -1381,6 +1669,131 @@ function GraphScreenInner() {
       const message = bridgeErrorMessage(error);
       setBridgeError(message);
       setBridgeStatus("error");
+    }
+  };
+
+  const handleCreateLinkSuggestions = async () => {
+    if (!canCreateLinkSuggestions) return;
+    const session = readAuthSession();
+    if (!session?.accessToken) {
+      pushToast("회원가입/로그인 하고 이어서 작업할 수 있어요.", "info");
+      router.push(buildAuthPath("/login", "/graph"));
+      return;
+    }
+
+    setLinkStatus("loading");
+    setLinkError(null);
+    setLinkGroups([]);
+    setLinkAcceptStates({});
+    setLinkAcceptAllLoading(false);
+    setLinkProgress({ current: 0, total: linkSelectedIds.length });
+
+    try {
+      const groups: LinkSuggestionGroup[] = [];
+      for (let index = 0; index < linkSelectedIds.length; index += 1) {
+        const sourceNoteId = linkSelectedIds[index];
+        const sourceNote = notes.find((note) => note.id === sourceNoteId);
+        if (!sourceNote) continue;
+        setLinkProgress({ current: index + 1, total: linkSelectedIds.length });
+        const result = await createLinkSuggestions({ noteId: sourceNoteId });
+        const suggestions = filterLinkSuggestions(sourceNoteId, result.suggestions, notes, edges);
+        if (suggestions.length > 0) {
+          groups.push({
+            sourceNoteId,
+            sourceTitle: sourceNote.title,
+            suggestions
+          });
+        }
+      }
+      setLinkGroups(groups);
+      setLinkStatus("success");
+      setLinkProgress(null);
+      if (groups.reduce((sum, group) => sum + group.suggestions.length, 0) > 0) {
+        pushToast("AI 연결 후보를 찾았어요.", "ok");
+      }
+    } catch (error) {
+      setLinkError(linkSuggestionErrorMessage(error));
+      setLinkStatus("error");
+      setLinkProgress(null);
+    }
+  };
+
+  const addOptimisticLink = (sourceNoteId: string, targetNoteId: string) => {
+    setLiveEdges((current) => {
+      const baseEdges = current ?? edges;
+      if (hasExistingEdge(baseEdges, sourceNoteId, targetNoteId)) {
+        return baseEdges;
+      }
+      return [{ source: sourceNoteId, target: targetNoteId }, ...baseEdges];
+    });
+    setLiveNotes((current) => {
+      const baseNotes = current ?? notes;
+      return baseNotes.map((note) => {
+        if (note.id !== sourceNoteId && note.id !== targetNoteId) return note;
+        const linkId = note.id === sourceNoteId ? targetNoteId : sourceNoteId;
+        if (note.links.includes(linkId)) return note;
+        return { ...note, links: [...note.links, linkId] };
+      });
+    });
+    controls.current?.reheat();
+  };
+
+  const acceptLinkSuggestion = async (
+    group: LinkSuggestionGroup,
+    suggestion: LinkSuggestion,
+    showToast = true
+  ) => {
+    const key = linkSuggestionKey(group.sourceNoteId, suggestion);
+    const currentState = linkAcceptStates[key];
+    if (currentState?.status === "saving" || currentState?.status === "saved") return false;
+
+    setLinkAcceptStates((current) => ({
+      ...current,
+      [key]: { status: "saving" }
+    }));
+
+    try {
+      const targetNote = notes.find((note) => note.id === suggestion.targetNoteId);
+      const created = await createWorkspaceNoteLink(group.sourceNoteId, {
+        targetNoteId: suggestion.targetNoteId,
+        targetTitle: normalizeMarkdownText(suggestion.targetTitle || targetNote?.title || "연결 노트"),
+        createIfMissing: false
+      });
+      addOptimisticLink(created.sourceNoteId, created.targetNoteId);
+      setLinkAcceptStates((current) => ({
+        ...current,
+        [key]: { status: "saved", linkId: created.linkId }
+      }));
+      window.dispatchEvent(new CustomEvent("brainx:notes-refresh", {
+        detail: { sourceNoteId: created.sourceNoteId, targetNoteId: created.targetNoteId }
+      }));
+      if (showToast) {
+        pushToast("AI 연결 후보를 링크로 저장했어요.", "ok");
+      }
+      return true;
+    } catch (error) {
+      setLinkAcceptStates((current) => ({
+        ...current,
+        [key]: { status: "error", error: linkAcceptErrorMessage(error) }
+      }));
+      return false;
+    }
+  };
+
+  const handleAcceptAllLinkSuggestions = async () => {
+    if (linkAcceptAllLoading || linkAcceptableSuggestions.length === 0) return;
+    setLinkAcceptAllLoading(true);
+    let savedCount = 0;
+    try {
+      for (const item of linkAcceptableSuggestions) {
+        const saved = await acceptLinkSuggestion(item.group, item.suggestion, false);
+        if (saved) savedCount += 1;
+      }
+      if (savedCount > 0) {
+        pushToast(`${savedCount}개 연결을 저장했어요.`, "ok");
+      }
+    } finally {
+      setLinkAcceptAllLoading(false);
     }
   };
 
@@ -1510,6 +1923,7 @@ function GraphScreenInner() {
 
   useEffect(() => {
     setBridgeSelectedIds((current) => current.filter((id) => notes.some((note) => note.id === id)));
+    setLinkSelectedIds((current) => current.filter((id) => notes.some((note) => note.id === id)));
   }, [notes]);
 
   return (
@@ -1528,8 +1942,13 @@ function GraphScreenInner() {
           bridgeMode={bridgeMode}
           bridgeSelectedIds={bridgeSelectedIds}
           bridgeSelectionLocked={bridgeSelectionLocked}
+          linkMode={linkMode}
+          linkSelectedIds={linkSelectedIds}
+          linkSelectionLocked={linkSelectionLocked}
           onBridgeSelect={toggleBridgeNote}
-          onBridgeSelectMany={(ids) => selectBridgeNotes(ids)}
+          onBridgeSelectMany={(ids, replace) => selectBridgeNotes(ids, replace)}
+          onLinkSelect={toggleLinkNote}
+          onLinkSelectMany={(ids, replace) => selectLinkNotes(ids, replace)}
           onSelect={(id) => {
             setSelectedId(id);
           }}
@@ -1764,6 +2183,28 @@ function GraphScreenInner() {
               </span>
             ) : null}
           </button>
+          <button
+            type="button"
+            aria-pressed={linkMode}
+            disabled={!hasGraphData}
+            onClick={toggleLinkMode}
+            className={cx(
+              "inline-flex h-8 items-center justify-center gap-1.5 rounded-xl px-3 text-[13px] font-semibold shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary/60",
+              !hasGraphData
+                ? "cursor-not-allowed bg-surface2/60 text-txt3/50"
+                : linkMode
+                  ? "bg-primary text-white hover:bg-primary/90"
+                  : "bg-txt text-bg hover:bg-txt/90"
+            )}
+          >
+            <Icon name="sparkle" size={14} />
+            <span>{linkMode ? "선택 종료" : "AI 연결 추천"}</span>
+            {linkMode ? (
+              <span className="ml-0.5 rounded-full bg-white/20 px-1.5 text-[11px] tabular-nums">
+                {linkSelectedIds.length}
+              </span>
+            ) : null}
+          </button>
         </div>
       </div>
 
@@ -1928,7 +2369,208 @@ function GraphScreenInner() {
         </div>
       ) : null}
 
-      {selected && !bridgeMode ? (
+      {linkPanelVisible ? (
+        <div className="fade-up pointer-events-auto absolute bottom-5 right-5 z-30 w-[min(390px,calc(100vw-40px))]">
+          <div className="flex max-h-[min(600px,calc(100vh-120px))] flex-col overflow-hidden rounded-2xl border border-line/60 bg-surface/95 shadow-2xl backdrop-blur-xl">
+            <div className="border-b border-line/50 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-[12px] font-semibold text-primary">
+                    <Icon name="sparkle" size={14} />
+                    AI 연결 추천
+                  </div>
+                  <h2 className="mt-1 truncate text-[17px] font-bold text-txt">
+                    노트 사이의 실제 링크 후보
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  aria-label="AI 연결 추천 패널 닫기"
+                  onClick={closeLinkMode}
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-txt3 transition-colors hover:bg-txt/10 hover:text-txt focus-visible:ring-2 focus-visible:ring-primary/60"
+                >
+                  <Icon name="x" size={16} />
+                </button>
+              </div>
+              <p className="mt-2 text-[12px] leading-5 text-txt2">
+                연결을 만들 원본 노트를 선택하세요. AI가 각 노트에서 이어볼 만한 대상 노트를 찾습니다.
+              </p>
+            </div>
+
+            <div className="scroll flex-1 overflow-y-auto p-4" aria-live="polite">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <span className="block text-[11px] font-semibold text-txt3">원본 노트</span>
+                  <span className="mt-0.5 block text-[10px] text-txt3">노드 클릭 또는 Shift + 드래그로 선택</span>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={linkSelectionLocked || linkSelectableIds.length === 0}
+                    onClick={toggleLinkSelectAll}
+                    className="h-6 rounded-md border border-line/60 bg-surface2/60 px-2 text-[10.5px] font-semibold text-txt2 transition-colors hover:border-primary/40 hover:text-txt disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {linkAllSelectableSelected ? "전체 해제" : "전체 선택"}
+                  </button>
+                  <span className="text-[11px] tabular-nums text-txt3">
+                    {linkSelectedIds.length}/{LINK_MAX_NOTE_COUNT}
+                  </span>
+                </div>
+              </div>
+
+              {linkSelectedNotes.length > 0 ? (
+                <div className="mb-4 flex flex-wrap gap-1.5">
+                  {linkSelectedNotes.map((note, index) => (
+                    <button
+                      key={note.id}
+                      type="button"
+                      onClick={() => toggleLinkNote(note.id)}
+                      disabled={linkSelectionLocked}
+                      className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line/60 bg-surface2/70 px-2.5 py-1 text-[11px] text-txt2 transition-colors hover:border-primary/50 hover:text-txt disabled:opacity-60"
+                    >
+                      <span className="grid h-4 min-w-4 place-items-center rounded-full bg-primary text-[9px] font-bold text-white">
+                        {index + 1}
+                      </span>
+                      <span className="max-w-[220px] truncate">{note.title}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="mb-4 rounded-xl border border-dashed border-line/70 bg-surface2/40 px-3 py-4 text-center text-[12px] text-txt3">
+                  연결 추천을 만들 원본 노트를 먼저 선택하세요.
+                </div>
+              )}
+
+              <button
+                type="button"
+                disabled={!canCreateLinkSuggestions}
+                onClick={handleCreateLinkSuggestions}
+                className={cx(
+                  "mb-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-xl text-[13px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50",
+                  canCreateLinkSuggestions
+                    ? "bg-primary text-white hover:bg-primary/90"
+                    : "bg-surface2 text-txt3"
+                )}
+              >
+                <Icon name={linkStatus === "loading" ? "refresh" : "sparkle"} size={15} />
+                {linkStatus === "loading" && linkProgress
+                  ? `${linkProgress.current}/${linkProgress.total} 분석 중…`
+                  : "추천 생성"}
+              </button>
+
+              {linkStatus === "error" ? (
+                <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-[12px] leading-5 text-red-600 dark:text-red-300">
+                  {linkError ?? "AI 연결 추천 생성에 실패했습니다. 선택한 노트를 확인하고 다시 시도하세요."}
+                </div>
+              ) : null}
+
+              {linkStatus === "success" && linkSuggestionCount === 0 ? (
+                <div className="rounded-xl border border-line/60 bg-surface2/50 p-4 text-center">
+                  <div className="mx-auto mb-2 grid h-9 w-9 place-items-center rounded-full bg-txt/5 text-txt3">
+                    <Icon name="sparkle" size={16} />
+                  </div>
+                  <p className="text-[13px] font-semibold text-txt">새로 연결할 후보가 없습니다</p>
+                  <p className="mt-1 text-[12px] leading-5 text-txt3">
+                    다른 노트를 선택하거나 색인 후 다시 시도하세요.
+                  </p>
+                </div>
+              ) : null}
+
+              {linkSuggestionCount > 0 ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-[11px] font-semibold text-txt3">추천 후보 {linkSuggestionCount}</div>
+                    <button
+                      type="button"
+                      disabled={linkAcceptAllLoading || linkAcceptableSuggestions.length === 0}
+                      onClick={handleAcceptAllLinkSuggestions}
+                      className="h-7 rounded-lg bg-txt px-2.5 text-[11px] font-semibold text-bg transition-colors hover:bg-txt/90 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {linkAcceptAllLoading ? "저장 중" : "전체 수락"}
+                    </button>
+                  </div>
+
+                  {linkGroups.map((group) => (
+                    <section
+                      key={group.sourceNoteId}
+                      className="rounded-xl border border-line/60 bg-surface2/45 p-3"
+                    >
+                      <div className="mb-2 flex min-w-0 items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-[10.5px] font-semibold text-primary">원본 노트</div>
+                          <h3 className="truncate text-[13px] font-bold text-txt">{group.sourceTitle}</h3>
+                        </div>
+                        <span className="shrink-0 rounded-full bg-txt/5 px-2 py-0.5 text-[10px] font-medium text-txt3">
+                          {group.suggestions.length}
+                        </span>
+                      </div>
+
+                      <div className="space-y-2">
+                        {group.suggestions.map((suggestion) => {
+                          const key = linkSuggestionKey(group.sourceNoteId, suggestion);
+                          const acceptState = linkAcceptStates[key];
+                          const acceptStatus = acceptState?.status ?? "idle";
+                          const isSaving = acceptStatus === "saving";
+                          const isSaved = acceptStatus === "saved";
+                          const targetNote = notes.find((note) => note.id === suggestion.targetNoteId);
+                          return (
+                            <article
+                              key={key}
+                              className="rounded-lg border border-line/50 bg-surface/70 p-3"
+                            >
+                              <div className="flex min-w-0 items-start justify-between gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedId(suggestion.targetNoteId)}
+                                  className="min-w-0 flex-1 truncate text-left text-[13px] font-semibold text-txt transition-colors hover:text-primary"
+                                >
+                                  {suggestion.targetTitle || targetNote?.title || "연결 후보"}
+                                </button>
+                                <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                                  {Math.round((suggestion.score ?? 0) * 100)}%
+                                </span>
+                              </div>
+                              {suggestion.reason ? (
+                                <p className="mt-2 max-h-20 overflow-y-auto break-words text-[12px] leading-5 text-txt2">
+                                  {suggestion.reason}
+                                </p>
+                              ) : null}
+                              <div className="mt-3 flex items-center justify-between gap-2 border-t border-line/50 pt-2.5">
+                                <span className={cx(
+                                  "min-w-0 truncate text-[11px]",
+                                  acceptStatus === "error" ? "text-red-600 dark:text-red-300" : "text-txt3"
+                                )}>
+                                  {isSaved ? "그래프에 연결됨" : acceptStatus === "error" ? acceptState.error : "실제 링크로 저장할 수 있어요"}
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={isSaving || isSaved || linkAcceptAllLoading}
+                                  onClick={() => acceptLinkSuggestion(group, suggestion)}
+                                  className={cx(
+                                    "inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-60",
+                                    isSaved
+                                      ? "bg-txt/10 text-txt"
+                                      : "bg-primary text-white hover:bg-primary/90"
+                                  )}
+                                >
+                                  <Icon name={isSaving ? "refresh" : isSaved ? "check" : "plus"} size={12} />
+                                  {isSaving ? "저장 중" : isSaved ? "수락됨" : "수락"}
+                                </button>
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {selected && !bridgeMode && !linkMode ? (
         <div className="fade-up absolute bottom-5 right-5 top-5 z-30 w-80">
           <div className="flex h-full flex-col overflow-hidden bg-surface/90 border border-line/70 rounded-2xl backdrop-blur-xl shadow-2xl">
             <div className="flex items-start justify-between gap-2 border-b border-line/70 p-4">

@@ -43,7 +43,7 @@ class ConnectionQualityApplicationRunnerTest {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         String input = """
             {"id":"link","type":"link-suggestions","sourcePath":"기능.md","minSuggestionCount":1,"minScore":0.7,"requireReason":true}
-            {"id":"bridge","type":"bridge-concepts","notePaths":["기능.md","핵심.md"],"minRecommendationCount":1,"requireReason":true}
+            {"id":"bridge","type":"bridge-concepts","notePaths":["기능.md","핵심.md"],"minRecommendationCount":1,"requireReason":true,"requiredBridgeWikiLinks":["[[기능]]","[[핵심]]"]}
             exit
             """;
 
@@ -63,6 +63,28 @@ class ConnectionQualityApplicationRunnerTest {
             ConnectionQualityApplicationRunner.sampleNoteId("기능.md"),
             ConnectionQualityApplicationRunner.sampleNoteId("핵심.md")
         );
+    }
+
+    @Test
+    void bridgeScenarioFailsWhenRequiredWikiLinksAreMissing() throws Exception {
+        ConnectionQualityDevProperties properties = properties();
+        FakeBridgeUseCase bridge = new FakeBridgeUseCase();
+        bridge.reason = "두 노트를 이어 주는 이유";
+        ConnectionQualityApplicationRunner runner = runner(properties, new FakeLinkUseCase(), bridge);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        String input = """
+            {"id":"bridge","type":"bridge-concepts","notePaths":["기능.md","핵심.md"],"minRecommendationCount":1,"requireReason":true,"requiredBridgeWikiLinks":["[[기능]]","[[핵심]]"]}
+            exit
+            """;
+
+        runner.runQuality(
+            new BufferedReader(new StringReader(input)),
+            new PrintStream(output, true, StandardCharsets.UTF_8)
+        );
+
+        String text = output.toString(StandardCharsets.UTF_8);
+        assertThat(text).contains("\"status\" : \"failed\"");
+        assertThat(text).contains("missing bridge wiki link [[기능]]");
     }
 
     private static ConnectionQualityApplicationRunner runner(
@@ -107,6 +129,7 @@ class ConnectionQualityApplicationRunnerTest {
     private static final class FakeBridgeUseCase implements CreateBridgeConceptsUseCase {
 
         private final List<BridgeConceptsCommand> commands = new ArrayList<>();
+        private String reason = "[[기능]]과 [[핵심]]을 이어 주는 이유";
 
         @Override
         public BridgeConceptsResult createBridgeConcepts(BridgeConceptsCommand command) {
@@ -114,7 +137,7 @@ class ConnectionQualityApplicationRunnerTest {
             return new BridgeConceptsResult(List.of(new BridgeConceptRecommendation(
                 "bridge-1",
                 "연결 주제",
-                "두 노트를 이어 주는 이유"
+                reason
             )));
         }
     }

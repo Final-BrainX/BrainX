@@ -41,6 +41,10 @@ DEFAULT_SCENARIOS = [
         "notePaths": ["BrainX API 명세서.md", "brainx_domain_msa_api_contracts.md"],
         "minRecommendationCount": 1,
         "requireReason": True,
+        "requiredBridgeWikiLinks": [
+            "[[BrainX 통합 API 명세서]]",
+            "[[BrainX 도메인 기준 MSA / API / 이벤트 계약]]",
+        ],
     },
 ]
 
@@ -231,6 +235,14 @@ def validate_response(scenario: dict[str, Any], response: Any) -> dict[str, Any]
         ids = [item.get("noteId") for item in recommendations if isinstance(item, dict)]
         if len(ids) != len(set(ids)):
             failures.append("duplicate recommendation ids")
+        required_links = scenario.get("requiredBridgeWikiLinks") or []
+        for recommendation in recommendations:
+            if not isinstance(recommendation, dict):
+                continue
+            reason = str(recommendation.get("bridgeReason") or "")
+            for required_link in required_links:
+                if str(required_link) not in reason:
+                    failures.append(f"recommendation reason is missing bridge wiki link {required_link}")
     return {"status": "passed" if not failures else "failed", "failures": failures}
 
 

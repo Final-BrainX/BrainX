@@ -186,14 +186,20 @@ public class ConnectionQualityApplicationRunner implements ApplicationRunner {
         Set<String> ids = new LinkedHashSet<>();
         Set<String> titles = new LinkedHashSet<>();
         for (BridgeConceptRecommendation recommendation : recommendations) {
+            String bridgeReason = recommendation.bridgeReason() == null ? "" : recommendation.bridgeReason();
             if (!ids.add(recommendation.noteId())) {
                 failures.add("duplicate recommendation id: " + recommendation.noteId());
             }
             if (!titles.add(normalizeTitle(recommendation.title()))) {
                 failures.add("duplicate recommendation title: " + recommendation.title());
             }
-            if (Boolean.TRUE.equals(scenario.requireReason()) && !StringUtils.hasText(recommendation.bridgeReason())) {
+            if (Boolean.TRUE.equals(scenario.requireReason()) && !StringUtils.hasText(bridgeReason)) {
                 failures.add("recommendation reason is blank: " + recommendation.noteId());
+            }
+            for (String requiredLink : requiredBridgeWikiLinks(scenario)) {
+                if (!bridgeReason.contains(requiredLink)) {
+                    failures.add("recommendation reason is missing bridge wiki link " + requiredLink + ": " + recommendation.noteId());
+                }
             }
         }
         return failures;
@@ -219,7 +225,8 @@ public class ConnectionQualityApplicationRunner implements ApplicationRunner {
             1,
             0.0d,
             1,
-            true
+            true,
+            List.of()
         );
     }
 
@@ -261,6 +268,16 @@ public class ConnectionQualityApplicationRunner implements ApplicationRunner {
         return title == null ? "" : title.replaceAll("\\s+", "").trim().toLowerCase();
     }
 
+    private static List<String> requiredBridgeWikiLinks(ConnectionQualityScenario scenario) {
+        if (scenario.requiredBridgeWikiLinks() == null) {
+            return List.of();
+        }
+        return scenario.requiredBridgeWikiLinks().stream()
+            .filter(StringUtils::hasText)
+            .map(String::trim)
+            .toList();
+    }
+
     private void writeJson(PrintStream out, Object value) throws IOException {
         out.println(objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(value));
     }
@@ -283,7 +300,8 @@ public class ConnectionQualityApplicationRunner implements ApplicationRunner {
         Integer minSuggestionCount,
         Double minScore,
         Integer minRecommendationCount,
-        Boolean requireReason
+        Boolean requireReason,
+        List<String> requiredBridgeWikiLinks
     ) {
     }
 

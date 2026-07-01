@@ -169,8 +169,9 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
         List<ConnectionBridgeSourceNote> sourceNotes = bridgeSourceNotes(userId, documentGroupId, noteIds);
         String modelId = resolveBridgeModelId(userId);
         int maxRecommendations = bridgeProperties.getMaxRecommendations();
+        List<String> bridgeLinkTitles = bridgeLinkTitles(sourceNotes);
         String systemPrompt = bridgeSystemPrompt(maxRecommendations);
-        String userPrompt = bridgeUserPrompt(sourceNotes, maxRecommendations);
+        String userPrompt = bridgeUserPrompt(sourceNotes, bridgeLinkTitles, maxRecommendations);
         int tokenEstimate = estimateTokens(systemPrompt + "\n" + userPrompt);
 
         var entitlement = entitlementPort.checkEntitlement(new EntitlementRequest(
@@ -189,6 +190,7 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
         List<BridgeConceptRecommendation> recommendations = bridgeRecommendations(
             userId,
             noteIds,
+            bridgeLinkTitles,
             content,
             maxRecommendations
         );
@@ -248,6 +250,7 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
     private List<BridgeConceptRecommendation> bridgeRecommendations(
         String userId,
         List<String> noteIds,
+        List<String> bridgeLinkTitles,
         String content,
         int maxRecommendations
     ) {
@@ -273,7 +276,7 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
                 recommendations.add(new BridgeConceptRecommendation(
                     proposalId(userId, noteIds, title, ordinal),
                     title,
-                    bridgeReason
+                    normalizeBridgeReason(bridgeReason, bridgeLinkTitles)
                 ));
             }
             return recommendations;
@@ -333,7 +336,11 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
         ));
     }
 
-    private String bridgeUserPrompt(List<ConnectionBridgeSourceNote> notes, int maxRecommendations) {
+    private String bridgeUserPrompt(
+        List<ConnectionBridgeSourceNote> notes,
+        List<String> bridgeLinkTitles,
+        int maxRecommendations
+    ) {
         List<Map<String, Object>> noteSummaries = notes.stream()
             .map(note -> {
                 Map<String, Object> values = new LinkedHashMap<>();
@@ -343,13 +350,20 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
                 return values;
             })
             .toList();
+        List<String> requiredWikiLinks = bridgeLinkTitles.stream()
+            .map(ConnectionService::wikiLink)
+            .toList();
         return """
             Source notes. Only these title/tag fields are available; do not invent note body details:
             %s
 
+            The bridge document links exactly two source concepts: %s.
+            In bridgeReason, mention both of those exact wiki links once: %s.
+            If more source notes are provided, use them only as background and do not add them as required wiki links.
+
             Generate at most %d bridge document or topic candidates that would connect these notes.
             Each candidate should be a new document/topic the user could create later, not an existing note lookup.
-            """.formatted(toJson(noteSummaries), maxRecommendations);
+            """.formatted(toJson(noteSummaries), toJson(bridgeLinkTitles), String.join(", ", requiredWikiLinks), maxRecommendations);
     }
 
     private String toJson(Object value) {
@@ -366,9 +380,38 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
             Return only a strict JSON array with at most %d objects.
             Each object must contain:
             - title: concise Korean bridge document/topic title
-            - bridgeReason: one Korean sentence explaining how it connects the source notes
+            - bridgeReason: one Korean sentence explaining how it connects the two bridge source concepts, including both required wiki links exactly as [[title]]
             Do not return markdown fences, comments, prose, IDs, note bodies, or additional fields.
             """.formatted(maxRecommendations);
+    }
+
+    private static List<String> bridgeLinkTitles(List<ConnectionBridgeSourceNote> sourceNotes) {
+        return sourceNotes.stream()
+            .map(ConnectionBridgeSourceNote::title)
+            .filter(StringUtils::hasText)
+            .map(ConnectionService::wikiTitle)
+            .limit(MIN_BRIDGE_NOTE_COUNT)
+            .toList();
+    }
+
+    private static String normalizeBridgeReason(String bridgeReason, List<String> bridgeLinkTitles) {
+        String normalized = bridgeReason.trim();
+        List<String> missingLinks = bridgeLinkTitles.stream()
+            .map(ConnectionService::wikiLink)
+            .filter(link -> !normalized.contains(link))
+            .toList();
+        if (missingLinks.isEmpty()) {
+            return normalized;
+        }
+        return normalized + " 연결 원본: " + String.join(", ", missingLinks) + ".";
+    }
+
+    private static String wikiLink(String title) {
+        return "[[" + wikiTitle(title) + "]]";
+    }
+
+    private static String wikiTitle(String title) {
+        return title == null ? "" : title.replaceAll("\\s+", " ").trim();
     }
 
     private static List<String> normalizeBridgeNoteIds(List<String> noteIds) {

@@ -16,6 +16,8 @@ export type ChatThreadData = Schemas["ChatThreadData"];
 export type ChatThreadListData = Schemas["ChatThreadListData"];
 export type ChatMessageCreateRequest = Schemas["ChatMessageCreateRequest"];
 export type ChatThreadDetailData = Schemas["ChatThreadDetailData"];
+export type LinkSuggestionsRequest = Schemas["LinkSuggestionsRequest"];
+export type LinkSuggestionsData = Schemas["LinkSuggestionsData"];
 export type BridgeConceptsRequest = Schemas["BridgeConceptsRequest"];
 export type BridgeConceptsData = Schemas["BridgeConceptsData"];
 export type AiModelsData = Schemas["AiModelsData"];
@@ -277,6 +279,17 @@ export function getChatThread(threadId: string, options?: IntelligenceRequestOpt
 export function createBridgeConcepts(payload: BridgeConceptsRequest, options?: IntelligenceRequestOptions) {
   return authedRequest<BridgeConceptsData>(
     "/api/intelligence/ai/bridge-concepts",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    options
+  );
+}
+
+export function createLinkSuggestions(payload: LinkSuggestionsRequest, options?: IntelligenceRequestOptions) {
+  return authedRequest<LinkSuggestionsData>(
+    "/api/intelligence/ai/link-suggestions",
     {
       method: "POST",
       body: JSON.stringify(payload),

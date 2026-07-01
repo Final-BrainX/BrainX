@@ -42,12 +42,13 @@ function parseHeadings(content: string) {
     }
     return headings;
   }
+  let headingIndex = 0;
   return content
     .split("\n")
-    .map((line, index) => {
+    .map((line) => {
       const m = /^(#{1,3})\s+(.+)/.exec(line.trim());
       if (!m) return null;
-      return { id: `h-${index}`, level: m[1].length, text: m[2].trim() };
+      return { id: `h-${headingIndex++}`, level: m[1].length, text: m[2].trim() };
     })
     .filter((x): x is { id: string; level: number; text: string } => Boolean(x));
 }

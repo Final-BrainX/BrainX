@@ -45,6 +45,30 @@ export type NoteCreated = {
   createdAt: string;
 };
 
+export type WorkspaceNoteCreatePayload = {
+  title: string;
+  markdown?: string | null;
+  folderId?: string | null;
+  tags?: string[];
+};
+
+export type WorkspaceNoteLinkCreateRequest = {
+  targetNoteId?: string | null;
+  targetTitle: string;
+  createIfMissing: boolean;
+  anchorText?: string | null;
+  headingAnchor?: string | null;
+};
+
+export type WorkspaceNoteLinkData = {
+  linkId: string;
+  sourceNoteId: string;
+  targetNoteId: string;
+  targetTitle: string;
+  anchorText?: string | null;
+  headingAnchor?: string | null;
+};
+
 export type NoteSaveResult = {
   noteId: string;
   version: number;
@@ -186,15 +210,31 @@ export async function deleteWorkspaceFolder(folderId: string, mode: "trash" | "p
   });
 }
 
-export async function createWorkspaceNote(note: MockNote) {
+export async function createWorkspaceNoteFromPayload(payload: WorkspaceNoteCreatePayload) {
   return authedRequest<NoteCreated>("/api/v1/notes", {
     method: "POST",
     body: JSON.stringify({
-      title: note.title,
-      markdown: note.content,
-      folderId: note.folderId ?? null,
-      tags: note.tags
+      title: payload.title,
+      markdown: payload.markdown ?? null,
+      folderId: payload.folderId ?? null,
+      tags: payload.tags ?? []
     })
+  });
+}
+
+export async function createWorkspaceNote(note: MockNote) {
+  return createWorkspaceNoteFromPayload({
+    title: note.title,
+    markdown: note.content,
+    folderId: note.folderId ?? null,
+    tags: note.tags
+  });
+}
+
+export async function createWorkspaceNoteLink(sourceNoteId: string, request: WorkspaceNoteLinkCreateRequest) {
+  return authedRequest<WorkspaceNoteLinkData>(`/api/v1/notes/${encodeURIComponent(sourceNoteId)}/links`, {
+    method: "POST",
+    body: JSON.stringify(request)
   });
 }
 

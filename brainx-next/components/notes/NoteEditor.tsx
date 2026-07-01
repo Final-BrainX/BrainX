@@ -2929,7 +2929,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       // 계산보다 read/edit 모드 양쪽에서 더 단순하고 안정적이다).
       const target = editor.view.dom.querySelectorAll("h1, h2, h3")[index] as HTMLElement | undefined;
       if (!target) return;
-      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
       target.classList.remove("brainx-heading-flash");
       // 같은 heading을 연속으로 다시 클릭해도 애니메이션이 재생되도록 강제로 리플로우시킨다.
       void target.offsetWidth;

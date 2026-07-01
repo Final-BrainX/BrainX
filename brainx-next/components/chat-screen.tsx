@@ -13,6 +13,7 @@ import {
   type ChatThreadDetailData,
   type ChatThreadListData
 } from "@/lib/intelligence-api";
+import { createWorkspaceNoteFromPayload } from "@/lib/workspace-api";
 import { clusterById } from "@/lib/brainx-data";
 import { useBrainX } from "@/components/brainx-provider";
 import { Avatar, Btn, Icon, RelevanceBar } from "@/components/brainx-ui";
@@ -20,6 +21,7 @@ import { cx } from "@/lib/utils";
 
 const THREAD_PAGE_SIZE = 20;
 const FALLBACK_MODEL_ID = "gpt-5.4-mini";
+const CHAT_DRAFT_NOTE_TAGS = ["ai-draft", "chat"];
 
 type ChatThreadListItem = ChatThreadListData["threads"][number];
 
@@ -46,6 +48,14 @@ type ChatMessageView = {
   streaming?: boolean;
   error?: boolean;
   citations?: ChatCitation[];
+};
+
+type DraftNoteSaveStatus = "saving" | "saved" | "error";
+
+type DraftNoteSaveState = {
+  status: DraftNoteSaveStatus;
+  noteId?: string;
+  error?: string;
 };
 
 const FALLBACK_MODEL: ChatModelOption = {
@@ -221,6 +231,14 @@ function messageFromError(error: unknown) {
   return "요청 처리에 실패했습니다.";
 }
 
+function draftNoteSaveErrorMessage(error: unknown) {
+  const message = messageFromError(error);
+  if (message.includes("만료") || message.includes("권한") || message.includes("401") || message.includes("403")) {
+    return "로그인 또는 노트 저장 권한을 확인하고 다시 시도하세요.";
+  }
+  return message || "AI 초안을 노트로 저장하지 못했습니다. 잠시 후 다시 시도하세요.";
+}
+
 function stringValue(value: unknown) {
   return typeof value === "string" ? value : "";
 }
@@ -289,6 +307,50 @@ function upsertThread(threads: ChatThreadListItem[], thread: ChatThreadData): Ch
   return [item, ...next];
 }
 
+function normalizeMarkdownText(value: string) {
+  return value.replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function markdownTitleText(value: string) {
+  return normalizeMarkdownText(value)
+    .replace(/\[([^\]\n]+)\]\([^)]+\)/g, "$1")
+    .replace(/[#>*_`~]/g, "")
+    .trim();
+}
+
+function truncateNoteTitle(value: string) {
+  const title = markdownTitleText(value) || "AI 초안";
+  if (title.length <= 80) return title;
+  return `${title.slice(0, 77).trimEnd()}...`;
+}
+
+function noteTitleFromAiMessage(text: string, fallbackTitle?: string | null) {
+  const heading = /^\s{0,3}#{1,6}\s+(.+)$/m.exec(text);
+  return truncateNoteTitle(heading?.[1] ?? fallbackTitle ?? "AI 초안");
+}
+
+function markdownLinkLabel(value: string) {
+  return markdownTitleText(value).replace(/[[\]\\]/g, "\\$&") || "참고 노트";
+}
+
+function citationMarkdownLine(citation: ChatCitation, index: number) {
+  const label = markdownLinkLabel(citation.title || citation.noteId || `참고 노트 ${index + 1}`);
+  const score = citation.score == null
+    ? ""
+    : ` (${Math.round(Math.max(0, Math.min(1, citation.score)) * 100)}%)`;
+  if (!citation.noteId) {
+    return `- ${label}${score}`;
+  }
+  return `- [${label}](/notes/${encodeURIComponent(citation.noteId)})${score}`;
+}
+
+function buildChatDraftMarkdown(message: ChatMessageView) {
+  const body = message.text.trim();
+  const citations = (message.citations ?? []).filter((citation) => citation.noteId || citation.title);
+  if (citations.length === 0) return body;
+  return `${body}\n\n## 참고 노트\n\n${citations.map(citationMarkdownLine).join("\n")}`;
+}
+
 export function ChatScreen() {
   const router = useRouter();
   const { pushToast, notes, effectiveTheme } = useBrainX();
@@ -306,6 +368,7 @@ export function ChatScreen() {
   const [messages, setMessages] = useState<ChatMessageView[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [draftSaveStates, setDraftSaveStates] = useState<Record<string, DraftNoteSaveState>>({});
   const detailRequestIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -389,6 +452,7 @@ export function ChatScreen() {
       if (detailRequestIdRef.current !== requestId) return;
       setActiveThread(detail.thread);
       setMessages(messagesFromThread(detail));
+      setDraftSaveStates({});
     } catch (error) {
       if (detailRequestIdRef.current !== requestId) return;
       setActiveThreadId(null);
@@ -408,6 +472,7 @@ export function ChatScreen() {
     setActiveThreadId(null);
     setActiveThread(null);
     setMessages([]);
+    setDraftSaveStates({});
     setInput("");
   }
 
@@ -506,6 +571,43 @@ export function ChatScreen() {
   }
 
   const activeTitle = activeThread?.title ?? "새 대화";
+
+  async function saveAiMessageAsNote(message: ChatMessageView) {
+    const currentState = draftSaveStates[message.id];
+    if (currentState?.status === "saving") return;
+    if (currentState?.status === "saved" && currentState.noteId) {
+      router.push(`/notes/${currentState.noteId}`);
+      return;
+    }
+
+    const markdown = buildChatDraftMarkdown(message);
+    if (!markdown.trim()) return;
+
+    setDraftSaveStates((current) => ({
+      ...current,
+      [message.id]: { status: "saving" }
+    }));
+
+    try {
+      const created = await createWorkspaceNoteFromPayload({
+        title: noteTitleFromAiMessage(message.text, activeThread?.title),
+        markdown,
+        folderId: null,
+        tags: CHAT_DRAFT_NOTE_TAGS
+      });
+      setDraftSaveStates((current) => ({
+        ...current,
+        [message.id]: { status: "saved", noteId: created.noteId }
+      }));
+      window.dispatchEvent(new CustomEvent("brainx:notes-refresh", { detail: { noteId: created.noteId } }));
+      pushToast("AI 초안을 노트로 저장했어요.", "ok");
+    } catch (error) {
+      setDraftSaveStates((current) => ({
+        ...current,
+        [message.id]: { status: "error", error: draftNoteSaveErrorMessage(error) }
+      }));
+    }
+  }
 
   return (
     <div data-route className="flex h-full">
@@ -651,7 +753,14 @@ export function ChatScreen() {
             </div>
           ) : (
             <div className="mx-auto max-w-2xl space-y-6 px-5 py-6">
-              {messages.map((message) => (
+              {messages.map((message) => {
+                const saveState = draftSaveStates[message.id];
+                const saveStatus = saveState?.status ?? "idle";
+                const isSavingDraft = saveStatus === "saving";
+                const isSavedDraft = saveStatus === "saved" && !!saveState?.noteId;
+                const canSaveDraft = message.role === "ai" && !message.streaming && !message.error && !!message.text.trim();
+
+                return (
                 <div key={message.id} className={cx("flex gap-3", message.role === "user" ? "flex-row-reverse" : "")}>
                   {message.role === "ai" ? (
                     <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-primary to-accent">
@@ -695,9 +804,34 @@ export function ChatScreen() {
                         </div>
                       </div>
                     ) : null}
+                    {canSaveDraft ? (
+                      <div className="mt-2.5 flex w-full items-center justify-between gap-2 border-t border-line/50 pt-2.5">
+                        <span className={cx(
+                          "min-w-0 truncate text-[12px]",
+                          saveStatus === "error" ? "text-red-600 dark:text-red-300" : "text-txt3"
+                        )}>
+                          {isSavedDraft ? "Workspace 노트로 저장됨" : saveStatus === "error" ? saveState?.error : "AI 답변을 새 노트로 저장할 수 있어요"}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={isSavingDraft}
+                          onClick={() => saveAiMessageAsNote(message)}
+                          className={cx(
+                            "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 text-[12px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-wait disabled:opacity-60",
+                            isSavedDraft
+                              ? "bg-txt/10 text-txt hover:bg-txt/15"
+                              : "bg-primary text-white hover:bg-primary/90"
+                          )}
+                        >
+                          <Icon name={isSavingDraft ? "refresh" : isSavedDraft ? "doc" : "plus"} size={13} />
+                          {isSavingDraft ? "저장 중" : isSavedDraft ? "노트 열기" : "초안을 노트로 저장"}
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

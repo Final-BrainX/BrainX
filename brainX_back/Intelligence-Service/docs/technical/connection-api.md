@@ -24,6 +24,7 @@
 - 유효한 unique note 개수는 2개 이상 10개 이하이다.
 - 응답은 기존 note를 찾는 결과가 아니라, 선택된 note들을 이어 줄 새 문서/주제 후보이다.
 - 구현은 source note의 `title`, `tags`만 prompt에 넣고 `AiChatPort.generate(...)`로 strict JSON 후보를 생성한다.
+- bridge 후보가 실제 노트로 저장될 때 연결의 중심이 되는 source concept은 입력 순서의 첫 두 note이다. `bridgeReason`은 이 두 note title을 `[[노트 제목]]` wiki link로 포함해야 하며, provider가 누락하면 service가 누락된 wiki link를 보정한다.
 - 반환 `noteId`는 실제 note id가 아니라 `bridge-<sha256>` 형식의 deterministic proposal id이다.
 
 ## Document Group Boundary
@@ -55,7 +56,7 @@
 
 이 조건은 자동 연결이 raw markdown anchor와 Qdrant index를 함께 사용하기 때문이다.
 
-`bridge-concepts` source note는 searchable projection이면 사용할 수 있고, prompt에는 title/tags만 넣는다.
+`bridge-concepts` source note는 searchable projection이면 사용할 수 있고, prompt에는 title/tags만 넣는다. 3개 이상 입력된 note는 후보 생성 배경으로 활용할 수 있지만, 저장될 bridge note가 wiki link로 직접 연결하는 원본 concept은 앞의 두 note로 제한한다.
 
 ## Entitlement, Usage, Events
 
@@ -98,7 +99,7 @@ python scripts\capture_connection_cli.py --run-name 20260626-connection-quality
 
 이 script는 `.brainx-local.properties`, OpenAI/Voyage/Qdrant 설정, Qdrant gRPC 연결을 preflight로 확인한다. 통과하면 `sample_notes`를 ingest하고 `link-suggestions`, `bridge-concepts` scenario를 실행한다. sample note id는 `SampleNoteLoader`와 같은 `sample-<sha256(relativePath)[0:16]>` 규칙으로 계산한다.
 
-결과는 `build/connection-captures/<run-id>/`에 저장되며 suggestion/recommendation count, score, reason, duplicate proposal을 검증한다. 실패는 exit code `1`, provider/config preflight 실패는 exit code `2`로 구분한다.
+결과는 `build/connection-captures/<run-id>/`에 저장되며 suggestion/recommendation count, score, reason, duplicate proposal, bridge reason의 필수 `[[...]]` wiki link를 검증한다. 실패는 exit code `1`, provider/config preflight 실패는 exit code `2`로 구분한다.
 
 ## Implementation Notes
 
