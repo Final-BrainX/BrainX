@@ -51,6 +51,10 @@ public class NotionApiService {
                 "redirect_uri", redirectUri
         );
 
+        String clientIdPrefix = clientId != null && clientId.length() >= 4 ? clientId.substring(0, 4) : clientId;
+        String clientSecretPrefix = clientSecret != null && clientSecret.length() >= 4 ? clientSecret.substring(0, 4) : clientSecret;
+        log.info("Notion 토큰 교환: clientId앞4자={}, clientSecret앞4자={}, redirectUri={}", clientIdPrefix, clientSecretPrefix, redirectUri);
+
         try {
             ResponseEntity<Map> res = restTemplate.postForEntity(
                     tokenUrl, new HttpEntity<>(body, headers), Map.class);
@@ -64,7 +68,7 @@ public class NotionApiService {
             String notionBody = e.getResponseBodyAsString();
             log.error("Notion 토큰 교환 실패: status={}, body={}", e.getStatusCode(), notionBody);
             throw BrainXException.badRequest("NOTION_TOKEN_ERROR",
-                    "Notion 인증 코드 교환에 실패했습니다. [status=" + e.getStatusCode() + ", body=" + notionBody + "]");
+                    "Notion 인증 코드 교환에 실패했습니다. [status=" + e.getStatusCode() + ", body=" + notionBody + ", clientId앞4자=" + clientIdPrefix + ", secret앞4자=" + clientSecretPrefix + "]");
         } catch (Exception e) {
             log.error("Notion 토큰 교환 실패(기타 예외): type={}, msg={}", e.getClass().getSimpleName(), e.getMessage(), e);
             throw BrainXException.badRequest("NOTION_TOKEN_ERROR",
