@@ -8957,7 +8957,7 @@ paths:
         reason: signup and active user summary
       x-produces-events: []
       x-async-boundary: false
-      x-implementation-note: KPI cards are rendered from Admin-Service authoritative aggregates. KPI deltas compare the latest live values with the most recent persisted monitoring snapshot, and service uptime is derived from recent persisted health snapshots instead of a frontend placeholder.
+      x-implementation-note: KPI cards are rendered from Admin-Service authoritative aggregates. KPI deltas compare the latest live values with the most recent persisted daily monitoring snapshot, and service uptime is derived from recent persisted health snapshots instead of a frontend placeholder. The dashboard read itself is non-persistent; a Spring scheduler captures the daily snapshot at 23:59 Asia/Seoul.
       responses:
         '200':
           description: Success
@@ -8978,7 +8978,7 @@ paths:
   /api/v1/admin/monitoring/snapshots:
     get:
       operationId: listAdminMonitoringSnapshots
-      summary: List persisted dashboard monitoring snapshots
+      summary: List daily persisted dashboard monitoring snapshots
       tags:
       - Admin
       x-producer-service: admin-service
@@ -8990,7 +8990,7 @@ paths:
       x-internal-sync-calls: []
       x-produces-events: []
       x-async-boundary: false
-      description: admin-service가 dashboardOverview 조회 시마다 적재하는 매출/구독/활성 사용자 스냅샷 이력.
+      description: admin-service가 매일 23:59 스케줄러로 적재하는 매출/구독/활성 사용자 일별 스냅샷 이력.
       responses:
         '200':
           description: Success
@@ -9088,7 +9088,7 @@ paths:
         reason: health snapshots are recorded from Gateway-routed /internal/v1/health/* probes
       x-produces-events: []
       x-async-boundary: false
-      description: dashboardOverview 호출 시 User/Commerce/Workspace/Ingestion 헬스를 polling한 이력.
+      description: Gateway-routed /internal/v1/health/* probes로 기록한 서비스 health snapshot 이력.
       responses:
         '200':
           description: Success
@@ -14645,16 +14645,26 @@ components:
           - CANCEL_SCHEDULED
           - CANCELLED
           - FREE
+        startedAt:
+          type: string
+          format: date-time
         renewalAt:
           type: string
           format: date-time
           nullable: true
+        billingCycle:
+          type: string
+          enum:
+          - MONTHLY
+          - YEARLY
         entitlements:
           type: object
           additionalProperties: true
       required:
       - plan
       - status
+      - startedAt
+      - billingCycle
       - entitlements
       additionalProperties: false
     CheckoutSessionCreateRequest:
@@ -14668,10 +14678,16 @@ components:
         cancelUrl:
           type: string
           format: uri
+        billingCycle:
+          type: string
+          enum:
+          - MONTHLY
+          - YEARLY
       required:
       - planId
       - successUrl
       - cancelUrl
+      - billingCycle
       additionalProperties: false
     CheckoutSessionData:
       type: object
@@ -14958,6 +14974,9 @@ components:
           type: string
         name:
           type: string
+        email:
+          type: string
+          format: email
         loginId:
           type: string
         role:
@@ -14974,6 +14993,7 @@ components:
       required:
       - adminId
       - name
+      - email
       - loginId
       - role
       - mustChangePassword
@@ -14996,11 +15016,15 @@ components:
           type: string
         loginId:
           type: string
+        email:
+          type: string
+          format: email
         role:
           $ref: '#/components/schemas/AdminRole'
       required:
       - name
       - loginId
+      - email
       - role
       additionalProperties: false
     AdminAccountCreateData:

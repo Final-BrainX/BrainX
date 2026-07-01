@@ -45,7 +45,7 @@ import {
   type UserStatus
 } from "@/lib/admin-data";
 import { clearSession, getSession, updateSessionAdmin } from "@/lib/admin-auth";
-import { AdminSidebar, StatusLine, type SidebarTarget } from "@/components/admin-sidebar";
+import { AdminSidebar, type SidebarTarget } from "@/components/admin-sidebar";
 import { AdminAccountsPanel } from "@/components/admin-accounts-panel";
 
 type ConsoleView = SidebarTarget;
@@ -134,6 +134,171 @@ function normalizeSeries(values: unknown, fallback: number[] = [0]) {
   return normalized.length > 0 ? normalized : fallback;
 }
 
+const KST_TIME_ZONE = "Asia/Seoul";
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
+function formatDateParts(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: KST_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const map = new Map(parts.map((part) => [part.type, part.value]));
+  return {
+    year: map.get("year") ?? "0000",
+    month: map.get("month") ?? "00",
+    day: map.get("day") ?? "00"
+  };
+}
+
+function formatTimeParts(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: KST_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(date);
+  const map = new Map(parts.map((part) => [part.type, part.value]));
+  return {
+    hour: map.get("hour") ?? "00",
+    minute: map.get("minute") ?? "00"
+  };
+}
+
+function formatKstDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const dateParts = formatDateParts(date);
+  const timeParts = formatTimeParts(date);
+  return `${dateParts.year}.${dateParts.month}.${dateParts.day} ${timeParts.hour}:${timeParts.minute}`;
+}
+
+function formatKstMonthDay(date: Date) {
+  const parts = formatDateParts(date);
+  return `${parts.month}/${parts.day}`;
+}
+
+function formatIsoDateFromDate(date: Date) {
+  const parts = formatDateParts(date);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function addDaysToIsoDate(value: string, days: number) {
+  const [year, month, day] = value.split("-").map((part) => Number(part));
+  if (!year || !month || !day) return value;
+  const next = new Date(Date.UTC(year, month - 1, day));
+  next.setUTCDate(next.getUTCDate() + days);
+  return formatIsoDateFromDate(next);
+}
+
+function buildTrendLabels(pointCount: number, endAt?: string | Date | null) {
+  if (!pointCount || pointCount <= 0) return [];
+  const end = endAt ? new Date(endAt) : new Date();
+  if (Number.isNaN(end.getTime())) return [];
+  return Array.from({ length: pointCount }, (_, index) => {
+    const delta = pointCount - index - 1;
+    return formatKstMonthDay(new Date(end.getTime() - delta * DAY_IN_MS));
+  });
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function safeId(value: string) {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "-");
+}
+
+function buildLineChartSvg(labels: string[], values: number[], title: string, accent = "#0f766e") {
+  const width = 720;
+  const height = 240;
+  const padding = { top: 18, right: 20, bottom: 38, left: 38 };
+  const innerWidth = width - padding.left - padding.right;
+  const innerHeight = height - padding.top - padding.bottom;
+  const maxValue = Math.max(1, ...values);
+  const minValue = Math.min(0, ...values);
+  const range = Math.max(1, maxValue - minValue);
+  const gradientId = `${safeId(title)}-fill`;
+  const points = values.map((value, index) => {
+    const x = padding.left + (innerWidth / Math.max(values.length - 1, 1)) * index;
+    const y = padding.top + innerHeight - ((value - minValue) / range) * innerHeight;
+    return { x, y };
+  });
+  const polyline = points.map((point) => `${point.x},${point.y}`).join(" ");
+  const area = `${padding.left},${height - padding.bottom} ${polyline} ${width - padding.right},${height - padding.bottom}`;
+  const gridLines = [0, 1, 2, 3].map((line) => {
+    const y = padding.top + (innerHeight / 3) * line;
+    return `<line x1="${padding.left}" x2="${width - padding.right}" y1="${y}" y2="${y}" stroke="#e7e5e4" />`;
+  });
+  const labelStep = Math.max(1, Math.ceil(labels.length / 7));
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" role="img" aria-label="${escapeHtml(title)}">
+      <defs>
+        <linearGradient id="${gradientId}" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stop-color="#0f766e" stop-opacity="0.28" />
+          <stop offset="100%" stop-color="#0f766e" stop-opacity="0" />
+        </linearGradient>
+      </defs>
+      ${gridLines.join("")}
+      <polygon points="${area}" fill="url(#${gradientId})" opacity="0.85" />
+      <polyline fill="none" points="${polyline}" stroke="${accent}" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" />
+      ${points.map((point) => `<circle cx="${point.x}" cy="${point.y}" r="4.5" fill="${accent}" stroke="#ffffff" stroke-width="2" />`).join("")}
+      ${labels
+        .map((label, index) => {
+          if (index % labelStep !== 0 && index !== labels.length - 1) return "";
+          const x = padding.left + (innerWidth / Math.max(labels.length - 1, 1)) * index;
+          return `<text x="${x}" y="${height - 12}" text-anchor="middle" fill="#6b7280" font-size="11">${escapeHtml(label)}</text>`;
+        })
+        .join("")}
+      <text x="${padding.left}" y="16" fill="#111827" font-size="14" font-weight="600">${escapeHtml(title)}</text>
+    </svg>
+  `;
+}
+
+function buildBarChartSvg(labels: string[], values: number[], title: string, accent = "#2563eb") {
+  const width = 720;
+  const height = 240;
+  const padding = { top: 22, right: 18, bottom: 38, left: 38 };
+  const innerWidth = width - padding.left - padding.right;
+  const innerHeight = height - padding.top - padding.bottom;
+  const maxValue = Math.max(1, ...values);
+  const barWidth = innerWidth / Math.max(values.length, 1) - 8;
+  const labelStep = Math.max(1, Math.ceil(labels.length / 7));
+  const gridLines = [0, 1, 2, 3].map((line) => {
+    const y = padding.top + (innerHeight / 3) * line;
+    return `<line x1="${padding.left}" x2="${width - padding.right}" y1="${y}" y2="${y}" stroke="#e7e5e4" />`;
+  });
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" role="img" aria-label="${escapeHtml(title)}">
+      ${gridLines.join("")}
+      ${values
+        .map((value, index) => {
+          const x = padding.left + (innerWidth / Math.max(values.length, 1)) * index + 4;
+          const barHeight = (value / maxValue) * innerHeight;
+          const y = padding.top + innerHeight - barHeight;
+          return `<rect x="${x}" y="${y}" width="${Math.max(8, barWidth)}" height="${barHeight}" rx="10" fill="${accent}" fill-opacity="0.86" />`;
+        })
+        .join("")}
+      ${labels
+        .map((label, index) => {
+          if (index % labelStep !== 0 && index !== labels.length - 1) return "";
+          const x = padding.left + (innerWidth / Math.max(labels.length, 1)) * index + (innerWidth / Math.max(values.length, 1)) / 2;
+          return `<text x="${x}" y="${height - 12}" text-anchor="middle" fill="#6b7280" font-size="11">${escapeHtml(label)}</text>`;
+        })
+        .join("")}
+      <text x="${padding.left}" y="18" fill="#111827" font-size="14" font-weight="600">${escapeHtml(title)}</text>
+    </svg>
+  `;
+}
+
 const KAFKA_LAG_WARNING_THRESHOLD = 1_000;
 const KAFKA_LAG_CRITICAL_THRESHOLD = 5_000;
 
@@ -214,6 +379,249 @@ function Tag({ meta, children }: { meta: { background: string; color: string; do
       {meta.dot ? <span className="dot" style={{ background: meta.dot }} /> : null}
       {children}
     </span>
+  );
+}
+
+function getNextBillingDate(started: string, billingCycle?: "monthly" | "yearly") {
+  return addDaysToIsoDate(started, billingCycle === "yearly" ? 365 : 30);
+}
+
+function getBillingCycleLabel(billingCycle?: "monthly" | "yearly") {
+  return billingCycle === "yearly" ? "연간" : "월간";
+}
+
+function downloadAdminReport(payload: {
+  overviewSummary: AdminBootstrap["overviewSummary"];
+  kpis: AdminBootstrap["kpis"];
+  activeUserSeries: number[];
+  revenueBars: number[];
+  activeUserTrendMeta: AdminBootstrap["activeUserTrendMeta"];
+  revenueTrendMeta: AdminBootstrap["revenueTrendMeta"];
+  monitoringSnapshots: AdminMonitoringSnapshot[];
+  healthSnapshots: AdminServiceHealthSnapshot[];
+  billingSubscriptions: BillingSubscription[];
+  lastUpdatedAt: string | null;
+}) {
+  if (typeof window === "undefined") return;
+
+  const generatedAt = new Date();
+  const generatedAtLabel = formatKstDateTime(generatedAt.toISOString());
+  const fileDate = formatIsoDateFromDate(generatedAt);
+  const endDate = payload.lastUpdatedAt ? new Date(payload.lastUpdatedAt) : generatedAt;
+  const trendLength = Math.max(payload.activeUserSeries.length, payload.revenueBars.length, 14);
+  const trendLabels = buildTrendLabels(trendLength, endDate);
+  const activeTrend = normalizeSeries(payload.activeUserSeries, normalizeSeries(payload.activeUserTrendMeta.values, [0]));
+  const revenueTrend = normalizeSeries(payload.revenueBars, normalizeSeries(payload.revenueTrendMeta.values, [0]));
+  const trendDates = trendLabels.slice(-Math.max(activeTrend.length, revenueTrend.length));
+  const activeTrendRows = trendDates.map((dateLabel, index) => ({
+    date: dateLabel,
+    activeUsers: activeTrend[index] ?? 0,
+    revenue: revenueTrend[index] ?? 0
+  }));
+  const monitoringRows = [...payload.monitoringSnapshots]
+    .sort((left, right) => new Date(right.capturedAt).getTime() - new Date(left.capturedAt).getTime())
+    .slice(0, 14);
+  const healthRows = [...payload.healthSnapshots]
+    .sort((left, right) => new Date(right.capturedAt).getTime() - new Date(left.capturedAt).getTime())
+    .slice(0, 10);
+  const subscriptionRows = [...payload.billingSubscriptions]
+    .filter((item) => item.plan !== "free")
+    .slice()
+    .sort((left, right) => left.started.localeCompare(right.started));
+
+  const html = `<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <style>
+      body { font-family: Arial, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; color: #111827; padding: 24px; background: #ffffff; }
+      h1 { margin: 0 0 8px; font-size: 24px; }
+      h2 { margin: 22px 0 10px; font-size: 18px; }
+      .muted { color: #6b7280; font-size: 12px; }
+      .card { border: 1px solid #dbe2ea; border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+      .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+      .metric { border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; background: #f8fafc; }
+      .metric-label { color: #6b7280; font-size: 12px; }
+      .metric-value { font-size: 18px; font-weight: 700; margin-top: 4px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+      th, td { border: 1px solid #e5e7eb; padding: 8px 10px; font-size: 12px; text-align: left; vertical-align: top; }
+      th { background: #f8fafc; }
+      .split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+      .chart-card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 12px; }
+      .chart-title { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+      .chart-subtitle { color: #6b7280; font-size: 12px; margin-bottom: 10px; }
+    </style>
+  </head>
+  <body>
+    <h1>BrainX 관리자 운영 리포트</h1>
+    <div class="muted">생성 시각: ${escapeHtml(generatedAtLabel)} · 마지막 업데이트: ${escapeHtml(payload.lastUpdatedAt ? formatKstDateTime(payload.lastUpdatedAt) : "-")}</div>
+
+    <div class="card">
+      <h2>핵심 지표</h2>
+      <div class="grid">
+        <div class="metric"><div class="metric-label">이번 달 매출</div><div class="metric-value">${money(payload.overviewSummary.monthlyRevenue)}</div></div>
+        <div class="metric"><div class="metric-label">활성 구독</div><div class="metric-value">${payload.overviewSummary.activeSubscriptions.toLocaleString("ko-KR")}</div></div>
+        <div class="metric"><div class="metric-label">MRR</div><div class="metric-value">${money(payload.overviewSummary.mrr)}</div></div>
+        <div class="metric"><div class="metric-label">결제 실패</div><div class="metric-value">${payload.overviewSummary.failedPaymentCount.toLocaleString("ko-KR")}</div></div>
+      </div>
+    </div>
+
+    <div class="split">
+      <div class="chart-card">
+        <div class="chart-title">최근 14일 활성 사용자 추이</div>
+        <div class="chart-subtitle">${escapeHtml(payload.activeUserTrendMeta.periodLabel)} · ${escapeHtml(payload.activeUserTrendMeta.source)}</div>
+        ${buildLineChartSvg(trendDates, activeTrendRows.map((row) => row.activeUsers), "최근 14일 활성 사용자 추이")}
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">최근 14일 매출 추이</div>
+        <div class="chart-subtitle">${escapeHtml(payload.revenueTrendMeta.periodLabel)} · ${escapeHtml(payload.revenueTrendMeta.source)}</div>
+        ${buildBarChartSvg(trendDates, activeTrendRows.map((row) => row.revenue), "최근 14일 매출 추이")}
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>일별 지표</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>날짜</th>
+            <th>활성 사용자</th>
+            <th>매출</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${activeTrendRows
+            .map(
+              (row) => `
+                <tr>
+                  <td>${escapeHtml(row.date)}</td>
+                  <td>${row.activeUsers.toLocaleString("ko-KR")}</td>
+                  <td>${money(row.revenue)}</td>
+                </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>최근 모니터링 스냅샷</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>수집 시각</th>
+            <th>매출</th>
+            <th>활성 구독</th>
+            <th>MRR</th>
+            <th>활성 사용자</th>
+            <th>Kafka Lag</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${monitoringRows
+            .map(
+              (row) => `
+                <tr>
+                  <td>${escapeHtml(formatKstDateTime(row.capturedAt))}</td>
+                  <td>${money(row.monthlyRevenue)}</td>
+                  <td>${row.activeSubscriptions.toLocaleString("ko-KR")}</td>
+                  <td>${money(row.mrr)}</td>
+                  <td>${row.activeUsers.toLocaleString("ko-KR")}</td>
+                  <td>${row.kafkaLagMessages == null ? "-" : `${row.kafkaLagMessages.toLocaleString("ko-KR")} msgs`}</td>
+                </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>구독 현황</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>사용자</th>
+            <th>플랜</th>
+            <th>시작일</th>
+            <th>다음 결제일</th>
+            <th>주기</th>
+            <th>금액</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${subscriptionRows
+            .map(
+              (row) => `
+                <tr>
+                  <td>${escapeHtml(row.user)}</td>
+                  <td>${escapeHtml(planLabel[row.plan])}</td>
+                  <td>${escapeHtml(row.started)}</td>
+                  <td>${escapeHtml(getNextBillingDate(row.started, row.billingCycle))}</td>
+                  <td>${escapeHtml(getBillingCycleLabel(row.billingCycle))}</td>
+                  <td>${money(row.amount)}</td>
+                </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+
+    ${
+      healthRows.length > 0
+        ? `
+    <div class="card">
+      <h2>서비스 체크 기록</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>수집 시각</th>
+            <th>서비스</th>
+            <th>상태</th>
+            <th>지연</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${healthRows
+            .map(
+              (row) => `
+                <tr>
+                  <td>${escapeHtml(formatKstDateTime(row.capturedAt))}</td>
+                  <td>${escapeHtml(row.serviceName)}</td>
+                  <td>${escapeHtml(row.state)}</td>
+                  <td>${row.latencyMs.toLocaleString("ko-KR")}ms</td>
+                </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </div>`
+        : ""
+    }
+  </body>
+</html>`;
+
+  const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `brainx-admin-report-${fileDate}.xls`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
+function TrendAxisLabels({ labels }: { labels: string[] }) {
+  if (labels.length === 0) return null;
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${labels.length}, minmax(0, 1fr))`, gap: 4, marginTop: 10, color: "#a8a29e", fontSize: 10 }}>
+      {labels.map((label) => (
+        <div key={label} style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+          {label}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -553,6 +961,7 @@ function Dashboard({ data, onToast }: { data: AdminBootstrap; onToast: (message:
     orderedSnapshots[orderedSnapshots.length - 1] ??
     data.monitoringSnapshots[data.monitoringSnapshots.length - 1] ??
     null;
+  const latestMonitoringUpdatedAt = latestMonitoringSnapshot?.capturedAt ?? data.monitoringSnapshots[data.monitoringSnapshots.length - 1]?.capturedAt ?? null;
   const latestKafkaLag =
     kafkaLag ?? (latestMonitoringSnapshot ? {
       consumerGroupId: latestMonitoringSnapshot.kafkaConsumerGroupId,
@@ -563,6 +972,24 @@ function Dashboard({ data, onToast }: { data: AdminBootstrap; onToast: (message:
   const latestKafkaLagView = kafkaLagDisplay(latestKafkaLag);
   const reversedSnapshots = orderedSnapshots.slice().reverse();
   const reversedHealthSnapshots = orderedHealthSnapshots.slice().reverse();
+  const activeTrendLabels = buildTrendLabels(activeUserSeries.length, latestMonitoringUpdatedAt);
+  const revenueTrendLabels = buildTrendLabels(revenueBars.length, latestMonitoringUpdatedAt);
+
+  const handleDownloadReport = () => {
+    downloadAdminReport({
+      overviewSummary,
+      kpis: data.kpis,
+      activeUserSeries,
+      revenueBars,
+      activeUserTrendMeta,
+      revenueTrendMeta,
+      monitoringSnapshots: snapshots,
+      healthSnapshots,
+      billingSubscriptions: data.billingSubscriptions,
+      lastUpdatedAt: latestMonitoringUpdatedAt
+    });
+    onToast("운영 리포트를 엑셀 형태로 내려받았어요");
+  };
 
   const renderSnapshotRow = (snapshot: AdminMonitoringSnapshot) => (
     <div key={snapshot.snapshotId} style={{ display: "flex", alignItems: "center", gap: 10, borderBottom: "1px solid #f5f5f4", padding: "8px 0" }}>
@@ -595,10 +1022,13 @@ function Dashboard({ data, onToast }: { data: AdminBootstrap; onToast: (message:
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
-        <StatusLine color="#64748b" text="실시간 · 마지막 업데이트 방금 전" />
+        <div className="status-line" style={{ display: "flex", alignItems: "center", gap: 8, color: "#111827", fontSize: 12.5, fontWeight: 600 }}>
+          <span className="dot" style={{ background: "#0f766e" }} />
+          <span>실시간 · 마지막 업데이트 {latestMonitoringUpdatedAt ? formatKstDateTime(latestMonitoringUpdatedAt) : "-"}</span>
+        </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button className="btn" onClick={() => onToast("새로고침을 시작했어요")}><RefreshCw size={15} />새로고침</button>
-          <button className="btn primary" onClick={() => onToast("운영 리포트 다운로드를 준비했어요")}><Download size={15} />리포트 다운로드</button>
+          <button className="btn primary" onClick={handleDownloadReport}><Download size={15} />리포트 다운로드</button>
         </div>
       </div>
       <div className="grid-4" style={{ gridTemplateColumns: `repeat(${visibleKpis.length}, minmax(0, 1fr))` }}>
@@ -629,6 +1059,7 @@ function Dashboard({ data, onToast }: { data: AdminBootstrap; onToast: (message:
             <path d={activeUserArea} fill="url(#trafficFill)" />
             <path d={activeUserPath} fill="none" stroke="#0d9488" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
           </svg>
+          <TrendAxisLabels labels={activeTrendLabels} />
         </div>
           <div className="card">
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14 }}>
@@ -656,6 +1087,7 @@ function Dashboard({ data, onToast }: { data: AdminBootstrap; onToast: (message:
               <div key={`${bar}-${index}`} style={{ flex: 1, height: `${Math.max(4, (bar / maxRevenueBar) * 100)}%`, borderRadius: "7px 7px 3px 3px", background: index > 10 ? "#0d9488" : "#d6d3d1" }} />
             ))}
           </div>
+          <TrendAxisLabels labels={revenueTrendLabels} />
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <AlertMetric
@@ -2435,7 +2867,9 @@ function BillingSubscriptions({ subscriptions, onReload, onToast }: { subscripti
           <Avatar user={{ name: item.user } as AdminUser} size={38} />
           <div style={{ flex: 1 }}>
             <b>{item.user}</b>
-             <p>시작 {item.started} · 다음 결제 <strong>{item.billingCycle === "yearly" ? `연간 ${item.next}` : `월간 ${item.next}`}</strong></p>
+            <p>
+              시작 {item.started} · 다음 결제 <strong>{getBillingCycleLabel(item.billingCycle)} {getNextBillingDate(item.started, item.billingCycle)}</strong>
+            </p>
           </div>
           <div className="subscription-price">
           <Tag meta={planStyle[item.plan]}>{planLabel[item.plan] === "무료" ? "Free" : planLabel[item.plan]}</Tag>

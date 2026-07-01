@@ -66,7 +66,7 @@ BrainX/
 ### 로컬 Kafka
 
 `brainX_back/docker-compose.yml`에는 로컬 Kafka broker가 들어 있습니다. 호스트에서는 `localhost:9092`, 컨테이너 내부에서는 `kafka:9092`로 접근합니다. 1차 Kafka 범위에서는 기존 동기 흐름을 그대로 유지하고, 이벤트 발행은 서비스 플래그로 켜는 방식입니다. `BRAINX_EVENTS_OUTBOX_ENABLED=true`이면 Workspace-Service와 Commerce-Service가 outbox row를 Kafka로 흘리고, `BRAINX_EVENTS_PRODUCER_ENABLED=true`이면 Ingestion-Service가 `IntegrationConnected`, `ImportJobCompleted`, `ImportJobFailed`를 발행합니다. `BRAINX_EVENTS_CONSUMER_ENABLED=true`이면 Intelligence-Service가 workspace note 이벤트, `CaptureReceived`, note link 이벤트, folder 이벤트, `UserDeletionRequested`를 소비합니다. 작업 요약은 [`brainX_back/KAFKA_IMPLEMENTATION_SUMMARY.md`](brainX_back/KAFKA_IMPLEMENTATION_SUMMARY.md)에 둡니다. `ImportJobRequested`는 앞으로의 async worker 흐름에서 다룹니다.
-`Admin-Service`가 Docker Compose로 뜰 때 관리자 모니터링의 Kafka lag는 `SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092`, `BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID=intelligence-service` 기준으로 읽습니다. 호스트에서 직접 `Admin-Service`를 실행할 때만 `localhost:9092` 기본값을 사용합니다.
+`Admin-Service`가 Docker Compose로 뜰 때 관리자 모니터링의 Kafka lag는 `KAFKA_BOOTSTRAP_SERVERS=kafka:9092`, `BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID=intelligence-service` 기준으로 읽습니다. 배포 compose에서도 같은 값을 `admin-service` 환경변수로 주입하며, 호스트에서 직접 `Admin-Service`를 실행할 때만 `localhost:9092` 기본값을 사용합니다.
 
 ## Frontend: brainx-next
 
@@ -74,6 +74,8 @@ BrainX/
 
 - `next.config.mjs`에서 Turbopack root를 `brainx-next` 폴더로 고정해, 루트에 다른 lockfile이 있어도 개발 서버가 잘못된 워크스페이스 루트를 잡지 않도록 했습니다.
 - 관리자 콘솔 mock 기준으로 관리자 계정 이메일 입력, 미확인 문의 수 배지, 답변 완료 문의의 답변 입력 숨김, 환불 시 무료 플랜 전환, 로그인 기기 국가만 표시, 구독 다음 결제일의 월간/연간 표기를 반영했습니다.
+- 관리자 생성 계정의 이메일은 로그인 후 프로필 이메일 칸까지 그대로 이어지도록 맞췄고, Billing 화면과 Admin 화면에서는 구독 시작일과 다음 결제일을 주기별(월간 30일, 연간 365일)로 표시합니다.
+- 관리자 모니터링 화면에는 검은색 `status-line` 업데이트 문구, 최근 14일 활성 사용자/매출 그래프, Excel 호환 리포트 다운로드가 추가되었습니다.
 - 관리자 모니터링 우측 레일에는 관리자 목록 아래 게임 채팅형 메시지함이 있으며, 전체 발송/선택 발송과 unread `SMS` 건수, `읽음` 모달을 함께 지원합니다.
 - 환불은 관리자 사유를 함께 전달하고, 환불 안내 메일 발송과 Commerce 구독의 `free` 전환을 기준으로 사용자 화면이 주기적으로 최신 플랜을 다시 읽어오도록 맞췄습니다.
 - Commerce 환불은 `REFUNDED` 상태를 DB 체크 제약에 포함하도록 보정했고, 결제사에서 이미 취소된 결제라면 로컬 원장과 구독 상태를 `환불 완료 + free 전환`으로 재동기화하도록 처리했습니다.
@@ -491,10 +493,10 @@ cd C:\Edu\Final\brainX_back\Commerce-Service
 관리자 프런트는 `/favicon.ico`를 자체 route로 제공하며, 사용자 상세 활동 내역은 같은 문구와 같은 시각이 겹쳐도 React key 충돌이 나지 않도록 렌더링 키를 보강했습니다.
 현재 로그인한 관리자의 이름/역할/이메일이 변경되면 관리자 관리 화면, 모니터링 레일의 관리자 목록, 왼쪽 사이드바 프로필, 로컬 세션 값이 함께 갱신되도록 맞췄습니다.
 관리자 프로필 사진은 로컬 저장소 값을 공통 상태로 올려, 오른쪽 프로필 레일에서 바꾸면 왼쪽 사이드바와 모니터링 레일 관리자 목록의 현재 로그인 관리자 아바타도 즉시 같이 바뀝니다.
-모니터링 대시보드의 Kafka 큐 대기 Lag는 추정값이 아니라 Kafka consumer group의 현재 lag를 읽어오며, snapshot에도 함께 저장해서 목록과 상세가 같은 상태를 보게 했습니다.
+모니터링 대시보드의 Kafka 큐 대기 Lag는 추정값이 아니라 Kafka consumer group의 현재 lag를 읽어오며, 일별 스냅샷에도 함께 저장해서 목록과 상세가 같은 상태를 보게 했습니다.
 Kafka lag 카드의 live 값은 별도 `/api/v1/admin/monitoring/kafka-lag`로 읽어 UI를 가볍게 유지하고, 브로커 연결 실패는 `연결 실패`, committed offset이 없으면 `미집계`, 실제 lag가 0일 때만 `정상`으로 보여 줍니다. 운영 알람 기준은 `1,000 msgs` 이상 경고, `5,000 msgs` 이상 심각으로 두었습니다.
 모니터링 서비스 체크에는 `Intelligence-Service`도 포함해 AI 응답/지연을 실제 health probe 기준으로 보여 줍니다.
-모니터링 overview의 KPI delta는 직전 persisted snapshot 대비 증감률로 계산하고, 서비스 uptime은 최근 health snapshot 표본(최대 20건)에서 `DOWN`이 아닌 상태(`UP`, `DEGRADED`) 비율로 계산합니다. 프런트는 overview 응답의 KPI를 다시 mock으로 조립하지 않고 Admin-Service가 내려준 값을 그대로 사용합니다.
+모니터링 overview의 KPI delta는 직전 persisted snapshot 대비 증감률로 계산하고, 서비스 uptime은 최근 health snapshot 표본(최대 20건)에서 `DOWN`이 아닌 상태(`UP`, `DEGRADED`) 비율로 계산합니다. 프런트는 overview 응답의 KPI를 다시 mock으로 조립하지 않고 Admin-Service가 내려준 값을 그대로 사용합니다. 이 persisted snapshot은 Admin-Service가 매일 `23:59`에 스케줄러로 저장하며, 대시보드 조회 자체는 더 이상 새 스냅샷을 쓰지 않습니다.
 서비스 체크 상태는 `UP`(정상 응답 + 허용 지연), `DEGRADED`(비정상 응답 또는 지연 임계치 초과), `DOWN`(호출 실패) 3단계로 통일합니다.
 overview의 차트 응답은 숫자 배열만 내려주지 않고 `periodLabel`/`timezone`/`source`를 함께 내려, 프런트가 `최근 14일` 같은 고정 문구를 하드코딩하지 않고 Admin-Service overview 메타데이터를 그대로 사용합니다.
 overview의 실데이터 차트는 `Commerce-Service`의 `/internal/v1/billing/revenue-trend`와 `User-Service`의 `/internal/v1/users/growth-summary`를 source of truth로 사용합니다. 활성 사용자 추이는 User-Service의 Redis 로그인 세션 이력에서 최근 N일 일별 활성 사용자를 집계하고, 내부 시계열 API가 실패할 때만 Admin persisted snapshot 값으로 fallback합니다.

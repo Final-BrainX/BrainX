@@ -27,6 +27,7 @@ import org.springframework.web.client.RestClient;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -53,6 +54,7 @@ public class AdminService {
     private final RestClient workspaceRestClient;
     private final RestClient defaultRestClient;
     private final AdminRefundNotificationService refundNotificationService;
+    private final AdminKafkaLagCollector kafkaLagCollector;
 
     private final AdminOperationEventRepository operationEvents;
     private final AdminServiceHealthSnapshotRepository healthSnapshotRepository;
@@ -82,12 +84,16 @@ public class AdminService {
     @Value("${brainx.kafka.monitoring.consumer-group-id:intelligence-service}")
     private String kafkaMonitoringConsumerGroupId;
 
+    @Value("${brainx.admin.monitoring.timezone:Asia/Seoul}")
+    private String monitoringTimezone;
+
     public AdminService(
             RestClient userRestClient,
             RestClient commerceRestClient,
             RestClient workspaceRestClient,
             RestClient defaultRestClient,
             AdminRefundNotificationService refundNotificationService,
+            AdminKafkaLagCollector kafkaLagCollector,
             AdminOperationEventRepository operationEvents,
             AdminServiceHealthSnapshotRepository healthSnapshotRepository,
             AdminMonitoringSnapshotRepository monitoringSnapshotRepository
@@ -97,12 +103,14 @@ public class AdminService {
         this.workspaceRestClient = workspaceRestClient;
         this.defaultRestClient = defaultRestClient;
         this.refundNotificationService = refundNotificationService;
+        this.kafkaLagCollector = kafkaLagCollector;
         this.operationEvents = operationEvents;
         this.healthSnapshotRepository = healthSnapshotRepository;
         this.monitoringSnapshotRepository = monitoringSnapshotRepository;
     }
 
     public AdminDashboardOverviewData dashboardOverview() {
+        OffsetDateTime capturedAt = OffsetDateTime.now(monitoringZoneId());
         AdminBillingSummaryData summary = billingSummary();
         TrendSeriesData revenueTrend = fetchRevenueTrend(summary.monthlyRevenue(), OVERVIEW_TREND_DAYS);
         InternalUserGrowthSummaryDto userGrowthSummary = fetchUserGrowthSummary(OVERVIEW_TREND_DAYS);
@@ -113,27 +121,7 @@ public class AdminService {
                 : buildActiveUserTrend(activeUsers);
         SnapshotDelta delta = snapshotDelta();
 
-        List<ServiceHealthData> healths = List.of(
-                checkAndRecordHealth("User-Service", userHealthUrl),
-                checkAndRecordHealth("Commerce-Service", commerceHealthUrl),
-                checkAndRecordHealth("Workspace-Service", workspaceHealthUrl),
-                checkAndRecordHealth("Ingestion-Service", ingestionHealthUrl),
-                checkAndRecordHealth("Intelligence-Service", intelligenceHealthUrl)
-        );
-
-        KafkaLagObservation kafkaLag = collectKafkaLag(kafkaMonitoringConsumerGroupId);
-        monitoringSnapshotRepository.save(new AdminMonitoringSnapshot(
-                summary.monthlyRevenue(),
-                summary.activeSubscriptions(),
-                summary.mrr(),
-                summary.failedPaymentCount(),
-                activeUsers,
-                kafkaLag.messages(),
-                kafkaLag.consumerGroupId(),
-                kafkaLag.state(),
-                kafkaLag.detail(),
-                OffsetDateTime.now()
-        ));
+        List<ServiceHealthData> healths = collectServiceHealths(false, capturedAt);
 
         List<KpiData> kpis = buildOverviewKpisLive(summary, activeUsers, delta); /*
                 new KpiData("이번 달 매출", formatMoney(summary.monthlyRevenue()), "live", "good", "Commerce-Service 집계"),
@@ -171,7 +159,64 @@ public class AdminService {
         );
     }
 
-    private ServiceHealthData checkAndRecordHealth(String name, String url) {
+    public AdminMonitoringSnapshotData captureDailyMonitoringSnapshot() {
+        return captureDailyMonitoringSnapshot(OffsetDateTime.now(monitoringZoneId()));
+    }
+
+    public AdminMonitoringSnapshotData captureDailyMonitoringSnapshot(OffsetDateTime capturedAt) {
+        OffsetDateTime effectiveCapturedAt = capturedAt == null ? OffsetDateTime.now(monitoringZoneId()) : capturedAt;
+        SnapshotWindow window = snapshotWindow(effectiveCapturedAt);
+        return monitoringSnapshotRepository
+                .findTopByCapturedAtGreaterThanEqualAndCapturedAtLessThanOrderByCapturedAtDesc(window.start(), window.end())
+                .map(existing -> {
+                    log.info(
+                            "Daily monitoring snapshot already exists for date={} snapshotId={}",
+                            window.snapshotDate(),
+                            existing.getSnapshotId()
+                    );
+                    return toMonitoringSnapshotData(existing);
+                })
+                .orElseGet(() -> {
+                    AdminBillingSummaryData summary = billingSummary();
+                    InternalUserGrowthSummaryDto userGrowthSummary = fetchUserGrowthSummary(OVERVIEW_TREND_DAYS);
+                    int activeUsers = userGrowthSummary != null ? userGrowthSummary.activeUsers() : countActiveUsers();
+
+                    collectServiceHealths(true, effectiveCapturedAt);
+                    AdminKafkaLagObservation kafkaLag = kafkaLagCollector.collect(kafkaMonitoringConsumerGroupId);
+                    AdminMonitoringSnapshot saved = monitoringSnapshotRepository.save(new AdminMonitoringSnapshot(
+                            summary.monthlyRevenue(),
+                            summary.activeSubscriptions(),
+                            summary.mrr(),
+                            summary.failedPaymentCount(),
+                            activeUsers,
+                            kafkaLag.messages(),
+                            kafkaLag.consumerGroupId(),
+                            kafkaLag.state(),
+                            kafkaLag.detail(),
+                            effectiveCapturedAt
+                    ));
+
+                    log.info(
+                            "Persisted daily monitoring snapshot snapshotId={} date={} capturedAt={}",
+                            saved.getSnapshotId(),
+                            window.snapshotDate(),
+                            effectiveCapturedAt
+                    );
+                    return toMonitoringSnapshotData(saved);
+                });
+    }
+
+    List<ServiceHealthData> collectServiceHealths(boolean persistSnapshots, OffsetDateTime capturedAt) {
+        return List.of(
+                checkHealth("User-Service", userHealthUrl, persistSnapshots, capturedAt),
+                checkHealth("Commerce-Service", commerceHealthUrl, persistSnapshots, capturedAt),
+                checkHealth("Workspace-Service", workspaceHealthUrl, persistSnapshots, capturedAt),
+                checkHealth("Ingestion-Service", ingestionHealthUrl, persistSnapshots, capturedAt),
+                checkHealth("Intelligence-Service", intelligenceHealthUrl, persistSnapshots, capturedAt)
+        );
+    }
+
+    private ServiceHealthData checkHealth(String name, String url, boolean persistSnapshot, OffsetDateTime capturedAt) {
         long start = System.currentTimeMillis();
         ServiceHealthState state = ServiceHealthState.UP;
         long latencyMs;
@@ -194,12 +239,28 @@ public class AdminService {
         }
 
         double uptimePercent = calculateUptimePercent(name, state);
-        healthSnapshotRepository.save(new AdminServiceHealthSnapshot(name, state.name(), latencyMs, uptimePercent, OffsetDateTime.now()));
+        if (persistSnapshot) {
+            healthSnapshotRepository.save(new AdminServiceHealthSnapshot(name, state.name(), latencyMs, uptimePercent, capturedAt));
+        }
         return new ServiceHealthData(name, latencyMs + "ms", formatUptimePercent(uptimePercent), state.name());
     }
 
     public AdminKafkaLagData getKafkaLag() {
-        return toKafkaLagData(collectKafkaLag(kafkaMonitoringConsumerGroupId));
+        return toKafkaLagData(kafkaLagCollector.collect(kafkaMonitoringConsumerGroupId));
+    }
+
+    private ZoneId monitoringZoneId() {
+        return ZoneId.of(monitoringTimezone);
+    }
+
+    private SnapshotWindow snapshotWindow(OffsetDateTime capturedAt) {
+        LocalDate snapshotDate = capturedAt.atZoneSameInstant(monitoringZoneId()).toLocalDate();
+        OffsetDateTime start = snapshotDate.atStartOfDay(monitoringZoneId()).toOffsetDateTime();
+        OffsetDateTime end = snapshotDate.plusDays(1).atStartOfDay(monitoringZoneId()).toOffsetDateTime();
+        return new SnapshotWindow(snapshotDate, start, end);
+    }
+
+    private record SnapshotWindow(LocalDate snapshotDate, OffsetDateTime start, OffsetDateTime end) {
     }
 
     private KafkaLagObservation collectKafkaLag(String consumerGroupId) {
@@ -262,7 +323,7 @@ public class AdminService {
         );
     }
 
-    private AdminKafkaLagData toKafkaLagData(KafkaLagObservation observation) {
+    private AdminKafkaLagData toKafkaLagData(AdminKafkaLagObservation observation) {
         return new AdminKafkaLagData(
                 observation.consumerGroupId(),
                 observation.state(),
@@ -270,7 +331,7 @@ public class AdminService {
                 KAFKA_LAG_WARNING_THRESHOLD,
                 KAFKA_LAG_CRITICAL_THRESHOLD,
                 observation.detail(),
-                OffsetDateTime.now()
+                OffsetDateTime.now(monitoringZoneId())
         );
     }
 
@@ -571,7 +632,7 @@ public class AdminService {
         }
     }
 
-    private InternalUserGrowthSummaryDto fetchUserGrowthSummary(int days) {
+    InternalUserGrowthSummaryDto fetchUserGrowthSummary(int days) {
         try {
             return userRestClient.get()
                     .uri("/internal/v1/users/growth-summary?days=" + days)

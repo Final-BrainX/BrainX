@@ -96,6 +96,8 @@ aws ssm put-parameter --name /brainx/dev/SEED_ADMIN_NAME --type SecureString --v
 
 `deploy_remote.sh` also writes Admin-Service's non-secret runtime defaults into `/opt/brainx/env/runtime.env` on every CI/CD deploy so the compose file can consume the same values automatically: `ADMIN_DB_NAME`, `GATEWAY_SERVICE_URL`, `MAIL_HOST`, and `MAIL_PORT`.
 
+For Kafka lag monitoring, the same runtime env now also carries `KAFKA_BOOTSTRAP_SERVERS` and `BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID` so `admin-service` can read the broker address and consumer group from deployment-time values instead of falling back to `localhost:9092`.
+
 RDS master username/password는 AWS Secrets Manager에서 읽는다. GitHub secrets나 SSM에 복사하지 않는다.
 
 ### Add A Backend Runtime Env Variable

@@ -113,7 +113,7 @@ public class AdminAuthService {
         AdminAccount admin = new AdminAccount(
                 request.loginId(),
                 request.name(),
-                null,
+                request.email().trim(),
                 passwordEncoder.encode(temporaryPassword),
                 request.role(),
                 true
@@ -186,6 +186,7 @@ public class AdminAuthService {
         return new AdminAccountRow(
                 admin.getAdminId(),
                 admin.getName(),
+                admin.getEmail(),
                 admin.getLoginId(),
                 admin.getRole(),
                 admin.isMustChangePassword(),

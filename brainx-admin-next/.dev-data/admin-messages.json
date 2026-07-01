@@ -10,7 +10,8 @@
       "sentAt": "2026-06-30T13:50:54.622Z",
       "readByAdminUserIds": [
         "adm_4d447d73cd4642fb92562d5dd3dc2578",
-        "adm_76ede01854f34dc08559f428c3a817b7"
+        "adm_76ede01854f34dc08559f428c3a817b7",
+        "adm_00a7790ce68a4fa7bc768fb07102f142"
       ]
     },
     {
@@ -23,7 +24,8 @@
       "sentAt": "2026-06-30T13:50:58.093Z",
       "readByAdminUserIds": [
         "adm_4d447d73cd4642fb92562d5dd3dc2578",
-        "adm_76ede01854f34dc08559f428c3a817b7"
+        "adm_76ede01854f34dc08559f428c3a817b7",
+        "adm_00a7790ce68a4fa7bc768fb07102f142"
       ]
     },
     {
@@ -35,7 +37,44 @@
       "body": "ㅇㅇ",
       "sentAt": "2026-06-30T13:51:16.415Z",
       "readByAdminUserIds": [
-        "adm_76ede01854f34dc08559f428c3a817b7"
+        "adm_76ede01854f34dc08559f428c3a817b7",
+        "adm_00a7790ce68a4fa7bc768fb07102f142"
+      ]
+    },
+    {
+      "messageId": "adm_msg_1782872993684_iu2s34",
+      "senderAdminUserId": "adm_00a7790ce68a4fa7bc768fb07102f142",
+      "senderName": "최고관리자",
+      "recipientScope": "ALL",
+      "recipientAdminUserIds": [],
+      "body": "4err",
+      "sentAt": "2026-07-01T02:29:53.684Z",
+      "readByAdminUserIds": [
+        "adm_00a7790ce68a4fa7bc768fb07102f142"
+      ]
+    },
+    {
+      "messageId": "adm_msg_1782872998348_weafj4",
+      "senderAdminUserId": "adm_00a7790ce68a4fa7bc768fb07102f142",
+      "senderName": "최고관리자",
+      "recipientScope": "ALL",
+      "recipientAdminUserIds": [],
+      "body": "gg",
+      "sentAt": "2026-07-01T02:29:58.348Z",
+      "readByAdminUserIds": [
+        "adm_00a7790ce68a4fa7bc768fb07102f142"
+      ]
+    },
+    {
+      "messageId": "adm_msg_1782873000306_ioez9q",
+      "senderAdminUserId": "adm_00a7790ce68a4fa7bc768fb07102f142",
+      "senderName": "최고관리자",
+      "recipientScope": "ALL",
+      "recipientAdminUserIds": [],
+      "body": "gg",
+      "sentAt": "2026-07-01T02:30:00.306Z",
+      "readByAdminUserIds": [
+        "adm_00a7790ce68a4fa7bc768fb07102f142"
       ]
     }
   ]

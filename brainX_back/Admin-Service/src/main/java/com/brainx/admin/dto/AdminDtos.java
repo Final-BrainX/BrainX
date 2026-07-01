@@ -177,6 +177,7 @@ public final class AdminDtos {
     public record AdminAccountRow(
             String adminId,
             String name,
+            String email,
             String loginId,
             AdminRole role,
             boolean mustChangePassword,
@@ -184,7 +185,12 @@ public final class AdminDtos {
             OffsetDateTime lastLoginAt
     ) {}
     public record AdminAccountsData(List<AdminAccountRow> admins) {}
-    public record AdminAccountCreateRequest(@NotBlank String name, @NotBlank String loginId, @NotNull AdminRole role) {}
+    public record AdminAccountCreateRequest(
+            @NotBlank String name,
+            @NotBlank String loginId,
+            @NotBlank @Email String email,
+            @NotNull AdminRole role
+    ) {}
     public record AdminAccountCreateData(AdminAccountRow admin, String temporaryPassword) {}
     public record AdminAccountUpdateRequest(String name, String loginId, AdminRole role) {}
     public record AdminAccountUpdateData(AdminAccountRow admin) {}

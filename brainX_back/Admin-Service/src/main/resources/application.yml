@@ -60,6 +60,10 @@ brainx:
   kafka:
     monitoring:
       consumer-group-id: ${BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID:intelligence-service}
+  admin:
+    monitoring:
+      timezone: ${BRAINX_ADMIN_MONITORING_TIMEZONE:Asia/Seoul}
+      daily-snapshot-cron: ${BRAINX_ADMIN_MONITORING_DAILY_SNAPSHOT_CRON:0 59 23 * * *}
 
 management:
   endpoints:

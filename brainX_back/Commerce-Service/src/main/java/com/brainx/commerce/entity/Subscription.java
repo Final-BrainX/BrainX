@@ -20,6 +20,10 @@ public class Subscription {
         FREE, ACTIVE, PAST_DUE, CANCEL_SCHEDULED, CANCELLED
     }
 
+    public enum BillingCycle {
+        MONTHLY, YEARLY
+    }
+
     @Id
     private String userId;
     @Column(nullable = false)
@@ -29,6 +33,9 @@ public class Subscription {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Status status;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private BillingCycle billingCycle;
     private Instant renewalAt;
     private Instant cancelAt;
     @Column(nullable = false)
@@ -41,13 +48,16 @@ public class Subscription {
         this.subscriptionId = subscriptionId;
         this.planId = planId;
         this.status = status;
+        this.billingCycle = BillingCycle.MONTHLY;
         this.createdAt = now;
         this.updatedAt = now;
     }
 
-    public void changePlan(String planId, Status status, Instant now) {
+    public void changePlan(String planId, Status status, BillingCycle billingCycle, Instant renewalAt, Instant now) {
         this.planId = planId;
         this.status = status;
+        this.billingCycle = billingCycle;
+        this.renewalAt = renewalAt;
         this.cancelAt = null;
         this.updatedAt = now;
     }
@@ -61,6 +71,7 @@ public class Subscription {
     public void cancelImmediately(String freePlanId, Instant now) {
         this.planId = freePlanId;
         this.status = Status.FREE;
+        this.billingCycle = BillingCycle.MONTHLY;
         this.cancelAt = null;
         this.renewalAt = null;
         this.updatedAt = now;

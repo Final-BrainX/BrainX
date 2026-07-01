@@ -56,9 +56,12 @@ public class CommerceService {
         }
 
         Instant now = Instant.now();
+        long amount = request.getBillingCycle() == CheckoutSession.BillingCycle.YEARLY
+                ? Math.round(plan.getPrice() * 0.8d)
+                : plan.getPrice();
         CheckoutSession session = new CheckoutSession(
-                Ids.checkoutSession(), userId, plan.getPlanId(), plan.getPrice(), plan.getCurrency(),
-                CheckoutSession.Provider.TOSS, now, now.plus(30, ChronoUnit.MINUTES)
+                Ids.checkoutSession(), userId, plan.getPlanId(), amount, plan.getCurrency(),
+                CheckoutSession.Provider.TOSS, request.getBillingCycle(), now, now.plus(30, ChronoUnit.MINUTES)
         );
         checkoutSessionRepository.save(session);
 
@@ -130,7 +133,14 @@ public class CommerceService {
 
         Subscription subscription = findOrCreateSubscription(userId);
         Plan plan = plan(session.getPlanId());
-        subscription.changePlan(plan.getPlanId(), Subscription.Status.ACTIVE, now);
+        Instant renewalAt = resolveRenewalAt(now, session.getBillingCycle());
+        subscription.changePlan(
+                plan.getPlanId(),
+                Subscription.Status.ACTIVE,
+                toSubscriptionBillingCycle(session.getBillingCycle()),
+                renewalAt,
+                now
+        );
         subscriptionRepository.save(subscription);
 
         eventPublisher.publish("PaymentSucceeded", userId, Map.of(
@@ -233,7 +243,14 @@ public class CommerceService {
         Subscription subscription = findOrCreateSubscription(userId);
         Instant now = Instant.now();
         Subscription.Status status = targetPlan.getTier() == 0 ? Subscription.Status.FREE : Subscription.Status.ACTIVE;
-        subscription.changePlan(targetPlan.getPlanId(), status, now);
+        Instant renewalAt = status == Subscription.Status.FREE ? null : now.plus(30, ChronoUnit.DAYS);
+        subscription.changePlan(
+                targetPlan.getPlanId(),
+                status,
+                Subscription.BillingCycle.MONTHLY,
+                renewalAt,
+                now
+        );
         subscriptionRepository.save(subscription);
 
         eventPublisher.publish("SubscriptionChanged", userId, Map.of(
@@ -291,5 +308,18 @@ public class CommerceService {
         return planRepository.findById(planId)
                 .filter(Plan::isActive)
                 .orElseThrow(() -> CommerceException.notFound("플랜을 찾을 수 없습니다: " + planId));
+    }
+
+    private Instant resolveRenewalAt(Instant now, CheckoutSession.BillingCycle billingCycle) {
+        if (billingCycle == CheckoutSession.BillingCycle.YEARLY) {
+            return now.plus(365, ChronoUnit.DAYS);
+        }
+        return now.plus(30, ChronoUnit.DAYS);
+    }
+
+    private Subscription.BillingCycle toSubscriptionBillingCycle(CheckoutSession.BillingCycle billingCycle) {
+        return billingCycle == CheckoutSession.BillingCycle.YEARLY
+                ? Subscription.BillingCycle.YEARLY
+                : Subscription.BillingCycle.MONTHLY;
     }
 }

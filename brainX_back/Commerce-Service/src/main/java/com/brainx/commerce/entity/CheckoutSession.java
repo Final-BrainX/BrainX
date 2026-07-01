@@ -31,6 +31,10 @@ public class CheckoutSession {
         TOSS, STRIPE
     }
 
+    public enum BillingCycle {
+        MONTHLY, YEARLY
+    }
+
     @Id
     private String checkoutSessionId;
     @Column(nullable = false)
@@ -46,6 +50,9 @@ public class CheckoutSession {
     private Provider provider;
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
+    private BillingCycle billingCycle;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     private Status status;
     private String paymentKey;
     private String paymentId;
@@ -59,13 +66,14 @@ public class CheckoutSession {
     private Instant expiresAt;
 
     public CheckoutSession(String checkoutSessionId, String userId, String planId, long amount, String currency,
-                           Provider provider, Instant now, Instant expiresAt) {
+                           Provider provider, BillingCycle billingCycle, Instant now, Instant expiresAt) {
         this.checkoutSessionId = checkoutSessionId;
         this.userId = userId;
         this.planId = planId;
         this.amount = amount;
         this.currency = currency;
         this.provider = provider;
+        this.billingCycle = billingCycle;
         this.status = Status.PENDING;
         this.createdAt = now;
         this.expiresAt = expiresAt;

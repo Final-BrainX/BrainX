@@ -47,12 +47,21 @@ public class CommerceDtos {
     public record PlanRef(String planId, String name) {
     }
 
-    public record SubscriptionData(PlanRef plan, String status, Instant renewalAt, Map<String, Object> entitlements) {
+    public record SubscriptionData(
+            PlanRef plan,
+            String status,
+            Instant startedAt,
+            Instant renewalAt,
+            String billingCycle,
+            Map<String, Object> entitlements
+    ) {
         public static SubscriptionData of(Subscription subscription, Plan plan) {
             return new SubscriptionData(
                     new PlanRef(plan.getPlanId(), plan.getName()),
                     subscription.getStatus().name(),
+                    subscription.getCreatedAt(),
                     subscription.getRenewalAt(),
+                    subscription.getBillingCycle().name(),
                     Map.of("tier", plan.getTier())
             );
         }
@@ -67,6 +76,8 @@ public class CommerceDtos {
         private String successUrl;
         @NotBlank
         private String cancelUrl;
+        @NotNull
+        private CheckoutSession.BillingCycle billingCycle;
     }
 
     public record CheckoutSessionData(
