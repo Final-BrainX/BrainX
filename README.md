@@ -137,7 +137,7 @@ BrainX/
 - `lib/support-api.ts`: 문의 목록/생성/상세 조회
 - `lib/user-api.ts`: 사용자 계정/마이페이지 계열 API, 관리자 공지 알림함 조회/읽음 처리
 - `lib/ingestion-api.ts`: Notion OAuth 연결/콜백, 페이지 목록 조회, 가져오기 작업 생성/상태 조회
-- `lib/workspace-api.ts`: 노트 단건 조회 (Notion 가져오기 결과를 노트 데모에 반영하는 용도)
+- `lib/workspace-api.ts`: 노트 단건 조회, 사용자 워크스페이스 통계 조회(`/api/v1/workspace/me/stats`)
 - `lib/commerce-api.ts`: 플랜 목록/내 구독 조회, 결제 체크아웃 세션 생성, Toss 결제 승인 confirm, 구독 변경/취소
 
 새 프론트 API 코드는 화면 컴포넌트에 직접 fetch를 흩뿌리지 말고 `lib/*-api.ts` 계층에 먼저 둡니다.
@@ -187,6 +187,7 @@ BrainX/
 - Service-to-service 동기 호출은 `/internal/v1/**` 하위로 분리합니다.
 - 서비스 간 상태 전파는 가능하면 이벤트 기반으로 처리합니다.
 - Workspace-Service는 노트 원장의 authoritative source입니다.
+- 홈(`/home`)과 사용자 설정의 노트 통계 메뉴는 `Workspace-Service`의 `GET /api/v1/workspace/me/stats`와 노트/그래프 조회 응답을 조합해 실제 사용자 데이터만 보여줍니다.
 - AI, import, extension, MCP 등에서 노트를 변경할 때도 Workspace command API를 통해 처리합니다.
 - 토큰 사용량은 public command API로 직접 노출하지 않고 event 기반으로 집계합니다.
 - 서비스 책임이 겹치면 DB를 공유하지 말고 API/이벤트 계약을 먼저 정의합니다.

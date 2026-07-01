@@ -37,7 +37,9 @@ import {
   type ConsentPayload,
   type MyProfile
 } from "@/lib/user-api";
+import { getMyWorkspaceStats, type WorkspaceUserStatsData } from "@/lib/workspace-api";
 import { createSupportTicket, getMySupportTicket, getMySupportTickets, type SupportTicket, type SupportTicketDetail, type SupportTicketPayload } from "@/lib/support-api";
+import { getRecentDailySeries, summarizeWorkspaceNotes } from "@/lib/workspace-note-stats";
 import { cx } from "@/lib/utils";
 import type { ThemeMode } from "@/components/brainx-provider";
 import type { LanguageCode } from "@/lib/i18n";
@@ -1166,47 +1168,109 @@ function UsagePanel() {
 }
 
 function StatsPanel() {
+  const { notes, pushToast } = useBrainX();
+  const [workspaceStats, setWorkspaceStats] = useState<WorkspaceUserStatsData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+
+    getMyWorkspaceStats()
+      .then((stats) => {
+        if (active) setWorkspaceStats(stats);
+      })
+      .catch((error) => {
+        if (active) setWorkspaceStats(null);
+        pushToast(error instanceof Error ? error.message : "노트 통계를 불러오지 못했습니다.", "err");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [pushToast]);
+
+  const summary = summarizeWorkspaceNotes(notes);
+  const recentSeries = getRecentDailySeries(notes, 7);
+  const totalNotes = workspaceStats?.noteCount ?? summary.totalNotes;
+  const recentWeekCount = recentSeries.values.reduce((sum, value) => sum + value, 0);
+  const storageGb = workspaceStats ? workspaceStats.storageBytes / (1024 * 1024 * 1024) : 0;
+  const recentActivities = workspaceStats?.activities ?? [];
+
   return (
     <>
       <header className="mb-7">
         <h1 className="text-[24px] font-bold tracking-[-0.01em] text-[#2f2d2a]">노트 통계</h1>
-        <p className="mt-3 text-[13px] text-[#6d6861]">노트 작성 활동을 한눈에 확인하세요.</p>
+        <p className="mt-3 text-[13px] text-[#6d6861]">
+          {loading ? "실제 Workspace 데이터를 불러오는 중입니다." : "실제 노트 데이터와 API 응답을 함께 보여줍니다."}
+        </p>
       </header>
       <section className="mb-7 grid grid-cols-2 gap-3">
         {[
-          ["작성한 노트", "248", ""],
-          ["이번 주 작성", "12", "+3"],
-          ["연속 작성", "7일", "fire"],
-          ["총 단어", "142.8K", ""]
+          ["작성한 노트", `${totalNotes}`, "실제 API"],
+          ["최근 7일 작성", `${recentWeekCount}`, recentWeekCount > 0 ? "활동 있음" : "데이터 없음"],
+          ["연속 작성", `${summary.writingStreak}일`, summary.writingStreak > 0 ? "활성" : "휴면"],
+          ["저장 공간", `${storageGb.toFixed(1)}GB`, workspaceStats ? "실제 저장량" : "로딩 중"]
         ].map(([label, value, sub]) => (
           <div key={label} className="rounded-[12px] border border-[#e5e0d8] px-4 py-4">
             <p className="text-[12px] text-[#6d6861]">{label}</p>
             <div className="mt-1 flex items-center gap-2">
               <span className="text-[27px] font-bold tracking-[-0.02em] text-[#36332f]">{value}</span>
-              {sub ? <span className={cx("text-[12px] font-bold", sub === "+3" ? "text-[#168a4f]" : "text-[#ff7a1a]")}>{sub === "fire" ? "🔥" : sub}</span> : null}
+              {sub ? (
+                <span className={cx("text-[12px] font-bold", label === "저장 공간" ? "text-[#6c55f6]" : recentWeekCount > 0 ? "text-[#168a4f]" : "text-[#ff7a1a]")}>
+                  {sub}
+                </span>
+              ) : null}
             </div>
           </div>
         ))}
       </section>
       <section className="mb-7">
         <SectionLabel>주간 작성 활동</SectionLabel>
-        <MiniBars values={[32, 60, 86, 48, 88, 41, 28]} labels={["월", "화", "수", "목", "금", "토", "일"]} activeIndex={4} />
+        <MiniBars values={recentSeries.values} labels={recentSeries.labels} activeIndex={recentSeries.values.length - 1} />
       </section>
-      <section>
+      <section className="mb-7">
         <SectionLabel>인사이트</SectionLabel>
         {[
-          ["가장 활발한 시간대", "오후 9-11시", "clock"],
-          ["평균 노트 길이", "576 단어", "doc"],
-          ["가장 많이 쓴 태그", "#회의록", "sparkle"]
+          ["가장 활발한 시간대", summary.peakHour?.label ?? "데이터 없음", "clock"],
+          ["평균 노트 길이", `${summary.averageWords} 단어`, "doc"],
+          ["가장 많이 쓴 태그", summary.topTag ? `#${summary.topTag.label}` : "태그 없음", "sparkle"]
         ].map(([label, value, icon]) => (
           <div key={label} className="flex items-center justify-between border-b border-[#e8e3db] py-3 text-[12px] last:border-b-0">
             <span className="inline-flex items-center gap-2 text-[#6d6861]">
               <Icon name={icon as IconName} size={14} />
               {label}
             </span>
-            <span className={cx("font-medium", value.startsWith("#") ? "text-[#6c55f6]" : "text-[#4d4944]")}>{value}</span>
+            <span className={cx("font-medium", typeof value === "string" && value.startsWith("#") ? "text-[#6c55f6]" : "text-[#4d4944]")}>{value}</span>
           </div>
         ))}
+      </section>
+      <section>
+        <SectionLabel>최근 활동</SectionLabel>
+        {recentActivities.length ? (
+          <div className="space-y-2">
+            {recentActivities.slice(0, 3).map((activity) => (
+              <div key={`${activity.noteId}-${activity.occurredAt}`} className="rounded-[10px] border border-[#e8e3db] bg-[#fbfaf8] px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-[13px] font-semibold text-[#36332f]">{activity.title}</div>
+                    <div className="mt-0.5 text-[12px] text-[#8c877f]">{activity.type}</div>
+                  </div>
+                  <div className="shrink-0 text-[12px] text-[#6d6861]">
+                    {new Intl.DateTimeFormat("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(activity.occurredAt))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-[10px] border border-[#e8e3db] bg-[#fbfaf8] px-4 py-5 text-center text-[12px] text-[#8c877f]">
+            아직 최근 활동 데이터가 없습니다.
+          </div>
+        )}
       </section>
     </>
   );

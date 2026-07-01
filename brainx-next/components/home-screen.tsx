@@ -7,6 +7,8 @@ import { useBrainX } from "@/components/brainx-provider";
 import { Btn, Card, Icon } from "@/components/brainx-ui";
 import { readAuthSession } from "@/lib/auth-api";
 import { getMyProfile } from "@/lib/user-api";
+import { getMyWorkspaceStats, type WorkspaceUserStatsData } from "@/lib/workspace-api";
+import { summarizeWorkspaceNotes } from "@/lib/workspace-note-stats";
 import { cx } from "@/lib/utils";
 
 function userNameFromSession() {
@@ -18,11 +20,14 @@ function topicLabel(note: BrainXNote) {
   return note.tags[0] || clusterById(note.cluster).label;
 }
 
-function UserInsightDashboard({ notes }: { notes: BrainXNote[] }) {
+function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; workspaceStats: WorkspaceUserStatsData | null }) {
   const router = useRouter();
   const [topicView, setTopicView] = useState<"bubble" | "trend">("bubble");
-  const totalLinks = notes.reduce((count, note) => count + note.links.length, 0);
-  const totalWords = notes.reduce((count, note) => count + note.words, 0);
+  const summary = useMemo(() => summarizeWorkspaceNotes(notes), [notes]);
+  const totalNotes = workspaceStats?.noteCount ?? summary.totalNotes;
+  const totalLinks = summary.totalLinks;
+  const totalWords = summary.totalWords;
+  const recentActivityTitle = workspaceStats?.activities?.[0]?.title?.trim() || null;
 
   const topClusters = useMemo(() => {
     const grouped = new Map<string, { label: string; color: string; count: number; words: number; links: number }>();
@@ -77,9 +82,30 @@ function UserInsightDashboard({ notes }: { notes: BrainXNote[] }) {
   });
 
   const kpis = [
-    { icon: "doc" as const, label: "전체 노트", value: `${notes.length}`, sub: "현재 지식 베이스", color: "var(--accent)", fill: Math.min(100, (notes.length / 100) * 100) },
-    { icon: "link" as const, label: "AI 연결", value: `${totalLinks}`, sub: "자동 감지된 컨텍스트", color: "16 185 129", fill: Math.min(100, (totalLinks / 200) * 100) },
-    { icon: "fire" as const, label: "작성 스트릭", value: `12일`, sub: "연속 학습 기록", color: "249 115 22", fill: 40 },
+    {
+      icon: "doc" as const,
+      label: "전체 노트",
+      value: `${totalNotes}`,
+      sub: recentActivityTitle ? `최근 활동: ${recentActivityTitle}` : "실제 Workspace 데이터",
+      color: "var(--accent)",
+      fill: Math.min(100, (totalNotes / 100) * 100)
+    },
+    {
+      icon: "link" as const,
+      label: "AI 연결",
+      value: `${totalLinks}`,
+      sub: "그래프에서 집계된 실제 링크",
+      color: "16 185 129",
+      fill: Math.min(100, (totalLinks / 200) * 100)
+    },
+    {
+      icon: "fire" as const,
+      label: "작성 스트릭",
+      value: `${summary.writingStreak}일`,
+      sub: "연속 활동 기준",
+      color: "249 115 22",
+      fill: Math.min(100, (summary.writingStreak / 14) * 100)
+    },
     { icon: "bolt" as const, label: "이번 달 토큰", value: `12.8K`, sub: "AI 분석량", color: "var(--primary)", fill: 85 }
   ];
 
@@ -88,13 +114,15 @@ function UserInsightDashboard({ notes }: { notes: BrainXNote[] }) {
       color: "rgb(var(--accent))",
       tag: "그래프 허브",
       text: focusNote
-        ? `${topicLabel(focusNote)} 관련 노트가 지식 그래프의 중심에 있어요. 특히 <strong>"${focusNote.title}"</strong>가 여러 주제를 연결하고 있어요.`
-        : "아직 중심 주제를 분석할 노트가 부족해요."
+        ? `${topicLabel(focusNote)} 쪽 노트가 가장 많이 연결되어 있어요. 특히 <strong>"${focusNote.title}"</strong>가 여러 주제를 잇고 있어요.`
+        : "아직 집중해서 볼 노트가 충분하지 않아요."
     },
     {
       color: "rgb(16 185 129)",
       tag: "활성 흐름",
-      text: `최근 지식 흐름은 <strong>${topClusters.slice(0, 3).map((cluster) => cluster.label).join(", ")}</strong> 영역에 집중되어 있어요.`
+      text: summary.topCategory
+        ? `최근 지식 흐름은 <strong>${summary.topCategory.label}</strong> 영역에 집중되어 있어요.`
+        : "태그와 카테고리가 조금 더 쌓이면 흐름을 더 선명하게 볼 수 있어요."
     },
     {
       color: "rgb(249 115 22)",
@@ -151,7 +179,7 @@ function UserInsightDashboard({ notes }: { notes: BrainXNote[] }) {
             <div
               className="mb-4 rounded-[0.4rem] border border-purple-500/20 bg-gradient-to-br from-purple-500/10 to-indigo-500/10 p-4 text-[13px] leading-relaxed text-txt shadow-[0_0_20px_rgba(168,85,247,0.05)]"
               dangerouslySetInnerHTML={{
-                __html: `최근 <strong>${topClusters.slice(0, 3).map(c => c.label).join(", ")}</strong>을(를) 중심으로 지식을 확장하고 있어요. 총 <strong>${notes.length}개 노트</strong>와 <strong>${totalLinks}개 연결</strong>이 현재 학습 흐름을 만들고 있어요.`
+                __html: `현재 <strong>${totalNotes}개 노트</strong>와 <strong>${totalLinks}개 연결</strong>이 실제 Workspace 데이터와 동기화되어 있어요.${recentActivityTitle ? ` 최근에 업데이트된 노트는 <strong>"${recentActivityTitle}"</strong>입니다.` : ""}`
               }}
             />
             <div className="mb-4 flex flex-wrap gap-1.5">
@@ -170,13 +198,13 @@ function UserInsightDashboard({ notes }: { notes: BrainXNote[] }) {
             <div className="grid grid-cols-2 gap-2">
               <div className="relative rounded-[0.4rem] border border-line/60 bg-surface2/40 p-3">
                 <div className="text-[11px] text-txt3">분석된 노트</div>
-                <div className="mt-1 text-[18px] font-semibold text-txt">{notes.length}개</div>
-                <div className="absolute right-3 top-3 rounded-[0.4rem] bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500">+3 이번 주</div>
+                <div className="mt-1 text-[18px] font-semibold text-txt">{totalNotes}개</div>
+                <div className="absolute right-3 top-3 rounded-[0.4rem] bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500">실시간</div>
               </div>
               <div className="relative rounded-[0.4rem] border border-line/60 bg-surface2/40 p-3">
                 <div className="text-[11px] text-txt3">지식 연결</div>
                 <div className="mt-1 text-[18px] font-semibold text-txt">{totalLinks}개</div>
-                <div className="absolute right-3 top-3 rounded-[0.4rem] bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500">+5 이번 주</div>
+                <div className="absolute right-3 top-3 rounded-[0.4rem] bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500">그래프</div>
               </div>
               <div className="relative rounded-[0.4rem] border border-line/60 bg-surface2/40 p-3">
                 <div className="text-[11px] text-txt3">핵심 주제군</div>
@@ -184,7 +212,7 @@ function UserInsightDashboard({ notes }: { notes: BrainXNote[] }) {
               </div>
               <div className="relative rounded-[0.4rem] border border-line/60 bg-surface2/40 p-3">
                 <div className="text-[11px] text-txt3">노트 평균 분량</div>
-                <div className="mt-1 text-[18px] font-semibold text-txt">{Math.round(totalWords / Math.max(notes.length, 1))}자</div>
+                <div className="mt-1 text-[18px] font-semibold text-txt">{Math.round(totalWords / Math.max(totalNotes, 1))}자</div>
               </div>
             </div>
           </div>
@@ -332,6 +360,7 @@ export function HomeScreen() {
   const router = useRouter();
   const { notes } = useBrainX();
   const [displayName, setDisplayName] = useState("사용자");
+  const [workspaceStats, setWorkspaceStats] = useState<WorkspaceUserStatsData | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -351,6 +380,21 @@ export function HomeScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    getMyWorkspaceStats()
+      .then((stats) => {
+        if (active) setWorkspaceStats(stats);
+      })
+      .catch(() => {
+        if (active) setWorkspaceStats(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   return (
     <div data-route className="mx-auto max-w-[1100px] px-6 py-6 md:px-8 lg:py-8">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4 border-b border-line/60 pb-5">
@@ -361,7 +405,9 @@ export function HomeScreen() {
             <span className="text-accent">{displayName}</span>님 🌿
           </h1>
           <p className="mt-2 text-[13px] text-txt3">
-            오늘 <strong className="font-medium text-txt2">3개의 노트</strong>가 새로 연결되었고, AI가 <strong className="font-medium text-txt2">2개의 인사이트</strong>를 발견했어요.
+            {workspaceStats
+              ? `지금 ${workspaceStats.noteCount.toLocaleString("ko-KR")}개의 실제 노트가 동기화되어 있고, 가장 최근 활동은 "${workspaceStats.activities[0]?.title ?? "노트"}"예요.`
+              : `지금 ${notes.length.toLocaleString("ko-KR")}개의 노트를 기준으로 인사이트를 계산하고 있어요.`}
           </p>
         </div>
         <div className="flex items-center gap-2 rounded-xl border border-accent/30 bg-accent/10 px-4 py-2.5 text-[12px] font-medium text-accent">
@@ -370,7 +416,7 @@ export function HomeScreen() {
         </div>
       </div>
 
-      <UserInsightDashboard notes={notes} />
+      <UserInsightDashboard notes={notes} workspaceStats={workspaceStats} />
     </div>
   );
 }

@@ -137,6 +137,19 @@ type NoteDraftListData = {
   drafts: NoteDraftData[];
 };
 
+export type WorkspaceUserActivityData = {
+  noteId: string;
+  type: string;
+  title: string;
+  occurredAt: string;
+};
+
+export type WorkspaceUserStatsData = {
+  noteCount: number;
+  storageBytes: number;
+  activities: WorkspaceUserActivityData[];
+};
+
 function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
   return response.message ?? response.error?.message ?? fallback;
 }
@@ -183,6 +196,10 @@ export async function listNotes() {
 
 export async function listFolders() {
   return authedRequest<FolderTreeData>("/api/v1/folders/tree");
+}
+
+export async function getMyWorkspaceStats() {
+  return authedRequest<WorkspaceUserStatsData>("/api/v1/workspace/me/stats");
 }
 
 export async function createWorkspaceFolder(name: string, parentFolderId: string | null) {

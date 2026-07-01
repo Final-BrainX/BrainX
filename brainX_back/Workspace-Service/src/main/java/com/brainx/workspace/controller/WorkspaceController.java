@@ -146,6 +146,11 @@ public class WorkspaceController {
         return ApiResponse.success(workspaceService.recentActivities(currentUser.userId(), limit));
     }
 
+    @GetMapping("/api/v1/workspace/me/stats")
+    public ApiResponse<InternalUserWorkspaceStatsData> getMyWorkspaceStats() {
+        return ApiResponse.success(workspaceService.getUserWorkspaceStats(memberUserId()));
+    }
+
     @PostMapping("/api/v1/folders")
     public ResponseEntity<ApiResponse<FolderData>> createFolder(@Valid @RequestBody FolderCreateRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
