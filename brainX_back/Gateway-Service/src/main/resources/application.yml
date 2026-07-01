@@ -115,7 +115,7 @@ spring:
             - id: ingestion-service
               uri: ${INGESTION_SERVICE_URL:http://localhost:8083}
               predicates:
-                - Path=/api/v1/imports/**,/api/v1/exports,/api/v1/exports/**,/v1/publish-jobs,/v1/publish-jobs/**,/api/v1/extension/**
+                - Path=/api/v1/imports/**,/api/v1/exports,/api/v1/exports/**,/v1/publish-jobs,/v1/publish-jobs/**,/api/v1/extension/**,/api/v1/assets/**
 
             - id: commerce-service
               uri: ${COMMERCE_SERVICE_URL:http://localhost:8084}
