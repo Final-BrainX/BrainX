@@ -27,7 +27,7 @@ export type GraphEdgeData = {
   linkId?: string | null;
   source: string;
   target: string;
-  type?: "MANUAL" | "AI_SUGGESTED" | string;
+  type?: "RELATED" | "PARENT" | "CHILD" | "CAUSE" | "RESULT" | "WORKFLOW" | "REFERENCE" | "PROJECT" | "TAG" | "SIMILAR" | string;
   weight?: number | null;
   reason?: string | null;
 };
@@ -139,7 +139,7 @@ export function graphEdgesForFlow(graph: GraphData) {
   return graph.edges.map((edge) => ({
     source: edge.source,
     target: edge.target,
-    bridge: edge.type === "AI_SUGGESTED"
+    bridge: edge.type !== "TAG" && edge.type !== "RELATED"
   }));
 }
 

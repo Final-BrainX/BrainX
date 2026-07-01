@@ -3751,7 +3751,10 @@ paths:
         표준 Workspace 노트 식별자이며, Workspace PostgreSQL 레코드, Neo4j 같은
         그래프 projection, Knowledge Intelligence read model/vector index, RAG citation,
         프론트엔드 그래프 상태에서 사용하는 식별자와 일치해야 한다. 그래프 projection은
-        read model이며 노트와 링크의 권위 원장은 Workspace가 유지한다.
+        read model이며 노트와 링크의 권위 원장은 Workspace가 유지한다. Neo4j projection은
+        노트 본문 `[[...]]` 위키링크, 수동 링크, 태그, 제목/본문 유사도를 다시 계산해
+        `LINKED` 관계를 최신 상태로 유지하며, 전체 그래프 재생성 대신 변경된 노트와
+        직접 관련된 노트만 증분 갱신한다.
       parameters:
       - name: folderId
         in: query
@@ -13368,8 +13371,8 @@ components:
     GraphEdgeData:
       type: object
       description: >
-        승인된 Workspace 노트 링크를 나타내는 그래프 엣지. 추천 링크는 사용자가 수락해
-        Workspace 링크 command로 변환되기 전까지 AI 제안 상태로 유지되어야 한다.
+        Workspace 노트 간의 의미 관계를 나타내는 그래프 엣지. `type`은 관계의 의미를,
+        `weight`는 연결 강도를, `reason`은 AI/규칙 추론 근거를 나타낸다.
       properties:
         id:
           type: string
@@ -13385,8 +13388,16 @@ components:
         type:
           type: string
           enum:
-          - MANUAL
-          - AI_SUGGESTED
+          - RELATED
+          - PARENT
+          - CHILD
+          - CAUSE
+          - RESULT
+          - WORKFLOW
+          - REFERENCE
+          - PROJECT
+          - TAG
+          - SIMILAR
         weight:
           type: number
           nullable: true

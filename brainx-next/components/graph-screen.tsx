@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Compass, FileUp, PencilLine, Pin, PinOff, Sparkles } from "lucide-react";
 import { buildAuthPath, isDevAuthSession, readAuthSession } from "@/lib/auth-api";
-import { deriveGraphEdges, noteById, clusterById, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
+import { noteById, clusterById, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
 import { draftsToBrainXNotes, getGraph, graphEdgesForFlow, graphToBrainXNotes, USE_MOCK_GRAPH, USE_MOCK_GRAPH_CLUSTERS } from "@/lib/graph-api";
 import { createBridgeConcepts, createLinkSuggestions, type BridgeConceptsData, type LinkSuggestionsData } from "@/lib/intelligence-api";
 import { createWorkspaceNote, createWorkspaceNoteLink, listWorkspaceNoteDrafts, type NoteCreated } from "@/lib/workspace-api";

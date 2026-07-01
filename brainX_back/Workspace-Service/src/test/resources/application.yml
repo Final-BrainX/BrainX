@@ -3,8 +3,7 @@ server:
 
 spring:
   autoconfigure:
-    exclude:
-    - org.springframework.boot.autoconfigure.neo4j.Neo4jAutoConfiguration
+    exclude: []
   application:
     name: Workspace-Service-Test
   datasource:
@@ -16,6 +15,11 @@ spring:
     hibernate:
       ddl-auto: create-drop
     open-in-view: false
+  neo4j:
+    uri: bolt://localhost:7687
+    authentication:
+      username: neo4j
+      password: brainx_neo4j_local_password
 
 brainx:
   jwt:
@@ -24,4 +28,8 @@ brainx:
   public-base-url: http://localhost:3000
   graph:
     neo4j:
-      enabled: false
+      enabled: true
+      uri: bolt://localhost:7687
+      username: neo4j
+      password: brainx_neo4j_local_password
+      backfill-on-startup: false

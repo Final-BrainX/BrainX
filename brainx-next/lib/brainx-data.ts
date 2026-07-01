@@ -1,4 +1,5 @@
 import { countWords, stripMarkdown } from "@/lib/utils";
+import { deriveGraphEdges as deriveKnowledgeGraphEdges } from "@/lib/knowledge-graph";
 
 export type ClusterId = "ml" | "read" | "proj" | "work" | "life";
 
@@ -145,35 +146,7 @@ export function clusterById(id: string) {
 }
 
 export function deriveGraphEdges(notes: BrainXNote[]) {
-  const seen = new Set<string>();
-  const noteIds = new Set(notes.map((note) => note.id));
-  const edges: Array<{ source: string; target: string; bridge?: boolean }> = [];
-
-  for (const note of notes) {
-    for (const target of note.links ?? []) {
-      if (!noteIds.has(target) || target === note.id) continue;
-      const key = [note.id, target].sort().join("-");
-      if (!seen.has(key)) {
-        seen.add(key);
-        edges.push({ source: note.id, target });
-      }
-    }
-  }
-
-  for (const [source, target] of [
-    ["n4", "n10"],
-    ["n12", "n5"],
-    ["n9", "n8"]
-  ] as const) {
-    if (!noteIds.has(source) || !noteIds.has(target)) continue;
-    const key = [source, target].sort().join("-");
-    if (!seen.has(key)) {
-      seen.add(key);
-      edges.push({ source, target, bridge: true });
-    }
-  }
-
-  return edges;
+  return deriveKnowledgeGraphEdges(notes);
 }
 
 export function summarizeMarkdown(markdown: string) {

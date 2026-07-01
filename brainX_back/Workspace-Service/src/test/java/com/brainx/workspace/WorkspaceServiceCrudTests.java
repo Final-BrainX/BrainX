@@ -10,6 +10,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
 
+import org.neo4j.driver.Driver;
+import org.neo4j.driver.SessionConfig;
+
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -21,6 +24,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest
 class WorkspaceServiceCrudTests {
     private static final String USER_ID = "usr_test";
+
+    @Autowired(required = false)
+    Driver neo4jDriver;
 
     @Autowired
     WorkspaceService workspaceService;
@@ -54,6 +60,13 @@ class WorkspaceServiceCrudTests {
         eventOutboxRepository.deleteAll();
         folderRepository.deleteAll();
         noteRepository.deleteAll();
+        if (neo4jDriver != null) {
+            try (var session = neo4jDriver.session()) {
+                session.executeWrite(tx -> tx.run("MATCH (n) DETACH DELETE n").consume());
+            } catch (Exception e) {
+                System.err.println("Failed to clean Neo4j database: " + e.getMessage());
+            }
+        }
     }
 
     @Test
@@ -100,6 +113,22 @@ class WorkspaceServiceCrudTests {
                 new NoteLinkCreateRequest(second.noteId(), "Second note", false));
         assertThat(link.sourceNoteId()).isEqualTo(first.noteId());
         assertThat(link.targetNoteId()).isEqualTo(second.noteId());
+
+        // Neo4j Verification Query
+        if (neo4jDriver != null) {
+            try (var session = neo4jDriver.session()) {
+                var result = session.run("MATCH (n:Note)-[r:LINKED]->(m:Note) RETURN n.noteId, r.linkId, m.noteId");
+                System.out.println("====== NEO4J LINKED RELATIONSHIP VERIFICATION ======");
+                boolean found = false;
+                while (result.hasNext()) {
+                    found = true;
+                    var record = result.next();
+                    System.out.println("Relationship found: " + record.get("n.noteId").asString() + " -[:LINKED {" + record.get("r.linkId").asString() + "}]-> " + record.get("m.noteId").asString());
+                }
+                System.out.println("====================================================");
+                assertThat(found).isTrue();
+            }
+        }
 
         BacklinksData backlinks = workspaceService.backlinks(USER_ID, second.noteId());
         assertThat(backlinks.backlinks()).hasSize(1);
@@ -172,5 +201,37 @@ class WorkspaceServiceCrudTests {
         // 다른 폴더에서는 같은 제목을 허용한다.
         NoteCreatedData noteInOtherFolder = workspaceService.createNote(USER_ID, new NoteCreateRequest("노트", "", second.folderId(), List.of()));
         assertThat(noteInOtherFolder.title()).isEqualTo("노트");
+    }
+
+    @Test
+    void syncGraphAllRecreatesNeo4jNodesAndEdgesFromPostgreSqlSSOT() {
+        // Given
+        FolderData folder = workspaceService.createFolder(USER_ID, new FolderCreateRequest("Sync Test Folder", null));
+        NoteCreatedData note1 = workspaceService.createNote(USER_ID,
+                new NoteCreateRequest("Sync Note 1", "sync target", folder.folderId(), List.of("sync")));
+        NoteCreatedData note2 = workspaceService.createNote(USER_ID,
+                new NoteCreateRequest("Sync Note 2", "sync target 2", folder.folderId(), List.of("sync")));
+        workspaceService.createLink(USER_ID, note1.noteId(),
+                new NoteLinkCreateRequest(note2.noteId(), "Sync Note 2", false));
+
+        // When
+        Map<String, Object> result = workspaceService.syncGraph();
+
+        // Then
+        assertThat(result.get("status")).isEqualTo("SUCCESS");
+        assertThat((Integer) result.get("notes")).isGreaterThanOrEqualTo(2);
+        assertThat((Integer) result.get("relationships")).isGreaterThanOrEqualTo(1);
+
+        if (neo4jDriver != null) {
+            try (var session = neo4jDriver.session()) {
+                var notesResult = session.run("MATCH (n:Note) RETURN count(n) as cnt");
+                long noteCount = notesResult.hasNext() ? notesResult.next().get("cnt").asLong() : 0L;
+                assertThat(noteCount).isGreaterThanOrEqualTo(2L);
+
+                var linksResult = session.run("MATCH ()-[r:LINKED]->() RETURN count(r) as cnt");
+                long linkCount = linksResult.hasNext() ? linksResult.next().get("cnt").asLong() : 0L;
+                assertThat(linkCount).isGreaterThanOrEqualTo(1L);
+            }
+        }
     }
 }

@@ -122,8 +122,10 @@ BrainX/
 - `BrainXNote`: 노트 도메인 타입
 - `CLUSTERS`: 지식 클러스터 정의
 - `seedNotes()`: 초기 노트 데이터
-- `deriveGraphEdges()`: 노트 링크 기반 그래프 edge 생성
+- `deriveGraphEdges()`: 노트 본문, 태그, 위키링크, 제목 유사도를 함께 분석해 의미 관계 그래프 edge 생성
 - `createNoteSeed()`, `updateNoteDerived()`: 노트 생성/수정 파생값 관리
+
+`deriveGraphEdges()`는 단순 링크만 보지 않고 `REFERENCE`, `RELATED`, `PARENT`/`CHILD`, `CAUSE`/`RESULT`, `WORKFLOW`, `PROJECT`, `TAG`, `SIMILAR` 관계를 weight와 reason과 함께 산출한다. 그래프 UI와 SSOT의 `/api/v1/graph` 계약은 이 의미 관계를 전제로 한다.
 
 ### Frontend API Boundary
 
@@ -346,6 +348,7 @@ Docker Compose로 앱을 실행할 때는 앱 컨테이너에만 `POSTGRES_HOST=
 | Neo4j Bolt | 백엔드 서비스 접속 URI | `bolt://localhost:7687` |
 
 기본 로컬 계정은 `.env`의 `NEO4J_USERNAME`, `NEO4J_PASSWORD`로 관리합니다. Docker Compose 내부에서 Workspace-Service는 `bolt://neo4j:7687`로 접속하고, 로컬 IDE 실행 시에는 `bolt://localhost:7687`을 사용합니다.
+Workspace-Service의 Neo4j projection은 노트 본문 `[[...]]` 위키링크, 수동 `NoteLink`, 태그, 제목/본문 유사도를 다시 계산해 `LINKED` 관계를 MERGE 방식으로 갱신합니다. 노트가 수정되면 전체 그래프를 다시 만들지 않고, 변경된 노트와 그 노트를 직접 참조하는 관련 노트만 증분 갱신합니다.
 
 DB 접속 계정과 비밀번호는 루트 `.env`의 `POSTGRES_USER`, `POSTGRES_PASSWORD`를 모든 서비스가 공통으로 사용합니다. 각 서비스는 자기 `application.yml`에서 `.env`의 DB host/port와 서비스별 DB name을 조합해 JDBC URL을 만듭니다.
 

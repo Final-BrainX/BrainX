@@ -246,4 +246,9 @@ public class WorkspaceController {
         }
         return actor.id();
     }
+
+    @PostMapping("/api/v1/graph/sync")
+    public ApiResponse<java.util.Map<String, Object>> syncGraph() {
+        return ApiResponse.success(workspaceService.syncGraph());
+    }
 }

@@ -79,7 +79,7 @@ public class Neo4jGraphQueryService {
                     MATCH (source:Note {userId: $userId})-[r:LINKED]->(target:Note {userId: $userId})
                     WHERE source.noteId IN $noteIds
                       AND target.noteId IN $noteIds
-                    RETURN r.linkId AS linkId,
+                    RETURN coalesce(r.linkId, source.noteId + '::' + target.noteId) AS linkId,
                            source.noteId AS sourceNoteId,
                            target.noteId AS targetNoteId,
                            coalesce(r.type, 'MANUAL') AS type,

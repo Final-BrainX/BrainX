@@ -4,11 +4,13 @@ import com.brainx.workspace.dto.WorkspaceDtos.*;
 import com.brainx.workspace.entity.*;
 import com.brainx.workspace.event.WorkspaceEventPublisher;
 import com.brainx.workspace.exception.WorkspaceException;
+import com.brainx.workspace.graph.Neo4jGraphProjection;
 import com.brainx.workspace.graph.Neo4jGraphQueryService;
 import com.brainx.workspace.repository.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
@@ -26,6 +28,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -41,6 +44,7 @@ public class WorkspaceService {
     private final GraphLayoutRepository graphLayoutRepository;
     private final ShareLinkRepository shareLinkRepository;
     private final WorkspaceEventPublisher eventPublisher;
+    private final Neo4jGraphProjection neo4jGraphProjection;
     private final ObjectMapper objectMapper;
     private final Neo4jGraphQueryService neo4jGraphQueryService;
 
@@ -446,6 +450,10 @@ public class WorkspaceService {
         }
         NoteLink link = new NoteLink(Ids.link(), userId, source.getNoteId(), target.getNoteId(), target.getTitle(), Instant.now());
         noteLinkRepository.save(link);
+        log.info("[WorkspaceService] calling neo4jGraphProjection.upsertManualLink - userId: {}, sourceNoteId: {}, targetNoteId: {}, linkId: {}", 
+                userId, source.getNoteId(), target.getNoteId(), link.getLinkId());
+        neo4jGraphProjection.upsertManualLink(userId, source.getNoteId(), target.getNoteId(), link.getLinkId(), link.getCreatedAt());
+        log.info("[WorkspaceService] finished neo4jGraphProjection.upsertManualLink call");
         eventPublisher.publish("NoteLinkCreated", userId, Map.of(
                 "linkId", link.getLinkId(), "userId", userId, "sourceNoteId", source.getNoteId(), "targetNoteId", target.getNoteId(), "linkType", "MANUAL"
         ));
@@ -456,6 +464,10 @@ public class WorkspaceService {
         NoteLink link = noteLinkRepository.findByLinkIdAndSourceNoteIdAndUserId(linkId, noteId, userId)
                 .orElseThrow(() -> notFound("NOTE_LINK_NOT_FOUND", "Note link not found."));
         noteLinkRepository.delete(link);
+        log.info("[WorkspaceService] calling neo4jGraphProjection.deleteManualLink - userId: {}, sourceNoteId: {}, targetNoteId: {}, linkId: {}", 
+                userId, link.getSourceNoteId(), link.getTargetNoteId(), link.getLinkId());
+        neo4jGraphProjection.deleteManualLink(userId, link.getSourceNoteId(), link.getTargetNoteId(), link.getLinkId());
+        log.info("[WorkspaceService] finished neo4jGraphProjection.deleteManualLink call");
         eventPublisher.publish("NoteLinkDeleted", userId, Map.of(
                 "linkId", linkId, "userId", userId, "sourceNoteId", link.getSourceNoteId(), "targetNoteId", link.getTargetNoteId()
         ));
@@ -745,5 +757,9 @@ public class WorkspaceService {
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is not available.", exception);
         }
+    }
+
+    public Map<String, Object> syncGraph() {
+        return neo4jGraphProjection.syncAll();
     }
 }
