@@ -1,0 +1,24 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:brainx_user_test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  mail:
+    host: localhost
+    port: 2525
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+
+brainx:
+  service-token: brainx-test-service-token
+  jwt:
+    secret: brainx_test_secret_at_least_32_bytes
+    access-token-expiration-millis: 3600000
+    refresh-token-expiration-millis: 604800000
+  email:
+    verification-expiration-minutes: 30
