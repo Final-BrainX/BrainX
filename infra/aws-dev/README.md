@@ -147,9 +147,10 @@ Workflow: `.github/workflows/brainx-dev-deploy.yml`
 - Image tags:
   - immutable: commit SHA
   - moving: `dev-latest`
-- Docker build cache is stored in each service ECR repository as the `buildcache` tag. The first build after enabling cache is expected to miss, and later builds reuse Buildx registry cache layers across GitHub-hosted runners.
+- Docker build cache uses Docker Buildx GitHub Actions cache with one scope per service. The first build for a service can miss, and later builds reuse cache layers across GitHub-hosted runners.
 - Deploy uses SSM `AWS-RunShellScript`; no SSH key or port 22 is required.
-- Remote deploy prints SSM stdout/stderr, `docker compose ps`, and endpoint checks.
+- Remote deploy reads SSM parameters in one batch, skips repeated database bootstrap after the first successful run for the current RDS target, and avoids image pulls for config-only deploys.
+- Remote deploy prints SSM stdout/stderr, `docker compose ps`, and endpoint checks. GitHub endpoint verification is limited to the changed service categories.
 - For deploy overlap or endpoint verification failures, use [`troubleshooting.md`](troubleshooting.md).
 
 Path mapping:

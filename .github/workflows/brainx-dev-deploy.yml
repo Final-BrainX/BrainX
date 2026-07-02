@@ -225,7 +225,7 @@ jobs:
             )
           fi
 
-          CACHE_REF="$IMAGE_URI:buildcache"
+          CACHE_SCOPE="brainx-dev-$SERVICE"
 
           docker buildx build \
             --progress=plain \
@@ -233,8 +233,8 @@ jobs:
             -f "$DOCKERFILE" \
             -t "$IMAGE_URI:$IMAGE_TAG" \
             -t "$IMAGE_URI:dev-latest" \
-            --cache-from "type=registry,ref=$CACHE_REF" \
-            --cache-to "type=registry,ref=$CACHE_REF,mode=max,image-manifest=true,oci-mediatypes=true" \
+            --cache-from "type=gha,scope=$CACHE_SCOPE" \
+            --cache-to "type=gha,mode=max,scope=$CACHE_SCOPE" \
             "${BUILD_ARGS[@]}" \
             "$CONTEXT"
 
@@ -335,8 +335,30 @@ jobs:
 
       - name: Verify public endpoints
         shell: bash
+        env:
+          CHANGED_SERVICES: ${{ needs.detect.outputs.services_space }}
+          DEPLOY_CONFIG_CHANGED: ${{ needs.detect.outputs.deploy_config_changed }}
         run: |
           set -euo pipefail
+
+          has_service() {
+            target="$1"
+            for service in $CHANGED_SERVICES; do
+              if [ "$service" = "$target" ]; then
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          has_backend_service() {
+            for service in $CHANGED_SERVICES; do
+              case "$service" in
+                *-service) return 0 ;;
+              esac
+            done
+            return 1
+          }
 
           check_endpoint() {
             label="$1"
@@ -373,8 +395,16 @@ jobs:
             return 1
           }
 
-          check_endpoint "frontend" "$AWS_DEV_PUBLIC_BASE_URL/" ok
-          check_endpoint "admin frontend" "$AWS_DEV_ADMIN_PUBLIC_BASE_URL/" ok
-          check_endpoint "plans api" "$AWS_DEV_PUBLIC_BASE_URL/api/v1/plans" non5xx
-          check_endpoint "notes api" "$AWS_DEV_PUBLIC_BASE_URL/api/v1/notes" non5xx
-          check_endpoint "ai models api" "$AWS_DEV_PUBLIC_BASE_URL/api/v1/ai/models" non5xx
+          if [ "$DEPLOY_CONFIG_CHANGED" = "true" ] || has_service frontend; then
+            check_endpoint "frontend" "$AWS_DEV_PUBLIC_BASE_URL/" ok
+          fi
+
+          if [ "$DEPLOY_CONFIG_CHANGED" = "true" ] || has_service admin-frontend; then
+            check_endpoint "admin frontend" "$AWS_DEV_ADMIN_PUBLIC_BASE_URL/" ok
+          fi
+
+          if [ "$DEPLOY_CONFIG_CHANGED" = "true" ] || has_backend_service; then
+            check_endpoint "plans api" "$AWS_DEV_PUBLIC_BASE_URL/api/v1/plans" non5xx
+            check_endpoint "notes api" "$AWS_DEV_PUBLIC_BASE_URL/api/v1/notes" non5xx
+            check_endpoint "ai models api" "$AWS_DEV_PUBLIC_BASE_URL/api/v1/ai/models" non5xx
+          fi
