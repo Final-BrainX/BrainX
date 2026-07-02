@@ -24,7 +24,7 @@
   "panels": [
     {
       "id": 1,
-      "type": "stat",
+      "type": "timeseries",
       "title": "User-Service Uptime",
       "datasource": "Prometheus",
       "gridPos": {
@@ -63,7 +63,7 @@
     },
     {
       "id": 2,
-      "type": "stat",
+      "type": "timeseries",
       "title": "User-Service Heap Used",
       "datasource": "Prometheus",
       "gridPos": {
@@ -102,7 +102,7 @@
     },
     {
       "id": 3,
-      "type": "stat",
+      "type": "timeseries",
       "title": "User-Service Non-Heap Used",
       "datasource": "Prometheus",
       "gridPos": {
@@ -141,7 +141,7 @@
     },
     {
       "id": 4,
-      "type": "stat",
+      "type": "timeseries",
       "title": "User-Service Open Files",
       "datasource": "Prometheus",
       "gridPos": {
@@ -180,7 +180,7 @@
     },
     {
       "id": 5,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Gateway-Service Uptime",
       "datasource": "Prometheus",
       "gridPos": {
@@ -219,7 +219,7 @@
     },
     {
       "id": 6,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Gateway-Service Heap Used",
       "datasource": "Prometheus",
       "gridPos": {
@@ -258,7 +258,7 @@
     },
     {
       "id": 7,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Gateway-Service Non-Heap Used",
       "datasource": "Prometheus",
       "gridPos": {
@@ -297,7 +297,7 @@
     },
     {
       "id": 8,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Gateway-Service Open Files",
       "datasource": "Prometheus",
       "gridPos": {
@@ -336,7 +336,7 @@
     },
     {
       "id": 9,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Workspace-Service Uptime",
       "datasource": "Prometheus",
       "gridPos": {
@@ -375,7 +375,7 @@
     },
     {
       "id": 10,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Workspace-Service Heap Used",
       "datasource": "Prometheus",
       "gridPos": {
@@ -414,7 +414,7 @@
     },
     {
       "id": 11,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Workspace-Service Non-Heap Used",
       "datasource": "Prometheus",
       "gridPos": {
@@ -453,7 +453,7 @@
     },
     {
       "id": 12,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Workspace-Service Open Files",
       "datasource": "Prometheus",
       "gridPos": {
@@ -492,7 +492,7 @@
     },
     {
       "id": 13,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Admin-Service Uptime",
       "datasource": "Prometheus",
       "gridPos": {
@@ -531,7 +531,7 @@
     },
     {
       "id": 14,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Admin-Service Heap Used",
       "datasource": "Prometheus",
       "gridPos": {
@@ -570,7 +570,7 @@
     },
     {
       "id": 15,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Admin-Service Non-Heap Used",
       "datasource": "Prometheus",
       "gridPos": {
@@ -609,7 +609,7 @@
     },
     {
       "id": 16,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Admin-Service Open Files",
       "datasource": "Prometheus",
       "gridPos": {
@@ -648,7 +648,7 @@
     },
     {
       "id": 17,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Commerce-Service Uptime",
       "datasource": "Prometheus",
       "gridPos": {
@@ -687,7 +687,7 @@
     },
     {
       "id": 18,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Commerce-Service Heap Used",
       "datasource": "Prometheus",
       "gridPos": {
@@ -726,7 +726,7 @@
     },
     {
       "id": 19,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Commerce-Service Non-Heap Used",
       "datasource": "Prometheus",
       "gridPos": {
@@ -765,7 +765,7 @@
     },
     {
       "id": 20,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Commerce-Service Open Files",
       "datasource": "Prometheus",
       "gridPos": {
@@ -804,7 +804,7 @@
     },
     {
       "id": 21,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Ingestion-Service Uptime",
       "datasource": "Prometheus",
       "gridPos": {
@@ -843,7 +843,7 @@
     },
     {
       "id": 22,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Ingestion-Service Heap Used",
       "datasource": "Prometheus",
       "gridPos": {
@@ -882,7 +882,7 @@
     },
     {
       "id": 23,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Ingestion-Service Non-Heap Used",
       "datasource": "Prometheus",
       "gridPos": {
@@ -921,7 +921,7 @@
     },
     {
       "id": 24,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Ingestion-Service Open Files",
       "datasource": "Prometheus",
       "gridPos": {
@@ -960,7 +960,7 @@
     },
     {
       "id": 25,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Intelligence-Service Uptime",
       "datasource": "Prometheus",
       "gridPos": {
@@ -999,7 +999,7 @@
     },
     {
       "id": 26,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Intelligence-Service Heap Used",
       "datasource": "Prometheus",
       "gridPos": {
@@ -1038,7 +1038,7 @@
     },
     {
       "id": 27,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Intelligence-Service Non-Heap Used",
       "datasource": "Prometheus",
       "gridPos": {
@@ -1077,7 +1077,7 @@
     },
     {
       "id": 28,
-      "type": "stat",
+      "type": "timeseries",
       "title": "Intelligence-Service Open Files",
       "datasource": "Prometheus",
       "gridPos": {

@@ -21,11 +21,17 @@
 
 Prometheus stays on the internal Docker network and scrapes `user-service`, `gateway-service`, `workspace-service`, `admin-service`, `commerce-service`, `ingestion-service`, and `intelligence-service` from their `/actuator/prometheus` endpoints. Grafana is auto-provisioned with that Prometheus datasource, so you do not need to add it manually in the UI.
 
+The monitoring dashboard is file-provisioned from `/etc/grafana/dashboards/spring-boot-2-1-system-monitor.json` inside the Grafana container, which maps back to `infra/aws-dev/deploy/grafana/dashboards/spring-boot-2-1-system-monitor.json` in this repository. Because `allowUiUpdates: false` is set, UI edits are temporary unless you click `Save JSON to file`, overwrite that provisioned JSON path, and let Grafana reload the file.
+
+The provider also sets `updateIntervalSeconds: 30`, so Grafana should pick up the changed dashboard automatically within about 30 seconds; if it does not, restart Grafana with `docker compose --env-file /opt/brainx/env/runtime.env -f docker-compose.yml restart grafana`.
+
 The imported Spring Boot monitor dashboard expects each service to publish an `application` metric tag. We still set that tag in each service's `management.metrics.tags.application` config, and Prometheus also stamps the same label from the scrape target as a fallback so the dashboard keeps working even if one container is briefly on an older image.
 
 The dashboard also expects Micrometer's extra JVM binders for some of the JVM and process panels. We keep `io.github.mweirauch:micrometer-jvm-extras:0.2.2` on the monitored services so the panels do not fall back to `N/A` when those meters are queried.
 
 The Grafana dashboard itself is also provisioned from this repository now, so the `spring_boot_21` dashboard UID points directly at the provisioned Prometheus datasource instead of depending on the UI import placeholder `${DS_PROMETHEUS}`. This avoids the `Datasource ${DS_PROMETHEUS} was not found` error and keeps the dashboard stable after redeploys.
+
+Those monitoring panels are now `Time series` charts instead of `Stat` tiles, so the dashboard shows the actual line graphs rather than only the sparkline preview.
 
 The rightmost "Open Files" panels query `process_files_open_files` first and fall back to `process_open_fds` for older images, which keeps the panel readable across both the new Micrometer binder and the legacy process metric. If those panels still show `No data`, it usually means the service image is not exposing `/actuator/prometheus` yet or the target container is unhealthy.
 
