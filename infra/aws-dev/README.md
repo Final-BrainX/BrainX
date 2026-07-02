@@ -23,6 +23,8 @@ Prometheus stays on the internal Docker network and scrapes `user-service`, `gat
 
 The imported Spring Boot monitor dashboard expects each service to publish an `application` metric tag. We set that tag to `spring.application.name` in the service `management.metrics.tags.application` config so the dashboard variables and panels can resolve per-service data.
 
+`Gateway-Service` must allow `/actuator/prometheus` through its global auth filter, otherwise Prometheus receives `401 Unauthorized` when it scrapes the gateway target.
+
 `Admin-Service` talks to `user-service`, `commerce-service`, `workspace-service`, `ingestion-service`, and `intelligence-service` through Docker DNS names inside the shared compose network. Do not leave those URLs on the container defaults of `localhost`, or the admin screens will fail as soon as they try to read another service's data.
 
 Grafana is mounted behind Caddy on the admin site path so we do not need to expose a new public port. It reuses the existing runtime admin password (`SEED_ADMIN_PASSWORD`) for the initial Grafana login.

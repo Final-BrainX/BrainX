@@ -43,6 +43,18 @@ class JwtAuthenticationGlobalFilterTest {
     }
 
     @Test
+    void allowsPrometheusPathWithoutToken() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/actuator/prometheus")
+        );
+        GatewayFilterChain chain = ignored -> Mono.empty();
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertThat(exchange.getResponse().getStatusCode()).isNull();
+    }
+
+    @Test
     void createsGuestActorForWorkspacePathWithoutToken() {
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/api/v1/notes")
@@ -196,6 +208,7 @@ class JwtAuthenticationGlobalFilterTest {
         properties.setPublicPaths(List.of(
                 "/actuator/health",
                 "/actuator/info",
+                "/actuator/prometheus",
                 "/api/v1/auth/**",
                 "/api/v1/plans",
                 "/api/v1/plans/**"
