@@ -249,6 +249,7 @@ brainx:
       public-paths:
         - /actuator/health
         - /actuator/info
+        - /actuator/prometheus
         - /api/v1/auth/**
         - /api/v1/plans
         - /api/v1/plans/**
