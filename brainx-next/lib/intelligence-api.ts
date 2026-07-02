@@ -22,6 +22,9 @@ export type LinkSuggestionsRequest = Schemas["LinkSuggestionsRequest"];
 export type LinkSuggestionsData = Schemas["LinkSuggestionsData"];
 export type BridgeConceptsRequest = Schemas["BridgeConceptsRequest"];
 export type BridgeConceptsData = Schemas["BridgeConceptsData"];
+export type ClusterJobCreateRequest = Schemas["ClusterJobCreateRequest"];
+export type ClusterJobData = Schemas["ClusterJobData"];
+export type ClusterJobLatestData = Schemas["ClusterJobLatestData"];
 export type AiModelsData = Schemas["AiModelsData"];
 export type AiModelSettingsPutRequest = Schemas["AiModelSettingsPutRequest"];
 export type AiModelSettingsData = Schemas["AiModelSettingsData"];
@@ -326,6 +329,33 @@ export function createLinkSuggestions(payload: LinkSuggestionsRequest, options?:
       method: "POST",
       body: JSON.stringify(payload),
     },
+    options
+  );
+}
+
+export function requestClusterJob(payload: ClusterJobCreateRequest, options?: IntelligenceRequestOptions) {
+  return authedRequest<ClusterJobData>(
+    "/api/v1/ai/clusters",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    options
+  );
+}
+
+export function getLatestClusterJob(
+  params: { documentGroupId?: string } = {},
+  options?: IntelligenceRequestOptions
+) {
+  const searchParams = new URLSearchParams();
+  if (params.documentGroupId) {
+    searchParams.set("documentGroupId", params.documentGroupId);
+  }
+  const query = searchParams.toString();
+  return authedRequest<ClusterJobLatestData>(
+    `/api/v1/ai/clusters/latest${query ? `?${query}` : ""}`,
+    undefined,
     options
   );
 }

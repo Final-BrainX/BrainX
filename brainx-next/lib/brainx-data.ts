@@ -1,7 +1,7 @@
 import { countWords, stripMarkdown } from "@/lib/utils";
 import { deriveGraphEdges as deriveKnowledgeGraphEdges } from "@/lib/knowledge-graph";
 
-export type ClusterId = "ml" | "read" | "proj" | "work" | "life";
+export type ClusterId = string;
 
 export type BrainXCluster = {
   id: ClusterId;

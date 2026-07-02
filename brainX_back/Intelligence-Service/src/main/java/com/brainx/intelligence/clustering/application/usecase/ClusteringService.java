@@ -6,6 +6,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -18,6 +19,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import com.brainx.intelligence.clustering.application.port.inbound.GetClusterJobUseCase;
+import com.brainx.intelligence.clustering.application.port.inbound.GetLatestClusterJobUseCase;
+import com.brainx.intelligence.clustering.application.port.inbound.GetLatestClusterJobUseCase.GetLatestClusterJobQuery;
+import com.brainx.intelligence.clustering.application.port.inbound.GetLatestClusterJobUseCase.LatestClusterJob;
 import com.brainx.intelligence.clustering.application.port.inbound.RequestClusterJobUseCase;
 import com.brainx.intelligence.clustering.application.port.outbound.ClusterJobStore;
 import com.brainx.intelligence.clustering.application.port.outbound.ClusteringEventPort;
@@ -25,6 +29,8 @@ import com.brainx.intelligence.clustering.application.port.outbound.ClusteringEv
 import com.brainx.intelligence.clustering.application.port.outbound.ClusteringEventPort.ClusterJobRequestedEvent;
 import com.brainx.intelligence.clustering.domain.Cluster;
 import com.brainx.intelligence.clustering.domain.ClusterJob;
+import com.brainx.intelligence.clustering.domain.ClusterJobLatestState;
+import com.brainx.intelligence.clustering.domain.ClusterJobStatus;
 import com.brainx.intelligence.clustering.domain.ClusteringConflictException;
 import com.brainx.intelligence.clustering.domain.ClusteringForbiddenException;
 import com.brainx.intelligence.clustering.domain.ClusteringNotFoundException;
@@ -46,12 +52,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Service
-public class ClusteringService implements RequestClusterJobUseCase, GetClusterJobUseCase {
+public class ClusteringService implements RequestClusterJobUseCase, GetClusterJobUseCase, GetLatestClusterJobUseCase {
 
     static final String AI_CLUSTERING_CAPABILITY = "AI_CLUSTERING";
     static final String AI_CLUSTERING_FEATURE_ID = "ai-clustering-chat";
+    static final String SOURCE_SNAPSHOT_SCOPE_KEY = "_sourceSnapshot";
     private static final int HARD_MAX_NOTES = 50;
     private static final int HARD_MAX_CLUSTERS = 12;
+    private static final int LATEST_JOB_LOOKBACK = 20;
 
     private final ClusterJobStore clusterJobStore;
     private final KnowledgeAnalysisNoteSourcePort noteSourcePort;
@@ -153,7 +161,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
             clusterJobId,
             userId,
             scope.documentGroupId(),
-            scope.normalizedScope(),
+            scopeWithSourceSnapshot(scope.normalizedScope(), notes),
             algorithmOptions,
             modelId,
             idempotencyKey,
@@ -162,7 +170,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
         clusteringEventPort.clusterJobRequested(new ClusterJobRequestedEvent(
             userId,
             clusterJobId,
-            running.scope(),
+            publicScope(running.scope()),
             running.algorithmOptions()
         ));
 
@@ -197,6 +205,55 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
                 requireText(query.clusterJobId(), "clusterJobId")
             )
             .orElseThrow(() -> new ClusteringNotFoundException("Cluster job was not found."));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public LatestClusterJob getLatestClusterJob(GetLatestClusterJobQuery query) {
+        String userId = requireText(query.userId(), "userId");
+        String documentGroupId = DocumentGroups.normalize(query.documentGroupId());
+        List<KnowledgeAnalysisNote> notes = noteSourcePort.findAnalysisNotes(
+            userId,
+            documentGroupId,
+            Math.min(properties.getMaxNotes(), HARD_MAX_NOTES)
+        );
+        Instant latestNoteUpdatedAt = latestNoteUpdatedAt(notes);
+        if (notes.isEmpty()) {
+            return new LatestClusterJob(
+                documentGroupId,
+                0,
+                null,
+                ClusterJobLatestState.NO_SOURCE_NOTES,
+                null
+            );
+        }
+
+        ClusterJob latestJob = clusterJobStore.findRecentByUserIdAndDocumentGroupId(
+                userId,
+                documentGroupId,
+                LATEST_JOB_LOOKBACK
+            ).stream()
+            .filter(ClusteringService::isWorkspaceClusterJob)
+            .findFirst()
+            .orElse(null);
+        if (latestJob == null) {
+            return new LatestClusterJob(
+                documentGroupId,
+                notes.size(),
+                latestNoteUpdatedAt,
+                ClusterJobLatestState.NOT_ANALYZED,
+                null
+            );
+        }
+
+        ClusterJobLatestState state = latestState(latestJob, notes);
+        return new LatestClusterJob(
+            documentGroupId,
+            notes.size(),
+            latestNoteUpdatedAt,
+            state,
+            latestJob
+        );
     }
 
     private List<KnowledgeAnalysisNote> loadNotes(String userId, ScopeSpec scope) {
@@ -324,6 +381,104 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
         Map<String, Object> values = input == null ? new LinkedHashMap<>() : new LinkedHashMap<>(input);
         values.put("maxClusters", maxClusters);
         return values;
+    }
+
+    private Map<String, Object> scopeWithSourceSnapshot(
+        Map<String, Object> scope,
+        List<KnowledgeAnalysisNote> notes
+    ) {
+        Map<String, Object> values = new LinkedHashMap<>(scope == null ? Map.of() : scope);
+        values.put(SOURCE_SNAPSHOT_SCOPE_KEY, sourceSnapshot(notes));
+        return values;
+    }
+
+    private static Map<String, Object> publicScope(Map<String, Object> scope) {
+        Map<String, Object> values = new LinkedHashMap<>(scope == null ? Map.of() : scope);
+        values.remove(SOURCE_SNAPSHOT_SCOPE_KEY);
+        return values;
+    }
+
+    private static Map<String, Object> sourceSnapshot(List<KnowledgeAnalysisNote> notes) {
+        List<Map<String, Object>> sourceNotes = notes.stream()
+            .sorted(Comparator.comparing(KnowledgeAnalysisNote::noteId))
+            .map(note -> {
+                Map<String, Object> values = new LinkedHashMap<>();
+                values.put("noteId", note.noteId());
+                values.put("updatedAt", note.updatedAt().toString());
+                return values;
+            })
+            .toList();
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("noteCount", notes.size());
+        Instant latestUpdatedAt = latestNoteUpdatedAt(notes);
+        snapshot.put("latestNoteUpdatedAt", latestUpdatedAt == null ? null : latestUpdatedAt.toString());
+        snapshot.put("notes", sourceNotes);
+        return snapshot;
+    }
+
+    private static ClusterJobLatestState latestState(ClusterJob job, List<KnowledgeAnalysisNote> notes) {
+        if (job.status() == ClusterJobStatus.FAILED) {
+            return ClusterJobLatestState.FAILED;
+        }
+        if (job.status() != ClusterJobStatus.COMPLETED) {
+            return ClusterJobLatestState.STALE;
+        }
+        return sourceSnapshotMatches(job.scope().get(SOURCE_SNAPSHOT_SCOPE_KEY), notes)
+            ? ClusterJobLatestState.FRESH
+            : ClusterJobLatestState.STALE;
+    }
+
+    private static boolean sourceSnapshotMatches(Object snapshot, List<KnowledgeAnalysisNote> notes) {
+        return sourceVersionMap(notes).equals(snapshotVersionMap(snapshot));
+    }
+
+    private static Map<String, String> sourceVersionMap(List<KnowledgeAnalysisNote> notes) {
+        Map<String, String> values = new LinkedHashMap<>();
+        notes.stream()
+            .sorted(Comparator.comparing(KnowledgeAnalysisNote::noteId))
+            .forEach(note -> values.put(note.noteId(), note.updatedAt().toString()));
+        return values;
+    }
+
+    private static Map<String, String> snapshotVersionMap(Object snapshot) {
+        if (!(snapshot instanceof Map<?, ?> values)) {
+            return Map.of();
+        }
+        Object rawNotes = values.get("notes");
+        if (!(rawNotes instanceof List<?> notes)) {
+            return Map.of();
+        }
+        Map<String, String> versions = new LinkedHashMap<>();
+        for (Object item : notes) {
+            if (!(item instanceof Map<?, ?> note)) {
+                continue;
+            }
+            Object noteId = note.get("noteId");
+            Object updatedAt = note.get("updatedAt");
+            if (noteId != null && updatedAt != null && StringUtils.hasText(noteId.toString())) {
+                versions.put(noteId.toString().trim(), updatedAt.toString().trim());
+            }
+        }
+        return versions;
+    }
+
+    private static Instant latestNoteUpdatedAt(List<KnowledgeAnalysisNote> notes) {
+        return notes.stream()
+            .map(KnowledgeAnalysisNote::updatedAt)
+            .max(Instant::compareTo)
+            .orElse(null);
+    }
+
+    private static boolean isWorkspaceClusterJob(ClusterJob job) {
+        return !hasScopedNoteIds(publicScope(job.scope()));
+    }
+
+    private static boolean hasScopedNoteIds(Map<String, Object> scope) {
+        Object value = scope == null ? null : scope.get("noteIds");
+        if (!(value instanceof List<?> noteIds)) {
+            return false;
+        }
+        return noteIds.stream().anyMatch(item -> item != null && StringUtils.hasText(item.toString()));
     }
 
     private int maxClusters(Map<String, Object> algorithmOptions) {

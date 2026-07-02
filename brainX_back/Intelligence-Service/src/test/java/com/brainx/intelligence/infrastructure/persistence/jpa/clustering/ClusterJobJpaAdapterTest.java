@@ -56,6 +56,36 @@ class ClusterJobJpaAdapterTest {
         assertThat(byIdempotency.clusterJobId()).isEqualTo("job-1");
     }
 
+    @Test
+    void findRecentByUserIdAndDocumentGroupIdReturnsNewestJobsFirst() {
+        adapter.save(job("job-old", "user-1", "group-1", Instant.parse("2026-06-26T00:00:00Z")));
+        adapter.save(job("job-new", "user-1", "group-1", Instant.parse("2026-06-27T00:00:00Z")));
+        adapter.save(job("job-other-group", "user-1", "group-2", Instant.parse("2026-06-28T00:00:00Z")));
+        adapter.save(job("job-other-user", "user-2", "group-1", Instant.parse("2026-06-29T00:00:00Z")));
+
+        List<ClusterJob> jobs = adapter.findRecentByUserIdAndDocumentGroupId("user-1", "group-1", 10);
+
+        assertThat(jobs).extracting(ClusterJob::clusterJobId)
+            .containsExactly("job-new", "job-old");
+    }
+
+    private static ClusterJob job(String id, String userId, String documentGroupId, Instant createdAt) {
+        return new ClusterJob(
+            id,
+            userId,
+            documentGroupId,
+            ClusterJobStatus.COMPLETED,
+            Map.of("documentGroupId", documentGroupId, "maxNotes", 10),
+            Map.of("maxClusters", 3),
+            List.of(new Cluster("cluster-" + id, "Backend", "summary", List.of("note-1"), List.of("Spring"), 0.92d)),
+            "gpt-test",
+            null,
+            null,
+            createdAt,
+            createdAt.plusSeconds(1)
+        );
+    }
+
     static class ObjectMapperConfig {
         @Bean
         ObjectMapper objectMapper() {

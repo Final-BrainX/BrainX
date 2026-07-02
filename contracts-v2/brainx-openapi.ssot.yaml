@@ -6920,6 +6920,62 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+  /api/v1/ai/clusters/latest:
+    get:
+      operationId: getLatestAiClusterJob
+      summary: 최신 AI 클러스터링 상태 조회
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.graph
+        type: frontend
+        description: 2D/3D 그래프 및 마인드맵 UI
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: documentGroupId
+        in: query
+        required: false
+        schema:
+          type: string
+          default: default
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ClusterJobLatestData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
   /api/v1/ai/clusters/{clusterJobId}:
     get:
       operationId: getAiClusterJob
@@ -14816,6 +14872,8 @@ components:
       properties:
         clusterJobId:
           type: string
+        documentGroupId:
+          type: string
         status:
           $ref: '#/components/schemas/JobStatus'
         clusters:
@@ -14823,9 +14881,54 @@ components:
           items:
             type: object
             additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        failureMessage:
+          type: string
+          nullable: true
       required:
       - clusterJobId
+      - documentGroupId
       - status
+      - createdAt
+      additionalProperties: false
+    ClusterJobLatestState:
+      type: string
+      enum:
+      - NO_SOURCE_NOTES
+      - NOT_ANALYZED
+      - FRESH
+      - STALE
+      - FAILED
+    ClusterJobLatestData:
+      type: object
+      properties:
+        documentGroupId:
+          type: string
+        searchableNoteCount:
+          type: integer
+          format: int32
+          minimum: 0
+        latestNoteUpdatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        state:
+          $ref: '#/components/schemas/ClusterJobLatestState'
+        job:
+          type: object
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/ClusterJobData'
+      required:
+      - documentGroupId
+      - searchableNoteCount
+      - state
       additionalProperties: false
     BridgeConceptsRequest:
       type: object
