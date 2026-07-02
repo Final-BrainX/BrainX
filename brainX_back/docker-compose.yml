@@ -59,6 +59,16 @@ services:
         condition: service_started
       commerce-service:
         condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://localhost:8088/actuator/health | grep -q UP",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   user-service:
     profiles:
@@ -163,6 +173,11 @@ services:
       POSTGRES_HOST: postgres
       ADMIN_DB_NAME: ${ADMIN_DB_NAME:-brainx_admin}
       GATEWAY_SERVICE_URL: http://gateway-service:8088
+      USER_SERVICE_URL: http://user-service:8080
+      COMMERCE_SERVICE_URL: http://commerce-service:8084
+      WORKSPACE_SERVICE_URL: http://workspace-service:8082
+      INGESTION_SERVICE_URL: http://ingestion-service:8083
+      INTELLIGENCE_SERVICE_URL: http://intelligence-service:8086
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID: intelligence-service
     ports:
@@ -171,7 +186,7 @@ services:
       postgres:
         condition: service_healthy
       gateway-service:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test:
         [

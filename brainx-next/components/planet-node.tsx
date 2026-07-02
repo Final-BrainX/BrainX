@@ -23,8 +23,8 @@ export function PlanetNode({ data }: NodeProps) {
   // visual adjustments based on layer
   const isDimmedBySelection = layer === 'back';
   const blur = is2D ? 'none' : (layer === 'back' ? 'blur(2px)' : 'none');
-  const opacity = dimmed ? 0.15 : isDimmedBySelection ? (is2D ? 0.14 : 0.5) : 1;
-  const grayscale = is2D && isDimmedBySelection ? 'grayscale(100%) brightness(60%)' : 'none';
+  const opacity = dimmed ? 0.2 : isDimmedBySelection ? (is2D ? 0.26 : 0.58) : 1;
+  const grayscale = is2D && isDimmedBySelection ? 'grayscale(100%) brightness(72%)' : 'none';
 
   // Selected glow
   const glow = selected || isDirect

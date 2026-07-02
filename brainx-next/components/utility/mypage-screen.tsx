@@ -1059,11 +1059,11 @@ export function MyPageScreen() {
     try {
       await logout();
       pushToast("로그아웃되었습니다.", "ok");
-      router.replace("/login");
     } catch (error) {
       pushToast(error instanceof Error ? error.message : "로그아웃에 실패했습니다.", "err");
       setLoggingOut(false);
     }
+    router.replace("/");
   };
 
   return (

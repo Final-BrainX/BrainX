@@ -55,16 +55,30 @@ brainx:
   service-token: ${SERVICE_TOKEN:local-service-token}
   services:
     gateway-service-url: ${GATEWAY_SERVICE_URL:http://localhost:8088}
-    user-health-url: ${USER_HEALTH_URL:${brainx.services.gateway-service-url}/internal/v1/health/user}
-    commerce-health-url: ${COMMERCE_HEALTH_URL:${brainx.services.gateway-service-url}/internal/v1/health/commerce}
-    workspace-health-url: ${WORKSPACE_HEALTH_URL:${brainx.services.gateway-service-url}/internal/v1/health/workspace}
-    ingestion-health-url: ${INGESTION_HEALTH_URL:${brainx.services.gateway-service-url}/internal/v1/health/ingestion}
-    intelligence-health-url: ${INTELLIGENCE_HEALTH_URL:${brainx.services.gateway-service-url}/internal/v1/health/intelligence}
+    user-service-url: ${USER_SERVICE_URL:http://localhost:8080}
+    commerce-service-url: ${COMMERCE_SERVICE_URL:http://localhost:8084}
+    workspace-service-url: ${WORKSPACE_SERVICE_URL:http://localhost:8082}
+    ingestion-service-url: ${INGESTION_SERVICE_URL:http://localhost:8083}
+    intelligence-service-url: ${INTELLIGENCE_SERVICE_URL:http://localhost:8086}
+    user-health-url: ${USER_HEALTH_URL:${brainx.services.user-service-url}/actuator/health}
+    commerce-health-url: ${COMMERCE_HEALTH_URL:${brainx.services.commerce-service-url}/actuator/health}
+    workspace-health-url: ${WORKSPACE_HEALTH_URL:${brainx.services.workspace-service-url}/actuator/health}
+    ingestion-health-url: ${INGESTION_HEALTH_URL:${brainx.services.ingestion-service-url}/actuator/health}
+    intelligence-health-url: ${INTELLIGENCE_HEALTH_URL:${brainx.services.intelligence-service-url}/actuator/health}
   kafka:
     monitoring:
       consumer-group-id: ${BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID:intelligence-service}
 
 management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db
+        liveness:
+          include: livenessState
   endpoints:
     web:
       exposure:

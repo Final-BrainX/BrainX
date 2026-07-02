@@ -50,3 +50,18 @@ toss:
 logging:
   level:
     com.brainx: DEBUG
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db
+        liveness:
+          include: livenessState
+  endpoints:
+    web:
+      exposure:
+        include: health,info

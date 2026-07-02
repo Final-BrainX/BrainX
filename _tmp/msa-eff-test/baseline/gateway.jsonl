@@ -1,0 +1,4 @@
+﻿{"status":200,"routeId":"user-service","latencyMs":120,"service":"User-Service"}
+{"status":503,"routeId":"commerce-service","latencyMs":180,"service":"Commerce-Service","fallback":true,"error":{"code":"SERVICE_UNAVAILABLE"}}
+{"status":200,"routeId":"workspace-service","latencyMs":110,"service":"Workspace-Service"}
+{"status":503,"routeId":"workspace-service","latencyMs":130,"service":"Workspace-Service","fallback":true,"error":{"code":"SERVICE_UNAVAILABLE"}}

@@ -11,12 +11,17 @@
 - Container runtime on EC2:
   - `gateway-service`, `user-service`, `workspace-service`, `ingestion-service`, `commerce-service`, `admin-service`, `intelligence-service`
   - `frontend`, `admin-frontend`
-  - `redis`, `neo4j`, `qdrant`, `kafka`, `caddy`
+  - `prometheus`, `grafana`, `redis`, `neo4j`, `qdrant`, `kafka`, `caddy`
 - Public entry:
   - user frontend: `https://<public-domain>/`
   - admin frontend: `https://<admin-domain>/`
+  - Grafana: `https://<admin-domain>/grafana/`
   - `/api/v1/ai/*`, `/api/v1/intelligence/*`, `/api/v1/notes/*/summary`, `/api/v1/users/me/style-profile` route directly to Intelligence-Service through Caddy.
   - other `/api/v1/*` routes go to Gateway-Service.
+
+Prometheus stays on the internal Docker network and scrapes `user-service`, `gateway-service`, and `workspace-service` from their `/actuator/prometheus` endpoints. Grafana is auto-provisioned with that Prometheus datasource, so you do not need to add it manually in the UI.
+
+Grafana is mounted behind Caddy on the admin site path so we do not need to expose a new public port. It reuses the existing runtime admin password (`SEED_ADMIN_PASSWORD`) for the initial Grafana login.
 
 ## Terraform
 

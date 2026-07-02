@@ -9,6 +9,7 @@ import { WikiLinkSuggestionKey } from "./WikiLinkSuggestion";
 import { useWikiLinkContext } from "./WikiLinkContext";
 
 interface Candidate {
+  id: string;
   kind: "note" | "create";
   title: string;
 }
@@ -42,9 +43,9 @@ export function WikiLinkAutocomplete({ editor }: { editor: Editor }) {
     if (!ctx || !active) return [];
     const q = query.trim().toLowerCase();
     const matches = q ? ctx.notes.filter((n) => n.title.toLowerCase().includes(q)) : ctx.notes;
-    const list: Candidate[] = matches.slice(0, 8).map((n) => ({ kind: "note", title: n.title }));
+    const list: Candidate[] = matches.slice(0, 8).map((n) => ({ id: n.id, kind: "note", title: n.title }));
     const exact = matches.some((n) => n.title.toLowerCase() === q);
-    if (q.trim() && !exact) list.push({ kind: "create", title: query.trim() });
+    if (q.trim() && !exact) list.push({ id: `create:${query.trim().toLowerCase()}`, kind: "create", title: query.trim() });
     return list;
   })();
 
@@ -128,7 +129,7 @@ export function WikiLinkAutocomplete({ editor }: { editor: Editor }) {
       <div style={{ background: "rgb(var(--surface))", boxShadow: "0 8px 24px -4px rgba(2,6,23,0.45)" }}>
         {candidates.map((c, idx) => (
           <button
-            key={`${c.kind}-${c.title}`}
+          key={`${c.kind}-${c.id}`}
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => commit(c)}

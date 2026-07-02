@@ -93,3 +93,18 @@ brainx:
 
   service-token: ${SERVICE_TOKEN:local-service-token}
 
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db,redis
+        liveness:
+          include: livenessState
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+

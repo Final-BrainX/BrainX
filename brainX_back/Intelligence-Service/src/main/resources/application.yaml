@@ -183,11 +183,26 @@ brainx:
       source-note-id: ${BRAINX_DEV_CONNECTION_QUALITY_SOURCE_NOTE_ID:}
       note-paths: ${BRAINX_DEV_CONNECTION_QUALITY_NOTE_PATHS:}
       note-ids: ${BRAINX_DEV_CONNECTION_QUALITY_NOTE_IDS:}
-    note-auto-link:
-      enabled: ${BRAINX_DEV_NOTE_AUTO_LINK_ENABLED:false}
-      command: ${BRAINX_DEV_NOTE_AUTO_LINK_COMMAND:analyze}
-      strategy: ${BRAINX_DEV_NOTE_AUTO_LINK_STRATEGY:COMPARE}
-      user-id: ${BRAINX_DEV_NOTE_AUTO_LINK_USER_ID:sample-user}
-      document-group-id: ${BRAINX_DEV_NOTE_AUTO_LINK_DOCUMENT_GROUP_ID:default}
-      max-notes: ${BRAINX_DEV_NOTE_AUTO_LINK_MAX_NOTES:0}
-      model-id: ${BRAINX_DEV_NOTE_AUTO_LINK_MODEL_ID:${OPENAI_CHAT_MODEL:gpt-5.4-mini}}
+      note-auto-link:
+        enabled: ${BRAINX_DEV_NOTE_AUTO_LINK_ENABLED:false}
+        command: ${BRAINX_DEV_NOTE_AUTO_LINK_COMMAND:analyze}
+        strategy: ${BRAINX_DEV_NOTE_AUTO_LINK_STRATEGY:COMPARE}
+        user-id: ${BRAINX_DEV_NOTE_AUTO_LINK_USER_ID:sample-user}
+        document-group-id: ${BRAINX_DEV_NOTE_AUTO_LINK_DOCUMENT_GROUP_ID:default}
+        max-notes: ${BRAINX_DEV_NOTE_AUTO_LINK_MAX_NOTES:0}
+        model-id: ${BRAINX_DEV_NOTE_AUTO_LINK_MODEL_ID:${OPENAI_CHAT_MODEL:gpt-5.4-mini}}
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db
+        liveness:
+          include: livenessState
+  endpoints:
+    web:
+      exposure:
+        include: health,info

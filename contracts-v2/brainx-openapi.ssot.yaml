@@ -11894,6 +11894,7 @@ paths:
       x-produces-events: []
       x-internal-sync-calls: []
       x-async-boundary: false
+      x-implementation-note: Gateway proxy health routes must fail fast and only reflect the target service's own actuator health. Admin-Service should query the owning service directly for monitoring, while the Gateway keeps route-level circuit breakers and does not gate unrelated services on one backend's outage.
       description: Gateway-Service가 User-Service의 /actuator/health로 RewritePath하여 응답하는 프록시 경로.
       responses:
         '200':
@@ -11988,6 +11989,38 @@ paths:
       x-internal-sync-calls: []
       x-async-boundary: false
       description: Gateway-Service가 Ingestion-Service의 /actuator/health로 RewritePath하여 응답하는 프록시 경로.
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalHealthCheckData'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - serviceTokenAuth: []
+  /internal/v1/health/intelligence:
+    get:
+      operationId: getIntelligenceServiceHealthInternal
+      summary: '[Internal] Intelligence-Service health proxy'
+      tags:
+      - Internal Service APIs
+      x-producer-service: api-gateway
+      x-visibility: internal
+      x-consumers:
+      - id: internal.admin-operations
+        type: internal-service
+        description: Admin-Service dashboard service-check fetch
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      x-implementation-note: Gateway proxy health routes must fail fast and only reflect the target service's own actuator health. Admin-Service should query the owning service directly for monitoring, while the Gateway keeps route-level circuit breakers and does not gate unrelated services on one backend's outage.
+      description: Gateway-Service가 Intelligence-Service의 /actuator/health로 RewritePath하여 응답하는 프록시 경로.
       responses:
         '200':
           description: 성공

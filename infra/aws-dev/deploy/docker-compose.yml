@@ -18,6 +18,7 @@ services:
       - admin-frontend
       - gateway-service
       - intelligence-service
+      - grafana
     mem_limit: 256m
 
   frontend:
@@ -53,6 +54,36 @@ services:
     expose:
       - "3001"
     mem_limit: 1024m
+
+  grafana:
+    image: grafana/grafana:12.4.0
+    container_name: brainx-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SERVER_ROOT_URL: ${ADMIN_PUBLIC_BASE_URL:-http://localhost}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+    expose:
+      - "3000"
+    mem_limit: 1024m
+
+  prometheus:
+    image: prom/prometheus:v3.13.0
+    container_name: brainx-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    expose:
+      - "9090"
+    mem_limit: 768m
 
   gateway-service:
     image: ${ECR_REGISTRY}/brainx-dev-gateway-service:${GATEWAY_SERVICE_TAG:-dev-latest}
@@ -348,6 +379,8 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  grafana_data:
+  prometheus_data:
   neo4j_data:
   neo4j_logs:
   qdrant_data:

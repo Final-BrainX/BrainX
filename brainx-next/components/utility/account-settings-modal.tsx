@@ -595,12 +595,11 @@ export function AccountSettingsModal({
     try {
       await logout();
       pushToast("로그아웃되었습니다.", "ok");
-      router.replace("/login");
+      router.replace("/");
     } catch (error) {
       pushToast(error instanceof Error ? error.message : "로그아웃에 실패했습니다.", "err");
     }
   };
-
   const saveLanguage = async (nextLanguage: LanguageCode) => {
     setLanguage(nextLanguage);
     try {
@@ -735,6 +734,7 @@ export function AccountSettingsModal({
                   onRemoveSocialLink={removeSocialLink}
                   onDeleteAccount={submitDeletion}
                   onCancelDeletion={cancelDeletion}
+                  onLogout={handleLogout}
                 />
               ) : null}
               {tab === "general" ? (
@@ -746,7 +746,6 @@ export function AccountSettingsModal({
                   onLanguageChange={saveLanguage}
                   onThemeChange={saveTheme}
                   onConsentChange={saveConsent}
-                  onLogout={handleLogout}
                 />
               ) : null}
               {tab === "notifications" ? <NotificationsPanel /> : null}
@@ -787,7 +786,8 @@ function ProfilePanel({
   onStartSocialLink,
   onRemoveSocialLink,
   onDeleteAccount,
-  onCancelDeletion
+  onCancelDeletion,
+  onLogout
 }: {
   email: string;
   name: string;
@@ -812,6 +812,7 @@ function ProfilePanel({
   onRemoveSocialLink: (provider: SocialProvider) => void;
   onDeleteAccount: () => void;
   onCancelDeletion: () => void;
+  onLogout: () => void;
 }) {
   return (
     <>
@@ -884,6 +885,16 @@ function ProfilePanel({
             </div>
           );
         })}
+      </section>
+
+      <section className="mb-9">
+        <SectionLabel>세션</SectionLabel>
+        <AccountRow
+          className="px-4"
+          title="로그아웃"
+          desc="현재 로그인된 기기에서 로그아웃합니다."
+          action={<ModalButton danger onClick={onLogout}>로그아웃</ModalButton>}
+        />
       </section>
 
       <section>
@@ -973,8 +984,7 @@ function GeneralSettingsPanel({
   savingConsent,
   onLanguageChange,
   onThemeChange,
-  onConsentChange,
-  onLogout
+  onConsentChange
 }: {
   language: LanguageCode;
   theme: ThemeMode;
@@ -983,7 +993,6 @@ function GeneralSettingsPanel({
   onLanguageChange: (value: LanguageCode) => void;
   onThemeChange: (value: ThemeMode) => void;
   onConsentChange: (key: keyof ConsentPayload, value: boolean) => void;
-  onLogout: () => void;
 }) {
   const { t } = useBrainX();
   const languageOptions: { value: LanguageCode; label: string }[] = [
@@ -1017,7 +1026,6 @@ function GeneralSettingsPanel({
           desc={t("general.analyticsDesc")}
           action={<ConsentButton checked={consents.behaviorAnalyticsOptional} disabled={savingConsent === "behaviorAnalyticsOptional"} onChange={(value) => onConsentChange("behaviorAnalyticsOptional", value)} />}
         />
-        <AccountRow className="px-4" title={t("general.session")} desc={t("general.sessionDesc")} action={<ModalButton danger onClick={onLogout}>{t("general.logout")}</ModalButton>} />
       </section>
     </>
   );
