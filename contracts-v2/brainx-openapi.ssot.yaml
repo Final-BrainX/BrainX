@@ -3561,6 +3561,7 @@ paths:
       - NoteLinkCreated
       x-internal-sync-calls: []
       x-async-boundary: false
+      x-implementation-note: Workspace-Service persists `workspace_note_links.link_type` as a required ledger column. Legacy databases must run the tracked SQL init migration under `Workspace-Service/src/main/resources/db/migration` so existing rows are backfilled before Hibernate schema update enforces NOT NULL.
       parameters:
       - $ref: '#/components/parameters/IdempotencyKey'
       - name: noteId
@@ -13310,6 +13311,12 @@ components:
           type: string
         targetTitle:
           type: string
+        linkType:
+          type: string
+          enum:
+          - MANUAL
+          - WIKI
+          - AI_SUGGESTED
         anchorText:
           type: string
           nullable: true
@@ -13323,6 +13330,7 @@ components:
       - sourceNoteId
       - targetNoteId
       - targetTitle
+      - linkType
       additionalProperties: false
     BacklinksData:
       type: object

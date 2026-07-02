@@ -21,6 +21,11 @@ spring:
     username: ${POSTGRES_USER:postgres}
     password: ${POSTGRES_PASSWORD:change_me}
     driver-class-name: ${DB_DRIVER:org.postgresql.Driver}
+  sql:
+    init:
+      mode: always
+      schema-locations:
+        - classpath:db/migration/V20260702_01__repair_workspace_note_links_link_type.sql
   data:
     redis:
       host: ${REDIS_HOST:localhost}

@@ -113,6 +113,7 @@ class WorkspaceServiceCrudTests {
                 new NoteLinkCreateRequest(second.noteId(), "Second note", false, "Second alias", "overview"));
         assertThat(link.sourceNoteId()).isEqualTo(first.noteId());
         assertThat(link.targetNoteId()).isEqualTo(second.noteId());
+        assertThat(link.linkType()).isEqualTo("MANUAL");
         assertThat(link.anchorText()).isEqualTo("Second alias");
         assertThat(link.headingAnchor()).isEqualTo("overview");
 

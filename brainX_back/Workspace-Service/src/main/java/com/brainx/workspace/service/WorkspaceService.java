@@ -1007,6 +1007,7 @@ public class WorkspaceService {
                 link.getSourceNoteId(),
                 link.getTargetNoteId(),
                 link.getTargetTitle(),
+                link.getLinkType(),
                 link.getAnchorText(),
                 link.getHeadingAnchor()
         );

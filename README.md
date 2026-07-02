@@ -349,7 +349,7 @@ Docker Compose로 앱을 실행할 때는 앱 컨테이너에만 `POSTGRES_HOST=
 | Neo4j Bolt | 백엔드 서비스 접속 URI | `bolt://localhost:7687` |
 
 기본 로컬 계정은 `.env`의 `NEO4J_USERNAME`, `NEO4J_PASSWORD`로 관리합니다. Docker Compose 내부에서 Workspace-Service는 `bolt://neo4j:7687`로 접속하고, 로컬 IDE 실행 시에는 `bolt://localhost:7687`을 사용합니다.
-Workspace-Service는 노트 저장 시 본문 `[[...]]` 위키링크와 TipTap `data-wiki-link` span을 authoritative `workspace_note_links` 원장으로 정규화하고, Neo4j는 그 원장을 projection/read model로 반영합니다. 타깃 노트가 나중에 생성되거나 제목이 바뀌는 경우에도 기존 노트들을 다시 스캔해 wiki-link 관계를 재물질화합니다. `/api/v1/graph/sync`는 기존 노트 전체를 다시 스캔해 위키링크 원장을 백필한 뒤 Neo4j `LINKED` 관계를 재구성합니다.
+Workspace-Service는 노트 저장 시 본문 `[[...]]` 위키링크와 TipTap `data-wiki-link` span을 authoritative `workspace_note_links` 원장으로 정규화하고, Neo4j는 그 원장을 projection/read model로 반영합니다. `workspace_note_links.link_type`는 MANUAL/WIKI를 구분하는 필수 컬럼이며, 레거시 운영 DB는 `Workspace-Service/src/main/resources/db/migration/V20260702_01__repair_workspace_note_links_link_type.sql`가 기존 행을 백필한 뒤 Hibernate `NOT NULL` 스키마 업데이트가 지나가도록 맞췄습니다. 타깃 노트가 나중에 생성되거나 제목이 바뀌는 경우에도 기존 노트들을 다시 스캔해 wiki-link 관계를 재물질화합니다. `/api/v1/graph/sync`는 기존 노트 전체를 다시 스캔해 위키링크 원장을 백필한 뒤 Neo4j `LINKED` 관계를 재구성합니다.
 
 DB 접속 계정과 비밀번호는 루트 `.env`의 `POSTGRES_USER`, `POSTGRES_PASSWORD`를 모든 서비스가 공통으로 사용합니다. 각 서비스는 자기 `application.yml`에서 `.env`의 DB host/port와 서비스별 DB name을 조합해 JDBC URL을 만듭니다.
 

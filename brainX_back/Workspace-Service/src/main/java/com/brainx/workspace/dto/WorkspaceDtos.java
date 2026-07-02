@@ -144,7 +144,7 @@ public final class WorkspaceDtos {
     }
 
     public record NoteLinkData(String linkId, String sourceNoteId, String targetNoteId, String targetTitle,
-                               String anchorText, String headingAnchor) {
+                               String linkType, String anchorText, String headingAnchor) {
     }
 
     public record BacklinksData(List<BacklinkItem> backlinks) {

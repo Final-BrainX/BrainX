@@ -27,7 +27,7 @@ public class NoteLink {
     private String targetNoteId;
     @Column(nullable = false)
     private String targetTitle;
-    @Column(nullable = false)
+    @Column(nullable = false, length = 64)
     private String linkType;
     private String anchorText;
     private String headingAnchor;

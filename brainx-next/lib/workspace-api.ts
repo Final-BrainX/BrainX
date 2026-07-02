@@ -65,6 +65,7 @@ export type WorkspaceNoteLinkData = {
   sourceNoteId: string;
   targetNoteId: string;
   targetTitle: string;
+  linkType: string;
   anchorText?: string | null;
   headingAnchor?: string | null;
 };
