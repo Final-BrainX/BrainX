@@ -28,14 +28,14 @@ public class PlanDataSeeder {
         }
 
         planRepository.save(new Plan(FREE_PLAN_ID, "무료", 0, "KRW", 0,
-                List.of("노트 무제한", "AI 토큰 월 50,000", "기기 2대", "기본 검색"), true));
+                List.of("노트 무제한", "AI 토큰 월 50,000", "기기 2대", "기본 검색"), 50_000L, true));
 
         // TEMP: 결제 플로우 테스트용 가격. 실제 요금(₩12,900 등)으로 전환 전 임시로 500원으로 둔다.
         planRepository.save(new Plan(PRO_PLAN_ID, "Pro", 500, "KRW", 1,
-                List.of("AI 토큰 월 100만", "시맨틱 검색", "버전 기록 30일", "우선 처리"), true));
+                List.of("AI 토큰 월 100만", "시맨틱 검색", "버전 기록 30일", "우선 처리"), 1_000_000L, true));
 
         // TEMP: 결제 플로우 테스트용 가격. 실제 요금(₩29,900 등)으로 전환 전 임시로 1000원으로 둔다.
         planRepository.save(new Plan(MAX_PLAN_ID, "Max", 1000, "KRW", 2,
-                List.of("AI 토큰 무제한", "최신 모델 우선", "팀 공유", "우선 지원"), true));
+                List.of("AI 토큰 무제한", "최신 모델 우선", "팀 공유", "우선 지원"), null, true));
     }
 }

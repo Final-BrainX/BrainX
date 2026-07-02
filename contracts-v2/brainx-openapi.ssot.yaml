@@ -7755,27 +7755,12 @@ paths:
       x-internal-sync-calls: []
       x-async-boundary: false
       parameters:
-      - name: from
-        in: query
-        required: true
-        schema:
-          type: string
-          format: date
-      - name: to
-        in: query
-        required: true
-        schema:
-          type: string
-          format: date
-      - name: groupBy
+      - name: month
         in: query
         required: false
+        description: yyyy-MM, 생략 시 이번 달
         schema:
           type: string
-          enum:
-          - DAILY
-          - WEEKLY
-          - MONTHLY
       responses:
         '200':
           description: 성공
@@ -14916,17 +14901,57 @@ components:
     TokenUsageData:
       type: object
       properties:
-        usage:
+        planName:
+          type: string
+          nullable: true
+        monthlyLimit:
+          type: integer
+          nullable: true
+          description: 월 토큰 한도. null이면 무제한.
+        usedTokens:
+          type: integer
+        usagePercent:
+          type: number
+        resetDate:
+          type: string
+          format: date
+        byFeature:
           type: array
           items:
-            type: object
-            additionalProperties: true
-        total:
-          type: object
-          additionalProperties: true
+            $ref: '#/components/schemas/TokenUsageFeatureUsage'
+        recentDays:
+          type: array
+          items:
+            $ref: '#/components/schemas/TokenUsageDailyUsage'
       required:
-      - usage
-      - total
+      - usedTokens
+      - usagePercent
+      - resetDate
+      - byFeature
+      - recentDays
+      additionalProperties: false
+    TokenUsageFeatureUsage:
+      type: object
+      properties:
+        feature:
+          type: string
+        tokens:
+          type: integer
+      required:
+      - feature
+      - tokens
+      additionalProperties: false
+    TokenUsageDailyUsage:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        tokens:
+          type: integer
+      required:
+      - date
+      - tokens
       additionalProperties: false
     KnowledgeDashboardData:
       type: object
