@@ -121,6 +121,7 @@ public class ChatController {
             userId(principal),
             request.documentGroupId(),
             request.title(),
+            request.initialMessage(),
             request.modelId()
         ));
 
@@ -256,6 +257,7 @@ public class ChatController {
     record ChatThreadCreateRequest(
         String documentGroupId,
         @NotBlank String title,
+        String initialMessage,
         @NotBlank String modelId
     ) {
     }

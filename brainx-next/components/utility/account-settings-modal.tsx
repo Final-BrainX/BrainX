@@ -15,6 +15,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useBrainX } from "@/components/brainx-provider";
 import { Icon, type IconName } from "@/components/brainx-ui";
 import { ImportScreen } from "@/components/utility/import-screen";
+import { McpApiKeysPanel } from "@/components/utility/mcp-api-keys-panel";
 import { getOAuthAuthorization, logout, readAuthSession, type OAuthProvider } from "@/lib/auth-api";
 import {
   cancelSubscription,
@@ -46,7 +47,7 @@ import type { LanguageCode } from "@/lib/i18n";
 import { useGuideStore } from "@/lib/use-guide-store";
 import { TOKEN_USAGE_SUMMARY } from "@/lib/token-usage";
 
-type TabId = "profile" | "general" | "notifications" | "import" | "usage" | "stats" | "support" | "upgrade";
+type TabId = "profile" | "general" | "notifications" | "apiKeys" | "import" | "usage" | "stats" | "support" | "upgrade";
 type SocialProvider = "google" | "kakao" | "naver";
 
 const OAUTH_LINK_INTENT_KEY = "brainx_oauth_link_intent_v1";
@@ -58,7 +59,8 @@ const NAV_GROUPS: { label: string; items: { id: TabId; label: string; icon: Icon
     items: [
       { id: "profile", label: "프로필", icon: "user" },
       { id: "general", label: "일반", icon: "settings" },
-      { id: "notifications", label: "알림", icon: "bell" }
+      { id: "notifications", label: "알림", icon: "bell" },
+      { id: "apiKeys", label: "API Keys", icon: "shield" }
     ]
   },
   {
@@ -81,6 +83,7 @@ const MOBILE_TABS: { id: TabId; label: string }[] = [
   { id: "profile", label: "프로필" },
   { id: "general", label: "일반" },
   { id: "notifications", label: "알림" },
+  { id: "apiKeys", label: "API Keys" },
   { id: "import", label: "가져오기" },
   { id: "usage", label: "AI 토큰 사용량" },
   { id: "stats", label: "노트 통계" },
@@ -749,6 +752,7 @@ export function AccountSettingsModal({
                 />
               ) : null}
               {tab === "notifications" ? <NotificationsPanel /> : null}
+              {tab === "apiKeys" ? <McpApiKeysPanel variant="modal" /> : null}
               {tab === "import" ? <ImportScreen /> : null}
               {tab === "usage" ? <UsagePanel /> : null}
               {tab === "stats" ? <StatsPanel /> : null}

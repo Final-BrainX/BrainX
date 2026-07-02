@@ -10,6 +10,7 @@ public interface CreateChatThreadUseCase {
         String userId,
         String documentGroupId,
         String title,
+        String initialMessage,
         String modelId
     ) {
     }

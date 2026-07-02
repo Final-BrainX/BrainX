@@ -365,7 +365,7 @@ jobs:
             url="$2"
             mode="$3"
 
-            for attempt in $(seq 1 12); do
+            for attempt in $(seq 1 24); do
               status="$(
                 curl -sS -o /dev/null -w "%{http_code}" --max-time 20 "$url" || true
               )"
