@@ -164,6 +164,10 @@ jobs:
           set -euo pipefail
 
           case "$SERVICE" in
+            discovery-service)
+              CONTEXT="brainX_back/Discovery-Service"
+              DOCKERFILE="brainX_back/Discovery-Service/Dockerfile"
+              ;;
             gateway-service)
               CONTEXT="brainX_back/Gateway-Service"
               DOCKERFILE="brainX_back/Gateway-Service/Dockerfile"

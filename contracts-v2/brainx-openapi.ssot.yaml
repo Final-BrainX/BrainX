@@ -17515,6 +17515,7 @@ x-ssot:
   - Projection/re-indexing/statistics/notification/job processing uses events.
   - Workspace noteId is the canonical cross-system note identifier for PostgreSQL records, graph projections such as Neo4j, Knowledge Intelligence vector/RAG indexes, RAG citations and frontend graph state.
   - Graph databases are projections/read models. Accepted note links must be created through Workspace commands and then projected to graph storage.
+  - Discovery-Service/Eureka is infrastructure and is outside the REST contract surface.
 x-service-catalog:
 - id: identity-access
   description: 사용자 신원, 인증, 계정 보안 및 동의 원장

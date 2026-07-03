@@ -41,6 +41,14 @@ brainx:
       enabled: ${BRAINX_EVENTS_OUTBOX_ENABLED:false}
       relay-delay-ms: ${BRAINX_EVENTS_OUTBOX_RELAY_DELAY_MS:2000}
 
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:http://localhost:8761/eureka/}
+  instance:
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:localhost}
+    instance-id: ${spring.application.name}:${server.port}
+
 toss:
   client-key: ${TOSS_CLIENT_KEY:your_toss_client_key}
   secret-key: ${TOSS_SECRET_KEY:your_toss_secret_key}

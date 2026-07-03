@@ -96,7 +96,7 @@ aws ssm put-parameter --name /brainx/dev/SEED_ADMIN_LOGIN_ID --type SecureString
 aws ssm put-parameter --name /brainx/dev/SEED_ADMIN_NAME --type SecureString --value "BrainX Admin"
 ```
 
-`deploy_remote.sh` also writes Admin-Service's non-secret runtime defaults into `/opt/brainx/env/runtime.env` on every CI/CD deploy so the compose file can consume the same values automatically: `ADMIN_DB_NAME`, `GATEWAY_SERVICE_URL`, `MAIL_HOST`, and `MAIL_PORT`.
+`deploy_remote.sh` also writes the shared non-secret runtime defaults into `/opt/brainx/env/runtime.env` on every CI/CD deploy so the compose file can consume the same values automatically: `ADMIN_DB_NAME`, `GATEWAY_SERVICE_URL`, `USER_SERVICE_URL`, `COMMERCE_SERVICE_URL`, `WORKSPACE_SERVICE_URL`, `INGESTION_SERVICE_URL`, `INTELLIGENCE_SERVICE_URL`, `MCP_SERVICE_URL`, `EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE`, `MAIL_HOST`, and `MAIL_PORT`.
 
 For Kafka lag monitoring, the same runtime env now also carries `KAFKA_BOOTSTRAP_SERVERS` and `BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID` so `admin-service` can read the broker address and consumer group from deployment-time values instead of falling back to `localhost:9092`.
 
@@ -211,6 +211,13 @@ aws configure --profile brainx-dev
 ```
 
 이후 SSM 수정 시 `--profile brainx-dev`를 붙인다.
+
+## Eureka Deployment Notes
+
+- `EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE` is written into `/opt/brainx/env/runtime.env` during deploy, defaulting to `http://discovery-service:8761/eureka/`.
+- `discovery-service` is the Eureka registry for AWS dev, and the backend services register against it before they start serving traffic.
+- `Admin-Service` resolves `User-Service`, `Commerce-Service`, and `Workspace-Service` through load-balanced `RestClient` beans instead of container IPs or hardcoded Docker DNS names.
+- `Intelligence-Service` still uses its direct Workspace base URL for now; that client can move to Eureka later without changing the deploy wiring again.
 
 ## AI Agent Guide
 
