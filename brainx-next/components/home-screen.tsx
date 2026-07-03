@@ -260,65 +260,84 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
             </div>
           </div>
           <div className="p-4 flex-1 flex flex-col justify-center">
-            <div className="relative h-[280px] w-full overflow-hidden rounded-[0.4rem] border border-line/60 bg-surface/50">
-              {topicView === "bubble" ? (
-                <svg viewBox="0 0 320 210" className="h-full w-full">
-                  {bubbles.map((b, i) => {
-                    if (i === bubbles.length - 1) return null;
-                    const next = bubbles[i + 1];
-                    return (
-                      <line
-                        key={`edge-${i}`}
-                        x1={b.left * 3.2} y1={b.top * 2.1}
-                        x2={next.left * 3.2} y2={next.top * 2.1}
-                        stroke={`rgb(${b.color})`}
-                        strokeWidth="1"
-                        strokeDasharray="3 3"
-                        opacity="0.3"
-                      />
-                    );
-                  })}
-                  {bubbles.map((b, i) => (
-                    <g key={`node-${i}`}>
-                      <circle cx={b.left * 3.2} cy={b.top * 2.1} r={b.size * 0.4} fill={`rgb(${b.color} / 0.1)`} stroke={`rgb(${b.color})`} strokeWidth="1" />
-                      <circle cx={b.left * 3.2} cy={b.top * 2.1} r="2.5" fill={`rgb(${b.color})`} />
-                      <text x={b.left * 3.2} y={b.top * 2.1 - b.size * 0.15 - 5} textAnchor="middle" fontSize="10" fontWeight="600" fill="rgb(var(--txt))">{b.label}</text>
-                      {i < 3 && <text x={b.left * 3.2} y={b.top * 2.1 + b.size * 0.2 + 5} textAnchor="middle" fontSize="8.5" fill="rgb(var(--txt3))">{b.count} 노트</text>}
-                    </g>
+            {topClusters.length === 0 ? (
+              <div className="flex items-start gap-3 rounded-[0.4rem] border border-emerald-500/20 bg-emerald-500/5 p-4">
+                <div className="mt-0.5 text-emerald-500"><Icon name="link" size={18} /></div>
+                <div className="flex-1">
+                  <div className="mb-1 text-[15px] font-medium uppercase tracking-wider text-emerald-500/70">연결 부족</div>
+                  <div className="mb-1 text-[14px] font-semibold text-txt">연결이 부족해요</div>
+                  <div className="mb-3 text-[12px] leading-relaxed text-txt3">노트에 새로운 주제를 추가해보세요.</div>
+                  <button
+                    onClick={() => router.push("/notes")}
+                    className="inline-flex items-center gap-1 rounded-[0.4rem] border border-emerald-500/30 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-emerald-500 hover:bg-emerald-500/10 transition-colors"
+                  >
+                    <Icon name="chevR" size={12} /> 노트 추가하기
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="relative h-[280px] w-full overflow-hidden rounded-[0.4rem] border border-line/60 bg-surface/50">
+                  {topicView === "bubble" ? (
+                    <svg viewBox="0 0 320 210" className="h-full w-full">
+                      {bubbles.map((b, i) => {
+                        if (i === bubbles.length - 1) return null;
+                        const next = bubbles[i + 1];
+                        return (
+                          <line
+                            key={`edge-${i}`}
+                            x1={b.left * 3.2} y1={b.top * 2.1}
+                            x2={next.left * 3.2} y2={next.top * 2.1}
+                            stroke={`rgb(${b.color})`}
+                            strokeWidth="1"
+                            strokeDasharray="3 3"
+                            opacity="0.3"
+                          />
+                        );
+                      })}
+                      {bubbles.map((b, i) => (
+                        <g key={`node-${i}`}>
+                          <circle cx={b.left * 3.2} cy={b.top * 2.1} r={b.size * 0.4} fill={`rgb(${b.color} / 0.1)`} stroke={`rgb(${b.color})`} strokeWidth="1" />
+                          <circle cx={b.left * 3.2} cy={b.top * 2.1} r="2.5" fill={`rgb(${b.color})`} />
+                          <text x={b.left * 3.2} y={b.top * 2.1 - b.size * 0.15 - 5} textAnchor="middle" fontSize="10" fontWeight="600" fill="rgb(var(--txt))">{b.label}</text>
+                          {i < 3 && <text x={b.left * 3.2} y={b.top * 2.1 + b.size * 0.2 + 5} textAnchor="middle" fontSize="8.5" fill="rgb(var(--txt3))">{b.count} 노트</text>}
+                        </g>
+                      ))}
+                    </svg>
+                  ) : (
+                    <div className="absolute inset-0 p-4">
+                      <svg viewBox="0 0 700 280" className="h-full w-full overflow-visible">
+                        {[0, 1, 2, 3].map((line) => (
+                          <line key={line} x1="46" y1={54 + line * 62} x2="654" y2={54 + line * 62} stroke="rgb(var(--line) / 0.5)" strokeWidth="1" />
+                        ))}
+                        {trendLines.map((line) => (
+                          <g key={line.id}>
+                            <polyline points={line.points} fill="none" stroke={`rgb(${line.color})`} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                            {line.points.split(" ").map((point, index) => {
+                              const [cx, cy] = point.split(",").map(Number);
+                              return <circle key={`${line.id}-${index}`} cx={cx} cy={cy} r="4" fill={`rgb(${line.color})`} />;
+                            })}
+                          </g>
+                        ))}
+                        {trendDays.map((day, index) => (
+                          <text key={day} x={46 + (index / Math.max(trendDays.length - 1, 1)) * 608} y="270" textAnchor="middle" className="fill-txt3 text-[12px]">
+                            {day}
+                          </text>
+                        ))}
+                      </svg>
+                    </div>
+                  )}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-3 px-1">
+                  {bubbles.map((b) => (
+                    <div key={b.id} className="flex items-center gap-1.5 text-[11px] text-txt3">
+                      <div className="h-1.5 w-1.5 rounded-full" style={{ background: `rgb(${b.color})` }} />
+                      {b.label}
+                    </div>
                   ))}
-                </svg>
-              ) : (
-                <div className="absolute inset-0 p-4">
-                  <svg viewBox="0 0 700 280" className="h-full w-full overflow-visible">
-                    {[0, 1, 2, 3].map((line) => (
-                      <line key={line} x1="46" y1={54 + line * 62} x2="654" y2={54 + line * 62} stroke="rgb(var(--line) / 0.5)" strokeWidth="1" />
-                    ))}
-                    {trendLines.map((line) => (
-                      <g key={line.id}>
-                        <polyline points={line.points} fill="none" stroke={`rgb(${line.color})`} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                        {line.points.split(" ").map((point, index) => {
-                          const [cx, cy] = point.split(",").map(Number);
-                          return <circle key={`${line.id}-${index}`} cx={cx} cy={cy} r="4" fill={`rgb(${line.color})`} />;
-                        })}
-                      </g>
-                    ))}
-                    {trendDays.map((day, index) => (
-                      <text key={day} x={46 + (index / Math.max(trendDays.length - 1, 1)) * 608} y="270" textAnchor="middle" className="fill-txt3 text-[12px]">
-                        {day}
-                      </text>
-                    ))}
-                  </svg>
                 </div>
-              )}
-            </div>
-            <div className="mt-3 flex flex-wrap gap-3 px-1">
-              {bubbles.map((b) => (
-                <div key={b.id} className="flex items-center gap-1.5 text-[11px] text-txt3">
-                  <div className="h-1.5 w-1.5 rounded-full" style={{ background: `rgb(${b.color})` }} />
-                  {b.label}
-                </div>
-              ))}
-            </div>
+              </>
+            )}
           </div>
         </div>
 

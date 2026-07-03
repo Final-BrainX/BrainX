@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
-import { motion, useInView, type Variants } from "framer-motion";
+import { motion, useInView, type Variants, type Transition } from "framer-motion";
+import { Crown } from "lucide-react";
 
 import { useRouter } from "next/navigation";
 
@@ -26,8 +27,7 @@ function BackgroundMindmap() {
     const H = 4000; // 전체 스크롤 높이를 커버
     const colors = ["59 130 246", "139 92 246", "34 211 238", "52 211 153", "244 114 182"];
 
-    // 노드를 좌/우 외곽 + 상/하 외곽에 전체 높이 걸쳐 배치
-    const N = 52;
+    const N = 80;
     const nodes = Array.from({ length: N }, (_, i) => {
       const side = i % 4;
       let x: number, y: number;
@@ -50,9 +50,9 @@ function BackgroundMindmap() {
       }
       return {
         x, y,
-        vx: (Math.random() - 0.5) * 0.055,
-        vy: (Math.random() - 0.5) * 0.055,
-        r: 2.5 + Math.random() * 5,
+        vx: (Math.random() - 0.5) * 0.01,
+        vy: (Math.random() - 0.5) * 0.01,
+        r: 1.0 + Math.random() * 4,
         c: colors[i % colors.length],
         phase: Math.random() * Math.PI * 2
       };
@@ -77,8 +77,8 @@ function BackgroundMindmap() {
 
     const edgeEls = edges.map(() => {
       const line = document.createElementNS(ns, "line");
-      line.setAttribute("stroke", "rgb(148 163 184 / 0.08)");
-      line.setAttribute("stroke-width", "0.8");
+      line.setAttribute("stroke", "rgb(148 163 184 / 0.2)");
+      line.setAttribute("stroke-width", "0.1");
       edgeGroup.appendChild(line);
       return line;
     });
@@ -86,11 +86,11 @@ function BackgroundMindmap() {
     const nodeEls = nodes.map((node) => {
       const g = document.createElementNS(ns, "g");
       const halo = document.createElementNS(ns, "circle");
-      halo.setAttribute("r", String(node.r * 2.8));
-      halo.setAttribute("fill", `rgb(${node.c} / 0.06)`);
+      halo.setAttribute("r", String(node.r * 1.8));
+      halo.setAttribute("fill", `rgb(${node.c} / 0.2`);
       const core = document.createElementNS(ns, "circle");
       core.setAttribute("r", String(node.r));
-      core.setAttribute("fill", `rgb(${node.c} / 0.22)`);
+      core.setAttribute("fill", `rgb(${node.c} / 0.5)`);
       g.append(halo, core);
       nodeGroup.appendChild(g);
       return g;
@@ -127,7 +127,7 @@ function BackgroundMindmap() {
       viewBox="0 0 1600 4000"
       className="pointer-events-none absolute inset-0 h-full w-full"
       preserveAspectRatio="xMidYMin slice"
-      style={{ filter: "blur(1.5px)", opacity: 0.55, zIndex: 0 }}
+      style={{ filter: "blur(1.5px)", opacity: 0.85, zIndex: 0 }}
     />
   );
 }
@@ -303,21 +303,25 @@ function useSingleTyping(text: string, start: boolean, typingSpeed = 15) {
   return { displayed, isDone: frameIndex === frames.length - 1 };
 }
 
-const smoothEase = [0.22, 1, 0.36, 1] as const;
+
+const itemTransition: Transition = {
+  duration: 0.6,
+  ease: [0.22, 1, 0.36, 1],
+};
 
 const sectionVariants: Variants = {
   hidden: {},
-  visible: { transition: { staggerChildren: 0.22, delayChildren: 1.2 } }
+  visible: { transition: { staggerChildren: 0.22, delayChildren: 0.5 } }
 };
 
 const itemVariants: Variants = {
   hidden: { opacity: 0, y: 40 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.85, ease: smoothEase } }
+  visible: { opacity: 1, y: 0, transition: itemTransition }
 };
 
 const singleItemVariants: Variants = {
   hidden: { opacity: 0, y: 40 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.85, ease: smoothEase, delay: 1.2 } }
+  visible: { opacity: 1, y: 0, transition: { ...itemTransition, delay: 0.2 } }
 };
 
 
@@ -356,7 +360,7 @@ function useTypingLoop(slogans: string[], typingSpeed = 30, initialDeleteSpeed =
   }, [frameIndex, phase, frames, typingSpeed, initialDeleteSpeed, pauseMs, slogans.length]);
 
   const displayed = frames[frameIndex] || "";
-  return { displayed, isDone: phase === "pause" };
+  return { displayed, isDone: phase === "pause", sloganIndex };
 }
 
 export function LandingScreen() {
@@ -364,9 +368,19 @@ export function LandingScreen() {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [headerVisible, setHeaderVisible] = useState(true);
   const [scrolled, setScrolled] = useState(false);
+  const [showTopBtn, setShowTopBtn] = useState(false);
   const [isAnnual, setIsAnnual] = useState(false);
+  const [isDark, setIsDark] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const prevScrollRef = useRef(0);
+
+  useEffect(() => {
+    const update = () => setIsDark(document.documentElement.classList.contains("dark"));
+    update();
+    const obs = new MutationObserver(update);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => obs.disconnect();
+  }, []);
 
   useEffect(() => {
     const syncSession = () => setSession(readAuthSession());
@@ -394,6 +408,7 @@ export function LandingScreen() {
         // 위로 스크롤 → 표시 / 아래로 스크롤 → 숨김
         setHeaderVisible(current < prev);
       }
+      setShowTopBtn(current > window.innerHeight / 2);
       prevScrollRef.current = current;
     };
     el.addEventListener("scroll", onScroll, { passive: true });
@@ -402,29 +417,32 @@ export function LandingScreen() {
 
   const isLoggedIn = Boolean(session?.accessToken);
 
-  const section1Ref = useRef<HTMLElement>(null);
+  const section1Ref = useRef<HTMLDivElement>(null);
   const inView1 = useInView(section1Ref, { root: containerRef, once: true, amount: 0.2 });
   const { displayed: t1, isDone: t1Done } = useSingleTyping("저장 그 이상, 생각을 연결합니다", inView1);
   const t1_p1 = t1.slice(0, 9);
   const t1_p2 = t1.slice(9, 15);
   const t1_p3 = t1.slice(15);
 
-  const section2Ref = useRef<HTMLElement>(null);
-  const inView2 = useInView(section2Ref, { root: containerRef, once: true, amount: 0.2 });
+  const sectionCompareRef = useRef<HTMLDivElement>(null);
+  const inViewCompare = useInView(sectionCompareRef, { root: containerRef, once: true, amount: 1 });
+
+  const section2Ref = useRef<HTMLDivElement>(null);
+  const inView2 = useInView(section2Ref, { root: containerRef, once: true, amount: 1 });
   const { displayed: t2, isDone: t2Done } = useSingleTyping("생각의 크기에 맞춰", inView2);
 
-  const section3Ref = useRef<HTMLElement>(null);
-  const inView3 = useInView(section3Ref, { root: containerRef, once: true, amount: 0.2 });
+  const section3Ref = useRef<HTMLDivElement>(null);
+  const inView3 = useInView(section3Ref, { root: containerRef, once: true, amount: 1 });
   const { displayed: t3, isDone: t3Done } = useSingleTyping("머릿속 우주를 정리할 시간", inView3);
 
   // 3가지 슬로건 배열
   const SLOGANS = [
     "내 지식의 우주를 탐험하는\nAI 두뇌, BrainX",
     "흩어진 생각들을 연결하는\nAI 두뇌, BrainX",
-    "숨겨진 인사이트를 발견하는\nAI 두뇌, BrainX"
+    "숨겨진 본질을 발견하는\nAI 두뇌, BrainX"
   ];
   // useTypingLoop(slogans, typingSpeed, initialDeleteSpeed, pauseMs)
-  const { displayed } = useTypingLoop(SLOGANS, 15, 45, 5000);
+  const { displayed, sloganIndex } = useTypingLoop(SLOGANS, 15, 45, 5000);
 
   const nlIdx = displayed.indexOf("\n");
   const typedLine1 = nlIdx === -1 ? displayed : displayed.slice(0, nlIdx);
@@ -474,7 +492,19 @@ export function LandingScreen() {
   ];
 
   return (
-    <div ref={containerRef} data-route className="relative h-screen overflow-y-auto scroll">
+    <>
+      <div
+      ref={containerRef}
+      data-route
+      className="relative h-screen overflow-y-auto scroll transition-colors duration-1000"
+      style={{
+        backgroundColor: sloganIndex === 0
+          ? "rgb(var(--accent) / 0.08)"
+          : sloganIndex === 1
+          ? "rgb(var(--primary) / 0.08)"
+          : "rgb(var(--cyan) / 0.08)"
+      }}
+    >
       <BackgroundMindmap />
       <header
         className={cx(
@@ -506,9 +536,14 @@ export function LandingScreen() {
               </Btn>
             </>
           ) : (
+            <>
             <Btn variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => router.push("/login")}>
               로그인
             </Btn>
+              <Btn variant="primary" size="sm" onClick={() => router.push("/home")}>
+                BrainX 시작하기
+              </Btn>
+            </>
           )}
         </div>
       </header>
@@ -516,9 +551,10 @@ export function LandingScreen() {
       <section className="mx-auto grid max-w-[1180px] gap-12 px-6 pb-20 pt-16 lg:grid-cols-[1.1fr_0.9fr] md:px-10 md:pt-24 lg:items-center">
         {/* min-w-0: 타이핑으로 인해 텍스트 너비가 변해도 그리드 레이아웃(fr)이 요동치지 않도록 방지 */}
         <div className="relative z-10 min-w-0">
-          <Badge color="139 92 246" dot className="mb-6">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3.5 py-1.5 text-[13px] font-semibold text-primary dark: border-primary">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
             AI 기반 개인 지식 관리 · BrainX
-          </Badge>
+          </div>
           <h1 className="mb-6 text-[28px] sm:text-[40px] md:text-[48px] lg:text-[56px] font-extrabold leading-[1.15] tracking-tighter">
             {/* 1줄: 타이핑 애니메이션 — 고정 높이 유지, 줄바꿈 방지 */}
             <span className="text-txt flex items-center whitespace-nowrap" style={{ height: "1.15em" }}>
@@ -574,8 +610,8 @@ export function LandingScreen() {
         </div>
       </section>
 
-      <section ref={section1Ref} className="mx-auto max-w-[1180px] px-6 py-16 md:px-10">
-        <div className="mb-12 text-center">
+      <section className="mx-auto max-w-[1180px] px-6 py-16 md:px-10">
+        <div ref={section1Ref} className="mb-12 text-center">
           <Badge className="mb-4">핵심 기능</Badge>
           <h2 className="text-[34px] font-bold tracking-tight md:text-[42px] min-h-[1.2em] flex items-center justify-center">
             <span className="flex items-center">
@@ -586,12 +622,11 @@ export function LandingScreen() {
             </span>
           </h2>
         </div>
-        <motion.div 
+        <motion.div
           className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4"
           variants={sectionVariants}
           initial="hidden"
-          animate={inView1 ? "visible" : "hidden"}
-        >
+          animate={inView1 ? "visible" : "hidden"}>
           {features.map((feature) => (
             <motion.div key={feature.title} variants={itemVariants} className="h-full">
               <FeatureCard {...feature} />
@@ -600,8 +635,13 @@ export function LandingScreen() {
         </motion.div>
       </section>
 
-      <section className="mx-auto max-w-[1180px] px-6 py-16 md:px-10">
-        <div className="grid gap-5 lg:grid-cols-3">
+      <section ref={sectionCompareRef} className="mx-auto max-w-[1180px] px-6 py-16 md:px-10">
+        <motion.div
+          className="grid gap-5 lg:grid-cols-3"
+          variants={sectionVariants}
+          initial="hidden"
+          animate={inViewCompare ? "visible" : "hidden"}
+        >
           {[
             {
               tag: "AI 도구의 한계",
@@ -622,24 +662,28 @@ export function LandingScreen() {
               desc: "쌓는 순간 정리되고, 연결되고, 언제든 근거 있는 답으로 돌아옵니다."
             }
           ].map((item, index) => (
-            <Card key={item.tag} glow={index === 2} className={cx("p-7", index === 2 && "border-cyan/40")}>
-              <Badge color={item.color} dot className="mb-4">
-                {item.tag}
-              </Badge>
-              <h3 className="mb-3 text-[21px] font-semibold leading-snug text-txt">{item.title}</h3>
-              <p className="text-[16px] leading-relaxed text-txt2">{item.desc}</p>
-              {index === 2 ? (
-                <Btn variant="outline" size="sm" icon="arrowL" className="mt-5 [&_svg]:rotate-180" onClick={enterGuestMode}>
-                  {isLoggedIn ? "BrainX 시작하기" : "지금 경험하기"}
-                </Btn>
-              ) : null}
-            </Card>
+            <motion.div key={item.tag} variants={itemVariants} className="h-full">
+              <Card glow={index === 2} className={cx("p-7 h-full flex flex-col", index === 2 && "border-cyan/40")}>
+                <Badge color={item.color} dot className="mb-4">
+                  {item.tag}
+                </Badge>
+                <h3 className="mb-3 text-[21px] font-semibold leading-snug text-txt">{item.title}</h3>
+                <p className="text-[16px] leading-relaxed text-txt2">{item.desc}</p>
+                {index === 2 ? (
+                  <div className="mt-auto pt-5">
+                    <Btn variant="outline" size="sm" icon="arrowL" className="[&_svg]:rotate-180" onClick={enterGuestMode}>
+                      {isLoggedIn ? "BrainX 시작하기" : "지금 경험하기"}
+                    </Btn>
+                  </div>
+                ) : null}
+              </Card>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       </section>
 
-      <section ref={section2Ref} className="mx-auto max-w-[1180px] px-6 py-16 md:px-10">
-        <div className="mb-10 text-center">
+      <section className="mx-auto max-w-[1180px] px-6 py-16 md:px-10">
+        <div ref={section2Ref} className="mb-10 text-center">
           <Badge className="mb-4">요금제</Badge>
           <h2 className="mb-6 text-[34px] font-bold tracking-tight md:text-[42px] min-h-[1.2em] flex items-center justify-center">
             <span className="flex items-center">
@@ -647,14 +691,20 @@ export function LandingScreen() {
               {!t2Done && <span className="inline-block w-[3px] h-[0.75em] ml-1 bg-primary animate-blink rounded-sm flex-shrink-0" />}
             </span>
           </h2>
-          <div className="inline-flex items-center gap-1 rounded-xl p-1 glass cursor-pointer" onClick={() => setIsAnnual(!isAnnual)}>
-            <div className={cx("flex h-9 items-center rounded-lg px-4 text-[16px] font-medium transition-colors", !isAnnual ? "bg-surface2 text-txt" : "text-txt2 hover:text-txt")}>월간</div>
-            <div className={cx("flex h-9 items-center gap-2 rounded-lg px-4 text-[16px] font-medium transition-colors", isAnnual ? "bg-surface2 text-txt" : "text-txt2 hover:text-txt")}>
-              연간 <span className="text-[13px] text-cyan">-20%</span>
+          <div className="inline-flex items-center gap-1 rounded-xl border border-line/60 bg-surface/80 p-1 cursor-pointer" onClick={() => setIsAnnual(!isAnnual)}>
+            <div
+              className={cx("flex h-9 items-center rounded-lg px-4 text-[16px] font-medium transition-all", !isAnnual ? "bg-bg text-txt shadow-sm" : "text-txt3 hover:text-txt")}
+              style={!isAnnual && isDark ? { backgroundColor: "rgb(var(--primary))", color: "white" } : undefined}
+            >월간</div>
+            <div
+              className={cx("flex h-9 items-center gap-2 rounded-lg px-4 text-[16px] font-medium transition-all", isAnnual ? "bg-bg text-txt shadow-sm dark:text-txt" : "text-txt3 hover:text-txt")}
+              style={isAnnual && isDark ? { backgroundColor: "rgb(var(--primary))", color: "white" } : undefined}
+            >
+              연간 <span className={cx("text-[13px] text-cyan dark: text-txt")}>-20%</span>
             </div>
           </div>
         </div>
-        <motion.div 
+        <motion.div
           className="mx-auto grid max-w-4xl gap-5 md:grid-cols-3"
           variants={sectionVariants}
           initial="hidden"
@@ -663,14 +713,31 @@ export function LandingScreen() {
           {PRICING.map((plan) => (
             <motion.div key={plan.id} variants={itemVariants} className="h-full">
               <Card glow={plan.best} className={cx("relative p-7 h-full flex flex-col", plan.best && "border-primary/50")}>
-                {plan.best ? <Badge color="59 130 246" className="absolute -top-3 left-1/2 -translate-x-1/2">가장 인기</Badge> : null}
+                {plan.best ? (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded-full px-3 py-1 text-[14px] font-bold text-white shadow-sm backdrop-blur-sm" style={{ backgroundColor: "rgba(59, 130, 246, 0.8)" }}>
+                    <Crown size={14} className="text-yellow-400 fill-yellow-400" />
+                    가장 인기
+                  </div>
+                ) : null}
                 <div className="mb-1 text-[17px] font-semibold text-txt2">{plan.name}</div>
-                <div className="mb-1 flex items-end gap-1">
-                  <span className="text-[36px] font-bold tracking-tight">₩{isAnnual ? plan.yr.toLocaleString() : plan.price.toLocaleString()}</span>
-                  <span className="mb-1.5 text-[16px] text-txt3">/월</span>
+                <div className="mb-1 flex items-end gap-1.5 flex-wrap">
+                  <span
+                    className="text-[36px] font-bold tracking-tight transition-colors"
+                    style={{ color: isAnnual && plan.price > 0 ? "rgb(var(--primary))" : undefined }}
+                  >
+                    ₩{isAnnual ? plan.yr.toLocaleString() : plan.price.toLocaleString()}
+                  </span>
+                  <div className="mb-1.5 flex items-center gap-1.5">
+                    <span className="text-[16px] text-txt3">/월</span>
+                    {isAnnual && plan.price > 0 && (
+                      <span className="inline-flex items-center gap-0.5 rounded-md bg-primary/10 px-1.5 py-0.5 text-[12px] font-semibold text-primary">
+                        ↓ {Math.round((1 - plan.yr / plan.price) * 100)}%
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <p className="mb-5 text-[15px] text-txt3">{plan.tag}</p>
-                <div className="mt-auto">
+                <div>
                   <Btn variant={plan.best ? "primary" : "soft"} className="mb-5 w-full" onClick={() => router.push("/billing")}>
                     {plan.cta}
                   </Btn>
@@ -689,12 +756,8 @@ export function LandingScreen() {
         </motion.div>
       </section>
 
-      <section ref={section3Ref} className="mx-auto max-w-[1180px] px-6 py-16 md:px-10">
-        <motion.div
-          variants={singleItemVariants}
-          initial="hidden"
-          animate={inView3 ? "visible" : "hidden"}
-        >
+      <section className="mx-auto max-w-[1180px] px-6 py-16 md:px-10">
+        <motion.div ref={section3Ref} variants={singleItemVariants} initial="hidden" animate={inView3 ? "visible" : "hidden"}>
           <Card glow className="relative overflow-hidden border-primary/40 p-12 text-center">
             <div className="absolute inset-0 grid-bg opacity-40" />
             <div className="relative">
@@ -728,6 +791,25 @@ export function LandingScreen() {
           </div>
         </div>
       </footer>
-    </div>
+      </div>
+
+      {/* 상단으로 이동 버튼 */}
+      <button
+        type="button"
+        className={cx(
+          "group fixed bottom-8 right-8 z-[100] flex h-12 w-12 items-center justify-center rounded-full bg-surface border border-line/60 shadow-lg backdrop-blur-md transition-all duration-300 hover:bg-surface2 hover:scale-105",
+          showTopBtn ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10 pointer-events-none"
+        )}
+        onClick={() => containerRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
+      >
+        <div className="flex items-center justify-center" style={{ transform: "rotate(90deg)" }}>
+          <Icon name="arrowL" size={20} className="text-txt2 group-hover:text-txt" />
+        </div>
+        <span className="pointer-events-none absolute bottom-[calc(100%+14px)] left-1/2 z-[100] -translate-x-1/2 whitespace-nowrap rounded-[6px] bg-txt px-2.5 py-1.5 text-[12px] font-medium text-bg2 opacity-0 shadow-md transition-opacity duration-200 group-hover:opacity-100">
+          상단으로 이동
+          <div className="absolute bottom-[-4px] left-1/2 h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt" style={{ zIndex: -1 }} />
+        </span>
+      </button>
+    </>
   );
 }
