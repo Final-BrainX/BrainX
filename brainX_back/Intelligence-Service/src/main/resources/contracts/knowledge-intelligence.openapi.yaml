@@ -1713,12 +1713,86 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+  /internal/v1/intelligence/semantic-search:
+    post:
+      operationId: semanticSearchInternal
+      summary: '[Internal] Semantic search for service callers'
+      tags:
+      - Internal Service APIs
+      x-producer-service: knowledge-intelligence
+      x-visibility: internal
+      x-consumers:
+      - id: internal.mcp-service
+        type: internal-service
+        description: Mcp-Service note search tool calls semantic search with the API client's user context.
+      x-produces-events:
+      - SemanticSearchPerformed
+      - TokenUsageRecordedRequested
+      x-internal-sync-calls:
+      - targetService: commerce-operations
+        operationId: checkEntitlementsInternal
+        reason: capability/quota must be decided synchronously before semantic search.
+        required: true
+      x-async-boundary: false
+      description: Service-token protected semantic search endpoint for internal callers that must provide the target userId
+        explicitly.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InternalSemanticSearchRequest'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/SemanticSearchData'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - serviceTokenAuth: []
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    serviceTokenAuth:
+      type: apiKey
+      in: header
+      name: X-Service-Token
+      description: Shared internal service token used by Gateway and backend services for `/internal/v1/**` calls.
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -1808,6 +1882,37 @@ components:
           items:
             type: string
       required:
+      - query
+      additionalProperties: false
+    InternalSemanticSearchRequest:
+      type: object
+      properties:
+        userId:
+          type: string
+        scope:
+          type: string
+          enum:
+          - DOCUMENT_GROUP
+          - USER
+          default: DOCUMENT_GROUP
+          description: Search scope. DOCUMENT_GROUP searches within documentGroupId (default group if omitted). USER searches
+            all note chunks owned by the user and must not include documentGroupId.
+        documentGroupId:
+          type: string
+          description: RAG/검색 격리를 위한 논리 문서 그룹 경계. 생략하면 Knowledge Intelligence가 default로 처리한다.
+        query:
+          type: string
+        filters:
+          type: object
+          additionalProperties: true
+        limit:
+          type: integer
+        hybridWithClientKeywordIds:
+          type: array
+          items:
+            type: string
+      required:
+      - userId
       - query
       additionalProperties: false
     SemanticSearchData:

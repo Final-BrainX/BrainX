@@ -45,8 +45,19 @@ public class ExplorationController {
         Principal principal,
         @Valid @RequestBody SemanticSearchRequest request
     ) {
+        return semanticSearchForUser(userId(principal), request);
+    }
+
+    @PostMapping("/internal/v1/intelligence/semantic-search")
+    public ApiSuccessResponse<SemanticSearchData> semanticSearchInternal(
+        @Valid @RequestBody InternalSemanticSearchRequest request
+    ) {
+        return semanticSearchForUser(request.userId(), request.toPublicRequest());
+    }
+
+    private ApiSuccessResponse<SemanticSearchData> semanticSearchForUser(String userId, SemanticSearchRequest request) {
         var result = semanticSearchUseCase.semanticSearch(new SemanticSearchCommand(
-            userId(principal),
+            userId,
             SearchScope.normalize(request.scope()),
             request.documentGroupId(),
             request.query(),
@@ -111,6 +122,21 @@ public class ExplorationController {
         Integer limit,
         List<String> hybridWithClientKeywordIds
     ) {
+    }
+
+    record InternalSemanticSearchRequest(
+        @NotBlank String userId,
+        String scope,
+        String documentGroupId,
+        @NotBlank String query,
+        Map<String, Object> filters,
+        Integer limit,
+        List<String> hybridWithClientKeywordIds
+    ) {
+
+        SemanticSearchRequest toPublicRequest() {
+            return new SemanticSearchRequest(scope, documentGroupId, query, filters, limit, hybridWithClientKeywordIds);
+        }
     }
 
     record SemanticSearchData(

@@ -19,7 +19,9 @@ type McpApiKeysPanelVariant = "page" | "modal";
 type ExpirationOption = "30d" | "90d" | "365d" | "none";
 type ClientStatus = "active" | "expired" | "revoked";
 
-const MCP_SCOPE = "whoami";
+const MCP_NOTE_TOOL_SCOPES = ["whoami", "notes:read", "ai:search", "notes:write"] as const;
+const MCP_NOTE_TOOL_SCOPE_LABEL = MCP_NOTE_TOOL_SCOPES.join(", ");
+const MCP_NOTE_TOOL_LABEL = "brainx_whoami, brainx_search_notes, brainx_get_note, brainx_create_note";
 const EXPIRATION_OPTIONS: { value: ExpirationOption; label: string; days: number | null }[] = [
   { value: "30d", label: "30일", days: 30 },
   { value: "90d", label: "90일", days: 90 },
@@ -129,7 +131,7 @@ export function McpApiKeysPanel({
     try {
       const created = await createMcpApiClient({
         name: nextName,
-        scopes: [MCP_SCOPE],
+        scopes: [...MCP_NOTE_TOOL_SCOPES],
         expiresAt: expiresAtFromOption(expiration)
       });
       setIssuedKey(created);
@@ -202,7 +204,7 @@ export function McpApiKeysPanel({
             <div className="min-w-0">
               <h3 className={cx("text-[15px] font-semibold", tone.heading)}>새 API Key 생성</h3>
               <p className={cx("mt-1 text-[12px] leading-relaxed", tone.muted)}>
-                v1 권한은 <span translate="no" className={tone.codeText}>whoami</span>로 고정됩니다.
+                Codex 노트 도구 권한은 <span translate="no" className={tone.codeText}>{MCP_NOTE_TOOL_SCOPE_LABEL}</span>로 발급됩니다.
               </p>
             </div>
           </div>
@@ -285,9 +287,9 @@ export function McpApiKeysPanel({
               tone={tone}
             />
             <CopyRow
-              label="Tool"
-              value="brainx_whoami"
-              onCopy={() => copyValue("brainx_whoami", "Tool 이름을 복사했습니다.")}
+              label="Tools"
+              value={MCP_NOTE_TOOL_LABEL}
+              onCopy={() => copyValue(MCP_NOTE_TOOL_LABEL, "Tool 목록을 복사했습니다.")}
               tone={tone}
             />
           </div>
@@ -418,6 +420,7 @@ function ClientRow({
   const status = getClientStatus(client);
   const badge = statusBadge(status, tone);
   const revokeDisabled = status === "revoked" || revoking;
+  const scopeLabel = client.scopes.join(", ") || MCP_NOTE_TOOL_SCOPE_LABEL;
 
   return (
     <div className={cx("flex min-w-0 flex-col gap-3 border-b px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between", tone.row)}>
@@ -425,8 +428,8 @@ function ClientRow({
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <p className={cx("min-w-0 truncate text-[14px] font-semibold", tone.heading)}>{client.name || "이름 없음"}</p>
           <span className={badge.className}>{badge.label}</span>
-          <span className={cx("rounded-md px-1.5 py-0.5 text-[11px] font-semibold", tone.scopeBadge)} translate="no">
-            {client.scopes.join(", ") || MCP_SCOPE}
+          <span className={cx("max-w-full truncate rounded-md px-1.5 py-0.5 text-[11px] font-semibold", tone.scopeBadge)} title={scopeLabel} translate="no">
+            {scopeLabel}
           </span>
         </div>
         <code translate="no" className={cx("mt-1 block truncate text-[12px]", tone.codeText)}>
