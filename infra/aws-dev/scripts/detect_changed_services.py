@@ -43,7 +43,10 @@ PATH_RULES: list[tuple[str, set[str]]] = [
 ]
 
 DEPLOY_CONFIG_PREFIXES = (
-    "infra/aws-dev/",
+    "infra/aws-dev/deploy/",
+    "infra/aws-dev/scripts/deploy_remote.sh",
+    "infra/aws-dev/scripts/detect_changed_services.py",
+    "infra/aws-dev/terraform/",
     ".github/workflows/brainx-dev-deploy.yml",
 )
 
@@ -104,6 +107,8 @@ def main() -> int:
             if path.startswith(DEPLOY_CONFIG_PREFIXES):
                 deploy_config_changed = True
         services = [service for service in ALL_SERVICES if service in detected]
+        if deploy_config_changed and not services:
+            services = list(ALL_SERVICES)
 
     result = {
         "services": services,

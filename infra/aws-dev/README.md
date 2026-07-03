@@ -173,7 +173,7 @@ Runtime app secrets and service configuration are managed through AWS SSM Parame
 
 Workflow: `.github/workflows/brainx-dev-deploy.yml`
 
-- Push to `main` detects changed paths and builds only affected images.
+- Push to `main` detects changed paths and builds only affected images. If the change only touches the runtime deployment paths under `infra/aws-dev/deploy/`, `infra/aws-dev/scripts/`, `infra/aws-dev/terraform/`, or the deploy workflow, the pipeline promotes it to a full stack build/deploy so newly introduced images such as `discovery-service` exist before `docker compose up` refreshes the stack.
 - `workflow_dispatch` can deploy all services or a specific service list.
 - Workflow-level concurrency serializes AWS dev deploys with `group: brainx-dev-deploy` and `cancel-in-progress: false`.
 - Image tags:
@@ -181,7 +181,7 @@ Workflow: `.github/workflows/brainx-dev-deploy.yml`
   - moving: `dev-latest`
 - Docker build cache uses Docker Buildx GitHub Actions cache with one scope per service. The first build for a service can miss, and later builds reuse cache layers across GitHub-hosted runners.
 - Deploy uses SSM `AWS-RunShellScript`; no SSH key or port 22 is required.
-- Remote deploy reads SSM parameters in one batch, skips repeated database bootstrap after the first successful run for the current RDS target, and avoids image pulls for config-only deploys.
+- Remote deploy reads SSM parameters in one batch, skips repeated database bootstrap after the first successful run for the current RDS target, and only skips image pulls when the deployment is not already rebuilding the affected stack.
 - Remote deploy prints SSM stdout/stderr, `docker compose ps`, and endpoint checks. GitHub endpoint verification is limited to the changed service categories.
 - For deploy overlap or endpoint verification failures, use [`troubleshooting.md`](troubleshooting.md).
 
@@ -200,7 +200,7 @@ Path mapping:
 | `brainx-next/**` | `frontend` |
 | `brainx-admin-next/**` | `admin-frontend` |
 | `contracts-v2/**` | `intelligence-service`, `mcp-service`, `frontend` |
-| `infra/aws-dev/**` or workflow file | deploy config refresh |
+| `infra/aws-dev/deploy/**`, `infra/aws-dev/scripts/**`, `infra/aws-dev/terraform/**`, or workflow file | deploy config refresh, full-stack redeploy trigger |
 
 For first deployment after adding Mcp-Service, run Terraform apply first so the `brainx-dev-mcp-service` ECR repository exists, then run the workflow manually with `deploy_all=true` so every ECR image exists before partial deployments start.
 
