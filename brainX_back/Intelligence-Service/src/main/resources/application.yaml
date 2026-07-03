@@ -23,7 +23,16 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
     password: ${SPRING_DATASOURCE_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
+  sql:
+    init:
+      mode: always
+      # Hibernate ddl-auto가 먼저 테이블을 만든 뒤에 이 데이터 시드 스크립트가 실행되도록
+      # defer-datasource-initialization을 켠다. 순서가 바뀌면 신규 환경에서 ai_models
+      # 테이블이 아직 없는 상태로 INSERT가 실행되어 기동이 실패한다.
+      data-locations:
+        - classpath:db/seed/V20260703_01__seed_ai_model_catalog.sql
   jpa:
+    defer-datasource-initialization: true
     hibernate:
       ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:validate}
     properties:
