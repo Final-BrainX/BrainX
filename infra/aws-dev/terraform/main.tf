@@ -314,7 +314,8 @@ resource "aws_instance" "app" {
   vpc_security_group_ids      = [aws_security_group.ec2.id]
   associate_public_ip_address = true
   iam_instance_profile        = aws_iam_instance_profile.ec2.name
-  user_data_replace_on_change = true
+  # Keep the existing dev EC2 stable; bootstrap changes should be intentional.
+  user_data_replace_on_change = false
   user_data = templatefile("${path.module}/user-data.sh.tftpl", {
     app_dir      = "/opt/brainx"
     swap_size_gb = 8
