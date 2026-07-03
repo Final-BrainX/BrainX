@@ -9,10 +9,12 @@ import type { EditMode, AiActionType, NoteEditorHandle } from "./NoteEditor";
 import { MOCK_NOTES, MOCK_FOLDERS } from "@/lib/notes/mockNotes";
 import {
   USE_MOCK_NOTES,
+  WorkspaceApiError,
   createWorkspaceFolder,
   createWorkspaceNote,
   deleteWorkspaceFolder,
   deleteWorkspaceNote,
+  getNote,
   getWorkspaceNoteDraft,
   issueWorkspaceNoteDraftId,
   listFolders,
@@ -67,6 +69,23 @@ function makeBlankNote(folderId?: string): MockNote {
     version: 1,
     persisted: false,
   };
+}
+
+/** 30초 주기 draft flush(NoteDraftFlushScheduler)가 백그라운드에서 note.version을 올릴 수 있어,
+    Ctrl+S가 들고 있던 baseVersion이 그 사이 낡아 409 NOTE_VERSION_CONFLICT가 날 수 있다. 서버가
+    돌려주는 실제 serverVersion으로 딱 한 번만 재시도한다 — 그래도 실패하면(진짜 동시 편집 충돌)
+    그대로 던져 기존 에러 처리(저장 실패 상태 표시)를 그대로 탄다. */
+async function saveNoteContentWithVersionRetry(note: MockNote) {
+  try {
+    return await updateWorkspaceNoteContent(note);
+  } catch (error) {
+    if (!(error instanceof WorkspaceApiError) || error.code !== "NOTE_VERSION_CONFLICT") {
+      throw error;
+    }
+    const serverVersion =
+      typeof error.details?.serverVersion === "number" ? error.details.serverVersion : (await getNote(note.id)).version;
+    return await updateWorkspaceNoteContent({ ...note, version: serverVersion });
+  }
 }
 
 const SAVE_BUTTON_TITLE: Record<SaveStatus, string> = {
@@ -1809,7 +1828,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       return;
     }
 
-    const content = await updateWorkspaceNoteContent(note);
+    const content = await saveNoteContentWithVersionRetry(note);
     const metadata = await updateWorkspaceNoteMetadata({ ...note, version: content.version, persisted: true });
     setNotes((prev) =>
       prev.map((item) =>

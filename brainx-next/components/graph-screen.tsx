@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Compass, FileUp, PencilLine, Pin, PinOff, Sparkles } from "lucide-react";
 import { buildAuthPath, isDevAuthSession, readAuthSession } from "@/lib/auth-api";
 import { CLUSTERS, deriveGraphEdges, noteById, clusterById, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
-import { draftsToBrainXNotes, getGraph, graphEdgesForFlow, graphToBrainXNotes, USE_MOCK_GRAPH, USE_MOCK_GRAPH_CLUSTERS } from "@/lib/graph-api";
+import { deriveDraftWikiLinkEdges, draftsToBrainXNotes, getGraph, graphEdgesForFlow, graphToBrainXNotes, USE_MOCK_GRAPH, USE_MOCK_GRAPH_CLUSTERS } from "@/lib/graph-api";
 import { createBridgeConcepts, createLinkSuggestions, getLatestClusterJob, requestClusterJob, type BridgeConceptsData, type ClusterJobData, type ClusterJobLatestData, type LinkSuggestionsData } from "@/lib/intelligence-api";
 import { createWorkspaceNote, createWorkspaceNoteLink, listWorkspaceNoteDrafts, type NoteCreated } from "@/lib/workspace-api";
 import { useBrainX } from "@/components/brainx-provider";
@@ -1218,7 +1218,7 @@ function GraphCanvasFlow({
         }
       };
     });
-    
+
     setRfNodes((currentNodes) => {
       if (!bridgeBoxSelectingRef.current) {
         return newNodes;
@@ -1623,8 +1623,9 @@ function GraphScreenInner() {
         try {
           const data = await listWorkspaceNoteDrafts();
           if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
-          setLiveNotes(draftsToBrainXNotes(data.drafts));
-          setLiveEdges([]);
+          const draftNotes = draftsToBrainXNotes(data.drafts);
+          setLiveNotes(draftNotes);
+          setLiveEdges(deriveDraftWikiLinkEdges(draftNotes));
         } catch (error) {
           if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
           setLiveNotes([]);

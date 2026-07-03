@@ -11,6 +11,7 @@ export type ApiResponse<T> = {
     code?: string;
     message?: string;
     traceId?: string;
+    details?: Record<string, unknown>;
   };
 };
 
