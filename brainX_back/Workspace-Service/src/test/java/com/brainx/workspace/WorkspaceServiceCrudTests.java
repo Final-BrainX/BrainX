@@ -1,9 +1,12 @@
 package com.brainx.workspace;
 
+import com.brainx.workspace.dto.ApiResponse;
 import com.brainx.workspace.dto.WorkspaceDtos.*;
 import com.brainx.workspace.exception.WorkspaceException;
 import com.brainx.workspace.repository.*;
 import com.brainx.workspace.service.WorkspaceService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,6 +51,8 @@ class WorkspaceServiceCrudTests {
     FolderRepository folderRepository;
     @Autowired
     NoteRepository noteRepository;
+    @Autowired
+    ObjectMapper objectMapper;
 
     @BeforeEach
     void cleanDatabase() {
@@ -180,6 +185,26 @@ class WorkspaceServiceCrudTests {
 
         InternalNoteSnapshotData afterPatch = workspaceService.snapshot(noteId);
         assertThat(afterPatch.markdown()).contains("appended");
+    }
+
+    @Test
+    void snapshotWithTagsSerializesAsJsonArrayWithoutLazyInitializationException() throws Exception {
+        NoteCreatedData created = workspaceService.createNote(
+                USER_ID,
+                new NoteCreateRequest("Tagged snapshot note", "snapshot body", null, List.of("tag-1", "tag-2"))
+        );
+
+        InternalNoteSnapshotData snapshot = workspaceService.snapshot(created.noteId());
+
+        assertThat(snapshot.tags()).containsExactly("tag-1", "tag-2");
+
+        String json = objectMapper.writeValueAsString(ApiResponse.success(snapshot));
+        JsonNode root = objectMapper.readTree(json);
+
+        assertThat(root.path("data").path("tags").isArray()).isTrue();
+        assertThat(root.path("data").path("tags")).hasSize(2);
+        assertThat(root.path("data").path("tags").get(0).asText()).isEqualTo("tag-1");
+        assertThat(root.path("data").path("tags").get(1).asText()).isEqualTo("tag-2");
     }
 
     @Test

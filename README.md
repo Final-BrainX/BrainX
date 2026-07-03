@@ -1,4 +1,4 @@
-﻿# BrainX
+# BrainX
 
 > AI 기반 지식 관리 플랫폼  
 
