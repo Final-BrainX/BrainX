@@ -212,6 +212,7 @@ MCP client용 API key 관리는 `POST|GET /api/v1/mcp/api-clients`, `DELETE /api
 MCP v1은 별도 OAuth 없이 사용자 access token으로 scoped API key를 발급한 뒤 agent가 그 key를 사용합니다.
 
 1. 사용자 JWT로 `POST /api/v1/mcp/api-clients`에 `{ "name": "...", "scopes": ["whoami", "notes:read", "ai:search", "notes:write"] }`를 보내 `apiKeyOnce`를 발급합니다.
+   `/settings`의 MCP API Keys 패널도 Codex 노트 도구용 key를 만들 때 같은 네 scope를 기본으로 보냅니다.
 2. `apiKeyOnce`는 한 번만 표시되므로 안전한 password manager에 저장합니다. DB에는 원문 대신 hash만 저장됩니다.
 3. 검증은 `GET /api/v1/mcp/whoami`에 `Authorization: Bearer bxk_live_...` 또는 `X-BrainX-Api-Key: bxk_live_...`를 보내 확인합니다.
 4. MCP Inspector나 agent client는 `https://<public-domain>/mcp`에 Bearer API key로 연결한 뒤 MCP tool catalog를 통해 도구를 호출합니다. REST `/api/v1/mcp/tools`와 `/api/v1/mcp/tool-calls`는 compatibility 계약으로 남아 있고 Codex v1 연동은 `/mcp` transport를 사용합니다.

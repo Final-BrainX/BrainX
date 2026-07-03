@@ -14677,6 +14677,7 @@ components:
           type: string
         scopes:
           type: array
+          description: MCP API key에 부여할 권한 목록. Codex 노트 도구 v1은 whoami, notes:read, ai:search, notes:write를 사용한다.
           items:
             type: string
         expiresAt:
@@ -14717,6 +14718,7 @@ components:
           type: string
         scopes:
           type: array
+          description: MCP API key에 실제로 부여된 권한 목록.
           items:
             type: string
         expiresAt:
@@ -14749,6 +14751,7 @@ components:
           type: string
         scopes:
           type: array
+          description: 인증된 MCP API key에 부여된 권한 목록.
           items:
             type: string
       required:
