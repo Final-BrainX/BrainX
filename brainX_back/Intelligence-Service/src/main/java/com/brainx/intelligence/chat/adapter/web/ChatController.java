@@ -14,6 +14,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -30,6 +32,10 @@ import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseC
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.ChatStreamEvent;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.SendChatMessageCommand;
+import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase;
+import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase.DeleteChatThreadCommand;
+import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase.UpdateChatThreadCommand;
+import com.brainx.intelligence.chat.domain.ChatThreadStatus;
 import com.brainx.intelligence.infrastructure.web.ApiSuccessResponse;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -38,6 +44,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import reactor.core.publisher.Flux;
 
 @RestController
@@ -48,6 +55,7 @@ public class ChatController {
     private final ListChatThreadsUseCase listChatThreadsUseCase;
     private final SendChatMessageUseCase sendChatMessageUseCase;
     private final GetChatThreadUseCase getChatThreadUseCase;
+    private final UpdateChatThreadUseCase updateChatThreadUseCase;
     private final ObjectMapper objectMapper;
 
     public ChatController(
@@ -55,12 +63,14 @@ public class ChatController {
         ListChatThreadsUseCase listChatThreadsUseCase,
         SendChatMessageUseCase sendChatMessageUseCase,
         GetChatThreadUseCase getChatThreadUseCase,
+        UpdateChatThreadUseCase updateChatThreadUseCase,
         ObjectMapper objectMapper
     ) {
         this.createChatThreadUseCase = createChatThreadUseCase;
         this.listChatThreadsUseCase = listChatThreadsUseCase;
         this.sendChatMessageUseCase = sendChatMessageUseCase;
         this.getChatThreadUseCase = getChatThreadUseCase;
+        this.updateChatThreadUseCase = updateChatThreadUseCase;
         this.objectMapper = objectMapper;
     }
 
@@ -68,12 +78,14 @@ public class ChatController {
     public ApiSuccessResponse<ChatThreadListData> listChatThreads(
         Principal principal,
         @RequestParam(required = false) @Min(1) @Max(50) Integer limit,
-        @RequestParam(required = false) String cursor
+        @RequestParam(required = false) String cursor,
+        @RequestParam(required = false) String status
     ) {
         var result = listChatThreadsUseCase.listChatThreads(new ListChatThreadsQuery(
             userId(principal),
             limit,
-            cursor
+            cursor,
+            ChatThreadStatus.fromNullable(status)
         ));
 
         return ApiSuccessResponse.ok(new ChatThreadListData(
@@ -84,6 +96,8 @@ public class ChatController {
                     thread.title(),
                     thread.modelId(),
                     thread.createdAt(),
+                    thread.archivedAt(),
+                    thread.deletedAt(),
                     thread.lastMessageAt(),
                     thread.lastMessagePreview(),
                     thread.messageCount()
@@ -107,6 +121,7 @@ public class ChatController {
             userId(principal),
             request.documentGroupId(),
             request.title(),
+            request.initialMessage(),
             request.modelId()
         ));
 
@@ -115,7 +130,9 @@ public class ChatController {
             result.documentGroupId(),
             result.title(),
             result.modelId(),
-            result.createdAt()
+            result.createdAt(),
+            result.archivedAt(),
+            result.deletedAt()
         ));
     }
 
@@ -153,10 +170,46 @@ public class ChatController {
                 thread.documentGroupId(),
                 thread.title(),
                 thread.modelId(),
-                thread.createdAt()
+                thread.createdAt(),
+                thread.archivedAt(),
+                thread.deletedAt()
             ),
             result.messages()
         ));
+    }
+
+    @PatchMapping("/api/v1/ai/chat-threads/{threadId}")
+    public ApiSuccessResponse<ChatThreadData> updateChatThread(
+        Principal principal,
+        @PathVariable @NotBlank String threadId,
+        @Valid @RequestBody ChatThreadUpdateRequest request
+    ) {
+        var result = updateChatThreadUseCase.updateChatThread(new UpdateChatThreadCommand(
+            userId(principal),
+            threadId,
+            request.archived()
+        ));
+        return ApiSuccessResponse.ok(new ChatThreadData(
+            result.threadId(),
+            result.documentGroupId(),
+            result.title(),
+            result.modelId(),
+            result.createdAt(),
+            result.archivedAt(),
+            result.deletedAt()
+        ));
+    }
+
+    @DeleteMapping("/api/v1/ai/chat-threads/{threadId}")
+    public ApiSuccessResponse<ChatThreadDeleteData> deleteChatThread(
+        Principal principal,
+        @PathVariable @NotBlank String threadId
+    ) {
+        var result = updateChatThreadUseCase.deleteChatThread(new DeleteChatThreadCommand(
+            userId(principal),
+            threadId
+        ));
+        return ApiSuccessResponse.ok(new ChatThreadDeleteData(result.threadId(), result.deletedAt()));
     }
 
     private ServerSentEvent<String> sse(ChatStreamEvent event) {
@@ -204,7 +257,13 @@ public class ChatController {
     record ChatThreadCreateRequest(
         String documentGroupId,
         @NotBlank String title,
+        String initialMessage,
         @NotBlank String modelId
+    ) {
+    }
+
+    record ChatThreadUpdateRequest(
+        @NotNull Boolean archived
     ) {
     }
 
@@ -257,7 +316,15 @@ public class ChatController {
         String documentGroupId,
         String title,
         String modelId,
-        Instant createdAt
+        Instant createdAt,
+        Instant archivedAt,
+        Instant deletedAt
+    ) {
+    }
+
+    record ChatThreadDeleteData(
+        String threadId,
+        Instant deletedAt
     ) {
     }
 
@@ -267,6 +334,8 @@ public class ChatController {
         String title,
         String modelId,
         Instant createdAt,
+        Instant archivedAt,
+        Instant deletedAt,
         Instant lastMessageAt,
         String lastMessagePreview,
         long messageCount

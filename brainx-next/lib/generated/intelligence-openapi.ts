@@ -107,10 +107,15 @@ export interface paths {
         get: operations["getChatThread"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * 채팅 스레드 삭제
+         * @description v1 삭제는 메시지와 스레드 row를 물리 삭제하지 않고 사용자 목록/조회에서 숨기는 soft-delete로 처리한다.
+         */
+        delete: operations["deleteChatThread"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** 채팅 스레드 상태 수정 */
+        patch: operations["updateChatThread"];
         trace?: never;
     };
     "/api/v1/ai/models": {
@@ -221,6 +226,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai/clusters/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 최신 AI 클러스터링 상태 조회 */
+        get: operations["getLatestAiClusterJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ai/clusters/{clusterJobId}": {
         parameters: {
             query?: never;
@@ -319,7 +341,7 @@ export interface components {
         ApiErrorResponse: {
             /** @enum {boolean} */
             success: false;
-            data?: unknown;
+            data?: Record<string, never> | null;
             message: string;
             error?: {
                 code: string;
@@ -392,8 +414,14 @@ export interface components {
         ChatThreadCreateRequest: {
             /** @description 이 채팅 스레드의 논리적 문서 그룹 경계. 생략하면 Knowledge Intelligence는 default로 처리한다. */
             documentGroupId?: string;
+            /** @description 스레드 생성 fallback 제목. initialMessage가 있으면 서버는 AI 제목 생성을 먼저 시도하고, 실패 시 이 값을 사용한다. */
             title: string;
+            /** @description AI 스레드 제목 생성을 위한 첫 사용자 메시지. 제목 생성 입력 전용이며 chat message로 저장되지 않는다. */
+            initialMessage?: string;
             modelId: string;
+        };
+        ChatThreadUpdateRequest: {
+            archived: boolean;
         };
         ChatThreadData: {
             threadId: string;
@@ -402,6 +430,15 @@ export interface components {
             modelId: string;
             /** Format: date-time */
             createdAt: string;
+            /** Format: date-time */
+            archivedAt: string | null;
+            /** Format: date-time */
+            deletedAt: string | null;
+        };
+        ChatThreadDeleteData: {
+            threadId: string;
+            /** Format: date-time */
+            deletedAt: string;
         };
         ChatThreadListItemData: {
             threadId: string;
@@ -410,6 +447,10 @@ export interface components {
             modelId: string;
             /** Format: date-time */
             createdAt: string;
+            /** Format: date-time */
+            archivedAt: string | null;
+            /** Format: date-time */
+            deletedAt: string | null;
             /** Format: date-time */
             lastMessageAt: string;
             lastMessagePreview?: string | null;
@@ -530,10 +571,27 @@ export interface components {
         };
         ClusterJobData: {
             clusterJobId: string;
+            documentGroupId: string;
             status: components["schemas"]["JobStatus"];
             clusters?: {
                 [key: string]: unknown;
             }[];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            completedAt?: string | null;
+            failureMessage?: string | null;
+        };
+        /** @enum {string} */
+        ClusterJobLatestState: "NO_SOURCE_NOTES" | "NOT_ANALYZED" | "FRESH" | "STALE" | "FAILED";
+        ClusterJobLatestData: {
+            documentGroupId: string;
+            /** Format: int32 */
+            searchableNoteCount: number;
+            /** Format: date-time */
+            latestNoteUpdatedAt?: string | null;
+            state: components["schemas"]["ClusterJobLatestState"];
+            job?: components["schemas"]["ClusterJobData"] | null;
         };
         BridgeConceptsRequest: {
             noteIds: string[];
@@ -825,6 +883,7 @@ export interface operations {
             query?: {
                 limit?: number;
                 cursor?: string;
+                status?: "active" | "archived";
             };
             header?: never;
             path?: never;
@@ -1042,6 +1101,157 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ApiSuccessBase"] & {
                         data: components["schemas"]["ChatThreadDetailData"];
+                    };
+                };
+            };
+            /** @description 잘못된 요청 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 인증 필요 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 권한 없음 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 찾을 수 없음 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 충돌 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 서버 내부 오류 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    deleteChatThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["ChatThreadDeleteData"];
+                    };
+                };
+            };
+            /** @description 잘못된 요청 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 인증 필요 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 권한 없음 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 찾을 수 없음 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 서버 내부 오류 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    updateChatThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatThreadUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["ChatThreadData"];
                     };
                 };
             };
@@ -1560,6 +1770,57 @@ export interface operations {
             };
             /** @description 충돌 */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 서버 내부 오류 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    getLatestAiClusterJob: {
+        parameters: {
+            query?: {
+                documentGroupId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["ClusterJobLatestData"];
+                    };
+                };
+            };
+            /** @description 잘못된 요청 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 인증 필요 */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

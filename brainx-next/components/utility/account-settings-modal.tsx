@@ -15,6 +15,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useBrainX } from "@/components/brainx-provider";
 import { Icon, type IconName } from "@/components/brainx-ui";
 import { ImportScreen } from "@/components/utility/import-screen";
+import { McpApiKeysPanel } from "@/components/utility/mcp-api-keys-panel";
 import { getOAuthAuthorization, logout, readAuthSession, type OAuthProvider } from "@/lib/auth-api";
 import {
   cancelSubscription,
@@ -49,7 +50,7 @@ import type { LanguageCode } from "@/lib/i18n";
 import { useGuideStore } from "@/lib/use-guide-store";
 import { formatCreditCount, formatResetDate, formatTokenPercent, iconForFeature } from "@/lib/token-usage";
 
-type TabId = "profile" | "general" | "notifications" | "import" | "usage" | "stats" | "support" | "upgrade";
+type TabId = "profile" | "general" | "notifications" | "apiKeys" | "import" | "usage" | "stats" | "support" | "upgrade";
 type SocialProvider = "google" | "kakao" | "naver";
 
 const OAUTH_LINK_INTENT_KEY = "brainx_oauth_link_intent_v1";
@@ -61,7 +62,8 @@ const NAV_GROUPS: { label: string; items: { id: TabId; label: string; icon: Icon
     items: [
       { id: "profile", label: "프로필", icon: "user" },
       { id: "general", label: "일반", icon: "settings" },
-      { id: "notifications", label: "알림", icon: "bell" }
+      { id: "notifications", label: "알림", icon: "bell" },
+      { id: "apiKeys", label: "API Keys", icon: "shield" }
     ]
   },
   {
@@ -84,6 +86,7 @@ const MOBILE_TABS: { id: TabId; label: string }[] = [
   { id: "profile", label: "프로필" },
   { id: "general", label: "일반" },
   { id: "notifications", label: "알림" },
+  { id: "apiKeys", label: "API Keys" },
   { id: "import", label: "가져오기" },
   { id: "usage", label: "AI 토큰 사용량" },
   { id: "stats", label: "노트 통계" },
@@ -630,12 +633,11 @@ export function AccountSettingsModal({
     try {
       await logout();
       pushToast("로그아웃되었습니다.", "ok");
-      router.replace("/login");
+      router.replace("/");
     } catch (error) {
       pushToast(error instanceof Error ? error.message : "로그아웃에 실패했습니다.", "err");
     }
   };
-
   const saveLanguage = async (nextLanguage: LanguageCode) => {
     setLanguage(nextLanguage);
     try {
@@ -770,6 +772,7 @@ export function AccountSettingsModal({
                   onRemoveSocialLink={removeSocialLink}
                   onDeleteAccount={submitDeletion}
                   onCancelDeletion={cancelDeletion}
+                  onLogout={handleLogout}
                 />
               ) : null}
               {tab === "general" ? (
@@ -781,10 +784,10 @@ export function AccountSettingsModal({
                   onLanguageChange={saveLanguage}
                   onThemeChange={saveTheme}
                   onConsentChange={saveConsent}
-                  onLogout={handleLogout}
                 />
               ) : null}
               {tab === "notifications" ? <NotificationsPanel /> : null}
+              {tab === "apiKeys" ? <McpApiKeysPanel variant="modal" /> : null}
               {tab === "import" ? <ImportScreen /> : null}
               {tab === "usage" ? <UsagePanel /> : null}
               {tab === "stats" ? <StatsPanel /> : null}
@@ -822,7 +825,8 @@ function ProfilePanel({
   onStartSocialLink,
   onRemoveSocialLink,
   onDeleteAccount,
-  onCancelDeletion
+  onCancelDeletion,
+  onLogout
 }: {
   email: string;
   name: string;
@@ -847,6 +851,7 @@ function ProfilePanel({
   onRemoveSocialLink: (provider: SocialProvider) => void;
   onDeleteAccount: () => void;
   onCancelDeletion: () => void;
+  onLogout: () => void;
 }) {
   return (
     <>
@@ -919,6 +924,16 @@ function ProfilePanel({
             </div>
           );
         })}
+      </section>
+
+      <section className="mb-9">
+        <SectionLabel>세션</SectionLabel>
+        <AccountRow
+          className="px-4"
+          title="로그아웃"
+          desc="현재 로그인된 기기에서 로그아웃합니다."
+          action={<ModalButton danger onClick={onLogout}>로그아웃</ModalButton>}
+        />
       </section>
 
       <section>
@@ -1008,8 +1023,7 @@ function GeneralSettingsPanel({
   savingConsent,
   onLanguageChange,
   onThemeChange,
-  onConsentChange,
-  onLogout
+  onConsentChange
 }: {
   language: LanguageCode;
   theme: ThemeMode;
@@ -1018,7 +1032,6 @@ function GeneralSettingsPanel({
   onLanguageChange: (value: LanguageCode) => void;
   onThemeChange: (value: ThemeMode) => void;
   onConsentChange: (key: keyof ConsentPayload, value: boolean) => void;
-  onLogout: () => void;
 }) {
   const { t } = useBrainX();
   const languageOptions: { value: LanguageCode; label: string }[] = [
@@ -1052,7 +1065,6 @@ function GeneralSettingsPanel({
           desc={t("general.analyticsDesc")}
           action={<ConsentButton checked={consents.behaviorAnalyticsOptional} disabled={savingConsent === "behaviorAnalyticsOptional"} onChange={(value) => onConsentChange("behaviorAnalyticsOptional", value)} />}
         />
-        <AccountRow className="px-4" title={t("general.session")} desc={t("general.sessionDesc")} action={<ModalButton danger onClick={onLogout}>{t("general.logout")}</ModalButton>} />
       </section>
     </>
   );

@@ -10,7 +10,9 @@ public record ChatThread(
     String documentGroupId,
     String title,
     String modelId,
-    Instant createdAt
+    Instant createdAt,
+    Instant archivedAt,
+    Instant deletedAt
 ) {
 
     public ChatThread {
@@ -20,6 +22,25 @@ public record ChatThread(
         title = requireText(title, "title");
         modelId = requireText(modelId, "modelId");
         createdAt = createdAt == null ? Instant.now() : createdAt;
+    }
+
+    public ChatThread(
+        String threadId,
+        String userId,
+        String documentGroupId,
+        String title,
+        String modelId,
+        Instant createdAt
+    ) {
+        this(threadId, userId, documentGroupId, title, modelId, createdAt, null, null);
+    }
+
+    public boolean archived() {
+        return archivedAt != null;
+    }
+
+    public boolean deleted() {
+        return deletedAt != null;
     }
 
     private static String requireText(String value, String name) {

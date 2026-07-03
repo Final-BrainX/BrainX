@@ -1,17 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Compass, PencilLine, Sparkles } from "lucide-react";
+import { Archive, Compass, MoreHorizontal, PencilLine, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 import {
   createChatThread,
+  deleteChatThread,
   getChatThread,
   listAiModels,
   listChatThreads,
   sendChatMessageStream,
+  updateChatThread,
   type ChatThreadData,
   type ChatThreadDetailData,
-  type ChatThreadListData
+  type ChatThreadListData,
+  type ChatThreadListStatus
 } from "@/lib/intelligence-api";
 import { createWorkspaceNoteFromPayload } from "@/lib/workspace-api";
 import { clusterById } from "@/lib/brainx-data";
@@ -56,6 +59,11 @@ type DraftNoteSaveState = {
   status: DraftNoteSaveStatus;
   noteId?: string;
   error?: string;
+};
+
+type ThreadDeleteCandidate = {
+  threadId: string;
+  title: string;
 };
 
 const FALLBACK_MODEL: ChatModelOption = {
@@ -351,6 +359,11 @@ function buildChatDraftMarkdown(message: ChatMessageView) {
   return `${body}\n\n## 참고 노트\n\n${citations.map(citationMarkdownLine).join("\n")}`;
 }
 
+function threadBelongsToStatus(thread: ChatThreadData | ChatThreadListItem, status: ChatThreadListStatus) {
+  if (thread.deletedAt) return false;
+  return status === "archived" ? Boolean(thread.archivedAt) : !thread.archivedAt;
+}
+
 export function ChatScreen() {
   const router = useRouter();
   const { pushToast, notes, effectiveTheme } = useBrainX();
@@ -358,10 +371,14 @@ export function ChatScreen() {
   const [threads, setThreads] = useState<ChatThreadListItem[]>([]);
   const [threadCursor, setThreadCursor] = useState<string | null>(null);
   const [hasMoreThreads, setHasMoreThreads] = useState(false);
+  const [threadStatus, setThreadStatus] = useState<ChatThreadListStatus>("active");
   const [threadsLoading, setThreadsLoading] = useState(false);
   const [threadDetailLoading, setThreadDetailLoading] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [activeThread, setActiveThread] = useState<ChatThreadData | null>(null);
+  const [threadActionOpenId, setThreadActionOpenId] = useState<string | null>(null);
+  const [threadActionLoadingId, setThreadActionLoadingId] = useState<string | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<ThreadDeleteCandidate | null>(null);
   const [models, setModels] = useState<ChatModelOption[]>([FALLBACK_MODEL]);
   const [model, setModel] = useState<ChatModelOption>(FALLBACK_MODEL);
   const [modelOpen, setModelOpen] = useState(false);
@@ -371,6 +388,7 @@ export function ChatScreen() {
   const [draftSaveStates, setDraftSaveStates] = useState<Record<string, DraftNoteSaveState>>({});
   const detailRequestIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -378,11 +396,37 @@ export function ChatScreen() {
     }
   }, [messages]);
 
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [input]);
+
   useEffect(() => {
-    void loadThreadPage(true);
     void loadModels();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    void loadThreadPage(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadStatus]);
+
+  useEffect(() => {
+    if (!deleteCandidate) return;
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setDeleteCandidate(null);
+      }
+      if (event.key === "Enter") {
+        void confirmDeleteThread();
+      }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deleteCandidate, threadActionLoadingId]);
 
   const suggestions = [
     "내 노트에서 RAG 검색 품질 높이는 법을 정리해줘",
@@ -422,13 +466,20 @@ export function ChatScreen() {
     }
   }
 
-  async function loadThreadPage(reset = false) {
+  async function loadThreadPage(reset = false, statusOverride?: ChatThreadListStatus) {
     if (threadsLoading) return;
+    const status = statusOverride ?? threadStatus;
     setThreadsLoading(true);
+    if (reset) {
+      setThreads([]);
+      setThreadCursor(null);
+      setHasMoreThreads(false);
+    }
     try {
       const data = await listChatThreads({
         limit: THREAD_PAGE_SIZE,
-        cursor: reset ? null : threadCursor
+        cursor: reset ? null : threadCursor,
+        status
       });
       setThreads((current) => (reset ? data.threads : [...current, ...data.threads]));
       setThreadCursor(data.pagination.nextCursor ?? null);
@@ -466,8 +517,7 @@ export function ChatScreen() {
     }
   }
 
-  function startNewThread() {
-    if (streaming) return;
+  function clearActiveThread() {
     detailRequestIdRef.current += 1;
     setActiveThreadId(null);
     setActiveThread(null);
@@ -476,15 +526,74 @@ export function ChatScreen() {
     setInput("");
   }
 
+  function startNewThread() {
+    if (streaming) return;
+    clearActiveThread();
+  }
+
   async function refreshActiveThread(threadId: string) {
     const detail = await getChatThread(threadId);
     setActiveThread(detail.thread);
     setMessages(messagesFromThread(detail));
   }
 
+  async function setThreadArchived(thread: ChatThreadListItem, archived: boolean) {
+    if (streaming || threadActionLoadingId) return;
+    setThreadActionLoadingId(thread.threadId);
+    setThreadActionOpenId(null);
+    try {
+      const updated = await updateChatThread(thread.threadId, { archived });
+      const visibleInCurrentTab = threadBelongsToStatus(updated, threadStatus);
+      setThreads((current) => visibleInCurrentTab
+        ? current.map((item) => (item.threadId === updated.threadId ? { ...item, ...updated } : item))
+        : current.filter((item) => item.threadId !== updated.threadId));
+      if (activeThreadId === updated.threadId) {
+        if (visibleInCurrentTab) {
+          setActiveThread(updated);
+        } else {
+          clearActiveThread();
+        }
+      }
+      pushToast(archived ? "대화를 보관했습니다." : "대화를 보관 해제했습니다.", "ok");
+    } catch (error) {
+      pushToast(messageFromError(error), "err");
+    } finally {
+      setThreadActionLoadingId(null);
+    }
+  }
+
+  function requestDeleteThread(thread: ChatThreadListItem) {
+    if (streaming || threadActionLoadingId) return;
+    setThreadActionOpenId(null);
+    setDeleteCandidate({ threadId: thread.threadId, title: thread.title });
+  }
+
+  async function confirmDeleteThread() {
+    if (!deleteCandidate || threadActionLoadingId) return;
+    const candidate = deleteCandidate;
+    setThreadActionLoadingId(candidate.threadId);
+    try {
+      await deleteChatThread(candidate.threadId);
+      setThreads((current) => current.filter((item) => item.threadId !== candidate.threadId));
+      if (activeThreadId === candidate.threadId) {
+        clearActiveThread();
+      }
+      setDeleteCandidate(null);
+      pushToast("대화를 삭제했습니다.", "ok");
+    } catch (error) {
+      pushToast(messageFromError(error), "err");
+    } finally {
+      setThreadActionLoadingId(null);
+    }
+  }
+
   async function ask(question: string) {
     const trimmed = question.trim();
     if (!trimmed || streaming) return;
+    if (activeThread?.archivedAt) {
+      pushToast("보관된 대화에는 새 메시지를 보낼 수 없습니다. 먼저 보관 해제해 주세요.", "info");
+      return;
+    }
 
     const localUserId = `local-user-${Date.now()}`;
     const assistantId = `stream-${Date.now()}`;
@@ -501,8 +610,13 @@ export function ChatScreen() {
     try {
       let thread = activeThread;
       if (!thread) {
+        const targetStatus: ChatThreadListStatus = "active";
+        if (threadStatus !== "active") {
+          setThreadStatus(targetStatus);
+        }
         thread = await createChatThread({
           title: threadTitleFromQuestion(trimmed),
+          initialMessage: trimmed,
           modelId: model.id
         });
         setActiveThread(thread);
@@ -547,12 +661,12 @@ export function ChatScreen() {
       );
 
       if (streamError) {
-        await loadThreadPage(true);
+        await loadThreadPage(true, "active");
         return;
       }
 
       await refreshActiveThread(thread.threadId);
-      await loadThreadPage(true);
+      await loadThreadPage(true, "active");
     } catch (error) {
       setMessages((current) => current.map((message) => (
         message.id === assistantId
@@ -571,6 +685,9 @@ export function ChatScreen() {
   }
 
   const activeTitle = activeThread?.title ?? "새 대화";
+  const activeThreadArchived = Boolean(activeThread?.archivedAt);
+  const composerDisabled = streaming || threadDetailLoading || activeThreadArchived;
+  const threadSectionLabel = threadStatus === "archived" ? "보관한 대화" : "최근 대화";
 
   async function saveAiMessageAsNote(message: ChatMessageView) {
     const currentState = draftSaveStates[message.id];
@@ -624,33 +741,107 @@ export function ChatScreen() {
             새 대화
           </Btn>
         </div>
+        <div className="px-3 pb-2">
+          <div className="grid grid-cols-2 rounded-xl border border-line/60 bg-surface/50 p-1" role="tablist" aria-label="대화 목록 필터">
+            {([
+              ["active", "최근"],
+              ["archived", "보관"]
+            ] as const).map(([status, label]) => (
+              <button
+                key={status}
+                type="button"
+                role="tab"
+                aria-selected={threadStatus === status}
+                disabled={streaming || threadsLoading}
+                onClick={() => {
+                  setThreadActionOpenId(null);
+                  setThreadStatus(status);
+                  clearActiveThread();
+                }}
+                className={cx(
+                  "h-8 rounded-lg text-[13px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-wait disabled:opacity-60",
+                  threadStatus === status ? "bg-primary text-white" : "text-txt3 hover:bg-surface2/70 hover:text-txt"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="scroll flex-1 overflow-y-auto px-2 pb-3">
-          <div className="px-2 py-1.5 text-[12px] font-semibold text-txt3">최근 대화</div>
+          <div className="px-2 py-1.5 text-[12px] font-semibold text-txt3">{threadSectionLabel}</div>
           {threads.length === 0 && !threadsLoading ? (
             <div className="mx-2 rounded-xl border border-dashed border-line/60 px-3 py-4 text-[13px] leading-5 text-txt3">
-              저장된 대화가 없습니다.
+              {threadStatus === "archived" ? "보관한 대화가 없습니다." : "저장된 대화가 없습니다."}
             </div>
           ) : null}
           {threads.map((thread) => (
-            <button
+            <div
               key={thread.threadId}
-              type="button"
-              disabled={streaming}
-              onClick={() => openThread(thread.threadId)}
               className={cx(
-                "mb-1 w-full rounded-xl p-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                "relative mb-1 flex w-full items-start gap-1 rounded-xl p-1 transition-colors",
                 activeThreadId === thread.threadId ? "bg-surface2/80" : "hover:bg-surface2/50"
               )}
             >
-              <div className="truncate text-[15px] font-medium text-txt">{thread.title}</div>
-              <div className="mt-0.5 truncate text-[13px] text-txt3">
-                {thread.lastMessagePreview || "아직 메시지가 없습니다."}
-              </div>
-              <div className="mt-1 flex items-center justify-between gap-2 text-[12.5px] text-txt3">
-                <span>{formatChatTime(thread.lastMessageAt)}</span>
-                <span>{thread.messageCount}개</span>
-              </div>
-            </button>
+              <button
+                type="button"
+                disabled={streaming || threadActionLoadingId === thread.threadId}
+                onClick={() => openThread(thread.threadId)}
+                className="min-w-0 flex-1 rounded-lg px-1.5 py-1.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <div className="truncate text-[15px] font-medium text-txt">{thread.title}</div>
+                <div className="mt-0.5 truncate text-[13px] text-txt3">
+                  {thread.lastMessagePreview || "아직 메시지가 없습니다."}
+                </div>
+                <div className="mt-1 flex items-center justify-between gap-2 text-[12.5px] text-txt3">
+                  <span>{formatChatTime(thread.lastMessageAt)}</span>
+                  <span>{thread.messageCount}개</span>
+                </div>
+              </button>
+              <button
+                type="button"
+                aria-label={`${thread.title} 대화 작업`}
+                aria-expanded={threadActionOpenId === thread.threadId}
+                disabled={streaming || threadActionLoadingId === thread.threadId}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setThreadActionOpenId((current) => current === thread.threadId ? null : thread.threadId);
+                }}
+                className="mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-txt3 transition-colors hover:bg-surface2 hover:text-txt focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <MoreHorizontal size={15} aria-hidden="true" />
+              </button>
+              {threadActionOpenId === thread.threadId ? (
+                <div
+                  className="absolute right-1 top-10 z-30 w-36 rounded-xl border border-line/70 bg-surface p-1.5 shadow-soft"
+                  role="menu"
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") setThreadActionOpenId(null);
+                  }}
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={Boolean(threadActionLoadingId)}
+                    onClick={() => setThreadArchived(thread, threadStatus !== "archived")}
+                    className="flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium text-txt2 transition-colors hover:bg-surface2 hover:text-txt focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-wait disabled:opacity-50"
+                  >
+                    {threadStatus === "archived" ? <RotateCcw size={13} aria-hidden="true" /> : <Archive size={13} aria-hidden="true" />}
+                    {threadStatus === "archived" ? "보관 해제" : "보관"}
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={Boolean(threadActionLoadingId)}
+                    onClick={() => requestDeleteThread(thread)}
+                    className="flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-semibold text-red-600 transition-colors hover:bg-red-50 focus-visible:ring-2 focus-visible:ring-red-400/70 disabled:cursor-wait disabled:opacity-50 dark:text-red-300 dark:hover:bg-red-950/30"
+                  >
+                    <Trash2 size={13} aria-hidden="true" />
+                    삭제
+                  </button>
+                </div>
+              ) : null}
+            </div>
           ))}
           {hasMoreThreads ? (
             <button
@@ -672,6 +863,11 @@ export function ChatScreen() {
             내 노트 기반 AI 챗
           </div>
           <div className="min-w-0 truncate text-[14px] text-txt3">{activeTitle}</div>
+          {activeThreadArchived ? (
+            <span className="rounded-full border border-line/60 bg-surface2/70 px-2 py-1 text-[12px] font-semibold text-txt3">
+              보관됨
+            </span>
+          ) : null}
           <div className="flex-1" />
           <div className="relative">
             <button
@@ -840,23 +1036,24 @@ export function ChatScreen() {
           <div className="mx-auto max-w-2xl">
             <div className="card flex items-end gap-2 rounded-2xl p-2 transition-colors focus-within:border-primary/50">
               <textarea
+                ref={textareaRef}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 rows={1}
-                disabled={streaming || threadDetailLoading}
+                disabled={composerDisabled}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
                     ask(input);
                   }
                 }}
-                placeholder="내 노트에게 질문하기...  (Shift+Enter 줄바꿈)"
-                className="max-h-32 flex-1 resize-none bg-transparent px-2 py-2 text-[15.5px] text-txt outline-none placeholder:text-[15px] placeholder:text-txt3 disabled:cursor-wait"
+                placeholder={activeThreadArchived ? "보관된 대화는 보관 해제 후 이어서 쓸 수 있습니다." : "내 노트에게 질문하기…  (Shift+Enter 줄바꿈)"}
+                className="scroll max-h-[min(240px,32svh)] min-h-10 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-2 text-[15.5px] leading-6 text-txt outline-none placeholder:text-[15px] placeholder:text-txt3 disabled:cursor-wait"
               />
               <button
                 type="button"
                 onClick={() => ask(input)}
-                disabled={!input.trim() || streaming || threadDetailLoading}
+                disabled={!input.trim() || composerDisabled}
                 className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-white hover:brightness-110 disabled:opacity-40"
                 aria-label="메시지 보내기"
               >
@@ -864,7 +1061,7 @@ export function ChatScreen() {
               </button>
             </div>
             <p className="mt-2 text-center text-[13px] text-txt3">
-              BrainX는 당신의 노트를 근거로 답합니다 · {model.name}
+              {activeThreadArchived ? "보관된 대화입니다. 보관 해제 후 새 메시지를 보낼 수 있습니다." : `BrainX는 당신의 노트를 근거로 답합니다 · ${model.name}`}
             </p>
           </div>
         </div>
@@ -907,6 +1104,51 @@ export function ChatScreen() {
           })}
         </div>
       </div>
+      {deleteCandidate ? (
+        <div
+          className="fixed inset-0 z-[3000] flex items-center justify-center bg-slate-950/55 px-4"
+          role="presentation"
+          onClick={() => {
+            if (!threadActionLoadingId) setDeleteCandidate(null);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="chat-thread-delete-title"
+            aria-describedby="chat-thread-delete-description"
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl border border-line/70 bg-surface p-5 shadow-2xl"
+          >
+            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300">
+              <Trash2 size={18} aria-hidden="true" />
+            </div>
+            <h2 id="chat-thread-delete-title" className="text-[16px] font-bold text-txt">대화를 삭제할까요?</h2>
+            <p id="chat-thread-delete-description" className="mt-2 break-words text-[13px] leading-6 text-txt3">
+              "{deleteCandidate.title}" 대화가 목록과 조회 화면에서 숨겨집니다. 이 작업은 v1에서 복원할 수 없습니다.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={Boolean(threadActionLoadingId)}
+                onClick={() => setDeleteCandidate(null)}
+                className="h-9 rounded-lg border border-line/60 px-3 text-[13px] font-semibold text-txt2 transition-colors hover:bg-surface2/70 focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-wait disabled:opacity-50"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(threadActionLoadingId)}
+                onClick={() => confirmDeleteThread()}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-red-500 px-3 text-[13px] font-bold text-white transition-colors hover:bg-red-600 focus-visible:ring-2 focus-visible:ring-red-400/70 disabled:cursor-wait disabled:opacity-60"
+              >
+                <Trash2 size={13} aria-hidden="true" />
+                삭제
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

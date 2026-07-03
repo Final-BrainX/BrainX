@@ -9,6 +9,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.brainx.intelligence.chat.domain.ChatDomainException;
+import com.brainx.intelligence.chat.domain.ChatConflictException;
+import com.brainx.intelligence.chat.domain.ChatNotFoundException;
 import com.brainx.intelligence.clustering.domain.ClusteringConflictException;
 import com.brainx.intelligence.clustering.domain.ClusteringDomainException;
 import com.brainx.intelligence.clustering.domain.ClusteringForbiddenException;
@@ -64,6 +66,7 @@ public class GlobalApiExceptionHandler {
     }
 
     @ExceptionHandler({
+        ChatNotFoundException.class,
         ClusteringNotFoundException.class,
         ConnectionNotFoundException.class,
         InsightNotFoundException.class,
@@ -75,6 +78,7 @@ public class GlobalApiExceptionHandler {
     }
 
     @ExceptionHandler({
+        ChatConflictException.class,
         ClusteringConflictException.class,
         ConnectionConflictException.class,
         InsightConflictException.class,

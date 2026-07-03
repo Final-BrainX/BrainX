@@ -14,12 +14,14 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 
+import com.brainx.intelligence.clustering.application.port.inbound.GetLatestClusterJobUseCase.GetLatestClusterJobQuery;
 import com.brainx.intelligence.clustering.application.port.inbound.RequestClusterJobUseCase.ClusterJobCommand;
 import com.brainx.intelligence.clustering.application.port.outbound.ClusterJobStore;
 import com.brainx.intelligence.clustering.application.port.outbound.ClusteringEventPort;
 import com.brainx.intelligence.clustering.application.port.outbound.ClusteringEventPort.ClusterJobCompletedEvent;
 import com.brainx.intelligence.clustering.application.port.outbound.ClusteringEventPort.ClusterJobRequestedEvent;
 import com.brainx.intelligence.clustering.domain.ClusterJob;
+import com.brainx.intelligence.clustering.domain.ClusterJobLatestState;
 import com.brainx.intelligence.clustering.domain.ClusterJobStatus;
 import com.brainx.intelligence.clustering.domain.ClusteringForbiddenException;
 import com.brainx.intelligence.clustering.domain.ClusteringNotFoundException;
@@ -105,7 +107,9 @@ class ClusteringServiceTest {
         assertThat(tokenUsagePort.records.getFirst().inputTokens()).isEqualTo(80);
         assertThat(tokenUsagePort.records.getFirst().cachedInputTokens()).isEqualTo(10);
         assertThat(eventPort.requestedEvents).hasSize(1);
+        assertThat(eventPort.requestedEvents.getFirst().scope()).doesNotContainKey(ClusteringService.SOURCE_SNAPSHOT_SCOPE_KEY);
         assertThat(eventPort.completedEvents).hasSize(1);
+        assertThat(job.scope()).containsKey(ClusteringService.SOURCE_SNAPSHOT_SCOPE_KEY);
     }
 
     @Test
@@ -172,12 +176,115 @@ class ClusteringServiceTest {
         assertThat(eventPort.completedEvents).isEmpty();
     }
 
+    @Test
+    void latestReturnsNotAnalyzedWhenNoWorkspaceJobExists() {
+        noteSource.notes = List.of(note("note-1", "Java", List.of(), List.of(), "Spring"));
+
+        var latest = service.getLatestClusterJob(new GetLatestClusterJobQuery("user-1", "default"));
+
+        assertThat(latest.state()).isEqualTo(ClusterJobLatestState.NOT_ANALYZED);
+        assertThat(latest.searchableNoteCount()).isEqualTo(1);
+        assertThat(latest.latestNoteUpdatedAt()).isEqualTo(Instant.parse("2026-06-26T00:00:00Z"));
+        assertThat(latest.job()).isNull();
+    }
+
+    @Test
+    void latestReturnsFreshWhenSourceSnapshotMatches() {
+        noteSource.notes = List.of(note("note-1", "Java", List.of(), List.of(), "Spring"));
+        chatPort.response = new AiChatResponse(
+            """
+                [{"title":"Backend","summary":"summary","noteIds":["note-1"],"keywords":["Spring"],"confidence":0.9}]
+                """,
+            null
+        );
+        ClusterJob job = service.requestClusterJob(new ClusterJobCommand("user-1", Map.of(), Map.of(), null));
+
+        var latest = service.getLatestClusterJob(new GetLatestClusterJobQuery("user-1", "default"));
+
+        assertThat(latest.state()).isEqualTo(ClusterJobLatestState.FRESH);
+        assertThat(latest.job().clusterJobId()).isEqualTo(job.clusterJobId());
+    }
+
+    @Test
+    void latestReturnsStaleWhenSourceSnapshotDiffers() {
+        noteSource.notes = List.of(note("note-1", "Java", List.of(), List.of(), "Spring"));
+        chatPort.response = new AiChatResponse(
+            """
+                [{"title":"Backend","summary":"summary","noteIds":["note-1"],"keywords":["Spring"],"confidence":0.9}]
+                """,
+            null
+        );
+        service.requestClusterJob(new ClusterJobCommand("user-1", Map.of(), Map.of(), null));
+        noteSource.notes = List.of(note(
+            "note-1",
+            "Java",
+            List.of(),
+            List.of(),
+            "Spring changed",
+            Instant.parse("2026-06-27T00:00:00Z")
+        ));
+
+        var latest = service.getLatestClusterJob(new GetLatestClusterJobQuery("user-1", "default"));
+
+        assertThat(latest.state()).isEqualTo(ClusterJobLatestState.STALE);
+        assertThat(latest.latestNoteUpdatedAt()).isEqualTo(Instant.parse("2026-06-27T00:00:00Z"));
+    }
+
+    @Test
+    void latestIgnoresNoteIdsScopedJobs() {
+        noteSource.notes = List.of(
+            note("note-1", "Java", List.of(), List.of(), "Spring"),
+            note("note-2", "Database", List.of(), List.of(), "PostgreSQL")
+        );
+        chatPort.response = new AiChatResponse(
+            """
+                [{"title":"Backend","summary":"summary","noteIds":["note-1"],"keywords":["Spring"],"confidence":0.9}]
+                """,
+            null
+        );
+        service.requestClusterJob(new ClusterJobCommand(
+            "user-1",
+            Map.of("noteIds", List.of("note-1")),
+            Map.of(),
+            null
+        ));
+
+        var latest = service.getLatestClusterJob(new GetLatestClusterJobQuery("user-1", "default"));
+
+        assertThat(latest.state()).isEqualTo(ClusterJobLatestState.NOT_ANALYZED);
+        assertThat(latest.job()).isNull();
+    }
+
+    @Test
+    void latestReturnsFailedForLatestWorkspaceJobFailure() {
+        noteSource.notes = List.of(note("note-1", "Java", List.of(), List.of(), "Spring"));
+        chatPort.response = new AiChatResponse("not json", null);
+        ClusterJob failed = service.requestClusterJob(new ClusterJobCommand("user-1", Map.of(), Map.of(), null));
+
+        var latest = service.getLatestClusterJob(new GetLatestClusterJobQuery("user-1", "default"));
+
+        assertThat(failed.status()).isEqualTo(ClusterJobStatus.FAILED);
+        assertThat(latest.state()).isEqualTo(ClusterJobLatestState.FAILED);
+        assertThat(latest.job().clusterJobId()).isEqualTo(failed.clusterJobId());
+    }
+
     private static KnowledgeAnalysisNote note(
         String noteId,
         String title,
         List<String> tags,
         List<String> headings,
         String excerpt
+    ) {
+        return note(noteId, title, tags, headings, excerpt, Instant.parse("2026-06-26T00:00:00Z"));
+    }
+
+    private static KnowledgeAnalysisNote note(
+        String noteId,
+        String title,
+        List<String> tags,
+        List<String> headings,
+        String excerpt,
+        Instant updatedAt
     ) {
         return new KnowledgeAnalysisNote(
             "user-1",
@@ -187,7 +294,7 @@ class ClusteringServiceTest {
             tags,
             headings,
             excerpt,
-            Instant.parse("2026-06-26T00:00:00Z")
+            updatedAt
         );
     }
 
@@ -213,6 +320,18 @@ class ClusteringServiceTest {
         @Override
         public Optional<ClusterJob> findByUserIdAndIdempotencyKey(String userId, String idempotencyKey) {
             return Optional.ofNullable(jobsByIdempotency.get(userId + "::" + idempotencyKey));
+        }
+
+        @Override
+        public List<ClusterJob> findRecentByUserIdAndDocumentGroupId(String userId, String documentGroupId, int limit) {
+            return jobsById.values().stream()
+                .filter(job -> job.userId().equals(userId) && job.documentGroupId().equals(documentGroupId))
+                .sorted((left, right) -> {
+                    int byCreatedAt = right.createdAt().compareTo(left.createdAt());
+                    return byCreatedAt != 0 ? byCreatedAt : right.clusterJobId().compareTo(left.clusterJobId());
+                })
+                .limit(limit)
+                .toList();
         }
     }
 

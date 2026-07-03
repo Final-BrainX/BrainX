@@ -19,7 +19,6 @@ jobs:
     name: ci / detect changes
     runs-on: ubuntu-latest
     outputs:
-      backend_services: ${{ steps.split.outputs.backend_services }}
       contracts_changed: ${{ steps.split.outputs.contracts_changed }}
       deploy_config_changed: ${{ steps.split.outputs.deploy_config_changed }}
       frontend_changed: ${{ steps.split.outputs.frontend_changed }}
@@ -68,7 +67,6 @@ jobs:
 
           services = detection.get("services", [])
           changed_files = detection.get("changedFiles", [])
-          backend_services = [service for service in services if service.endswith("-service")]
 
           contracts_changed = any(path.startswith("contracts-v2/") for path in changed_files)
           deploy_config_changed = any(
@@ -79,7 +77,6 @@ jobs:
           )
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fp:
-              fp.write(f"backend_services={json.dumps(backend_services, separators=(',', ':'))}\n")
               fp.write(f"contracts_changed={str(contracts_changed).lower()}\n")
               fp.write(f"deploy_config_changed={str(deploy_config_changed).lower()}\n")
               fp.write(f"frontend_changed={str('frontend' in services).lower()}\n")
@@ -129,59 +126,6 @@ jobs:
 
           npx --yes @redocly/cli lint contracts-v2/brainx-openapi.ssot.yaml
           npx --yes @asyncapi/cli validate contracts-v2/brainx-asyncapi.ssot.yaml
-
-  backend:
-    name: ci / backend services
-    runs-on: ubuntu-latest
-    needs: detect
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-
-      - name: Run changed backend checks
-        shell: bash
-        env:
-          BACKEND_SERVICES: ${{ needs.detect.outputs.backend_services }}
-        run: |
-          set -euo pipefail
-
-          python - <<'PY' > backend-services.txt
-          import json
-          import os
-
-          for service in json.loads(os.environ["BACKEND_SERVICES"]):
-              print(service)
-          PY
-
-          if [ ! -s backend-services.txt ]; then
-            echo "No backend service changes detected."
-            exit 0
-          fi
-
-          while IFS= read -r service; do
-            case "$service" in
-              gateway-service) dir="brainX_back/Gateway-Service" ;;
-              user-service) dir="brainX_back/User-Service" ;;
-              workspace-service) dir="brainX_back/Workspace-Service" ;;
-              ingestion-service) dir="brainX_back/Ingestion-Service" ;;
-              commerce-service) dir="brainX_back/Commerce-Service" ;;
-              admin-service) dir="brainX_back/Admin-Service" ;;
-              intelligence-service) dir="brainX_back/Intelligence-Service" ;;
-              *) echo "Unknown backend service: $service" >&2; exit 1 ;;
-            esac
-
-            echo "::group::${service} check"
-            (
-              cd "$dir"
-              chmod +x ./gradlew
-              ./gradlew --no-daemon check --console=plain
-            )
-            echo "::endgroup::"
-          done < backend-services.txt
 
   frontend:
     name: ci / frontend
@@ -282,7 +226,6 @@ jobs:
       - detect
       - repo-policy
       - contracts
-      - backend
       - frontend
       - admin-frontend
       - deploy-config

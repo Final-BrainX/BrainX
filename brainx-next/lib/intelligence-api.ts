@@ -12,7 +12,9 @@ export type InlineAssistRequest = Schemas["InlineAssistRequest"];
 export type AiSuggestionDecisionRequest = Schemas["AiSuggestionDecisionRequest"];
 export type AiSuggestionDecisionData = Schemas["AiSuggestionDecisionData"];
 export type ChatThreadCreateRequest = Schemas["ChatThreadCreateRequest"];
+export type ChatThreadUpdateRequest = Schemas["ChatThreadUpdateRequest"];
 export type ChatThreadData = Schemas["ChatThreadData"];
+export type ChatThreadDeleteData = Schemas["ChatThreadDeleteData"];
 export type ChatThreadListData = Schemas["ChatThreadListData"];
 export type ChatMessageCreateRequest = Schemas["ChatMessageCreateRequest"];
 export type ChatThreadDetailData = Schemas["ChatThreadDetailData"];
@@ -20,6 +22,9 @@ export type LinkSuggestionsRequest = Schemas["LinkSuggestionsRequest"];
 export type LinkSuggestionsData = Schemas["LinkSuggestionsData"];
 export type BridgeConceptsRequest = Schemas["BridgeConceptsRequest"];
 export type BridgeConceptsData = Schemas["BridgeConceptsData"];
+export type ClusterJobCreateRequest = Schemas["ClusterJobCreateRequest"];
+export type ClusterJobData = Schemas["ClusterJobData"];
+export type ClusterJobLatestData = Schemas["ClusterJobLatestData"];
 export type AiModelsData = Schemas["AiModelsData"];
 export type AiModelSettingsPutRequest = Schemas["AiModelSettingsPutRequest"];
 export type AiModelSettingsData = Schemas["AiModelSettingsData"];
@@ -36,6 +41,8 @@ export type InlineAssistDoneEvent = {
 export type ChatMessageDoneEvent = {
   messageId: string;
 };
+
+export type ChatThreadListStatus = "active" | "archived";
 
 export type IntelligenceRequestOptions = {
   idempotencyKey?: string;
@@ -238,7 +245,7 @@ export function createChatThread(payload: ChatThreadCreateRequest, options?: Int
 }
 
 export function listChatThreads(
-  params: { limit?: number; cursor?: string | null } = {},
+  params: { limit?: number; cursor?: string | null; status?: ChatThreadListStatus } = {},
   options?: IntelligenceRequestOptions
 ) {
   const searchParams = new URLSearchParams();
@@ -247,6 +254,9 @@ export function listChatThreads(
   }
   if (params.cursor) {
     searchParams.set("cursor", params.cursor);
+  }
+  if (params.status) {
+    searchParams.set("status", params.status);
   }
   const query = searchParams.toString();
   return authedRequest<ChatThreadListData>(
@@ -276,6 +286,31 @@ export function getChatThread(threadId: string, options?: IntelligenceRequestOpt
   );
 }
 
+export function updateChatThread(
+  threadId: string,
+  payload: ChatThreadUpdateRequest,
+  options?: IntelligenceRequestOptions
+) {
+  return authedRequest<ChatThreadData>(
+    `/api/v1/ai/chat-threads/${encodeURIComponent(threadId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    options
+  );
+}
+
+export function deleteChatThread(threadId: string, options?: IntelligenceRequestOptions) {
+  return authedRequest<ChatThreadDeleteData>(
+    `/api/v1/ai/chat-threads/${encodeURIComponent(threadId)}`,
+    {
+      method: "DELETE",
+    },
+    options
+  );
+}
+
 export function createBridgeConcepts(payload: BridgeConceptsRequest, options?: IntelligenceRequestOptions) {
   return authedRequest<BridgeConceptsData>(
     "/api/v1/ai/bridge-concepts",
@@ -294,6 +329,33 @@ export function createLinkSuggestions(payload: LinkSuggestionsRequest, options?:
       method: "POST",
       body: JSON.stringify(payload),
     },
+    options
+  );
+}
+
+export function requestClusterJob(payload: ClusterJobCreateRequest, options?: IntelligenceRequestOptions) {
+  return authedRequest<ClusterJobData>(
+    "/api/v1/ai/clusters",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    options
+  );
+}
+
+export function getLatestClusterJob(
+  params: { documentGroupId?: string } = {},
+  options?: IntelligenceRequestOptions
+) {
+  const searchParams = new URLSearchParams();
+  if (params.documentGroupId) {
+    searchParams.set("documentGroupId", params.documentGroupId);
+  }
+  const query = searchParams.toString();
+  return authedRequest<ClusterJobLatestData>(
+    `/api/v1/ai/clusters/latest${query ? `?${query}` : ""}`,
+    undefined,
     options
   );
 }

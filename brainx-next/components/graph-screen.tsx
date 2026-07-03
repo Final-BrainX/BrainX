@@ -5,9 +5,9 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Compass, FileUp, PencilLine, Pin, PinOff, Sparkles } from "lucide-react";
 import { buildAuthPath, isDevAuthSession, readAuthSession } from "@/lib/auth-api";
-import { deriveGraphEdges, noteById, clusterById, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
+import { CLUSTERS, deriveGraphEdges, noteById, clusterById, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
 import { draftsToBrainXNotes, getGraph, graphEdgesForFlow, graphToBrainXNotes, USE_MOCK_GRAPH, USE_MOCK_GRAPH_CLUSTERS } from "@/lib/graph-api";
-import { createBridgeConcepts, createLinkSuggestions, type BridgeConceptsData, type LinkSuggestionsData } from "@/lib/intelligence-api";
+import { createBridgeConcepts, createLinkSuggestions, getLatestClusterJob, requestClusterJob, type BridgeConceptsData, type ClusterJobData, type ClusterJobLatestData, type LinkSuggestionsData } from "@/lib/intelligence-api";
 import { createWorkspaceNote, createWorkspaceNoteLink, listWorkspaceNoteDrafts, type NoteCreated } from "@/lib/workspace-api";
 import { useBrainX } from "@/components/brainx-provider";
 import { Avatar, Badge, Btn, Card, Icon } from "@/components/brainx-ui";
@@ -225,6 +225,46 @@ type LinkAcceptState = {
   error?: string;
 };
 
+type AiClusterStatus = "idle" | "loading" | "analyzing" | "error";
+type GraphClusterMeta = {
+  id: string;
+  label: string;
+  color: string;
+  summary?: string;
+  keywords: string[];
+  confidence?: number;
+};
+type NormalizedAiCluster = GraphClusterMeta & {
+  noteIds: string[];
+};
+
+const DEFAULT_DOCUMENT_GROUP_ID = "default";
+const AI_CLUSTER_MIN_NOTES = 5;
+const AI_CLUSTER_MAX_NOTES = 50;
+const AI_CLUSTER_MAX_CLUSTERS = 6;
+const UNASSIGNED_CLUSTER_ID = "ai-unassigned";
+const AI_CLUSTER_COLORS = [
+  "59 130 246",
+  "139 92 246",
+  "34 211 238",
+  "244 114 182",
+  "52 211 153",
+  "245 158 11",
+  "14 165 233",
+  "236 72 153",
+  "132 204 22",
+  "168 85 247",
+  "20 184 166",
+  "248 113 113"
+];
+const UNASSIGNED_CLUSTER: GraphClusterMeta = {
+  id: UNASSIGNED_CLUSTER_ID,
+  label: "미분류",
+  color: "148 163 184",
+  summary: "최근 AI 클러스터 결과에 포함되지 않은 노트입니다.",
+  keywords: [],
+};
+
 type OrbitFlowEdge = Edge<{
   isBridge: boolean;
   isSelected: boolean;
@@ -241,14 +281,110 @@ function seededUnit(seed: string) {
   return (hash >>> 0) / 4294967295;
 }
 
+function resolveGraphCluster(clusterId: string, clusterMetaById: Map<string, GraphClusterMeta>): GraphClusterMeta {
+  const known = clusterMetaById.get(clusterId);
+  if (known) return known;
+  const fallback = clusterById(clusterId);
+  return {
+    id: clusterId,
+    label: fallback.label,
+    color: fallback.color,
+    keywords: [],
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function textField(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function numberField(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function stringArrayField(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+}
+
+function normalizeAiCluster(raw: unknown, index: number, existingNoteIds: Set<string>): NormalizedAiCluster | null {
+  if (!isRecord(raw)) return null;
+  const noteIds = stringArrayField(raw.noteIds).filter((noteId) => existingNoteIds.has(noteId));
+  if (noteIds.length === 0) return null;
+  const clusterId = textField(raw.clusterId) || `ai-cluster-${index + 1}`;
+  const title = textField(raw.title) || `AI 클러스터 ${index + 1}`;
+  return {
+    id: clusterId,
+    label: title,
+    color: AI_CLUSTER_COLORS[index % AI_CLUSTER_COLORS.length],
+    summary: textField(raw.summary) || undefined,
+    keywords: stringArrayField(raw.keywords),
+    confidence: numberField(raw.confidence),
+    noteIds,
+  };
+}
+
+function aiClusterJobUsable(job: ClusterJobData | null | undefined): job is ClusterJobData {
+  return !!job && job.status === "COMPLETED" && Array.isArray(job.clusters) && job.clusters.length > 0;
+}
+
+function applyAiClustersToNotes(notes: BrainXNote[], latest: ClusterJobLatestData | null) {
+  const job = latest?.job;
+  if (!aiClusterJobUsable(job)) {
+    return { notes, clusters: null as GraphClusterMeta[] | null };
+  }
+
+  const existingNoteIds = new Set(notes.map((note) => note.id));
+  const normalizedClusters = (job.clusters ?? [])
+    .map((cluster, index) => normalizeAiCluster(cluster, index, existingNoteIds))
+    .filter((cluster): cluster is NormalizedAiCluster => !!cluster);
+  if (normalizedClusters.length === 0) {
+    return { notes, clusters: null as GraphClusterMeta[] | null };
+  }
+
+  const clusterByNoteId = new Map<string, string>();
+  for (const cluster of normalizedClusters) {
+    for (const noteId of cluster.noteIds) {
+      if (!clusterByNoteId.has(noteId)) {
+        clusterByNoteId.set(noteId, cluster.id);
+      }
+    }
+  }
+
+  let hasUnassigned = false;
+  const clusteredNotes = notes.map((note) => {
+    const clusterId = clusterByNoteId.get(note.id);
+    if (!clusterId) {
+      hasUnassigned = true;
+      return { ...note, cluster: UNASSIGNED_CLUSTER_ID, folderId: UNASSIGNED_CLUSTER_ID };
+    }
+    return { ...note, cluster: clusterId, folderId: clusterId };
+  });
+  const clusters: GraphClusterMeta[] = normalizedClusters.map(({ noteIds: _noteIds, ...cluster }) => cluster);
+  if (hasUnassigned) {
+    clusters.push(UNASSIGNED_CLUSTER);
+  }
+  return { notes: clusteredNotes, clusters };
+}
+
 function settleLayout(notes: BrainXNote[], iterations = 260) {
   const positions: Record<string, GraphNode> = {};
-  const clusterOrder: ClusterId[] = ["ml", "read", "proj", "work", "life"];
+  const clusterOrder = Array.from(new Set(notes.map((note) => note.cluster)));
   const clusterIndex = Object.fromEntries(clusterOrder.map((cluster, index) => [cluster, index])) as Record<ClusterId, number>;
 
   notes.forEach((note) => {
     const index = clusterIndex[note.cluster] ?? 0;
-    const angle = (index / clusterOrder.length) * Math.PI * 2;
+    const angle = (index / Math.max(1, clusterOrder.length)) * Math.PI * 2;
     const radius = 190;
     const jitterX = (seededUnit(`${note.id}:x`) - 0.5) * 90;
     const jitterY = (seededUnit(`${note.id}:y`) - 0.5) * 90;
@@ -561,6 +697,7 @@ function GraphCanvasFlow({
   clusterOn,
   timeFilter,
   hiddenClusters,
+  clusterMetaById,
   controls,
   bridgeMode,
   bridgeSelectedIds,
@@ -582,6 +719,7 @@ function GraphCanvasFlow({
   clusterOn: boolean;
   timeFilter: string;
   hiddenClusters: Partial<Record<ClusterId, boolean>>;
+  clusterMetaById: Map<string, GraphClusterMeta>;
   controls: MutableRefObject<GraphControls | null>;
   bridgeMode: boolean;
   bridgeSelectedIds: string[];
@@ -996,7 +1134,7 @@ function GraphCanvasFlow({
     }
 
     const newNodes = notes.map(note => {
-      const cluster = clusterById(note.cluster);
+      const cluster = resolveGraphCluster(note.cluster, clusterMetaById);
       const linkCount = note.links.length;
       const baseRadius = 3.5 + Math.min(4, linkCount * 0.75);
       const selected = activeId === note.id;
@@ -1060,10 +1198,10 @@ function GraphCanvasFlow({
         ? !isSelected
         : (bridgeMode ? !edge.bridge : (sourceDimmed || targetDimmed));
       // 소스 노드의 색상을 엣지에 전달
-      const sourceColor = sourceNote ? clusterById(sourceNote.cluster).color : null;
+      const sourceColor = sourceNote ? resolveGraphCluster(sourceNote.cluster, clusterMetaById).color : null;
       // 선택/호버된 활성 노드의 색상을 엣지에 전달
       const activeNote = activeId ? notes.find(n => n.id === activeId) : null;
-      const activeColor = activeNote ? clusterById(activeNote.cluster).color : null;
+      const activeColor = activeNote ? resolveGraphCluster(activeNote.cluster, clusterMetaById).color : null;
       return {
         id: `${edge.source}-${edge.target}`,
         source: edge.source,
@@ -1097,7 +1235,7 @@ function GraphCanvasFlow({
       });
     });
     setRfEdges(newEdges);
-  }, [notes, edges, selectedId, hovered, draggingNodeId, timeFilter, hiddenClusters, setRfNodes, setRfEdges, theme, bridgeMode, bridgeSelectedIds, bridgeSelectionLocked, linkMode, linkSelectedIds, selectionModeActive, selectionLocked]);
+  }, [notes, edges, selectedId, hovered, draggingNodeId, timeFilter, hiddenClusters, clusterMetaById, setRfNodes, setRfEdges, theme, bridgeMode, bridgeSelectedIds, bridgeSelectionLocked, linkMode, linkSelectedIds, selectionModeActive, selectionLocked]);
 
   // Camera zoom on select
   useEffect(() => {
@@ -1223,6 +1361,7 @@ function GraphCanvasFlow({
       {hovered && !selectedId && (
         <TooltipOverlay 
           hovered={hovered} 
+          clusterMetaById={clusterMetaById}
           onMouseEnter={() => {
             if (hoverTimeoutRef.current) window.clearTimeout(hoverTimeoutRef.current);
           }}
@@ -1237,7 +1376,17 @@ function GraphCanvasFlow({
   );
 }
 
-function TooltipOverlay({ hovered, onMouseEnter, onMouseLeave }: { hovered: BrainXNote, onMouseEnter: () => void, onMouseLeave: () => void }) {
+function TooltipOverlay({
+  hovered,
+  clusterMetaById,
+  onMouseEnter,
+  onMouseLeave
+}: {
+  hovered: BrainXNote;
+  clusterMetaById: Map<string, GraphClusterMeta>;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+}) {
   const { getNode, flowToScreenPosition } = useReactFlow();
 
   const node = getNode(hovered.id);
@@ -1252,7 +1401,8 @@ function TooltipOverlay({ hovered, onMouseEnter, onMouseLeave }: { hovered: Brai
     y: node.position.y - radius,
   });
 
-  const clusterColor = `rgb(${clusterById(hovered.cluster).color})`;
+  const cluster = resolveGraphCluster(hovered.cluster, clusterMetaById);
+  const clusterColor = `rgb(${cluster.color})`;
 
   // createPortal: [data-route]의 transform 애니메이션이 position:fixed를
   // 깨므로, transform이 없는 document.body에 직접 렌더링
@@ -1286,7 +1436,7 @@ function TooltipOverlay({ hovered, onMouseEnter, onMouseLeave }: { hovered: Brai
         <div className="mb-1.5 flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full" style={{ background: clusterColor }} />
           <span className="text-[13px] text-txt2">
-            {clusterById(hovered.cluster).label} · AI 요약
+            {cluster.label} · AI 요약
           </span>
         </div>
         <div className="mb-1 text-[15px] font-semibold leading-snug text-txt">{hovered.title}</div>
@@ -1330,6 +1480,10 @@ function GraphScreenInner() {
   const { notes: mockNotes, pushToast } = useBrainX();
   const [liveNotes, setLiveNotes] = useState<BrainXNote[] | null>(null);
   const [liveEdges, setLiveEdges] = useState<Array<{ source: string; target: string; bridge?: boolean }> | null>(null);
+  const [graphDataVersion, setGraphDataVersion] = useState(0);
+  const [clusterLatest, setClusterLatest] = useState<ClusterJobLatestData | null>(null);
+  const [clusterStatus, setClusterStatus] = useState<AiClusterStatus>("idle");
+  const [clusterError, setClusterError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [theme, setTheme] = useState<'2d' | 'universe'>('2d');
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('force');
@@ -1355,13 +1509,39 @@ function GraphScreenInner() {
   const controls = useRef<GraphControls | null>(null);
   const idleTimerRef = useRef<number | null>(null);
   const graphRequestIdRef = useRef(0);
+  const clusterRequestIdRef = useRef(0);
   const graphMountedRef = useRef(false);
   const optimisticGraphNotesRef = useRef<Record<string, BrainXNote>>({});
-  const notes = liveNotes ?? mockNotes;
+  const currentSession = readAuthSession();
+  const hasRealLogin = !!currentSession?.accessToken && !isDevAuthSession(currentSession);
+  const aiClusterPanelEnabled = hasRealLogin && !USE_MOCK_GRAPH && !USE_MOCK_GRAPH_CLUSTERS;
+  const rawNotes = aiClusterPanelEnabled ? (liveNotes ?? []) : (liveNotes ?? mockNotes);
+  const aiClusterProjection = useMemo(
+    () => aiClusterPanelEnabled ? applyAiClustersToNotes(rawNotes, clusterLatest) : { notes: rawNotes, clusters: null },
+    [aiClusterPanelEnabled, clusterLatest, rawNotes]
+  );
+  const notes = aiClusterProjection.notes;
   const edges = useMemo(() => liveEdges ?? deriveGraphEdges(notes), [liveEdges, notes]);
   const clusterListNotes = USE_MOCK_GRAPH_CLUSTERS ? mockNotes : notes;
+  const dynamicClusters = useMemo(() => {
+    if (aiClusterProjection.clusters) return aiClusterProjection.clusters;
+    return CLUSTERS.map((cluster) => ({ ...cluster, keywords: [] }));
+  }, [aiClusterProjection.clusters]);
+  const clusterMetaById = useMemo(() => {
+    const values = new Map<string, GraphClusterMeta>();
+    for (const cluster of dynamicClusters) {
+      values.set(cluster.id, cluster);
+    }
+    return values;
+  }, [dynamicClusters]);
   const selected = selectedId ? notes.find((note) => note.id === selectedId) ?? null : null;
   const hasGraphData = notes.length > 0;
+  const aiClusterUsableNoteCount = clusterLatest?.searchableNoteCount ?? rawNotes.length;
+  const aiClusterButtonDisabled =
+    !aiClusterPanelEnabled ||
+    clusterStatus === "loading" ||
+    clusterStatus === "analyzing" ||
+    aiClusterUsableNoteCount < AI_CLUSTER_MIN_NOTES;
   const bridgeSelectableIds = useMemo(
     () => notes
       .filter((note) => isBridgeSelectableNote(note, hiddenClusters, timeFilter))
@@ -1446,6 +1626,7 @@ function GraphScreenInner() {
           if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
           setLiveNotes(draftsToBrainXNotes(data.drafts));
           setLiveEdges([]);
+          setGraphDataVersion((version) => version + 1);
         } catch (error) {
           if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
           setLiveNotes([]);
@@ -1483,6 +1664,7 @@ function GraphScreenInner() {
         });
         setLiveNotes(optimisticNotes.length > 0 ? [...optimisticNotes, ...graphNotes] : graphNotes);
         setLiveEdges(graphEdgesForFlow(graph));
+        setGraphDataVersion((version) => version + 1);
       } catch (error) {
         if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
         setLiveNotes([]);
@@ -1495,6 +1677,76 @@ function GraphScreenInner() {
     },
     [pushToast]
   );
+
+  const refreshClusterLatest = useCallback(
+    async ({ showError = false }: { showError?: boolean } = {}) => {
+      if (!aiClusterPanelEnabled) {
+        setClusterLatest(null);
+        setClusterError(null);
+        setClusterStatus("idle");
+        return null;
+      }
+
+      const requestId = clusterRequestIdRef.current + 1;
+      clusterRequestIdRef.current = requestId;
+      setClusterStatus((current) => current === "analyzing" ? current : "loading");
+
+      try {
+        const latest = await getLatestClusterJob({ documentGroupId: DEFAULT_DOCUMENT_GROUP_ID });
+        if (!graphMountedRef.current || requestId !== clusterRequestIdRef.current) return null;
+        setClusterLatest(latest);
+        setClusterError(null);
+        setClusterStatus("idle");
+        return latest;
+      } catch (error) {
+        if (!graphMountedRef.current || requestId !== clusterRequestIdRef.current) return null;
+        const message = error instanceof Error ? error.message : "AI 클러스터 상태를 불러오지 못했습니다.";
+        setClusterError(message);
+        setClusterStatus("error");
+        if (showError) pushToast(message, "err");
+        return null;
+      }
+    },
+    [aiClusterPanelEnabled, pushToast]
+  );
+
+  const requestAiClusterAnalysis = useCallback(async () => {
+    if (aiClusterButtonDisabled) return;
+    const requestId = clusterRequestIdRef.current + 1;
+    clusterRequestIdRef.current = requestId;
+    setClusterStatus("analyzing");
+    setClusterError(null);
+
+    try {
+      const job = await requestClusterJob({
+        scope: {
+          documentGroupId: DEFAULT_DOCUMENT_GROUP_ID,
+          maxNotes: AI_CLUSTER_MAX_NOTES,
+        },
+        algorithmOptions: {
+          maxClusters: AI_CLUSTER_MAX_CLUSTERS,
+        },
+      });
+      if (!graphMountedRef.current || requestId !== clusterRequestIdRef.current) return;
+      setClusterLatest((current) => ({
+        documentGroupId: job.documentGroupId,
+        searchableNoteCount: current?.searchableNoteCount ?? aiClusterUsableNoteCount,
+        latestNoteUpdatedAt: current?.latestNoteUpdatedAt ?? null,
+        state: job.status === "FAILED" ? "FAILED" : "FRESH",
+        job,
+      }));
+      setClusterOn(true);
+      setHiddenClusters({});
+      pushToast(job.status === "FAILED" ? "AI 클러스터 분석이 실패했습니다." : "AI 클러스터 분석이 완료되었습니다.", job.status === "FAILED" ? "err" : "ok");
+      await refreshClusterLatest({ showError: false });
+    } catch (error) {
+      if (!graphMountedRef.current || requestId !== clusterRequestIdRef.current) return;
+      const message = error instanceof Error ? error.message : "AI 클러스터 분석을 시작하지 못했습니다.";
+      setClusterError(message);
+      setClusterStatus("error");
+      pushToast(message, "err");
+    }
+  }, [aiClusterButtonDisabled, aiClusterUsableNoteCount, pushToast, refreshClusterLatest]);
 
   const clearBridgeState = () => {
     setBridgeSelectedIds([]);
@@ -1865,10 +2117,21 @@ function GraphScreenInner() {
     return () => {
       graphMountedRef.current = false;
       graphRequestIdRef.current += 1;
+      clusterRequestIdRef.current += 1;
       window.removeEventListener("brainx:notes-refresh", handleNotesRefresh);
       window.removeEventListener("brainx-auth-session-changed", handleAuthSessionChanged);
     };
   }, [refreshGraph]);
+
+  useEffect(() => {
+    if (!aiClusterPanelEnabled || !hasGraphData) {
+      setClusterLatest(null);
+      setClusterError(null);
+      setClusterStatus("idle");
+      return;
+    }
+    void refreshClusterLatest({ showError: false });
+  }, [aiClusterPanelEnabled, graphDataVersion, hasGraphData, refreshClusterLatest]);
 
   useEffect(() => {
     if (!hasGraphData) {
@@ -1926,6 +2189,42 @@ function GraphScreenInner() {
     setLinkSelectedIds((current) => current.filter((id) => notes.some((note) => note.id === id)));
   }, [notes]);
 
+  const selectedCluster = selected ? resolveGraphCluster(selected.cluster, clusterMetaById) : null;
+  const clusterStateMessage = (() => {
+    if (!aiClusterPanelEnabled) {
+      return { title: "카테고리 기준", body: "개발 모드와 mock 데이터는 기본 카테고리로 표시됩니다." };
+    }
+    if (clusterStatus === "loading") {
+      return { title: "상태 확인 중", body: "최근 AI 클러스터 결과를 불러오고 있습니다." };
+    }
+    if (clusterStatus === "analyzing") {
+      return { title: "AI 분석 중", body: "현재 노트 스냅샷을 주제별로 묶고 있습니다." };
+    }
+    if (clusterLatest?.state === "NO_SOURCE_NOTES") {
+      return { title: "분석 대상 없음", body: "색인된 노트가 생기면 AI 클러스터를 만들 수 있습니다." };
+    }
+    if (aiClusterUsableNoteCount < AI_CLUSTER_MIN_NOTES) {
+      return { title: "노트 부족", body: `분석 가능한 노트가 ${AI_CLUSTER_MIN_NOTES}개 이상 필요합니다.` };
+    }
+    if (clusterLatest?.state === "NOT_ANALYZED") {
+      return { title: "아직 분석 전", body: "버튼을 누르면 현재 노트 기준의 지식 구조를 만듭니다." };
+    }
+    if (clusterLatest?.state === "STALE") {
+      return { title: "노트가 변경됨", body: "마지막 결과를 표시 중입니다. 다시 분석해 최신화하세요." };
+    }
+    if (clusterLatest?.state === "FAILED") {
+      return { title: "최근 분석 실패", body: clusterLatest.job?.failureMessage ?? "다시 분석을 실행해 주세요." };
+    }
+    if (clusterLatest?.state === "FRESH") {
+      return { title: "분석 완료", body: "현재 색인된 노트 스냅샷과 일치합니다." };
+    }
+    if (clusterError) {
+      return { title: "상태 확인 실패", body: clusterError };
+    }
+    return { title: "AI 클러스터", body: "노트 주제를 분석해 그래프 그룹을 구성합니다." };
+  })();
+  const clusterActionLabel = clusterLatest?.state === "FRESH" ? "다시 분석" : "AI 분석";
+
   return (
     <div data-route className={cx("relative h-full overflow-hidden transition-colors duration-150", theme === 'universe' ? "bg-slate-950 universe-theme" : "bg-bg")}>
       <ReactFlowProvider>
@@ -1938,6 +2237,7 @@ function GraphScreenInner() {
           clusterOn={clusterOn}
           timeFilter={timeFilter}
           hiddenClusters={hiddenClusters}
+          clusterMetaById={clusterMetaById}
           controls={controls}
           bridgeMode={bridgeMode}
           bridgeSelectedIds={bridgeSelectedIds}
@@ -1979,29 +2279,86 @@ function GraphScreenInner() {
               노트 간의 연결망을 탐색하세요. 마우스를 올리거나 스크롤하여 줌인해 보세요.
             </p>
           </div>
-          <div className="glass w-52 rounded-2xl p-2.5 space-y-0.5 backdrop-blur-md shadow-sm">
-            <div className="flex items-center gap-1.5 px-1.5 pb-1.5 text-[11px] font-semibold text-txt2">
-              <Icon name="cluster" size={13} />
-              클러스터 (카테고리)
-            </div>
-            {["ml", "read", "proj", "work", "life"].map((clusterId) => {
-              const cluster = clusterById(clusterId as ClusterId);
-              const count = clusterListNotes.filter((note) => note.cluster === cluster.id).length;
-              const hidden = hiddenClusters[cluster.id];
-              return (
+          {aiClusterPanelEnabled ? (
+            <div className="glass w-64 rounded-2xl p-3 backdrop-blur-md shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-txt2">
+                    <Icon name="cluster" size={13} />
+                    AI 클러스터
+                  </div>
+                  <div className="mt-1 truncate text-[13px] font-bold text-txt">{clusterStateMessage.title}</div>
+                </div>
                 <button
-                  key={cluster.id}
                   type="button"
-                  onClick={() => setHiddenClusters((current) => ({ ...current, [cluster.id]: !current[cluster.id] }))}
-                  className="flex h-8 w-full items-center gap-2.5 rounded-lg px-1.5 text-left transition-colors hover:bg-txt/10"
+                  disabled={aiClusterButtonDisabled}
+                  onClick={requestAiClusterAnalysis}
+                  className={cx(
+                    "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                    clusterStatus === "analyzing"
+                      ? "bg-primary/15 text-primary"
+                      : "bg-primary text-white hover:bg-primary/90"
+                  )}
                 >
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: `rgb(${cluster.color})`, opacity: hidden ? 0.3 : 1 }} />
-                  <span className={cx("flex-1 text-[12.5px]", hidden ? "line-through text-txt3" : "text-txt2")}>{cluster.label}</span>
-                  <span className="font-mono text-[11px] text-txt3">{count}</span>
+                  <Icon name={clusterStatus === "analyzing" ? "refresh" : "sparkle"} size={12} />
+                  {clusterStatus === "analyzing" ? "분석 중" : clusterActionLabel}
                 </button>
-              );
-            })}
-          </div>
+              </div>
+              <p className="mt-2 break-words text-[11.5px] leading-5 text-txt3">{clusterStateMessage.body}</p>
+              {clusterLatest?.state === "STALE" ? (
+                <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-2.5 py-2 text-[11px] font-medium text-amber-700 dark:text-amber-200">
+                  노트가 변경됨 · 다시 분석 필요
+                </div>
+              ) : null}
+              {clusterError ? (
+                <div className="mt-2 rounded-lg border border-red-400/30 bg-red-400/10 px-2.5 py-2 text-[11px] font-medium text-red-700 dark:text-red-200">
+                  {clusterError}
+                </div>
+              ) : null}
+              <div className="mt-3 space-y-0.5">
+                {dynamicClusters.map((cluster) => {
+                  const count = clusterListNotes.filter((note) => note.cluster === cluster.id).length;
+                  const hidden = hiddenClusters[cluster.id];
+                  return (
+                    <button
+                      key={cluster.id}
+                      type="button"
+                      onClick={() => setHiddenClusters((current) => ({ ...current, [cluster.id]: !current[cluster.id] }))}
+                      className="flex min-h-8 w-full items-center gap-2.5 rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-txt/10"
+                    >
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: `rgb(${cluster.color})`, opacity: hidden ? 0.3 : 1 }} />
+                      <span className={cx("min-w-0 flex-1 truncate text-[12.5px]", hidden ? "line-through text-txt3" : "text-txt2")}>{cluster.label}</span>
+                      <span className="font-mono text-[11px] text-txt3">{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="glass w-52 rounded-2xl p-2.5 space-y-0.5 backdrop-blur-md shadow-sm">
+              <div className="flex items-center gap-1.5 px-1.5 pb-1.5 text-[11px] font-semibold text-txt2">
+                <Icon name="cluster" size={13} />
+                클러스터 (카테고리)
+              </div>
+              {["ml", "read", "proj", "work", "life"].map((clusterId) => {
+                const cluster = clusterById(clusterId as ClusterId);
+                const count = clusterListNotes.filter((note) => note.cluster === cluster.id).length;
+                const hidden = hiddenClusters[cluster.id];
+                return (
+                  <button
+                    key={cluster.id}
+                    type="button"
+                    onClick={() => setHiddenClusters((current) => ({ ...current, [cluster.id]: !current[cluster.id] }))}
+                    className="flex h-8 w-full items-center gap-2.5 rounded-lg px-1.5 text-left transition-colors hover:bg-txt/10"
+                  >
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: `rgb(${cluster.color})`, opacity: hidden ? 0.3 : 1 }} />
+                    <span className={cx("flex-1 text-[12.5px]", hidden ? "line-through text-txt3" : "text-txt2")}>{cluster.label}</span>
+                    <span className="font-mono text-[11px] text-txt3">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div
@@ -2575,8 +2932,8 @@ function GraphScreenInner() {
           <div className="flex h-full flex-col overflow-hidden bg-surface/90 border border-line/70 rounded-2xl backdrop-blur-xl shadow-2xl">
             <div className="flex items-start justify-between gap-2 border-b border-line/70 p-4">
               <div className="flex min-w-0 items-center gap-2">
-                <span className="h-3 w-3 shrink-0 rounded-full shadow-[0_0_8px_currentColor]" style={{ background: `rgb(${clusterById(selected.cluster).color})`, color: `rgb(${clusterById(selected.cluster).color})` }} />
-                <span className="truncate text-[12px] text-txt2">{clusterById(selected.cluster).label}</span>
+                <span className="h-3 w-3 shrink-0 rounded-full shadow-[0_0_8px_currentColor]" style={{ background: `rgb(${selectedCluster?.color ?? "148 163 184"})`, color: `rgb(${selectedCluster?.color ?? "148 163 184"})` }} />
+                <span className="truncate text-[12px] text-txt2">{selectedCluster?.label ?? "미분류"}</span>
               </div>
               <button type="button" onClick={() => setSelectedId(null)} className="text-txt3 hover:text-txt transition-colors">
                 <Icon name="x" size={16} />
@@ -2603,9 +2960,10 @@ function GraphScreenInner() {
                 {selected.links.map((id) => {
                   const linked = noteById(notes, id);
                   if (!linked) return null;
+                  const linkedCluster = resolveGraphCluster(linked.cluster, clusterMetaById);
                   return (
                     <button key={id} type="button" onClick={() => setSelectedId(id)} className="flex w-full items-center gap-2 rounded-lg p-2 hover:bg-txt/5 transition-colors">
-                      <span className="h-2 w-2 rounded-full shrink-0 shadow-[0_0_6px_currentColor]" style={{ background: `rgb(${clusterById(linked.cluster).color})`, color: `rgb(${clusterById(linked.cluster).color})` }} />
+                      <span className="h-2 w-2 rounded-full shrink-0 shadow-[0_0_6px_currentColor]" style={{ background: `rgb(${linkedCluster.color})`, color: `rgb(${linkedCluster.color})` }} />
                       <span className="flex-1 text-left truncate text-[12.5px] text-txt2">{linked.title}</span>
                       <Icon name="chevR" size={13} className="text-txt3" />
                     </button>

@@ -193,6 +193,38 @@ class AdminServiceMonitoringSnapshotTest {
         verify(kafkaLagCollector, never()).collect(anyString());
     }
 
+    @Test
+    void collectServiceHealthsIncludesMcpService() {
+        OffsetDateTime capturedAt = OffsetDateTime.parse("2026-07-01T12:00:00+09:00");
+        ReflectionTestUtils.setField(adminService, "userHealthUrl", "http://user/actuator/health");
+        ReflectionTestUtils.setField(adminService, "commerceHealthUrl", "http://commerce/actuator/health");
+        ReflectionTestUtils.setField(adminService, "workspaceHealthUrl", "http://workspace/actuator/health");
+        ReflectionTestUtils.setField(adminService, "ingestionHealthUrl", "http://ingestion/actuator/health");
+        ReflectionTestUtils.setField(adminService, "intelligenceHealthUrl", "http://intelligence/actuator/health");
+        ReflectionTestUtils.setField(adminService, "mcpHealthUrl", "http://mcp/actuator/health");
+        ReflectionTestUtils.setField(adminService, "serviceToken", "test-service-token");
+
+        doReturn(defaultHealthGet).when(defaultRestClient).get();
+        doReturn(defaultHealthRequest).when(defaultHealthGet).uri(anyString());
+        doReturn(defaultHealthRequest).when(defaultHealthRequest).header(eq("X-Service-Token"), eq("test-service-token"));
+        doReturn(defaultHealthResponse).when(defaultHealthRequest).retrieve();
+        when(defaultHealthResponse.toEntity(String.class)).thenReturn(ResponseEntity.ok("{}"));
+
+        var healths = adminService.collectServiceHealths(false, capturedAt);
+
+        Assertions.assertThat(healths)
+                .extracting("name")
+                .containsExactly(
+                        "User-Service",
+                        "Commerce-Service",
+                        "Workspace-Service",
+                        "Ingestion-Service",
+                        "Intelligence-Service",
+                        "Mcp-Service"
+                );
+        verify(defaultHealthGet).uri("http://mcp/actuator/health");
+    }
+
     private void stubCaptureInputs(OffsetDateTime capturedAt) {
         AdminBillingSummaryData summary = new AdminBillingSummaryData(
                 new BigDecimal("1234567"),

@@ -6,6 +6,7 @@ import java.util.Optional;
 import com.brainx.intelligence.chat.domain.ChatMessage;
 import com.brainx.intelligence.chat.domain.ChatThread;
 import com.brainx.intelligence.chat.domain.ChatThreadSummary;
+import com.brainx.intelligence.chat.domain.ChatThreadStatus;
 
 public interface ChatPersistencePort {
 
@@ -15,9 +16,16 @@ public interface ChatPersistencePort {
 
     List<ChatThreadSummary> findThreadSummariesByUserId(
         String userId,
+        ChatThreadStatus status,
         ChatThreadSummaryCursor cursor,
         int limit
     );
+
+    Optional<ChatThread> archiveThread(String userId, String threadId, java.time.Instant archivedAt);
+
+    Optional<ChatThread> unarchiveThread(String userId, String threadId);
+
+    Optional<ChatThread> deleteThread(String userId, String threadId, java.time.Instant deletedAt);
 
     ChatMessage saveMessage(ChatMessage message);
 

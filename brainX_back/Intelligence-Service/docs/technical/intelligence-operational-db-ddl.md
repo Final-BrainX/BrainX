@@ -162,7 +162,9 @@ create table if not exists intelligence_chat_threads (
   document_group_id varchar(120) not null,
   title varchar(500) not null,
   model_id varchar(120) not null,
-  created_at timestamp(6) with time zone not null
+  created_at timestamp(6) with time zone not null,
+  archived_at timestamp(6) with time zone,
+  deleted_at timestamp(6) with time zone
 );
 
 create table if not exists intelligence_chat_messages (
@@ -264,6 +266,9 @@ create index if not exists idx_exploration_note_summaries_user_note
 create index if not exists idx_chat_threads_user_thread
   on intelligence_chat_threads (user_id, thread_id);
 
+create index if not exists idx_chat_threads_user_state_created
+  on intelligence_chat_threads (user_id, deleted_at, archived_at, created_at desc, thread_id desc);
+
 create index if not exists idx_chat_messages_user_thread_created
   on intelligence_chat_messages (user_id, thread_id, created_at, message_id);
 
@@ -304,6 +309,13 @@ alter table intelligence_note_projections
 
 alter table intelligence_chat_messages
   add column if not exists client_context text not null default '{}';
+
+alter table intelligence_chat_threads
+  add column if not exists archived_at timestamp(6) with time zone,
+  add column if not exists deleted_at timestamp(6) with time zone;
+
+create index if not exists idx_chat_threads_user_state_created
+  on intelligence_chat_threads (user_id, deleted_at, archived_at, created_at desc, thread_id desc);
 ```
 
 신규 기능 table이 통째로 없으면 `Baseline DDL`의 `create table if not exists` 블록을 적용한다. 이미 생성된 table에 필수 컬럼을 추가해야 하고 default를 둘 수 없다면 다음 순서를 따른다.

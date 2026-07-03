@@ -430,12 +430,15 @@ export async function loginLocal(email: string, password: string) {
 
 export async function logout() {
   const session = readAuthSession();
-  await request<null>("/api/v1/auth/logout", {
+  try {
+    await request<null>("/api/v1/auth/logout", {
       method: "POST",
       headers: await buildAuthHeaders(),
       body: JSON.stringify({ refreshToken: session?.refreshToken ?? "" })
     });
-  clearAuthSession();
+  } finally {
+    clearAuthSession();
+  }
 }
 
 export async function refreshToken() {

@@ -75,6 +75,9 @@ public class AdminService {
     @Value("${brainx.services.intelligence-health-url}")
     private String intelligenceHealthUrl;
 
+    @Value("${brainx.services.mcp-health-url}")
+    private String mcpHealthUrl;
+
     @Value("${brainx.service-token}")
     private String serviceToken;
 
@@ -212,7 +215,8 @@ public class AdminService {
                 checkHealth("Commerce-Service", commerceHealthUrl, persistSnapshots, capturedAt),
                 checkHealth("Workspace-Service", workspaceHealthUrl, persistSnapshots, capturedAt),
                 checkHealth("Ingestion-Service", ingestionHealthUrl, persistSnapshots, capturedAt),
-                checkHealth("Intelligence-Service", intelligenceHealthUrl, persistSnapshots, capturedAt)
+                checkHealth("Intelligence-Service", intelligenceHealthUrl, persistSnapshots, capturedAt),
+                checkHealth("Mcp-Service", mcpHealthUrl, persistSnapshots, capturedAt)
         );
     }
 

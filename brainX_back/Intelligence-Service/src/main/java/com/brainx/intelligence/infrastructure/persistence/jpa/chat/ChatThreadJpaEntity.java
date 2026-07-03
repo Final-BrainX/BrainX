@@ -32,6 +32,12 @@ public class ChatThreadJpaEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "archived_at")
+    private Instant archivedAt;
+
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
     protected ChatThreadJpaEntity() {
     }
 
@@ -41,7 +47,9 @@ public class ChatThreadJpaEntity {
         String documentGroupId,
         String title,
         String modelId,
-        Instant createdAt
+        Instant createdAt,
+        Instant archivedAt,
+        Instant deletedAt
     ) {
         this.threadId = threadId;
         this.userId = userId;
@@ -49,6 +57,8 @@ public class ChatThreadJpaEntity {
         this.title = title;
         this.modelId = modelId;
         this.createdAt = createdAt;
+        this.archivedAt = archivedAt;
+        this.deletedAt = deletedAt;
     }
 
     static ChatThreadJpaEntity fromDomain(ChatThread thread) {
@@ -58,11 +68,25 @@ public class ChatThreadJpaEntity {
             thread.documentGroupId(),
             thread.title(),
             thread.modelId(),
-            thread.createdAt()
+            thread.createdAt(),
+            thread.archivedAt(),
+            thread.deletedAt()
         );
     }
 
     ChatThread toDomain() {
-        return new ChatThread(threadId, userId, documentGroupId, title, modelId, createdAt);
+        return new ChatThread(threadId, userId, documentGroupId, title, modelId, createdAt, archivedAt, deletedAt);
+    }
+
+    void archive(Instant archivedAt) {
+        this.archivedAt = archivedAt;
+    }
+
+    void unarchive() {
+        this.archivedAt = null;
+    }
+
+    void delete(Instant deletedAt) {
+        this.deletedAt = deletedAt;
     }
 }

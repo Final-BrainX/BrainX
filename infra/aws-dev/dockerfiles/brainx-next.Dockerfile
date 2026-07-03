@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 FROM node:22-alpine AS build
 WORKDIR /app
 
@@ -20,7 +21,8 @@ ENV NEXT_PUBLIC_GRAPH_CLUSTERS_USE_MOCK=$NEXT_PUBLIC_GRAPH_CLUSTERS_USE_MOCK
 ENV API_SERVER_URL=$API_SERVER_URL
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
 
 COPY app ./app
 COPY components ./components

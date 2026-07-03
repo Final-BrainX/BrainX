@@ -7,7 +7,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -42,6 +44,11 @@ import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseC
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.ChatStreamEvent;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.SendChatMessageCommand;
+import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase;
+import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase.ChatThreadDeleteResult;
+import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase.ChatThreadUpdateResult;
+import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase.DeleteChatThreadCommand;
+import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase.UpdateChatThreadCommand;
 import com.brainx.intelligence.chat.domain.ChatDomainException;
 import com.brainx.intelligence.infrastructure.security.SecurityConfig;
 import com.brainx.intelligence.infrastructure.web.GlobalApiExceptionHandler;
@@ -67,6 +74,9 @@ class ChatControllerTest {
     @MockitoBean
     private GetChatThreadUseCase getChatThreadUseCase;
 
+    @MockitoBean
+    private UpdateChatThreadUseCase updateChatThreadUseCase;
+
     @Test
     void createChatThreadReturnsCreatedWrappedData() throws Exception {
         Instant createdAt = Instant.parse("2026-06-23T00:00:00Z");
@@ -80,6 +90,7 @@ class ChatControllerTest {
                     {
                       "documentGroupId": "group-1",
                       "title": "RAG 질문",
+                      "initialMessage": "RAG에 대해 알려줘",
                       "modelId": "gpt-test"
                     }
                     """))
@@ -94,6 +105,7 @@ class ChatControllerTest {
             command.userId().equals("user-1")
                 && command.documentGroupId().equals("group-1")
                 && command.title().equals("RAG 질문")
+                && command.initialMessage().equals("RAG에 대해 알려줘")
                 && command.modelId().equals("gpt-test")
         ));
     }
@@ -120,7 +132,8 @@ class ChatControllerTest {
         mockMvc.perform(get("/api/v1/ai/chat-threads")
                 .with(user("user-1"))
                 .param("limit", "10")
-                .param("cursor", "cursor-1"))
+                .param("cursor", "cursor-1")
+                .param("status", "archived"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success").value(true))
             .andExpect(jsonPath("$.data.threads[0].threadId").value("thread-1"))
@@ -134,6 +147,7 @@ class ChatControllerTest {
             query.userId().equals("user-1")
                 && query.limit().equals(10)
                 && query.cursor().equals("cursor-1")
+                && query.status().name().equals("ARCHIVED")
         ));
     }
 
@@ -236,6 +250,59 @@ class ChatControllerTest {
 
         verify(getChatThreadUseCase).getChatThread(argThat(query ->
             query.userId().equals("user-1") && query.threadId().equals("thread-1")
+        ));
+    }
+
+    @Test
+    void updateChatThreadReturnsWrappedThread() throws Exception {
+        Instant createdAt = Instant.parse("2026-06-23T00:00:00Z");
+        Instant archivedAt = Instant.parse("2026-06-23T00:02:00Z");
+        when(updateChatThreadUseCase.updateChatThread(any(UpdateChatThreadCommand.class)))
+            .thenReturn(new ChatThreadUpdateResult(
+                "thread-1",
+                "group-1",
+                "RAG 질문",
+                "gpt-test",
+                createdAt,
+                archivedAt,
+                null
+            ));
+
+        mockMvc.perform(patch("/api/v1/ai/chat-threads/thread-1")
+                .with(user("user-1"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "archived": true
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true))
+            .andExpect(jsonPath("$.data.threadId").value("thread-1"))
+            .andExpect(jsonPath("$.data.archivedAt").value("2026-06-23T00:02:00Z"));
+
+        verify(updateChatThreadUseCase).updateChatThread(argThat(command ->
+            command.userId().equals("user-1")
+                && command.threadId().equals("thread-1")
+                && command.archived()
+        ));
+    }
+
+    @Test
+    void deleteChatThreadReturnsWrappedDeleteData() throws Exception {
+        Instant deletedAt = Instant.parse("2026-06-23T00:03:00Z");
+        when(updateChatThreadUseCase.deleteChatThread(any(DeleteChatThreadCommand.class)))
+            .thenReturn(new ChatThreadDeleteResult("thread-1", deletedAt));
+
+        mockMvc.perform(delete("/api/v1/ai/chat-threads/thread-1")
+                .with(user("user-1")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true))
+            .andExpect(jsonPath("$.data.threadId").value("thread-1"))
+            .andExpect(jsonPath("$.data.deletedAt").value("2026-06-23T00:03:00Z"));
+
+        verify(updateChatThreadUseCase).deleteChatThread(argThat(command ->
+            command.userId().equals("user-1") && command.threadId().equals("thread-1")
         ));
     }
 }

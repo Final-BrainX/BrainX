@@ -9,14 +9,42 @@
 - Database: one RDS PostgreSQL instance, service-specific logical databases
 - Object storage: private S3 bucket for future user assets, note images, and attachments
 - Container runtime on EC2:
-  - `gateway-service`, `user-service`, `workspace-service`, `ingestion-service`, `commerce-service`, `admin-service`, `intelligence-service`
+  - `gateway-service`, `user-service`, `workspace-service`, `ingestion-service`, `commerce-service`, `admin-service`, `intelligence-service`, `mcp-service`
   - `frontend`, `admin-frontend`
-  - `redis`, `neo4j`, `qdrant`, `kafka`, `caddy`
+  - `prometheus`, `grafana`, `redis`, `neo4j`, `qdrant`, `kafka`, `caddy`
 - Public entry:
   - user frontend: `https://<public-domain>/`
   - admin frontend: `https://<admin-domain>/`
+  - `/mcp*`, `/api/v1/mcp/*` route directly to Mcp-Service through Caddy.
+  - Grafana: `https://<admin-domain>/grafana/`
   - `/api/v1/ai/*`, `/api/v1/intelligence/*`, `/api/v1/notes/*/summary`, `/api/v1/users/me/style-profile` route directly to Intelligence-Service through Caddy.
   - other `/api/v1/*` routes go to Gateway-Service.
+
+Prometheus stays on the internal Docker network and scrapes `user-service`, `gateway-service`, `workspace-service`, `admin-service`, `commerce-service`, `ingestion-service`, and `intelligence-service` from their `/actuator/prometheus` endpoints. Grafana is auto-provisioned with that Prometheus datasource, so you do not need to add it manually in the UI.
+
+The monitoring dashboard is file-provisioned from `/etc/grafana/dashboards/spring-boot-2-1-system-monitor.json` inside the Grafana container, which maps back to `infra/aws-dev/deploy/grafana/dashboards/spring-boot-2-1-system-monitor.json` in this repository. Because `allowUiUpdates: false` is set, UI edits are temporary unless you click `Save JSON to file`, overwrite that provisioned JSON path, and let Grafana reload the file.
+
+The provider also sets `updateIntervalSeconds: 30`, so Grafana should pick up the changed dashboard automatically within about 30 seconds; if it does not, restart Grafana with `docker compose --env-file /opt/brainx/env/runtime.env -f docker-compose.yml restart grafana`.
+
+The imported Spring Boot monitor dashboard expects each service to publish an `application` metric tag. We still set that tag in each service's `management.metrics.tags.application` config, and Prometheus also stamps the same label from the scrape target as a fallback so the dashboard keeps working even if one container is briefly on an older image.
+
+The dashboard also expects Micrometer's extra JVM binders for some of the JVM and process panels. We keep `io.github.mweirauch:micrometer-jvm-extras:0.2.2` on the monitored services so the panels do not fall back to `N/A` when those meters are queried.
+
+The Grafana dashboard itself is also provisioned from this repository now, so the `spring_boot_21` dashboard UID points directly at the provisioned Prometheus datasource instead of depending on the UI import placeholder `${DS_PROMETHEUS}`. This avoids the `Datasource ${DS_PROMETHEUS} was not found` error and keeps the dashboard stable after redeploys.
+
+Those monitoring panels are now `Time series` charts instead of `Stat` tiles, so the dashboard shows the actual line graphs rather than only the sparkline preview.
+
+The rightmost "Open Files" panels query `process_files_open_files` first and fall back to `process_open_fds` for older images, which keeps the panel readable across both the new Micrometer binder and the legacy process metric. If those panels still show `No data`, it usually means the service image is not exposing `/actuator/prometheus` yet or the target container is unhealthy.
+
+`Gateway-Service` must allow `/actuator/prometheus` through its global auth filter, otherwise Prometheus receives `401 Unauthorized` when it scrapes the gateway target.
+
+`Commerce-Service` and `Ingestion-Service` now explicitly allow `/actuator/prometheus` through their security chains, and `Admin-Service` already permits all actuator endpoints. `Intelligence-Service` exposes `/actuator/prometheus` through its management endpoint config and leaves the path reachable outside `/api/v1/**`.
+
+`Ingestion-Service` also needs `spring-boot-starter-actuator` in its Gradle dependencies so the `/actuator/prometheus` endpoint exists at runtime; without that starter, Prometheus has nothing to scrape and Grafana panels stay on `No data`.
+
+`Admin-Service` talks to `user-service`, `commerce-service`, `workspace-service`, `ingestion-service`, and `intelligence-service` through Docker DNS names inside the shared compose network. Do not leave those URLs on the container defaults of `localhost`, or the admin screens will fail as soon as they try to read another service's data.
+
+Grafana is mounted behind Caddy on the admin site path so we do not need to expose a new public port. It reuses the existing runtime admin password (`SEED_ADMIN_PASSWORD`) for the initial Grafana login.
 
 ## Terraform
 
@@ -142,11 +170,15 @@ Workflow: `.github/workflows/brainx-dev-deploy.yml`
 
 - Push to `main` detects changed paths and builds only affected images.
 - `workflow_dispatch` can deploy all services or a specific service list.
+- Workflow-level concurrency serializes AWS dev deploys with `group: brainx-dev-deploy` and `cancel-in-progress: false`.
 - Image tags:
   - immutable: commit SHA
   - moving: `dev-latest`
+- Docker build cache uses Docker Buildx GitHub Actions cache with one scope per service. The first build for a service can miss, and later builds reuse cache layers across GitHub-hosted runners.
 - Deploy uses SSM `AWS-RunShellScript`; no SSH key or port 22 is required.
-- Remote deploy prints SSM stdout/stderr, `docker compose ps`, and endpoint checks.
+- Remote deploy reads SSM parameters in one batch, skips repeated database bootstrap after the first successful run for the current RDS target, and avoids image pulls for config-only deploys.
+- Remote deploy prints SSM stdout/stderr, `docker compose ps`, and endpoint checks. GitHub endpoint verification is limited to the changed service categories.
+- For deploy overlap or endpoint verification failures, use [`troubleshooting.md`](troubleshooting.md).
 
 Path mapping:
 
@@ -159,9 +191,10 @@ Path mapping:
 | `brainX_back/Commerce-Service/**` | `commerce-service` |
 | `brainX_back/Admin-Service/**` | `admin-service` |
 | `brainX_back/Intelligence-Service/**` | `intelligence-service` |
+| `brainX_back/Mcp-Service/**` | `mcp-service` |
 | `brainx-next/**` | `frontend` |
 | `brainx-admin-next/**` | `admin-frontend` |
-| `contracts-v2/**` | `intelligence-service`, `frontend` |
+| `contracts-v2/**` | `intelligence-service`, `mcp-service`, `frontend` |
 | `infra/aws-dev/**` or workflow file | deploy config refresh |
 
-For first deployment, run the workflow manually with `deploy_all=true` so every ECR image exists before partial deployments start.
+For first deployment after adding Mcp-Service, run Terraform apply first so the `brainx-dev-mcp-service` ECR repository exists, then run the workflow manually with `deploy_all=true` so every ECR image exists before partial deployments start.

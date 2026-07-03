@@ -1,6 +1,7 @@
 package com.brainx.intelligence.clustering.adapter.web;
 
 import java.security.Principal;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,14 +16,19 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.brainx.intelligence.clustering.application.port.inbound.GetClusterJobUseCase;
 import com.brainx.intelligence.clustering.application.port.inbound.GetClusterJobUseCase.GetClusterJobQuery;
+import com.brainx.intelligence.clustering.application.port.inbound.GetLatestClusterJobUseCase;
+import com.brainx.intelligence.clustering.application.port.inbound.GetLatestClusterJobUseCase.GetLatestClusterJobQuery;
+import com.brainx.intelligence.clustering.application.port.inbound.GetLatestClusterJobUseCase.LatestClusterJob;
 import com.brainx.intelligence.clustering.application.port.inbound.RequestClusterJobUseCase;
 import com.brainx.intelligence.clustering.application.port.inbound.RequestClusterJobUseCase.ClusterJobCommand;
 import com.brainx.intelligence.clustering.domain.Cluster;
 import com.brainx.intelligence.clustering.domain.ClusterJob;
+import com.brainx.intelligence.clustering.domain.ClusterJobLatestState;
 import com.brainx.intelligence.clustering.domain.ClusterJobStatus;
 import com.brainx.intelligence.infrastructure.web.ApiSuccessResponse;
 
@@ -36,13 +42,16 @@ public class ClusteringController {
 
     private final RequestClusterJobUseCase requestClusterJobUseCase;
     private final GetClusterJobUseCase getClusterJobUseCase;
+    private final GetLatestClusterJobUseCase getLatestClusterJobUseCase;
 
     public ClusteringController(
         RequestClusterJobUseCase requestClusterJobUseCase,
-        GetClusterJobUseCase getClusterJobUseCase
+        GetClusterJobUseCase getClusterJobUseCase,
+        GetLatestClusterJobUseCase getLatestClusterJobUseCase
     ) {
         this.requestClusterJobUseCase = requestClusterJobUseCase;
         this.getClusterJobUseCase = getClusterJobUseCase;
+        this.getLatestClusterJobUseCase = getLatestClusterJobUseCase;
     }
 
     @PostMapping("/api/v1/ai/clusters")
@@ -61,6 +70,18 @@ public class ClusteringController {
             .body(ApiSuccessResponse.ok(toData(job)));
     }
 
+    @GetMapping("/api/v1/ai/clusters/latest")
+    public ApiSuccessResponse<ClusterJobLatestData> getLatestClusterJob(
+        Principal principal,
+        @RequestParam(name = "documentGroupId", required = false, defaultValue = "default") String documentGroupId
+    ) {
+        LatestClusterJob latest = getLatestClusterJobUseCase.getLatestClusterJob(new GetLatestClusterJobQuery(
+            userId(principal),
+            documentGroupId
+        ));
+        return ApiSuccessResponse.ok(toLatestData(latest));
+    }
+
     @GetMapping("/api/v1/ai/clusters/{clusterJobId}")
     public ApiSuccessResponse<ClusterJobData> getClusterJob(
         Principal principal,
@@ -76,10 +97,24 @@ public class ClusteringController {
     private static ClusterJobData toData(ClusterJob job) {
         return new ClusterJobData(
             job.clusterJobId(),
+            job.documentGroupId(),
             job.status(),
             job.clusters().stream()
                 .map(ClusteringController::toClusterMap)
-                .toList()
+                .toList(),
+            job.createdAt(),
+            job.completedAt(),
+            job.failureMessage()
+        );
+    }
+
+    private static ClusterJobLatestData toLatestData(LatestClusterJob latest) {
+        return new ClusterJobLatestData(
+            latest.documentGroupId(),
+            latest.searchableNoteCount(),
+            latest.latestNoteUpdatedAt(),
+            latest.state(),
+            latest.job() == null ? null : toData(latest.job())
         );
     }
 
@@ -113,8 +148,21 @@ public class ClusteringController {
 
     record ClusterJobData(
         String clusterJobId,
+        String documentGroupId,
         ClusterJobStatus status,
-        List<Map<String, Object>> clusters
+        List<Map<String, Object>> clusters,
+        Instant createdAt,
+        Instant completedAt,
+        String failureMessage
+    ) {
+    }
+
+    record ClusterJobLatestData(
+        String documentGroupId,
+        int searchableNoteCount,
+        Instant latestNoteUpdatedAt,
+        ClusterJobLatestState state,
+        ClusterJobData job
     ) {
     }
 }

@@ -52,7 +52,7 @@ export function OrbitEdge({
     ? 'none'
     : (isSelected && !is2D ? `drop-shadow(0 0 8px ${color})` : 'none');
   const finalOpacity = isDimmed
-    ? (isBridgeHighlight ? 0.4 : (is2D ? 0.15 : 0.2))
+    ? (isBridgeHighlight ? 0.4 : (is2D ? 0.22 : 0.3))
     : 1;
 
   return (

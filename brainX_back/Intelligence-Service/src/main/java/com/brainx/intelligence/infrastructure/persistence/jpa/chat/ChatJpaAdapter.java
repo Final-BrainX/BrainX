@@ -16,6 +16,7 @@ import com.brainx.intelligence.chat.application.port.outbound.ChatPersistencePor
 import com.brainx.intelligence.chat.domain.ChatMessage;
 import com.brainx.intelligence.chat.domain.ChatThread;
 import com.brainx.intelligence.chat.domain.ChatThreadSummary;
+import com.brainx.intelligence.chat.domain.ChatThreadStatus;
 
 @Repository
 public class ChatJpaAdapter implements ChatPersistencePort {
@@ -41,7 +42,7 @@ public class ChatJpaAdapter implements ChatPersistencePort {
     @Override
     @Transactional(readOnly = true)
     public Optional<ChatThread> findThreadByUserIdAndThreadId(String userId, String threadId) {
-        return chatThreadJpaRepository.findByUserIdAndThreadId(userId, threadId)
+        return chatThreadJpaRepository.findByUserIdAndThreadIdAndDeletedAtIsNull(userId, threadId)
             .map(ChatThreadJpaEntity::toDomain);
     }
 
@@ -49,11 +50,13 @@ public class ChatJpaAdapter implements ChatPersistencePort {
     @Transactional(readOnly = true)
     public List<ChatThreadSummary> findThreadSummariesByUserId(
         String userId,
+        ChatThreadStatus status,
         ChatThreadSummaryCursor cursor,
         int limit
     ) {
         return chatThreadJpaRepository.findThreadSummariesByUserId(
                 userId,
+                status.name(),
                 cursor == null ? null : cursor.lastMessageAt(),
                 cursor == null ? "" : cursor.threadId(),
                 limit
@@ -65,11 +68,43 @@ public class ChatJpaAdapter implements ChatPersistencePort {
                 projection.getTitle(),
                 projection.getModelId(),
                 instantValue(projection.getCreatedAt()),
+                nullableInstantValue(projection.getArchivedAt()),
+                nullableInstantValue(projection.getDeletedAt()),
                 instantValue(projection.getLastMessageAt()),
                 latestMessagePreview(userId, projection.getThreadId()),
                 longValue(projection.getMessageCount())
             ))
             .toList();
+    }
+
+    @Override
+    @Transactional
+    public Optional<ChatThread> archiveThread(String userId, String threadId, Instant archivedAt) {
+        return chatThreadJpaRepository.findByUserIdAndThreadIdAndDeletedAtIsNull(userId, threadId)
+            .map(entity -> {
+                entity.archive(archivedAt);
+                return chatThreadJpaRepository.save(entity).toDomain();
+            });
+    }
+
+    @Override
+    @Transactional
+    public Optional<ChatThread> unarchiveThread(String userId, String threadId) {
+        return chatThreadJpaRepository.findByUserIdAndThreadIdAndDeletedAtIsNull(userId, threadId)
+            .map(entity -> {
+                entity.unarchive();
+                return chatThreadJpaRepository.save(entity).toDomain();
+            });
+    }
+
+    @Override
+    @Transactional
+    public Optional<ChatThread> deleteThread(String userId, String threadId, Instant deletedAt) {
+        return chatThreadJpaRepository.findByUserIdAndThreadIdAndDeletedAtIsNull(userId, threadId)
+            .map(entity -> {
+                entity.delete(deletedAt);
+                return chatThreadJpaRepository.save(entity).toDomain();
+            });
     }
 
     @Override
@@ -95,6 +130,11 @@ public class ChatJpaAdapter implements ChatPersistencePort {
     }
 
     private static Instant instantValue(Object value) {
+        Instant instant = nullableInstantValue(value);
+        return instant == null ? Instant.EPOCH : instant;
+    }
+
+    private static Instant nullableInstantValue(Object value) {
         if (value instanceof Instant instant) {
             return instant;
         }
@@ -110,7 +150,7 @@ public class ChatJpaAdapter implements ChatPersistencePort {
         if (value != null) {
             return Instant.parse(value.toString());
         }
-        return Instant.EPOCH;
+        return null;
     }
 
     private static long longValue(Object value) {

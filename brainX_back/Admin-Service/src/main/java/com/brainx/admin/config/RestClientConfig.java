@@ -11,13 +11,19 @@ public class RestClientConfig {
     @Value("${brainx.service-token}")
     private String serviceToken;
 
-    @Value("${brainx.services.gateway-service-url}")
-    private String gatewayServiceUrl;
+    @Value("${brainx.services.user-service-url}")
+    private String userServiceUrl;
+
+    @Value("${brainx.services.commerce-service-url}")
+    private String commerceServiceUrl;
+
+    @Value("${brainx.services.workspace-service-url}")
+    private String workspaceServiceUrl;
 
     @Bean
     public RestClient userRestClient() {
         return RestClient.builder()
-                .baseUrl(gatewayServiceUrl)
+                .baseUrl(userServiceUrl)
                 .defaultHeader("X-Service-Token", serviceToken)
                 .build();
     }
@@ -25,7 +31,7 @@ public class RestClientConfig {
     @Bean
     public RestClient commerceRestClient() {
         return RestClient.builder()
-                .baseUrl(gatewayServiceUrl)
+                .baseUrl(commerceServiceUrl)
                 .defaultHeader("X-Service-Token", serviceToken)
                 .build();
     }
@@ -33,7 +39,7 @@ public class RestClientConfig {
     @Bean
     public RestClient workspaceRestClient() {
         return RestClient.builder()
-                .baseUrl(gatewayServiceUrl)
+                .baseUrl(workspaceServiceUrl)
                 .defaultHeader("X-Service-Token", serviceToken)
                 .build();
     }

@@ -76,6 +76,30 @@
       "readByAdminUserIds": [
         "adm_00a7790ce68a4fa7bc768fb07102f142"
       ]
+    },
+    {
+      "messageId": "adm_msg_1782953840716_rr05ww",
+      "senderAdminUserId": "adm_00a7790ce68a4fa7bc768fb07102f142",
+      "senderName": "최고관리자",
+      "recipientScope": "ALL",
+      "recipientAdminUserIds": [],
+      "body": "ㄱㄱ",
+      "sentAt": "2026-07-02T00:57:20.716Z",
+      "readByAdminUserIds": [
+        "adm_00a7790ce68a4fa7bc768fb07102f142"
+      ]
+    },
+    {
+      "messageId": "adm_msg_1782953843285_va4uzj",
+      "senderAdminUserId": "adm_00a7790ce68a4fa7bc768fb07102f142",
+      "senderName": "최고관리자",
+      "recipientScope": "ALL",
+      "recipientAdminUserIds": [],
+      "body": "ㅈㅈ",
+      "sentAt": "2026-07-02T00:57:23.285Z",
+      "readByAdminUserIds": [
+        "adm_00a7790ce68a4fa7bc768fb07102f142"
+      ]
     }
   ]
 }

@@ -12,6 +12,9 @@ spring:
     name: Gateway-Service
   cloud:
     gateway:
+      httpclient:
+        connect-timeout: 2000
+        response-timeout: 5s
       server:
         webflux:
           globalcors:
@@ -38,6 +41,11 @@ spring:
               uri: ${COMMERCE_SERVICE_URL:http://localhost:8084}
               predicates:
                 - Path=/api/v1/users/me/subscription
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: commerceServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/commerce
 
             - id: commerce-service-user-token-usage
               uri: ${COMMERCE_SERVICE_URL:http://localhost:8084}
@@ -48,22 +56,43 @@ spring:
               uri: ${USER_SERVICE_URL:http://localhost:8080}
               predicates:
                 - Path=/internal/v1/users/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: userServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/user
 
             - id: internal-user-service-support
               uri: ${USER_SERVICE_URL:http://localhost:8080}
               predicates:
                 - Path=/internal/v1/support/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: userServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/user
 
             - id: internal-commerce-service
               uri: ${COMMERCE_SERVICE_URL:http://localhost:8084}
               predicates:
                 - Path=/internal/v1/billing/**,/internal/v1/plans/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: commerceServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/commerce
 
             - id: internal-user-health
               uri: ${USER_SERVICE_URL:http://localhost:8080}
               predicates:
                 - Path=/internal/v1/health/user
               filters:
+                - name: CircuitBreaker
+                  args:
+                    name: userServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/user
+                    statusCodes:
+                      - 503
                 - RewritePath=/internal/v1/health/user,/actuator/health
 
             - id: internal-commerce-health
@@ -71,6 +100,12 @@ spring:
               predicates:
                 - Path=/internal/v1/health/commerce
               filters:
+                - name: CircuitBreaker
+                  args:
+                    name: commerceServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/commerce
+                    statusCodes:
+                      - 503
                 - RewritePath=/internal/v1/health/commerce,/actuator/health
 
             - id: internal-workspace-health
@@ -78,18 +113,35 @@ spring:
               predicates:
                 - Path=/internal/v1/health/workspace
               filters:
+                - name: CircuitBreaker
+                  args:
+                    name: workspaceServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/workspace
+                    statusCodes:
+                      - 503
                 - RewritePath=/internal/v1/health/workspace,/actuator/health
 
             - id: internal-workspace-service
               uri: ${WORKSPACE_SERVICE_URL:http://localhost:8082}
               predicates:
                 - Path=/internal/v1/workspace/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: workspaceServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/workspace
 
             - id: internal-ingestion-health
               uri: ${INGESTION_SERVICE_URL:http://localhost:8083}
               predicates:
                 - Path=/internal/v1/health/ingestion
               filters:
+                - name: CircuitBreaker
+                  args:
+                    name: ingestionServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/ingestion
+                    statusCodes:
+                      - 503
                 - RewritePath=/internal/v1/health/ingestion,/actuator/health
 
             - id: internal-intelligence-health
@@ -97,48 +149,113 @@ spring:
               predicates:
                 - Path=/internal/v1/health/intelligence
               filters:
+                - name: CircuitBreaker
+                  args:
+                    name: intelligenceServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/intelligence
+                    statusCodes:
+                      - 503
                 - RewritePath=/internal/v1/health/intelligence,/actuator/health
+
+            - id: internal-mcp-health
+              uri: ${MCP_SERVICE_URL:http://localhost:8087}
+              predicates:
+                - Path=/internal/v1/health/mcp
+              filters:
+                - RewritePath=/internal/v1/health/mcp,/actuator/health
 
             - id: user-service-auth
               uri: ${USER_SERVICE_URL:http://localhost:8080}
               predicates:
                 - Path=/api/v1/auth/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: userServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/user
+
+            - id: mcp-service
+              uri: ${MCP_SERVICE_URL:http://localhost:8087}
+              predicates:
+                - Path=/api/v1/mcp/**,/mcp,/mcp/**
 
             - id: user-service-users
               uri: ${USER_SERVICE_URL:http://localhost:8080}
               predicates:
                 - Path=/api/v1/users/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: userServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/user
 
             - id: user-service-support
               uri: ${USER_SERVICE_URL:http://localhost:8080}
               predicates:
                 - Path=/api/v1/support/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: userServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/user
 
             - id: workspace-service
               uri: ${WORKSPACE_SERVICE_URL:http://localhost:8082}
               predicates:
                 - Path=/api/v1/workspace/**,/api/v1/notes,/api/v1/notes/**,/api/v1/folders,/api/v1/folders/**,/api/v1/recent-activities,/api/v1/recent-activities/**,/api/v1/tags/**,/api/v1/favorites/**,/api/v1/graph,/api/v1/graph/**,/api/v1/share-links,/api/v1/share-links/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: workspaceServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/workspace
 
             - id: ingestion-service
               uri: ${INGESTION_SERVICE_URL:http://localhost:8083}
               predicates:
                 - Path=/api/v1/imports/**,/api/v1/exports,/api/v1/exports/**,/v1/publish-jobs,/v1/publish-jobs/**,/api/v1/extension/**,/api/v1/assets/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: ingestionServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/ingestion
 
             - id: commerce-service
               uri: ${COMMERCE_SERVICE_URL:http://localhost:8084}
               predicates:
                 - Path=/api/v1/plans,/api/v1/plans/**,/api/v1/subscriptions/**,/api/v1/billing/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: commerceServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/commerce
 
             - id: admin-service
               uri: ${ADMIN_SERVICE_URL:http://localhost:8085}
               predicates:
                 - Path=/api/v1/admin/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: adminServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/admin
 
 management:
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState
+        liveness:
+          include: livenessState
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
 
 brainx:
   jwt:
@@ -149,8 +266,21 @@ brainx:
       public-paths:
         - /actuator/health
         - /actuator/info
+        - /actuator/prometheus
         - /api/v1/auth/**
         - /api/v1/plans
         - /api/v1/plans/**
         - /api/v1/assets/*/file
         - /api/v1/assets/proxy-image
+        - /api/v1/mcp/**
+        - /mcp
+        - /mcp/**
+    httpclient:
+      dns:
+        query-timeout: ${BRAINX_GATEWAY_DNS_QUERY_TIMEOUT:1s}
+        cache-max-ttl: ${BRAINX_GATEWAY_DNS_CACHE_MAX_TTL:30s}
+        cache-min-ttl: ${BRAINX_GATEWAY_DNS_CACHE_MIN_TTL:0s}
+        cache-negative-ttl: ${BRAINX_GATEWAY_DNS_CACHE_NEGATIVE_TTL:1s}
+        max-queries-per-resolve: ${BRAINX_GATEWAY_DNS_MAX_QUERIES_PER_RESOLVE:4}
+        ndots: ${BRAINX_GATEWAY_DNS_NDOTS:1}
+        retry-tcp-on-timeout: ${BRAINX_GATEWAY_DNS_RETRY_TCP_ON_TIMEOUT:false}

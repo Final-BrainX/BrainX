@@ -27,19 +27,27 @@ import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseC
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.ChatStreamEvent;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.SendChatMessageCommand;
+import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase;
+import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase.ChatThreadDeleteResult;
+import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase.ChatThreadUpdateResult;
+import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase.DeleteChatThreadCommand;
+import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase.UpdateChatThreadCommand;
 import com.brainx.intelligence.chat.application.port.outbound.ChatEventPort;
 import com.brainx.intelligence.chat.application.port.outbound.ChatEventPort.ChatMessageCreatedEvent;
 import com.brainx.intelligence.chat.application.port.outbound.ChatEventPort.ChatThreadCreatedEvent;
 import com.brainx.intelligence.chat.application.port.outbound.ChatPersistencePort;
 import com.brainx.intelligence.chat.application.port.outbound.ChatPersistencePort.ChatThreadSummaryCursor;
 import com.brainx.intelligence.chat.domain.ChatCitation;
+import com.brainx.intelligence.chat.domain.ChatConflictException;
 import com.brainx.intelligence.chat.domain.ChatDomainException;
 import com.brainx.intelligence.chat.domain.ChatMessage;
+import com.brainx.intelligence.chat.domain.ChatNotFoundException;
 import com.brainx.intelligence.chat.domain.ChatRole;
 import com.brainx.intelligence.chat.domain.ChatRoute;
 import com.brainx.intelligence.chat.domain.ChatRouteDecision;
 import com.brainx.intelligence.chat.domain.ChatThread;
 import com.brainx.intelligence.chat.domain.ChatThreadSummary;
+import com.brainx.intelligence.chat.domain.ChatThreadStatus;
 import com.brainx.intelligence.chat.domain.ChatTokenUsage;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteChunkRetrievalPort;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteChunkRetrievalPort.NoteChunkSearchQuery;
@@ -64,7 +72,8 @@ public class ChatService implements
     CreateChatThreadUseCase,
     ListChatThreadsUseCase,
     SendChatMessageUseCase,
-    GetChatThreadUseCase {
+    GetChatThreadUseCase,
+    UpdateChatThreadUseCase {
 
     static final String RAG_CHAT_CAPABILITY = "RAG_CHAT";
     static final String RAG_CHAT_FEATURE_ID = "rag-chat";
@@ -86,6 +95,7 @@ public class ChatService implements
     private static final int THREAD_PREVIEW_LENGTH = 160;
 
     private final ChatProperties properties;
+    private final ChatThreadTitleGenerator titleGenerator;
     private final ChatRouteDecider chatRouteDecider;
     private final ChatPersistencePort chatPersistencePort;
     private final NoteChunkRetrievalPort noteChunkRetrievalPort;
@@ -97,6 +107,7 @@ public class ChatService implements
 
     public ChatService(
         ChatProperties properties,
+        ChatThreadTitleGenerator titleGenerator,
         ChatRouteDecider chatRouteDecider,
         ChatPersistencePort chatPersistencePort,
         NoteChunkRetrievalPort noteChunkRetrievalPort,
@@ -107,6 +118,7 @@ public class ChatService implements
         ChatEventPort chatEventPort
     ) {
         this.properties = properties;
+        this.titleGenerator = titleGenerator;
         this.chatRouteDecider = chatRouteDecider;
         this.chatPersistencePort = chatPersistencePort;
         this.noteChunkRetrievalPort = noteChunkRetrievalPort;
@@ -120,9 +132,10 @@ public class ChatService implements
     @Override
     public ChatThreadResult createChatThread(CreateChatThreadCommand command) {
         String userId = requireText(command.userId(), "userId");
-        String title = requireText(command.title(), "title");
+        String fallbackTitle = requireText(command.title(), "title");
         String modelId = requireText(command.modelId(), "modelId");
         String documentGroupId = DocumentGroups.normalize(command.documentGroupId());
+        String title = titleGenerator.titleFor(userId, command.initialMessage(), fallbackTitle);
         ChatThread thread = chatPersistencePort.saveThread(new ChatThread(
             UUID.randomUUID().toString(),
             userId,
@@ -145,9 +158,11 @@ public class ChatService implements
     public ChatThreadListResult listChatThreads(ListChatThreadsQuery query) {
         String userId = requireText(query.userId(), "userId");
         int limit = normalizeThreadListLimit(query.limit());
+        ChatThreadStatus status = query.status() == null ? ChatThreadStatus.ACTIVE : query.status();
         ChatThreadSummaryCursor cursor = decodeThreadListCursor(query.cursor());
         List<ChatThreadSummary> summaries = chatPersistencePort.findThreadSummariesByUserId(
             userId,
+            status,
             cursor,
             limit + 1
         );
@@ -171,7 +186,10 @@ public class ChatService implements
         String message = requireText(command.message(), "message");
         String modelId = requireText(command.modelId(), "modelId");
         ChatThread thread = chatPersistencePort.findThreadByUserIdAndThreadId(userId, threadId)
-            .orElseThrow(() -> new ChatDomainException("Chat thread not found: " + threadId));
+            .orElseThrow(() -> new ChatNotFoundException("Chat thread not found: " + threadId));
+        if (thread.archived()) {
+            throw new ChatConflictException("Archived chat thread cannot accept new messages.");
+        }
         validateNoteScope(thread, command.noteScope());
         Map<String, Object> noteScope = command.noteScope() == null ? Map.of() : command.noteScope();
 
@@ -236,11 +254,32 @@ public class ChatService implements
         String userId = requireText(query.userId(), "userId");
         String threadId = requireText(query.threadId(), "threadId");
         ChatThread thread = chatPersistencePort.findThreadByUserIdAndThreadId(userId, threadId)
-            .orElseThrow(() -> new ChatDomainException("Chat thread not found: " + threadId));
+            .orElseThrow(() -> new ChatNotFoundException("Chat thread not found: " + threadId));
         List<Map<String, Object>> messages = chatPersistencePort.findMessagesByUserIdAndThreadId(userId, threadId).stream()
             .map(ChatService::messageMap)
             .toList();
         return new ChatThreadDetailResult(toThreadView(thread), messages);
+    }
+
+    @Override
+    public ChatThreadUpdateResult updateChatThread(UpdateChatThreadCommand command) {
+        String userId = requireText(command.userId(), "userId");
+        String threadId = requireText(command.threadId(), "threadId");
+        ChatThread thread = command.archived()
+            ? chatPersistencePort.archiveThread(userId, threadId, Instant.now())
+                .orElseThrow(() -> new ChatNotFoundException("Chat thread not found: " + threadId))
+            : chatPersistencePort.unarchiveThread(userId, threadId)
+                .orElseThrow(() -> new ChatNotFoundException("Chat thread not found: " + threadId));
+        return toThreadUpdateResult(thread);
+    }
+
+    @Override
+    public ChatThreadDeleteResult deleteChatThread(DeleteChatThreadCommand command) {
+        String userId = requireText(command.userId(), "userId");
+        String threadId = requireText(command.threadId(), "threadId");
+        ChatThread thread = chatPersistencePort.deleteThread(userId, threadId, Instant.now())
+            .orElseThrow(() -> new ChatNotFoundException("Chat thread not found: " + threadId));
+        return new ChatThreadDeleteResult(thread.threadId(), thread.deletedAt());
     }
 
     private Flux<ChatStreamEvent> fixedAnswerStream(
@@ -634,7 +673,9 @@ public class ChatService implements
             thread.documentGroupId(),
             thread.title(),
             thread.modelId(),
-            thread.createdAt()
+            thread.createdAt(),
+            thread.archivedAt(),
+            thread.deletedAt()
         );
     }
 
@@ -644,7 +685,21 @@ public class ChatService implements
             thread.documentGroupId(),
             thread.title(),
             thread.modelId(),
-            thread.createdAt()
+            thread.createdAt(),
+            thread.archivedAt(),
+            thread.deletedAt()
+        );
+    }
+
+    private static ChatThreadUpdateResult toThreadUpdateResult(ChatThread thread) {
+        return new ChatThreadUpdateResult(
+            thread.threadId(),
+            thread.documentGroupId(),
+            thread.title(),
+            thread.modelId(),
+            thread.createdAt(),
+            thread.archivedAt(),
+            thread.deletedAt()
         );
     }
 
@@ -655,6 +710,8 @@ public class ChatService implements
             summary.title(),
             summary.modelId(),
             summary.createdAt(),
+            summary.archivedAt(),
+            summary.deletedAt(),
             summary.lastMessageAt(),
             preview(summary.lastMessagePreview()),
             summary.messageCount()

@@ -44,6 +44,8 @@ SSM 값만 바꿔도 실행 중인 컨테이너에는 바로 반영되지 않는
 services: intelligence-service
 ```
 
+Mcp-Service는 별도 secret을 만들지 않고 기존 `/brainx/dev/JWT_SECRET`으로 사용자 JWT를 검증한다. API key 원문은 발급 응답에서 한 번만 반환되고 DB에는 hash만 저장된다.
+
 ### Required SSM Parameters
 
 ```powershell
@@ -97,6 +99,8 @@ aws ssm put-parameter --name /brainx/dev/SEED_ADMIN_NAME --type SecureString --v
 `deploy_remote.sh` also writes Admin-Service's non-secret runtime defaults into `/opt/brainx/env/runtime.env` on every CI/CD deploy so the compose file can consume the same values automatically: `ADMIN_DB_NAME`, `GATEWAY_SERVICE_URL`, `MAIL_HOST`, and `MAIL_PORT`.
 
 For Kafka lag monitoring, the same runtime env now also carries `KAFKA_BOOTSTRAP_SERVERS` and `BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID` so `admin-service` can read the broker address and consumer group from deployment-time values instead of falling back to `localhost:9092`.
+
+Mcp-Service는 `deploy_remote.sh`가 `brainx_mcp` logical database를 만들고, Docker Compose가 `JWT_SECRET`과 RDS 접속 정보를 주입한다. 첫 배포 전에는 Terraform apply로 `brainx-dev-mcp-service` ECR repository를 만든다.
 
 RDS master username/password는 AWS Secrets Manager에서 읽는다. GitHub secrets나 SSM에 복사하지 않는다.
 

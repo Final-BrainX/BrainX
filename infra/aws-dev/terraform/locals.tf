@@ -9,6 +9,7 @@ locals {
     commerce-service     = "${local.name_prefix}-commerce-service"
     admin-service        = "${local.name_prefix}-admin-service"
     intelligence-service = "${local.name_prefix}-intelligence-service"
+    mcp-service          = "${local.name_prefix}-mcp-service"
     frontend             = "${local.name_prefix}-frontend"
     admin-frontend       = "${local.name_prefix}-admin-frontend"
   }

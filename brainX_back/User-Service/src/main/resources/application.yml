@@ -93,3 +93,21 @@ brainx:
 
   service-token: ${SERVICE_TOKEN:local-service-token}
 
+management:
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db,redis
+        liveness:
+          include: livenessState
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+

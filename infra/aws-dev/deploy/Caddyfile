@@ -1,4 +1,9 @@
 {$PUBLIC_SITE_ADDRESS} {
+	@mcp path /mcp* /api/v1/mcp/*
+	handle @mcp {
+		reverse_proxy mcp-service:8087
+	}
+
 	@intelligence path /api/v1/ai/* /api/v1/intelligence/* /api/v1/notes/*/summary /api/v1/users/me/style-profile
 	handle @intelligence {
 		reverse_proxy intelligence-service:8086
@@ -14,5 +19,9 @@
 }
 
 {$ADMIN_SITE_ADDRESS} {
+	handle /grafana* {
+		reverse_proxy grafana:3000
+	}
+
 	reverse_proxy admin-frontend:3001
 }

@@ -2,6 +2,9 @@ openapi: 3.0.3
 info:
   title: BrainX API SSOT - Knowledge Intelligence
   version: 1.0.0-revised
+  license:
+    name: Proprietary
+    url: https://brainx.p-e.kr
   description: 'BrainX 공개 및 내부 REST 계약 문서.
 
 
@@ -23,8 +26,8 @@ info:
 
     - operation 단위 이벤트 결합은 x-produces-events로 표현하고 AsyncAPI SSOT를 참조한다.'
 servers:
-- url: http://localhost:8080
-  description: 로컬 API 게이트웨이
+- url: https://brainx.p-e.kr
+  description: AWS dev API 게이트웨이. 로컬 개발은 Gateway-Service 기본 포트 8088을 사용한다.
 - url: https://api.brainx.com
   description: 운영 API 게이트웨이
 tags:
@@ -301,6 +304,16 @@ paths:
         schema:
           type: string
           description: 이전 응답의 nextCursor. 값은 opaque cursor로 취급한다.
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - active
+          - archived
+          default: active
+          description: active는 보관/삭제되지 않은 스레드, archived는 보관되었지만 삭제되지 않은 스레드를 조회한다.
       responses:
         '200':
           description: 성공
@@ -571,6 +584,151 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
         '409':
           description: 충돌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+    patch:
+      operationId: updateChatThread
+      summary: 채팅 스레드 상태 수정
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.chat
+        type: frontend
+        description: RAG 챗봇 UI
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: threadId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatThreadUpdateRequest'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ChatThreadData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: 충돌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+    delete:
+      operationId: deleteChatThread
+      summary: 채팅 스레드 삭제
+      description: v1 삭제는 메시지와 스레드 row를 물리 삭제하지 않고 사용자 목록/조회에서 숨기는 soft-delete로 처리한다.
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.chat
+        type: frontend
+        description: RAG 챗봇 UI
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: threadId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ChatThreadDeleteData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: 찾을 수 없음
           content:
             application/json:
               schema:
@@ -1035,6 +1193,62 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
         '409':
           description: 충돌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+  /api/v1/ai/clusters/latest:
+    get:
+      operationId: getLatestAiClusterJob
+      summary: 최신 AI 클러스터링 상태 조회
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.graph
+        type: frontend
+        description: 2D/3D 그래프 및 마인드맵 UI
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: documentGroupId
+        in: query
+        required: false
+        schema:
+          type: string
+          default: default
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ClusterJobLatestData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
           content:
             application/json:
               schema:
@@ -1535,6 +1749,7 @@ components:
           enum:
           - false
         data:
+          type: object
           nullable: true
         message:
           type: string
@@ -1706,11 +1921,23 @@ components:
           description: 이 채팅 스레드의 논리적 문서 그룹 경계. 생략하면 Knowledge Intelligence는 default로 처리한다.
         title:
           type: string
+          description: 스레드 생성 fallback 제목. initialMessage가 있으면 서버는 AI 제목 생성을 먼저 시도하고, 실패 시 이 값을 사용한다.
+        initialMessage:
+          type: string
+          description: AI 스레드 제목 생성을 위한 첫 사용자 메시지. 제목 생성 입력 전용이며 chat message로 저장되지 않는다.
         modelId:
           type: string
       required:
       - title
       - modelId
+      additionalProperties: false
+    ChatThreadUpdateRequest:
+      type: object
+      properties:
+        archived:
+          type: boolean
+      required:
+      - archived
       additionalProperties: false
     ChatThreadData:
       type: object
@@ -1726,12 +1953,34 @@ components:
         createdAt:
           type: string
           format: date-time
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
       required:
       - threadId
       - documentGroupId
       - title
       - modelId
       - createdAt
+      - archivedAt
+      - deletedAt
+      additionalProperties: false
+    ChatThreadDeleteData:
+      type: object
+      properties:
+        threadId:
+          type: string
+        deletedAt:
+          type: string
+          format: date-time
+      required:
+      - threadId
+      - deletedAt
       additionalProperties: false
     ChatThreadListItemData:
       type: object
@@ -1747,6 +1996,14 @@ components:
         createdAt:
           type: string
           format: date-time
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
         lastMessageAt:
           type: string
           format: date-time
@@ -1762,6 +2019,8 @@ components:
       - title
       - modelId
       - createdAt
+      - archivedAt
+      - deletedAt
       - lastMessageAt
       - messageCount
       additionalProperties: false
@@ -2044,6 +2303,8 @@ components:
       properties:
         clusterJobId:
           type: string
+        documentGroupId:
+          type: string
         status:
           $ref: '#/components/schemas/JobStatus'
         clusters:
@@ -2051,9 +2312,54 @@ components:
           items:
             type: object
             additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        failureMessage:
+          type: string
+          nullable: true
       required:
       - clusterJobId
+      - documentGroupId
       - status
+      - createdAt
+      additionalProperties: false
+    ClusterJobLatestState:
+      type: string
+      enum:
+      - NO_SOURCE_NOTES
+      - NOT_ANALYZED
+      - FRESH
+      - STALE
+      - FAILED
+    ClusterJobLatestData:
+      type: object
+      properties:
+        documentGroupId:
+          type: string
+        searchableNoteCount:
+          type: integer
+          format: int32
+          minimum: 0
+        latestNoteUpdatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        state:
+          $ref: '#/components/schemas/ClusterJobLatestState'
+        job:
+          type: object
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/ClusterJobData'
+      required:
+      - documentGroupId
+      - searchableNoteCount
+      - state
       additionalProperties: false
     BridgeConceptsRequest:
       type: object

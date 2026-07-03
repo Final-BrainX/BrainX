@@ -19,6 +19,7 @@ import com.brainx.intelligence.chat.domain.ChatCitation;
 import com.brainx.intelligence.chat.domain.ChatMessage;
 import com.brainx.intelligence.chat.domain.ChatRole;
 import com.brainx.intelligence.chat.domain.ChatThread;
+import com.brainx.intelligence.chat.domain.ChatThreadStatus;
 import com.brainx.intelligence.chat.domain.ChatTokenUsage;
 
 @DataJpaTest
@@ -175,7 +176,7 @@ class ChatJpaAdapterTest {
         entityManager.flush();
         entityManager.clear();
 
-        var firstPage = chatJpaAdapter.findThreadSummariesByUserId("user-1", null, 1);
+        var firstPage = chatJpaAdapter.findThreadSummariesByUserId("user-1", ChatThreadStatus.ACTIVE, null, 1);
 
         assertThat(firstPage).hasSize(1);
         assertThat(firstPage.getFirst().threadId()).isEqualTo("thread-1");
@@ -185,6 +186,7 @@ class ChatJpaAdapterTest {
 
         var secondPage = chatJpaAdapter.findThreadSummariesByUserId(
             "user-1",
+            ChatThreadStatus.ACTIVE,
             new ChatThreadSummaryCursor(firstPage.getFirst().lastMessageAt(), firstPage.getFirst().threadId()),
             10
         );
@@ -194,5 +196,50 @@ class ChatJpaAdapterTest {
         assertThat(secondPage.getFirst().lastMessageAt()).isEqualTo(Instant.parse("2026-06-23T00:02:00Z"));
         assertThat(secondPage.getFirst().lastMessagePreview()).isNull();
         assertThat(secondPage.getFirst().messageCount()).isZero();
+    }
+
+    @Test
+    void archiveUnarchiveAndDeleteThreadAffectVisibility() {
+        chatJpaAdapter.saveThread(new ChatThread(
+            "thread-1",
+            "user-1",
+            "default",
+            "활성 대화",
+            "gpt-test",
+            Instant.parse("2026-06-23T00:00:00Z")
+        ));
+        chatJpaAdapter.saveThread(new ChatThread(
+            "thread-2",
+            "user-1",
+            "default",
+            "삭제 대화",
+            "gpt-test",
+            Instant.parse("2026-06-23T00:01:00Z")
+        ));
+        entityManager.flush();
+        entityManager.clear();
+
+        Instant archivedAt = Instant.parse("2026-06-23T00:02:00Z");
+        var archived = chatJpaAdapter.archiveThread("user-1", "thread-1", archivedAt).orElseThrow();
+        var deleted = chatJpaAdapter.deleteThread("user-1", "thread-2", Instant.parse("2026-06-23T00:03:00Z")).orElseThrow();
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(archived.archivedAt()).isEqualTo(archivedAt);
+        assertThat(deleted.deletedAt()).isNotNull();
+        assertThat(chatJpaAdapter.findThreadByUserIdAndThreadId("user-1", "thread-2")).isEmpty();
+        assertThat(chatJpaAdapter.findThreadSummariesByUserId("user-1", ChatThreadStatus.ACTIVE, null, 10)).isEmpty();
+        assertThat(chatJpaAdapter.findThreadSummariesByUserId("user-1", ChatThreadStatus.ARCHIVED, null, 10))
+            .extracting("threadId")
+            .containsExactly("thread-1");
+
+        var restored = chatJpaAdapter.unarchiveThread("user-1", "thread-1").orElseThrow();
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(restored.archivedAt()).isNull();
+        assertThat(chatJpaAdapter.findThreadSummariesByUserId("user-1", ChatThreadStatus.ACTIVE, null, 10))
+            .extracting("threadId")
+            .containsExactly("thread-1");
     }
 }

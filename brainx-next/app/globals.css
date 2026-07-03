@@ -5,13 +5,13 @@
 /** import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/web/variable/pretendardvariable-dynamic-subset.min.css");*/
 
 :root {
-  --bg: 10 12 26;
-  --bg2: 13 18 38;
-  --surface: 22 28 46;
-  --surface2: 36 46 68;
-  --primary: 99 160 255;
-  --accent: 188 150 255;
-  --cyan: 56 226 245;
+  --bg: 17 16 42;
+  --bg2: 20 19 46;
+  --surface: 22 21 48;
+  --surface2: 30 29 58;
+  --primary: 79 142 247;
+  --accent: 123 122 238;
+  --cyan: 167 139 250;
   --txt: 242 246 255;
   --txt2: 188 204 228;
   --txt3: 145 170 210;
@@ -21,28 +21,28 @@
 }
 
 html.light {
-  --bg: 244 247 253;
+  --bg: 236 238 255;
   --bg2: 255 255 255;
   --surface: 255 255 255;
-  --surface2: 241 245 249;
-  --primary: 37 99 235;
-  --accent: 124 58 237;
-  --cyan: 6 182 212;
+  --surface2: 244 243 255;
+  --primary: 79 142 247;
+  --accent: 123 122 238;
+  --cyan: 167 139 250;
   --txt: 15 23 42;
   --txt2: 71 85 105;
   --txt3: 148 163 184;
-  --border: 226 232 240;
+  --border: 228 225 255;
   color-scheme: light;
 }
 
 .universe-theme {
-  --bg: 10 12 26;
-  --bg2: 13 18 38;
-  --surface: 22 28 46;
-  --surface2: 36 46 68;
-  --primary: 99 160 255;
-  --accent: 188 150 255;
-  --cyan: 56 226 245;
+  --bg: 17 16 42;
+  --bg2: 20 19 46;
+  --surface: 22 21 48;
+  --surface2: 30 29 58;
+  --primary: 79 142 247;
+  --accent: 123 122 238;
+  --cyan: 167 139 250;
   --txt: 242 246 255;
   --txt2: 188 204 228;
   --txt3: 145 170 210;

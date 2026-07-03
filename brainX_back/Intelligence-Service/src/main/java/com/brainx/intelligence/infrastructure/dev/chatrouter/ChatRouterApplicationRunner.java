@@ -100,6 +100,7 @@ public class ChatRouterApplicationRunner implements ApplicationRunner {
             properties.getUserId(),
             properties.getDocumentGroupId(),
             titleFor(query),
+            null,
             properties.getModelId()
         ));
         List<ChatStreamEvent> events = sendChatMessageUseCase.sendChatMessage(new SendChatMessageCommand(

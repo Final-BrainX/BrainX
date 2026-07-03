@@ -1,7 +1,9 @@
 package com.brainx.intelligence.infrastructure.persistence.jpa.clustering;
 
+import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 
 import com.brainx.intelligence.clustering.application.port.outbound.ClusterJobStore;
@@ -35,5 +37,19 @@ public class ClusterJobJpaAdapter implements ClusterJobStore {
     public Optional<ClusterJob> findByUserIdAndIdempotencyKey(String userId, String idempotencyKey) {
         return repository.findByUserIdAndIdempotencyKey(userId, idempotencyKey)
             .map(entity -> entity.toDomain(objectMapper));
+    }
+
+    @Override
+    public List<ClusterJob> findRecentByUserIdAndDocumentGroupId(String userId, String documentGroupId, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        return repository.findByUserIdAndDocumentGroupIdOrderByCreatedAtDescClusterJobIdDesc(
+                userId,
+                documentGroupId,
+                PageRequest.of(0, limit)
+            ).stream()
+            .map(entity -> entity.toDomain(objectMapper))
+            .toList();
     }
 }

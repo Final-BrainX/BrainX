@@ -1,0 +1,4 @@
+﻿[
+  {"serviceName":"User-Service","state":"UP","latencyMs":80,"uptimePercent":98},
+  {"serviceName":"Commerce-Service","state":"UP","latencyMs":90,"uptimePercent":99}
+]
