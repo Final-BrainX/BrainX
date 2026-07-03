@@ -8440,27 +8440,12 @@ paths:
       x-internal-sync-calls: []
       x-async-boundary: false
       parameters:
-      - name: from
-        in: query
-        required: true
-        schema:
-          type: string
-          format: date
-      - name: to
-        in: query
-        required: true
-        schema:
-          type: string
-          format: date
-      - name: groupBy
+      - name: month
         in: query
         required: false
+        description: yyyy-MM, 생략 시 이번 달
         schema:
           type: string
-          enum:
-          - DAILY
-          - WEEKLY
-          - MONTHLY
       responses:
         '200':
           description: 성공
@@ -16116,17 +16101,60 @@ components:
     TokenUsageData:
       type: object
       properties:
-        usage:
+        planName:
+          type: string
+          nullable: true
+        monthlyCreditLimit:
+          type: integer
+          nullable: true
+          description: >
+            월 크레딧 한도. null이면 무제한. 1크레딧 = Intelligence-Service가 계산한
+            estimatedCost(USD)를 고정 환율로 환산한 원화 상당 원가 — 모델별 토큰 단가가
+            달라 토큰 개수는 실제 원가를 대표하지 못하므로 크레딧을 과금/한도 단위로 쓴다.
+        usedCredits:
+          type: integer
+        usagePercent:
+          type: number
+        resetDate:
+          type: string
+          format: date
+        byFeature:
           type: array
           items:
-            type: object
-            additionalProperties: true
-        total:
-          type: object
-          additionalProperties: true
+            $ref: '#/components/schemas/TokenUsageFeatureUsage'
+        recentDays:
+          type: array
+          items:
+            $ref: '#/components/schemas/TokenUsageDailyUsage'
       required:
-      - usage
-      - total
+      - usedCredits
+      - usagePercent
+      - resetDate
+      - byFeature
+      - recentDays
+      additionalProperties: false
+    TokenUsageFeatureUsage:
+      type: object
+      properties:
+        feature:
+          type: string
+        credits:
+          type: integer
+      required:
+      - feature
+      - credits
+      additionalProperties: false
+    TokenUsageDailyUsage:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        credits:
+          type: integer
+      required:
+      - date
+      - credits
       additionalProperties: false
     KnowledgeDashboardData:
       type: object

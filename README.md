@@ -437,7 +437,7 @@ DB 접속 계정과 비밀번호는 루트 `.env`의 `POSTGRES_USER`, `POSTGRES_
 | `/api/v1/auth/**`, `/api/v1/users/**`, `/api/v1/support/**` | User-Service |
 | `/api/v1/notes/**`, `/api/v1/folders/**`, `/api/v1/graph/**`, `/api/v1/share-links/**` | Workspace-Service |
 | `/api/v1/imports/**`, `/api/v1/exports/**`, `/v1/publish-jobs/**` | Ingestion-Service |
-| `/api/v1/plans/**`, `/api/v1/subscriptions/**`, `/api/v1/users/me/subscription` | Commerce-Service |
+| `/api/v1/plans/**`, `/api/v1/subscriptions/**`, `/api/v1/users/me/subscription`, `/api/v1/users/me/token-usage` | Commerce-Service |
 | `/api/v1/admin/**` | Admin-Service |
 
 Gateway는 보호 API에 대해 `Authorization: Bearer <access-token>`을 검증하고, 통과한 요청에 내부 식별 헤더를 추가합니다. Workspace 체험 API는 비회원도 사용할 수 있게 Gateway가 guest session cookie(`brainx_guest_id`)를 발급하고 내부 `X-Guest-Id` 헤더를 추가합니다.
@@ -559,6 +559,7 @@ cd C:\Edu\Final\brainX_back\Commerce-Service
 | --- | --- | --- |
 | GET  | `/api/v1/plans` | 플랜 목록 조회 |
 | GET  | `/api/v1/users/me/subscription` | 내 구독 정보 조회 |
+| GET  | `/api/v1/users/me/token-usage` | 이번 달 AI 토큰 사용량 조회 (Intelligence-Service의 TokenUsageRecordedRequested 이벤트를 구독·집계) |
 | POST | `/api/v1/subscriptions/checkout-sessions` | 결제 체크아웃 세션 생성 (Toss SDK 구동에 필요한 clientKey/orderId/amount 반환) |
 | POST | `/api/v1/subscriptions/checkout-sessions/{id}/confirm` | Toss 결제 승인 confirm (서버 간 호출로 결제 확정, 성공 시 플랜 즉시 업그레이드) |
 | POST | `/api/v1/subscriptions/change` | 구독 플랜 변경 (결제 없이 즉시 변경 — 테스트/다운그레이드용) |
