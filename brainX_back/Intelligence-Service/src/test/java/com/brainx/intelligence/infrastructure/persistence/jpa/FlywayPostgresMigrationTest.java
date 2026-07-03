@@ -8,8 +8,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -31,8 +29,7 @@ class FlywayPostgresMigrationTest {
         resetPublicSchema();
 
         try (ConfigurableApplicationContext context = new SpringApplicationBuilder(IntelligenceServiceApplication.class)
-            .properties(applicationProperties())
-            .run()) {
+            .run(applicationArgs())) {
             assertThat(context.isActive()).isTrue();
         }
 
@@ -43,29 +40,31 @@ class FlywayPostgresMigrationTest {
         assertThat(migrationApplied("R__seed_ai_model_catalog.sql")).isTrue();
     }
 
-    private static Map<String, Object> applicationProperties() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-        properties.put("spring.main.web-application-type", "none");
-        properties.put("spring.main.banner-mode", "off");
-        properties.put("spring.datasource.url", POSTGRES_URL);
-        properties.put("spring.datasource.username", POSTGRES_USERNAME);
-        properties.put("spring.datasource.password", POSTGRES_PASSWORD);
-        properties.put("spring.datasource.driver-class-name", "org.postgresql.Driver");
-        properties.put("spring.sql.init.mode", "never");
-        properties.put("spring.jpa.hibernate.ddl-auto", "validate");
-        properties.put("spring.flyway.enabled", "true");
-        properties.put("spring.flyway.locations", "classpath:db/migration");
-        properties.put("spring.flyway.baseline-on-migrate", "true");
-        properties.put("spring.flyway.baseline-version", "0");
-        properties.put("spring.flyway.validate-on-migrate", "true");
-        properties.put("spring.ai.model.chat", "none");
-        properties.put("brainx.events.consumer.enabled", "false");
-        properties.put("brainx.events.producer.enabled", "false");
-        properties.put("brainx.note-index.retry.enabled", "false");
-        properties.put("brainx.external-search.provider", "none");
-        properties.put("brainx.ai.embedding.provider", "none");
-        properties.put("brainx.vector.qdrant.enabled", "false");
-        return properties;
+    private static String[] applicationArgs() {
+        return new String[] {
+            "--spring.main.web-application-type=none",
+            "--spring.main.banner-mode=off",
+            "--spring.datasource.url=" + POSTGRES_URL,
+            "--spring.datasource.username=" + POSTGRES_USERNAME,
+            "--spring.datasource.password=" + POSTGRES_PASSWORD,
+            "--spring.datasource.driver-class-name=org.postgresql.Driver",
+            "--spring.sql.init.mode=never",
+            "--spring.jpa.hibernate.ddl-auto=validate",
+            "--spring.flyway.enabled=true",
+            "--spring.flyway.locations=classpath:db/migration",
+            "--spring.flyway.baseline-on-migrate=true",
+            "--spring.flyway.baseline-version=0",
+            "--spring.flyway.validate-on-migrate=true",
+            "--spring.ai.model.chat=none",
+            "--spring.cloud.discovery.enabled=false",
+            "--eureka.client.enabled=false",
+            "--brainx.events.consumer.enabled=false",
+            "--brainx.events.producer.enabled=false",
+            "--brainx.note-index.retry.enabled=false",
+            "--brainx.external-search.provider=none",
+            "--brainx.ai.embedding.provider=none",
+            "--brainx.vector.qdrant.enabled=false"
+        };
     }
 
     private static void assertDedicatedTestDatabase() {

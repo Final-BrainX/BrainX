@@ -262,17 +262,6 @@ export function getNoteIndexStatuses(payload: NoteIndexStatusesRequest, options?
   );
 }
 
-export function getNoteIndexStatuses(payload: NoteIndexStatusesRequest, options?: IntelligenceRequestOptions) {
-  return authedRequest<NoteIndexStatusesData>(
-    "/api/v1/intelligence/note-index-statuses",
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-    options
-  );
-}
-
 export function createInlineAssistStream(
   payload: InlineAssistRequest,
   handlers?: IntelligenceStreamHandlers<InlineAssistDoneEvent>
