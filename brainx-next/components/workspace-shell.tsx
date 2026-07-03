@@ -15,6 +15,8 @@ import { semanticSearch, type SemanticSearchData } from "@/lib/intelligence-api"
 import { formatTokenCount, formatTokenPercent, TOKEN_USAGE_SUMMARY } from "@/lib/token-usage";
 import {
   buildAuthPath,
+  clearAuthSession,
+  isDevAuthSession,
   readAuthSession,
   type AuthSession,
 } from "@/lib/auth-api";
@@ -23,7 +25,7 @@ import {
   PAYMENT_RESULT_MESSAGE_TYPE,
   type Subscription,
 } from "@/lib/commerce-api";
-import { getMyNotifications, getMyProfile, markMyNotificationRead, type MyNotification } from "@/lib/user-api";
+import { AuthRequiredError, getMyNotifications, getMyProfile, markMyNotificationRead, type MyNotification } from "@/lib/user-api";
 
 const NAV = [
   { id: "home", labelKey: "nav.home" as const, icon: "home" as const, path: "/home" },
@@ -911,10 +913,19 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
         );
         setProfileImageUrl(profile.profileImageUrl);
       })
-      .catch(() => {
+      .catch((error) => {
         if (!active) return;
         setProfileName("");
         setProfileImageUrl(null);
+        // AuthRequiredError는 authedRequest가 401/403(또는 세션 없음)일 때만 던진다 — 이미 그 안에서
+        // clearAuthSession()을 호출하지만, 여기서도 한 번 더 방어적으로 정리해 헤더가 만료된 세션을
+        // 붙들고 "로그아웃" 버튼을 계속 보여주는 일이 없게 한다. 단순 네트워크 오류(백엔드 일시 다운 등)는
+        // AuthRequiredError가 아니므로 여기서 세션을 지우지 않는다 — 일시적 오류로 정상 로그인 사용자를
+        // 로그아웃시키지 않기 위함. dev bypass 세션은 애초에 실제 백엔드 검증 대상이 아니므로 건드리지 않는다.
+        const session = readAuthSession();
+        if (error instanceof AuthRequiredError && session && !isDevAuthSession(session)) {
+          clearAuthSession();
+        }
       });
 
     return () => {
@@ -1152,19 +1163,9 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
                   type="button"
                   onClick={() => {
                     setGuestMenuOpen(false);
-                    router.push(buildAuthPath("/signup", pathname));
-                  }}
-                  className="flex h-9 w-full items-center rounded-lg px-2 text-left text-[13px] font-medium text-txt hover:bg-surface2/60"
-                >
-                  회원가입
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGuestMenuOpen(false);
                     router.push(buildAuthPath("/login", pathname));
                   }}
-                  className="flex h-9 w-full items-center rounded-lg px-2 text-left text-[13px] text-txt2 hover:bg-surface2/60 hover:text-txt"
+                  className="flex h-9 w-full items-center rounded-lg px-2 text-left text-[13px] font-medium text-txt hover:bg-surface2/60"
                 >
                   로그인
                 </button>

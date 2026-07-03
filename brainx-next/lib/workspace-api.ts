@@ -155,6 +155,22 @@ function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
   return response.message ?? response.error?.message ?? fallback;
 }
 
+/** 백엔드 에러 코드(예: `NOTE_VERSION_CONFLICT`)와 `details`(예: `serverVersion`)를 그대로
+    들고 있어, 호출부가 특정 실패를 구분해 재시도 같은 처리를 할 수 있게 한다. 기존 `catch {}`처럼
+    타입을 안 가리고 잡는 코드는 그대로 Error로 동작해 영향이 없다. */
+export class WorkspaceApiError extends Error {
+  status: number;
+  code?: string;
+  details?: Record<string, unknown>;
+  constructor(message: string, status: number, code?: string, details?: Record<string, unknown>) {
+    super(message);
+    this.name = "WorkspaceApiError";
+    this.status = status;
+    this.code = code;
+    this.details = details;
+  }
+}
+
 async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const session = readAuthSession();
   const useAuthenticatedSession = Boolean(session?.accessToken) && !isDevAuthSession(session);
@@ -182,7 +198,12 @@ async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error("서버 응답을 읽을 수 없습니다.");
   }
   if (!response.ok || !payload.success) {
-    throw new Error(messageFromResponse(payload, "요청 처리에 실패했습니다."));
+    throw new WorkspaceApiError(
+      messageFromResponse(payload, "요청 처리에 실패했습니다."),
+      response.status,
+      payload.error?.code,
+      payload.error?.details
+    );
   }
   return payload.data as T;
 }
