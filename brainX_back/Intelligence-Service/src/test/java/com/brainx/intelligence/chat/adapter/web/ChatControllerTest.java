@@ -228,6 +228,21 @@ class ChatControllerTest {
     }
 
     @Test
+    void sendChatMessageWithoutAuthenticationIsRejectedBeforeAsyncDispatch() throws Exception {
+        mockMvc.perform(post("/api/v1/ai/chat-threads/thread-1/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "message": "What is RAG?",
+                      "modelId": "gpt-test"
+                    }
+                    """))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.success").value(false))
+            .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
     void getChatThreadReturnsThreadAndOpenMessages() throws Exception {
         Instant createdAt = Instant.parse("2026-06-23T00:00:00Z");
         when(getChatThreadUseCase.getChatThread(any(GetChatThreadQuery.class)))

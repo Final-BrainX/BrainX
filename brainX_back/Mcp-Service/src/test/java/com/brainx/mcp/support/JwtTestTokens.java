@@ -33,6 +33,31 @@ public final class JwtTestTokens {
         return token(secret, null, "access", Instant.now().plusSeconds(3600));
     }
 
+    public static String mcpAccessToken(String secret, String userId, String clientId, String scope, String issuer, String resource) {
+        try {
+            Map<String, Object> header = Map.of("alg", "HS256", "typ", "JWT");
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("sub", userId);
+            payload.put("email", userId + "@example.com");
+            payload.put("role", "ROLE_USER");
+            payload.put("typ", "mcp_access");
+            payload.put("client_id", clientId);
+            payload.put("scope", scope);
+            payload.put("iss", issuer);
+            payload.put("aud", resource);
+            payload.put("resource", resource);
+            payload.put("iat", Instant.now().getEpochSecond());
+            payload.put("exp", Instant.now().plusSeconds(3600).getEpochSecond());
+
+            String encodedHeader = base64Url(OBJECT_MAPPER.writeValueAsBytes(header));
+            String encodedPayload = base64Url(OBJECT_MAPPER.writeValueAsBytes(payload));
+            String unsigned = encodedHeader + "." + encodedPayload;
+            return unsigned + "." + sign(secret, unsigned);
+        } catch (Exception exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
     private static String token(String secret, String userId, String type, Instant expiresAt) {
         try {
             Map<String, Object> header = Map.of("alg", "HS256", "typ", "JWT");

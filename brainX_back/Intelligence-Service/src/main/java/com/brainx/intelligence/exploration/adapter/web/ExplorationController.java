@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase;
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase.GetNoteSummaryQuery;
+import com.brainx.intelligence.exploration.application.port.inbound.GetNoteIndexStatusesUseCase;
+import com.brainx.intelligence.exploration.application.port.inbound.GetNoteIndexStatusesUseCase.NoteIndexStatusesCommand;
 import com.brainx.intelligence.exploration.application.port.inbound.SemanticSearchUseCase;
 import com.brainx.intelligence.exploration.application.port.inbound.SemanticSearchUseCase.SemanticSearchCommand;
 import com.brainx.intelligence.exploration.domain.SearchMatchType;
@@ -24,19 +26,24 @@ import com.brainx.intelligence.infrastructure.web.ApiSuccessResponse;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Size;
 
 @RestController
 @Validated
 public class ExplorationController {
 
     private final SemanticSearchUseCase semanticSearchUseCase;
+    private final GetNoteIndexStatusesUseCase getNoteIndexStatusesUseCase;
     private final GetNoteSummaryUseCase getNoteSummaryUseCase;
 
     public ExplorationController(
         SemanticSearchUseCase semanticSearchUseCase,
+        GetNoteIndexStatusesUseCase getNoteIndexStatusesUseCase,
         GetNoteSummaryUseCase getNoteSummaryUseCase
     ) {
         this.semanticSearchUseCase = semanticSearchUseCase;
+        this.getNoteIndexStatusesUseCase = getNoteIndexStatusesUseCase;
         this.getNoteSummaryUseCase = getNoteSummaryUseCase;
     }
 
@@ -78,6 +85,29 @@ public class ExplorationController {
                 .toList(),
             result.tokenEstimate(),
             result.charged()
+        ));
+    }
+
+    @PostMapping("/api/v1/intelligence/note-index-statuses")
+    public ApiSuccessResponse<NoteIndexStatusesData> noteIndexStatuses(
+        Principal principal,
+        @Valid @RequestBody NoteIndexStatusesRequest request
+    ) {
+        var result = getNoteIndexStatusesUseCase.getNoteIndexStatuses(new NoteIndexStatusesCommand(
+            userId(principal),
+            request.documentGroupId(),
+            request.noteIds()
+        ));
+
+        return ApiSuccessResponse.ok(new NoteIndexStatusesData(
+            result.notes().stream()
+                .map(note -> new NoteIndexStatusData(
+                    note.noteId(),
+                    note.searchIndexStatus(),
+                    note.availableForAiFeatures(),
+                    note.indexedAt()
+                ))
+                .toList()
         ));
     }
 
@@ -152,6 +182,25 @@ public class ExplorationController {
         String excerpt,
         double score,
         SearchMatchType matchedType
+    ) {
+    }
+
+    record NoteIndexStatusesRequest(
+        String documentGroupId,
+        @NotEmpty @Size(max = 200) List<@NotBlank String> noteIds
+    ) {
+    }
+
+    record NoteIndexStatusesData(
+        List<NoteIndexStatusData> notes
+    ) {
+    }
+
+    record NoteIndexStatusData(
+        String noteId,
+        String searchIndexStatus,
+        boolean availableForAiFeatures,
+        java.time.Instant indexedAt
     ) {
     }
 

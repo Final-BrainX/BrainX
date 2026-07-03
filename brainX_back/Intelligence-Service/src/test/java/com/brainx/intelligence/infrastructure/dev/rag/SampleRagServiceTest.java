@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -396,6 +397,11 @@ class SampleRagServiceTest {
                     && projection.searchIndexStatus() == NoteSearchIndexStatus.INDEXED)
                 .limit(limit)
                 .toList();
+        }
+
+        @Override
+        public List<NoteProjection> findIndexRetryCandidates(Instant now, int limit) {
+            return List.of();
         }
 
         @Override

@@ -1,9 +1,11 @@
 package com.brainx.intelligence.infrastructure.persistence.jpa.note;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -16,6 +18,8 @@ import com.brainx.intelligence.autolink.application.port.outbound.AutoLinkNoteSo
 import com.brainx.intelligence.connection.application.port.outbound.ConnectionNoteSourcePort;
 import com.brainx.intelligence.connection.application.port.outbound.ConnectionNoteSourcePort.ConnectionBridgeSourceNote;
 import com.brainx.intelligence.connection.application.port.outbound.ConnectionNoteSourcePort.ConnectionNoteSource;
+import com.brainx.intelligence.exploration.application.port.outbound.NoteIndexStatusPort;
+import com.brainx.intelligence.exploration.application.port.outbound.NoteIndexStatusPort.NoteIndexStatusProjection;
 import com.brainx.intelligence.infrastructure.events.note.NoteProjection;
 import com.brainx.intelligence.infrastructure.events.note.NoteProjectionStore;
 import com.brainx.intelligence.infrastructure.events.note.NoteSearchIndexStatus;
@@ -26,7 +30,7 @@ import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysi
 import com.brainx.intelligence.shared.domain.DocumentGroups;
 
 @Repository
-public class NoteProjectionJpaAdapter implements NoteProjectionStore, AutoLinkNoteSourcePort, ConnectionNoteSourcePort, KnowledgeAnalysisNoteSourcePort, OrganizationNoteSourcePort {
+public class NoteProjectionJpaAdapter implements NoteProjectionStore, AutoLinkNoteSourcePort, ConnectionNoteSourcePort, KnowledgeAnalysisNoteSourcePort, OrganizationNoteSourcePort, NoteIndexStatusPort {
 
     private final NoteProjectionJpaRepository repository;
 
@@ -90,6 +94,27 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AutoLinkNo
 
     @Override
     @Transactional(readOnly = true)
+    public List<NoteProjection> findIndexRetryCandidates(Instant now, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        Instant cutoff = now == null ? Instant.now() : now;
+        return repository.findRetryCandidates(
+                Set.of(
+                    NoteSearchIndexStatus.NOT_INDEXED,
+                    NoteSearchIndexStatus.PROVISIONAL,
+                    NoteSearchIndexStatus.STALE,
+                    NoteSearchIndexStatus.FAILED
+                ),
+                cutoff,
+                PageRequest.of(0, limit)
+            ).stream()
+            .map(NoteProjectionJpaEntity::toDomain)
+            .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<AutoLinkNoteSource> findSearchableNoteSources(String userId, String documentGroupId, int limit) {
         return findSearchableByUserIdAndDocumentGroupId(userId, documentGroupId, limit).stream()
             .map(projection -> new AutoLinkNoteSource(
@@ -101,6 +126,23 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AutoLinkNo
                 projection.markdownHash(),
                 projection.markdown(),
                 projection.updatedAt()
+            ))
+            .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<NoteIndexStatusProjection> findNoteIndexStatuses(
+        String userId,
+        String documentGroupId,
+        List<String> noteIds
+    ) {
+        return findByUserIdAndDocumentGroupIdAndNoteIds(userId, documentGroupId, noteIds).stream()
+            .map(projection -> new NoteIndexStatusProjection(
+                projection.noteId(),
+                projection.searchIndexStatus().name(),
+                canCreateLinkSuggestions(projection),
+                projection.indexedAt()
             ))
             .toList();
     }

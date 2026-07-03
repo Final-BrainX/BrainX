@@ -1,5 +1,6 @@
 package com.brainx.intelligence.infrastructure.events.note;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -22,6 +23,8 @@ public interface NoteProjectionStore {
         String documentGroupId,
         int limit
     );
+
+    List<NoteProjection> findIndexRetryCandidates(Instant now, int limit);
 
     NoteProjection save(NoteProjection projection);
 }

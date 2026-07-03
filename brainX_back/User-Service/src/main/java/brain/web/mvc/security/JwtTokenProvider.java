@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Component
@@ -41,6 +42,39 @@ public class JwtTokenProvider {
 
     public String createRefreshToken(User user, String sessionId) {
         return createToken(user, refreshExpirationMillis, "refresh", sessionId);
+    }
+
+    public String createMcpAccessToken(
+            User user,
+            String clientId,
+            List<String> scopes,
+            String issuer,
+            String resource,
+            long expirationMillis
+    ) {
+        try {
+            Instant now = Instant.now();
+            Map<String, Object> header = Map.of("alg", "HS256", "typ", "JWT");
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("sub", user.getUserId());
+            payload.put("email", user.getEmail());
+            payload.put("role", user.getRole().name());
+            payload.put("typ", "mcp_access");
+            payload.put("client_id", clientId);
+            payload.put("scope", String.join(" ", scopes == null ? List.of() : scopes));
+            payload.put("iss", issuer);
+            payload.put("aud", resource);
+            payload.put("resource", resource);
+            payload.put("iat", now.getEpochSecond());
+            payload.put("exp", now.plusMillis(expirationMillis).getEpochSecond());
+
+            String encodedHeader = base64Url(objectMapper.writeValueAsBytes(header));
+            String encodedPayload = base64Url(objectMapper.writeValueAsBytes(payload));
+            String unsignedToken = encodedHeader + "." + encodedPayload;
+            return unsignedToken + "." + sign(unsignedToken);
+        } catch (Exception exception) {
+            throw new IllegalStateException("MCP 토큰 생성에 실패했습니다.", exception);
+        }
     }
 
     public long refreshExpirationMillis() {

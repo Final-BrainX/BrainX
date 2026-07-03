@@ -57,6 +57,13 @@ brainx:
   auth:
     session-history-ttl-seconds: ${AUTH_SESSION_HISTORY_TTL_SECONDS:2592000}
     session-history-max-items: ${AUTH_SESSION_HISTORY_MAX_ITEMS:20}
+  mcp-oauth:
+    issuer: ${BRAINX_OAUTH_ISSUER:${brainx.frontend-base-url}}
+    resource: ${BRAINX_MCP_RESOURCE:${brainx.frontend-base-url}/mcp}
+    authorization-code-ttl-seconds: ${BRAINX_MCP_OAUTH_CODE_TTL_SECONDS:300}
+    access-token-expiration-millis: ${BRAINX_MCP_OAUTH_ACCESS_EXPIRATION:3600000}
+    refresh-token-expiration-millis: ${BRAINX_MCP_OAUTH_REFRESH_EXPIRATION:2592000000}
+    redirect-uri-allowlist: ${BRAINX_MCP_OAUTH_REDIRECT_URI_ALLOWLIST:}
   oauth:
     google:
       client-id: ${GOOGLE_CLIENT_ID:your_google_client_id}

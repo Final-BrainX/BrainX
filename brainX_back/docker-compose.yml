@@ -264,6 +264,9 @@ services:
       MCP_DB_NAME: ${MCP_DB_NAME:-brainx_mcp}
       JWT_SECRET: ${JWT_SECRET:-replace_with_at_least_32_byte_secret}
       SERVICE_TOKEN: ${SERVICE_TOKEN:-local-service-token}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
+      BRAINX_OAUTH_ISSUER: ${BRAINX_OAUTH_ISSUER:-http://localhost:3000}
+      BRAINX_MCP_RESOURCE: ${BRAINX_MCP_RESOURCE:-http://localhost:3000/mcp}
       WORKSPACE_SERVICE_URL: http://workspace-service:8082
       INTELLIGENCE_SERVICE_URL: http://intelligence-service:8086
     ports:

@@ -146,6 +146,35 @@ Rationale:
 
 Do not set `cancel-in-progress: true` for this environment unless the deploy script becomes explicitly cancellation-safe and rollback-safe.
 
+## SSE Async Dispatch Access Denied
+
+### Incident
+
+2026-07-03에 `/chat` 메시지 전송 SSE endpoint가 브라우저에서 `ERR_HTTP2_PROTOCOL_ERROR`로 실패했다.
+
+- 요청: `POST /api/v1/ai/chat-threads/{threadId}/messages`
+- Caddy 로그: `aborting with incomplete response`, `reading: unexpected EOF`, upstream `intelligence-service:8086`
+- Intelligence-Service 로그: `AuthorizationDeniedException: Access Denied`, `Unable to handle the Spring Security Exception because the response is already committed`
+- 무인증 초기 POST는 정상적으로 `401`을 반환했고, Caddy routing과 Intelligence health check는 정상이었다.
+
+### Root Cause
+
+SSE는 Spring MVC async dispatch를 사용한다. 초기 `REQUEST` dispatch는 JWT 인증을 통과했지만, SSE 응답이 이미 commit된 뒤 내부 `ASYNC` 또는 `ERROR` redispatch에서 Spring Security authorization이 다시 실행되면서 인증 없는 dispatch로 판단해 `Access Denied`가 발생했다. 이미 응답이 시작된 뒤라 브라우저에는 HTTP status 대신 HTTP/2 stream error처럼 보였다.
+
+### Fix
+
+초기 요청 인증은 유지하고 서버 내부 redispatch만 허용한다. `Intelligence-Service`의 `SecurityConfig`에서 `/internal/v1/**`, `/api/v1/**` rule보다 앞에 다음 rule을 둔다.
+
+```java
+authorize.dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll();
+```
+
+검증 기준:
+
+- 인증 없는 초기 `POST /api/v1/ai/chat-threads/{threadId}/messages`는 계속 `401`이어야 한다.
+- 인증된 SSE 요청은 `request().asyncStarted()` 후 `asyncDispatch(...)`에서 `200 text/event-stream`과 `delta`/`done` event를 반환해야 한다.
+- Caddy route 변경은 필요하지 않다.
+
 ### Postmortem Checklist
 
 - Record the failed run URL, latest successful rerun URL, affected commit SHA, and endpoint smoke result in `infra/worklogs/YYYY-MM.md`.
