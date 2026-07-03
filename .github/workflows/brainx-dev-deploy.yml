@@ -231,6 +231,13 @@ jobs:
 
           CACHE_SCOPE="brainx-dev-$SERVICE"
 
+          REPO_NAME="brainx-dev-$SERVICE"
+          if ! aws ecr describe-repositories --repository-names "$REPO_NAME" --region "$AWS_REGION" >/dev/null 2>&1; then
+            echo "Missing or inaccessible ECR repository: $REPO_NAME" >&2
+            echo "Run terraform apply in infra/aws-dev/terraform first so the repo and GitHub Actions ECR policy are created." >&2
+            exit 1
+          fi
+
           docker buildx build \
             --progress=plain \
             --push \

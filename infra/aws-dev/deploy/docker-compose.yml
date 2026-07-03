@@ -308,9 +308,9 @@ services:
       USER_SERVICE_URL: ${USER_SERVICE_URL:-http://User-Service}
       COMMERCE_SERVICE_URL: ${COMMERCE_SERVICE_URL:-http://Commerce-Service}
       WORKSPACE_SERVICE_URL: ${WORKSPACE_SERVICE_URL:-http://Workspace-Service}
-      INGESTION_SERVICE_URL: ${INGESTION_SERVICE_URL:-http://Ingestion-Service}
-      INTELLIGENCE_SERVICE_URL: ${INTELLIGENCE_SERVICE_URL:-http://Intelligence-Service}
-      MCP_SERVICE_URL: ${MCP_SERVICE_URL:-http://Mcp-Service}
+      INGESTION_SERVICE_URL: ${INGESTION_SERVICE_URL:-http://ingestion-service}
+      INTELLIGENCE_SERVICE_URL: ${INTELLIGENCE_SERVICE_URL:-http://intelligence-service}
+      MCP_SERVICE_URL: ${MCP_SERVICE_URL:-http://mcp-service}
       SEED_ADMIN_LOGIN_ID: ${SEED_ADMIN_LOGIN_ID:-admin}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
       SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-BrainX Admin}

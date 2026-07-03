@@ -394,6 +394,8 @@ docker compose --profile apps up -d --build
 1. `Gateway-Service`, `User-Service`, `Workspace-Service`, `Ingestion-Service`, `Commerce-Service`, `Intelligence-Service`, `Admin-Service`, `Mcp-Service`를 순서대로 확인합니다.
 1. `Admin-Service`는 `apps` 프로필에서 Discovery에 등록된 서비스명(`User-Service`, `Commerce-Service`, `Workspace-Service`, `Ingestion-Service`, `Intelligence-Service`, `Mcp-Service`) 기준으로 내부 호출을 수행합니다.
 
+Eureka 서비스명은 `spring.application.name`과 대소문자가 정확히 같아야 합니다. BrainX 배포에서는 `User-Service`, `Commerce-Service`, `Workspace-Service`, `Admin-Service`, `Gateway-Service`는 대문자 표기 그대로 쓰고, `ingestion-service`, `intelligence-service`, `mcp-service`는 소문자 표기를 유지합니다.
+
 앱 포트 매핑은 아래와 같습니다.
 
 | Service | Port | Purpose |
