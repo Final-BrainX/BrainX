@@ -9,9 +9,9 @@ import org.springframework.context.annotation.Configuration;
 public class McpToolConfig {
 
     @Bean
-    ToolCallbackProvider brainxMcpTools(BrainxWhoamiTool whoamiTool) {
+    ToolCallbackProvider brainxMcpTools(BrainxWhoamiTool whoamiTool, BrainxNoteTool noteTool) {
         return MethodToolCallbackProvider.builder()
-            .toolObjects(whoamiTool)
+            .toolObjects(whoamiTool, noteTool)
             .build();
     }
 }

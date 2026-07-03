@@ -2,11 +2,14 @@ openapi: 3.0.3
 info:
   title: BrainX API SSOT - Knowledge Intelligence Consumed APIs
   version: 1.0.0-revised
+  license:
+    name: Proprietary
+    url: https://brainx.p-e.kr
   description: OpenAPI slice for synchronous internal APIs consumed by Intelligence Service. Provider-owned API behavior remains
     governed by the source SSOT.
 servers:
-- url: http://localhost:8080
-  description: 로컬 API 게이트웨이
+- url: https://brainx.p-e.kr
+  description: AWS dev API 게이트웨이. 로컬 개발은 Gateway-Service 기본 포트 8088을 사용한다.
 - url: https://api.brainx.com
   description: 운영 API 게이트웨이
 tags:
@@ -255,9 +258,10 @@ paths:
 components:
   securitySchemes:
     serviceTokenAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: service-jwt
+      type: apiKey
+      in: header
+      name: X-Service-Token
+      description: Shared internal service token used by Gateway and backend services for `/internal/v1/**` calls.
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -288,6 +292,7 @@ components:
           enum:
           - false
         data:
+          type: object
           nullable: true
         message:
           type: string

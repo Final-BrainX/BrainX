@@ -39,6 +39,7 @@ tasks.named('test') {
 
 tasks.withType(JavaCompile).configureEach {
     options.compilerArgs.addAll([
+        '-parameters',
         '-Xlint:deprecation',
         '-Xlint:unchecked',
         '-Werror'

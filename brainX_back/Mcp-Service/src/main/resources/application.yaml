@@ -39,6 +39,13 @@ management:
 brainx:
   jwt:
     secret: ${JWT_SECRET:replace_with_at_least_32_byte_secret}
+  service-token: ${SERVICE_TOKEN:local-service-token}
+  workspace:
+    base-url: ${WORKSPACE_SERVICE_URL:http://localhost:8082}
+    timeout: ${WORKSPACE_SERVICE_TIMEOUT:5s}
+  intelligence:
+    base-url: ${INTELLIGENCE_SERVICE_URL:http://localhost:8086}
+    timeout: ${INTELLIGENCE_SERVICE_TIMEOUT:10s}
   mcp:
     api-key:
       prefix: ${BRAINX_MCP_API_KEY_PREFIX:bxk_live_}
