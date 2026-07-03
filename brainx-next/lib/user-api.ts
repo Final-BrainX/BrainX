@@ -1,6 +1,6 @@
 "use client";
 
-import { clearAuthSession, readAuthSession, saveAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { clearAuthSession, isDevAuthSession, readAuthSession, saveAuthSession, type ApiResponse } from "@/lib/auth-api";
 import type { ThemeMode } from "@/components/brainx-provider";
 import type { LanguageCode } from "@/lib/i18n";
 
@@ -82,7 +82,11 @@ async function authedRequest<T>(path: string, init?: RequestInit) {
   }
 
   const session = readAuthSession();
-  if (!session?.accessToken) {
+  // 개발용 DEV_AUTH_BYPASS 세션은 accessToken이 있어도 실제 백엔드가 인정하는 토큰이 아니다.
+  // 이걸 그대로 보내면 항상 401 → clearAuthSession() → (bypass라 세션이 즉시 재생성됨) →
+  // brainx-auth-session-changed 재발생 → 재요청 → 401 … 무한 루프가 된다. workspace-api.ts /
+  // graph-api.ts는 이미 isDevAuthSession을 확인해 이 경로를 피하고 있어 여기도 동일하게 맞춘다.
+  if (!session?.accessToken || isDevAuthSession(session)) {
     throw new AuthRequiredError("로그인이 필요합니다.");
   }
 

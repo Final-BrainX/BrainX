@@ -281,6 +281,7 @@ services:
       BRAINX_EVENTS_OUTBOX_ENABLED: "true"
       EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:-http://discovery-service:8761/eureka/}
       EUREKA_INSTANCE_HOSTNAME: commerce-service
+      BRAINX_EVENTS_CONSUMER_ENABLED: "true"
       JPA_DDL_AUTO: update
     expose:
       - "8084"
@@ -392,6 +393,12 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       MCP_DB_NAME: brainx_mcp
       JWT_SECRET: ${JWT_SECRET}
+      SERVICE_TOKEN: ${SERVICE_TOKEN}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      BRAINX_OAUTH_ISSUER: ${PUBLIC_BASE_URL}
+      BRAINX_MCP_RESOURCE: ${PUBLIC_BASE_URL}/mcp
+      WORKSPACE_SERVICE_URL: http://workspace-service:8082
+      INTELLIGENCE_SERVICE_URL: http://intelligence-service:8086
       SPRING_JPA_HIBERNATE_DDL_AUTO: update
       JPA_DDL_AUTO: update
       EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:-http://discovery-service:8761/eureka/}

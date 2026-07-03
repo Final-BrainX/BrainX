@@ -1564,6 +1564,7 @@ components:
           type: string
           enum:
           - MANUAL
+          - WIKI
           - AI_SUGGESTED
         anchorText:
           type: string

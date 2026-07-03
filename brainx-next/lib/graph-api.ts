@@ -2,6 +2,7 @@
 
 import { clearAuthSession, isDevAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
 import { CLUSTERS, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
+import { extractWikiLinkTargets, resolveWikiLinkByTitle } from "@/lib/wiki-links";
 import type { NoteDraftData } from "@/lib/workspace-api";
 
 const WORKSPACE_API_BASE_URL = process.env.NEXT_PUBLIC_WORKSPACE_API_BASE_URL ?? "http://localhost:8082";
@@ -104,6 +105,9 @@ export function graphToBrainXNotes(graph: GraphData): BrainXNote[] {
       summary: normalizeSummary(node.summary, node.title),
       tags: node.tags ?? [],
       links: Array.from(linksByNoteId.get(node.noteId) ?? []),
+      searchIndexStatus: "UNKNOWN",
+      availableForAiFeatures: false,
+      indexedAt: null,
       updated: relativeUpdatedLabel(node.updatedAt ?? node.lastViewedAt),
       words: 0,
       isFavorite: false,
@@ -130,6 +134,9 @@ export function draftsToBrainXNotes(drafts: NoteDraftData[]): BrainXNote[] {
       summary: normalizeSummary(null, draft.title ?? "제목 없음"),
       tags: [],
       links: [],
+      searchIndexStatus: "UNKNOWN",
+      availableForAiFeatures: false,
+      indexedAt: null,
       updated: relativeUpdatedLabel(draft.savedAt),
       words: 0,
       isFavorite: false,
@@ -138,6 +145,27 @@ export function draftsToBrainXNotes(drafts: NoteDraftData[]): BrainXNote[] {
       version: draft.baseVersion ?? 1
     };
   });
+}
+
+/** 게스트는 Postgres NoteLink가 없어(구조상 의도된 정책 — graph-api 자체를 안 씀) 서버 그래프를
+    받을 수 없다. 대신 draft 목록에서 `[[제목]]` 위키링크만 뽑아 로컬로 엣지를 만든다.
+    knowledge-graph.ts의 deriveGraphEdges(태그/키워드 유사도 기반 mock 그래프용)는 일부러 안 쓴다 —
+    로그인 사용자의 NoteLink(WIKI 타입, 실제 [[ ]] 참조만)와 같은 의미를 유지해야 로그인 후
+    Graph API 그래프로 전환될 때 엣지가 갑자기 늘거나 줄어 보이지 않는다. */
+export function deriveDraftWikiLinkEdges(notes: BrainXNote[]) {
+  const edges: Array<{ source: string; target: string; bridge: boolean }> = [];
+  const seen = new Set<string>();
+  for (const note of notes) {
+    for (const target of extractWikiLinkTargets(note.markdown)) {
+      const resolved = resolveWikiLinkByTitle(notes, target);
+      if (!resolved || resolved.id === note.id) continue;
+      const key = [note.id, resolved.id].sort().join("::");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      edges.push({ source: note.id, target: resolved.id, bridge: true });
+    }
+  }
+  return edges;
 }
 
 export function graphEdgesForFlow(graph: GraphData) {

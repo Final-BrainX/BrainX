@@ -116,6 +116,134 @@ class NoteProjectionJpaAdapterTest {
     }
 
     @Test
+    void findIndexRetryCandidatesFiltersAndOrdersRetryableProjections() {
+        Instant now = Instant.parse("2026-07-03T01:00:00Z");
+        adapter.save(new NoteProjection(
+            "user-1",
+            "default",
+            "null-retry-old",
+            "Null retry old",
+            null,
+            List.of(),
+            1,
+            null,
+            true,
+            false,
+            false,
+            false,
+            "evt-1",
+            now.minusSeconds(300)
+        ));
+        adapter.save(new NoteProjection(
+            "user-1",
+            "default",
+            "null-retry-new",
+            "Null retry new",
+            null,
+            List.of(),
+            1,
+            null,
+            true,
+            false,
+            false,
+            false,
+            "evt-2",
+            now.minusSeconds(60)
+        ));
+        adapter.save(new NoteProjection(
+            "user-1",
+            "default",
+            "past-retry-early",
+            "Past retry early",
+            null,
+            List.of(),
+            1,
+            null,
+            true,
+            false,
+            false,
+            false,
+            "evt-3",
+            now.minusSeconds(240)
+        ).withIndexRetryFailure("retry-1", now.minusSeconds(240), now.minusSeconds(120), "SNAPSHOT_UNAVAILABLE", "snapshot", false));
+        adapter.save(new NoteProjection(
+            "user-1",
+            "default",
+            "past-retry-late",
+            "Past retry late",
+            null,
+            List.of(),
+            1,
+            null,
+            true,
+            false,
+            false,
+            false,
+            "evt-4",
+            now.minusSeconds(180)
+        ).withIndexRetryFailure("retry-2", now.minusSeconds(180), now.minusSeconds(30), "INDEX_RETRY_FAILED", "failed", true));
+        adapter.save(new NoteProjection(
+            "user-1",
+            "default",
+            "future-retry",
+            "Future retry",
+            null,
+            List.of(),
+            1,
+            null,
+            true,
+            false,
+            false,
+            false,
+            "evt-5",
+            now.minusSeconds(120)
+        ).withIndexRetryFailure("retry-3", now.minusSeconds(120), now.plusSeconds(60), "SNAPSHOT_UNAVAILABLE", "snapshot", false));
+        adapter.save(new NoteProjection(
+            "user-1",
+            "default",
+            "indexed",
+            "Indexed",
+            null,
+            List.of(),
+            1,
+            "hash-1",
+            "indexed markdown",
+            false,
+            false,
+            false,
+            false,
+            "evt-6",
+            now.minusSeconds(90)
+        ).indexed(1, "hash-1", now.minusSeconds(80)));
+        adapter.save(new NoteProjection(
+            "user-1",
+            "default",
+            "archived",
+            "Archived",
+            null,
+            List.of(),
+            1,
+            null,
+            true,
+            true,
+            false,
+            false,
+            "evt-7",
+            now.minusSeconds(70)
+        ));
+
+        var candidates = adapter.findIndexRetryCandidates(now, 10);
+        var limited = adapter.findIndexRetryCandidates(now, 2);
+
+        assertThat(candidates)
+            .extracting(NoteProjection::noteId)
+            .containsExactly("null-retry-new", "null-retry-old", "past-retry-early", "past-retry-late");
+        assertThat(limited).extracting(NoteProjection::noteId).containsExactly("null-retry-new", "null-retry-old");
+        assertThat(candidates.get(3).searchIndexStatus()).isEqualTo(NoteSearchIndexStatus.FAILED);
+        assertThat(candidates.get(3).lastIndexErrorCode()).isEqualTo("INDEX_RETRY_FAILED");
+    }
+
+    @Test
     void findLinkSuggestionSourceNoteUsesDefaultIndexedSearchableProjection() {
         adapter.save(new NoteProjection(
             "user-1",

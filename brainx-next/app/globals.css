@@ -1548,3 +1548,98 @@ html.light .hljs-addition {
 
 /* BlockNote 관련 CSS는 BlockNote/Mantine 패키지 제거(components/editor/BlockNoteEditor.tsx
    삭제)와 함께 정리됨 — 더 이상 어떤 페이지에서도 .bn-* 클래스가 렌더링되지 않는다. */
+
+/* ── 토글 블록 (ToggleNode) ─────────────────────────────────────────── */
+
+.brainx-toggle {
+  border-radius: 6px;
+  margin: 2px 0;
+}
+
+.brainx-toggle__header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  user-select: none;
+  padding: 2px 4px 2px 2px;
+  border-radius: 4px;
+  cursor: default;
+}
+
+.brainx-toggle__header:hover {
+  background: rgba(var(--surface2), 0.4);
+}
+
+.brainx-toggle__chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background: transparent;
+  border: none;
+  color: rgb(var(--txt3));
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.1s;
+}
+
+.brainx-toggle__chevron:hover {
+  background: rgba(var(--surface2), 0.6);
+  color: rgb(var(--txt));
+}
+
+.brainx-toggle__chevron-icon {
+  font-size: 10px;
+  line-height: 1;
+}
+
+.brainx-toggle__summary {
+  font-size: 14px;
+  font-weight: 500;
+  color: rgb(var(--txt));
+  cursor: text;
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.brainx-toggle__summary-input {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgb(var(--txt));
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  min-width: 0;
+}
+
+.brainx-toggle__content {
+  margin-left: 24px;
+  padding-left: 8px;
+  border-left: 2px solid rgba(var(--line), 0.4);
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+.brainx-toggle__content > div > * + * {
+  margin-top: 4px;
+}
+
+.brainx-toggle__summary--placeholder {
+  color: rgb(var(--txt3));
+  font-weight: 400;
+}
+
+.brainx-toggle__content-placeholder::before {
+  content: "텍스트를 입력하세요...";
+  float: left;
+  height: 0;
+  color: rgb(var(--txt3));
+  pointer-events: none;
+}
+
+/* 접힌 상태에서는 내용 영역이 렌더되지 않으므로 별도 스타일 불필요 */

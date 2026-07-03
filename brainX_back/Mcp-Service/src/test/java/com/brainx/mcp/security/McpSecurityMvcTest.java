@@ -1,6 +1,7 @@
 package com.brainx.mcp.security;
 
 import static org.hamcrest.Matchers.startsWith;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -24,7 +25,12 @@ import org.springframework.test.web.servlet.MvcResult;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@TestPropertySource(properties = "brainx.jwt.secret=test-jwt-secret-for-mcp-service")
+@TestPropertySource(properties = {
+    "brainx.jwt.secret=test-jwt-secret-for-mcp-service",
+    "brainx.oauth.issuer=http://localhost:3000",
+    "brainx.oauth.resource=http://localhost:3000/mcp",
+    "brainx.oauth.protected-resource-metadata-url=http://localhost:3000/.well-known/oauth-protected-resource"
+})
 class McpSecurityMvcTest {
 
     private static final String SECRET = "test-jwt-secret-for-mcp-service";
@@ -83,6 +89,25 @@ class McpSecurityMvcTest {
     }
 
     @Test
+    void protectedResourceMetadataIsPublic() throws Exception {
+        mockMvc.perform(get("/.well-known/oauth-protected-resource"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.resource").value("http://localhost:3000/mcp"))
+            .andExpect(jsonPath("$.authorization_servers[0]").value("http://localhost:3000"))
+            .andExpect(jsonPath("$.scopes_supported[0]").value("whoami"));
+    }
+
+    @Test
+    void validMcpOAuthTokenCanCallWhoami() throws Exception {
+        mockMvc.perform(get("/api/v1/mcp/whoami")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + mcpOAuthToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.userId").value("usr_1"))
+            .andExpect(jsonPath("$.data.clientId").value("mcp_oauth_1"))
+            .andExpect(jsonPath("$.data.scopes[0]").value("whoami"));
+    }
+
+    @Test
     void validApiKeyCanCallWhoamiButCannotManageApiClients() throws Exception {
         String apiKey = createApiKey();
 
@@ -115,7 +140,11 @@ class McpSecurityMvcTest {
         mockMvc.perform(post("/mcp")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{}"))
-            .andExpect(status().isUnauthorized());
+            .andExpect(status().isUnauthorized())
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string(
+                HttpHeaders.WWW_AUTHENTICATE,
+                containsString("resource_metadata=\"http://localhost:3000/.well-known/oauth-protected-resource\"")
+            ));
     }
 
     @Test
@@ -124,6 +153,17 @@ class McpSecurityMvcTest {
 
         MvcResult result = mockMvc.perform(post("/mcp")
                 .header("X-BrainX-Api-Key", apiKey)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andReturn();
+
+        org.assertj.core.api.Assertions.assertThat(result.getResponse().getStatus()).isNotEqualTo(401);
+    }
+
+    @Test
+    void validMcpOAuthTokenPassesMcpEndpointAuthentication() throws Exception {
+        MvcResult result = mockMvc.perform(post("/mcp")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + mcpOAuthToken())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{}"))
             .andReturn();
@@ -142,5 +182,16 @@ class McpSecurityMvcTest {
             .andReturn();
 
         return com.jayway.jsonpath.JsonPath.read(result.getResponse().getContentAsString(), "$.data.apiKeyOnce");
+    }
+
+    private String mcpOAuthToken() {
+        return JwtTestTokens.mcpAccessToken(
+            SECRET,
+            "usr_1",
+            "mcp_oauth_1",
+            "whoami notes:read",
+            "http://localhost:3000",
+            "http://localhost:3000/mcp"
+        );
     }
 }

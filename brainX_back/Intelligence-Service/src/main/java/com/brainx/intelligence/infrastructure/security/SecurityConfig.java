@@ -15,6 +15,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.AuthorityUtils;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
@@ -24,10 +25,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import com.brainx.intelligence.infrastructure.web.ApiErrorResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import java.util.List;
 
 /**
  * Public API 최소 보안 설정입니다.
@@ -61,6 +64,7 @@ public class SecurityConfig {
             || environment.getProperty("brainx.security.dev-auth.enabled", Boolean.class, false);
         boolean devUi = environment.acceptsProfiles(Profiles.of("dev-ui"));
         String devUserId = environment.getProperty("brainx.security.dev-auth.user-id", "dev-test-user");
+        String serviceToken = environment.getProperty("brainx.service-token", "local-service-token");
 
         http
             .formLogin(AbstractHttpConfigurer::disable)
@@ -73,12 +77,13 @@ public class SecurityConfig {
                     writeError(response, objectMapper, HttpStatus.FORBIDDEN, "FORBIDDEN", "Forbidden."))
             );
 
+        http.addFilterBefore(new ServiceTokenAuthenticationFilter(serviceToken), UsernamePasswordAuthenticationFilter.class);
         http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         if (devUi) {
             http.csrf(AbstractHttpConfigurer::disable);
         } else {
-            http.csrf(csrf -> csrf.ignoringRequestMatchers("/api/v1/**"));
+            http.csrf(csrf -> csrf.ignoringRequestMatchers("/api/v1/**", "/internal/v1/**"));
         }
 
         if (localApiPermitAll) {
@@ -87,6 +92,8 @@ public class SecurityConfig {
 
         return http
             .authorizeHttpRequests(authorize -> {
+                authorize.dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll();
+                authorize.requestMatchers("/internal/v1/**").hasRole("SERVICE");
                 var apiRequests = authorize.requestMatchers("/api/v1/**");
                 if (localApiPermitAll) {
                     apiRequests.permitAll();
@@ -96,6 +103,34 @@ public class SecurityConfig {
                 authorize.anyRequest().permitAll();
             })
             .build();
+    }
+
+    private static final class ServiceTokenAuthenticationFilter extends OncePerRequestFilter {
+
+        private static final String SERVICE_TOKEN_HEADER = "X-Service-Token";
+
+        private final String serviceToken;
+
+        private ServiceTokenAuthenticationFilter(String serviceToken) {
+            this.serviceToken = hasText(serviceToken) ? serviceToken : "local-service-token";
+        }
+
+        @Override
+        protected void doFilterInternal(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            FilterChain filterChain
+        ) throws ServletException, IOException {
+            String requestedToken = request.getHeader(SERVICE_TOKEN_HEADER);
+            if (hasText(requestedToken) && requestedToken.equals(serviceToken)) {
+                SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                    "internal-service",
+                    null,
+                    List.of(new SimpleGrantedAuthority("ROLE_SERVICE"))
+                ));
+            }
+            filterChain.doFilter(request, response);
+        }
     }
 
     private static final class LocalDevelopmentAuthenticationFilter extends OncePerRequestFilter {

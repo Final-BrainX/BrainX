@@ -137,6 +137,7 @@ services:
       NEO4J_URI: bolt://neo4j:7687
       EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: workspace-service
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     ports:
       - "8082:8082"
     depends_on:
@@ -190,6 +191,7 @@ services:
       POSTGRES_HOST: postgres
       EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: commerce-service
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     ports:
       - "8084:8084"
     depends_on:
@@ -283,6 +285,52 @@ services:
       retries: 10
       start_period: 30s
 
+  intelligence-service:
+    profiles:
+      - apps
+    build:
+      context: ./Intelligence-Service
+    container_name: brainx-intelligence-service
+    restart: unless-stopped
+    environment:
+      SERVER_PORT: "8086"
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${INTELLIGENCE_DB_NAME:-intelligence_service}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-1234}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: ${JPA_DDL_AUTO:-update}
+      JPA_DDL_AUTO: ${JPA_DDL_AUTO:-update}
+      JWT_SECRET: ${JWT_SECRET:-replace_with_at_least_32_byte_secret}
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-local-service-token}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-5.4-mini}
+      OPENAI_WEB_SEARCH_MODEL: ${OPENAI_WEB_SEARCH_MODEL:-gpt-5.5}
+      BRAINX_EXTERNAL_SEARCH_PROVIDER: ${BRAINX_EXTERNAL_SEARCH_PROVIDER:-openai}
+      BRAINX_AI_EMBEDDING_PROVIDER: ${BRAINX_AI_EMBEDDING_PROVIDER:-voyage}
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+      VOYAGE_EMBEDDING_MODEL: ${VOYAGE_EMBEDDING_MODEL:-voyage-4-lite}
+      VOYAGE_EMBEDDING_DIMENSIONS: ${VOYAGE_EMBEDDING_DIMENSIONS:-1024}
+      QDRANT_HOST: qdrant
+      QDRANT_GRPC_PORT: "6334"
+      QDRANT_COLLECTION: brainx_note_search
+      BRAINX_VECTOR_QDRANT_ENABLED: "true"
+      BRAINX_WORKSPACE_BASE_URL: http://workspace-service:8082
+      BRAINX_WORKSPACE_SERVICE_TOKEN: ${SERVICE_TOKEN:-local-service-token}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      BRAINX_EVENTS_CONSUMER_ENABLED: "true"
+      BRAINX_EVENTS_PRODUCER_ENABLED: "true"
+    ports:
+      - "8086:8086"
+    depends_on:
+      postgres-service-databases:
+        condition: service_completed_successfully
+      qdrant:
+        condition: service_started
+      kafka:
+        condition: service_started
+      workspace-service:
+        condition: service_started
+
   mcp-service:
     profiles:
       - apps
@@ -300,6 +348,12 @@ services:
       JWT_SECRET: ${JWT_SECRET:-replace_with_at_least_32_byte_secret}
       EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: mcp-service
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-local-service-token}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
+      BRAINX_OAUTH_ISSUER: ${BRAINX_OAUTH_ISSUER:-http://localhost:3000}
+      BRAINX_MCP_RESOURCE: ${BRAINX_MCP_RESOURCE:-http://localhost:3000/mcp}
+      WORKSPACE_SERVICE_URL: http://workspace-service:8082
+      INTELLIGENCE_SERVICE_URL: http://intelligence-service:8086
     ports:
       - "8087:8087"
     depends_on:
@@ -307,6 +361,10 @@ services:
         condition: service_healthy
       postgres-service-databases:
         condition: service_completed_successfully
+      workspace-service:
+        condition: service_started
+      intelligence-service:
+        condition: service_started
 
   postgres-service-databases:
     profiles:
@@ -396,8 +454,19 @@ services:
       timeout: 10s
       retries: 10
 
+  qdrant:
+    image: qdrant/qdrant:v1.13.4
+    container_name: brainx-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - brainx_qdrant_data:/qdrant/storage
+
 volumes:
   brainx_kafka_data:
   brainx_postgres_data:
   brainx_neo4j_data:
   brainx_neo4j_logs:
+  brainx_qdrant_data:

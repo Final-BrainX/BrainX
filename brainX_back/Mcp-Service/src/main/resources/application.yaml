@@ -47,6 +47,17 @@ management:
 brainx:
   jwt:
     secret: ${JWT_SECRET:replace_with_at_least_32_byte_secret}
+  oauth:
+    issuer: ${BRAINX_OAUTH_ISSUER:${PUBLIC_BASE_URL:http://localhost:3000}}
+    resource: ${BRAINX_MCP_RESOURCE:${PUBLIC_BASE_URL:http://localhost:3000}/mcp}
+    protected-resource-metadata-url: ${BRAINX_MCP_PROTECTED_RESOURCE_METADATA_URL:${PUBLIC_BASE_URL:http://localhost:3000}/.well-known/oauth-protected-resource}
+  service-token: ${SERVICE_TOKEN:local-service-token}
+  workspace:
+    base-url: ${WORKSPACE_SERVICE_URL:http://localhost:8082}
+    timeout: ${WORKSPACE_SERVICE_TIMEOUT:5s}
+  intelligence:
+    base-url: ${INTELLIGENCE_SERVICE_URL:http://localhost:8086}
+    timeout: ${INTELLIGENCE_SERVICE_TIMEOUT:10s}
   mcp:
     api-key:
       prefix: ${BRAINX_MCP_API_KEY_PREFIX:bxk_live_}

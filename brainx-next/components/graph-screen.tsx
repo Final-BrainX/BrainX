@@ -6,8 +6,9 @@ import { useRouter } from "next/navigation";
 import { Compass, FileUp, PencilLine, Pin, PinOff, Sparkles } from "lucide-react";
 import { buildAuthPath, isDevAuthSession, readAuthSession } from "@/lib/auth-api";
 import { CLUSTERS, deriveGraphEdges, noteById, clusterById, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
-import { draftsToBrainXNotes, getGraph, graphEdgesForFlow, graphToBrainXNotes, USE_MOCK_GRAPH, USE_MOCK_GRAPH_CLUSTERS } from "@/lib/graph-api";
+import { deriveDraftWikiLinkEdges, draftsToBrainXNotes, getGraph, graphEdgesForFlow, graphToBrainXNotes, USE_MOCK_GRAPH, USE_MOCK_GRAPH_CLUSTERS } from "@/lib/graph-api";
 import { createBridgeConcepts, createLinkSuggestions, getLatestClusterJob, requestClusterJob, type BridgeConceptsData, type ClusterJobData, type ClusterJobLatestData, type LinkSuggestionsData } from "@/lib/intelligence-api";
+import { mergeNoteIndexStatuses } from "@/lib/note-index-statuses";
 import { createWorkspaceNote, createWorkspaceNoteLink, listWorkspaceNoteDrafts, type NoteCreated } from "@/lib/workspace-api";
 import { useBrainX } from "@/components/brainx-provider";
 import { Avatar, Badge, Btn, Card, Icon } from "@/components/brainx-ui";
@@ -457,12 +458,16 @@ function isFilteredOutByTime(note: BrainXNote, timeFilter: string) {
   return (ageRank[note.updated] ?? 0) > limit;
 }
 
+function isAiFeatureReadyNote(note: BrainXNote) {
+  return note.availableForAiFeatures === true;
+}
+
 function isBridgeSelectableNote(
   note: BrainXNote,
   hiddenClusters: Partial<Record<ClusterId, boolean>>,
   timeFilter: string
 ) {
-  return !hiddenClusters[note.cluster] && !isFilteredOutByTime(note, timeFilter);
+  return isAiFeatureReadyNote(note) && !hiddenClusters[note.cluster] && !isFilteredOutByTime(note, timeFilter);
 }
 
 function mergeSelectedIds(currentIds: string[], incomingIds: string[], maxCount: number) {
@@ -623,41 +628,37 @@ function bridgeSourceNotes(sourceNotes: BrainXNote[]) {
   return sourceNotes.slice(0, 2);
 }
 
-function ensureBridgeReasonWikiLinks(reason: string, sourceNotes: BrainXNote[]) {
-  const requiredLinks = bridgeSourceNotes(sourceNotes).map((note) => wikiLink(note.title));
-  const missingLinks = requiredLinks.filter((link) => !reason.includes(link));
-  if (missingLinks.length === 0) return reason;
-  return `${reason} 연결 원본: ${missingLinks.join(", ")}.`;
-}
-
 function buildBridgeRecommendationMarkdown(recommendation: BridgeRecommendation, sourceNotes: BrainXNote[]) {
-  const title = normalizeMarkdownText(recommendation.title) || "징검다리 개념 후보";
-  const reason =
-    recommendation.bridgeReason?.trim() ||
-    "선택한 노트 사이를 이어줄 새 문서 주제로 제안되었습니다.";
-  const linkedReason = ensureBridgeReasonWikiLinks(reason, sourceNotes);
-  const sourceLines = bridgeSourceNotes(sourceNotes).map((note, index) => {
+  const bridgeNotes = bridgeSourceNotes(sourceNotes);
+  const sourceLinks = bridgeNotes.map((note) => wikiLink(note.title));
+  const firstSource = sourceLinks[0] ?? "첫 번째 노트";
+  const secondSource = sourceLinks[1] ?? "두 번째 노트";
+  const connectionView =
+    normalizeMarkdownText(recommendation.bridgeReason ?? "") ||
+    `${firstSource}와 ${secondSource}를 함께 보며 공통된 쟁점과 차이를 정리한다.`;
+  const overviewLines = [
+    `- ${firstSource}에서 출발한 문제의식`,
+    `- ${secondSource}가 보완하거나 대조하는 관점`,
+    "- 두 노트를 함께 볼 때 드러나는 판단 기준",
+    "- 이어서 확인할 사례와 반례"
+  ];
+  const sourceLines = bridgeNotes.map((note, index) => {
     const tags = note.tags.length > 0 ? ` ${note.tags.map((tag) => `#${normalizeMarkdownText(tag)}`).join(" ")}` : "";
     return `${index + 1}. ${wikiLink(note.title)}${tags}`;
   });
 
   return [
-    `# ${title}`,
+    "## 연결 관점",
     "",
-    "> AI가 선택한 노트 사이를 이어줄 새 주제로 제안했습니다.",
+    connectionView,
     "",
-    "## 제안 이유",
+    "## 개요",
     "",
-    linkedReason,
+    overviewLines.join("\n"),
     "",
-    "## 연결한 노트",
+    "## 관련 노트",
     "",
-    sourceLines.length > 0 ? sourceLines.join("\n") : "- 선택한 노트 정보 없음",
-    "",
-    "## 다음에 적어볼 내용",
-    "",
-    "- 이 주제가 각 노트의 어떤 공백을 메우는지 정리하기",
-    "- 관련 개념, 사례, 의사결정 기준을 추가하기"
+    sourceLines.length > 0 ? sourceLines.join("\n") : "- 선택한 노트 정보 없음"
   ].join("\n");
 }
 
@@ -679,6 +680,9 @@ function bridgeRecommendationToGraphNote(
       "선택한 노트 사이를 이어줄 새 문서 주제로 제안되었습니다.",
     tags: BRIDGE_RECOMMENDATION_TAGS,
     links: [],
+    searchIndexStatus: "UNKNOWN",
+    availableForAiFeatures: false,
+    indexedAt: null,
     updated: "today",
     words: 0,
     isFavorite: false,
@@ -1218,7 +1222,7 @@ function GraphCanvasFlow({
         }
       };
     });
-    
+
     setRfNodes((currentNodes) => {
       if (!bridgeBoxSelectingRef.current) {
         return newNodes;
@@ -1536,7 +1540,12 @@ function GraphScreenInner() {
   }, [dynamicClusters]);
   const selected = selectedId ? notes.find((note) => note.id === selectedId) ?? null : null;
   const hasGraphData = notes.length > 0;
-  const aiClusterUsableNoteCount = clusterLatest?.searchableNoteCount ?? rawNotes.length;
+  const noteIndexStatusUnavailable = rawNotes.some((note) => note.indexStatusUnavailable);
+  const aiReadyNoteLabel = noteIndexStatusUnavailable ? "선택 가능한 노트" : "색인된 노트";
+  const aiClusterUsableNoteCount = useMemo(
+    () => rawNotes.filter(isAiFeatureReadyNote).length,
+    [rawNotes]
+  );
   const aiClusterButtonDisabled =
     !aiClusterPanelEnabled ||
     clusterStatus === "loading" ||
@@ -1556,6 +1565,10 @@ function GraphScreenInner() {
     () => bridgeSelectedIds.map((id) => notes.find((note) => note.id === id)).filter((note): note is BrainXNote => !!note),
     [bridgeSelectedIds, notes]
   );
+  const bridgeSelectableIdSet = useMemo(() => new Set(bridgeSelectableIds), [bridgeSelectableIds]);
+  const bridgeSelectedReady =
+    bridgeSelectedIds.length === bridgeSelectedNotes.length &&
+    bridgeSelectedNotes.every(isAiFeatureReadyNote);
   const bridgeSelectionLocked = bridgeStatus === "loading";
   const bridgeAllSelectableSelected =
     bridgeSelectAllIds.length > 0 &&
@@ -1564,6 +1577,7 @@ function GraphScreenInner() {
   const canCreateBridgeConcepts =
     bridgeSelectedIds.length >= BRIDGE_MIN_NOTE_COUNT &&
     bridgeSelectedIds.length <= BRIDGE_MAX_NOTE_COUNT &&
+    bridgeSelectedReady &&
     !bridgeSelectionLocked;
   const bridgePanelVisible = bridgeMode || bridgeStatus === "success" || bridgeStatus === "error";
   const linkSelectableIds = bridgeSelectableIds;
@@ -1575,6 +1589,10 @@ function GraphScreenInner() {
     () => linkSelectedIds.map((id) => notes.find((note) => note.id === id)).filter((note): note is BrainXNote => !!note),
     [linkSelectedIds, notes]
   );
+  const linkSelectableIdSet = useMemo(() => new Set(linkSelectableIds), [linkSelectableIds]);
+  const linkSelectedReady =
+    linkSelectedIds.length === linkSelectedNotes.length &&
+    linkSelectedNotes.every(isAiFeatureReadyNote);
   const linkSelectionLocked = linkStatus === "loading" || linkAcceptAllLoading;
   const linkAllSelectableSelected =
     linkSelectAllIds.length > 0 &&
@@ -1583,6 +1601,7 @@ function GraphScreenInner() {
   const canCreateLinkSuggestions =
     linkSelectedIds.length >= LINK_MIN_NOTE_COUNT &&
     linkSelectedIds.length <= LINK_MAX_NOTE_COUNT &&
+    linkSelectedReady &&
     !linkSelectionLocked;
   const linkPanelVisible = linkMode || linkStatus === "success" || linkStatus === "error";
   const linkSuggestionCount = linkGroups.reduce((sum, group) => sum + group.suggestions.length, 0);
@@ -1594,6 +1613,14 @@ function GraphScreenInner() {
     ),
     [linkAcceptStates, linkGroups]
   );
+
+  useEffect(() => {
+    setBridgeSelectedIds((current) => current.filter((id) => bridgeSelectableIdSet.has(id)));
+  }, [bridgeSelectableIdSet]);
+
+  useEffect(() => {
+    setLinkSelectedIds((current) => current.filter((id) => linkSelectableIdSet.has(id)));
+  }, [linkSelectableIdSet]);
 
   const refreshGraph = useCallback(
     async ({
@@ -1624,8 +1651,9 @@ function GraphScreenInner() {
         try {
           const data = await listWorkspaceNoteDrafts();
           if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
-          setLiveNotes(draftsToBrainXNotes(data.drafts));
-          setLiveEdges([]);
+          const draftNotes = draftsToBrainXNotes(data.drafts);
+          setLiveNotes(draftNotes);
+          setLiveEdges(deriveDraftWikiLinkEdges(draftNotes));
           setGraphDataVersion((version) => version + 1);
         } catch (error) {
           if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
@@ -1653,7 +1681,8 @@ function GraphScreenInner() {
       try {
         const graph = await getGraph();
         if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
-        const graphNotes = graphToBrainXNotes(graph);
+        const graphNotes = await mergeNoteIndexStatuses(graphToBrainXNotes(graph));
+        if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
         const serverNoteIds = new Set(graphNotes.map((note) => note.id));
         const optimisticNotes = Object.values(optimisticGraphNotesRef.current).filter((note) => {
           if (serverNoteIds.has(note.id)) {
@@ -1822,9 +1851,18 @@ function GraphScreenInner() {
 
   const selectBridgeNotes = (noteIds: string[], replace = false) => {
     if (bridgeSelectionLocked || (!replace && noteIds.length === 0)) return;
+    const selectableNoteIds = noteIds.filter((id) => bridgeSelectableIdSet.has(id));
+    if (selectableNoteIds.length === 0) {
+      if (replace) {
+        clearBridgeGeneratedState();
+        setBridgeSelectedIds([]);
+      }
+      if (noteIds.length > 0) pushToast("색인된 노트만 AI 추천에 사용할 수 있어요.", "info");
+      return;
+    }
     clearBridgeGeneratedState();
-    const hasNewIncoming = noteIds.some((id) => !bridgeSelectedIds.includes(id));
-    const result = mergeBridgeSelectedIds(replace ? [] : bridgeSelectedIds, noteIds);
+    const hasNewIncoming = selectableNoteIds.some((id) => !bridgeSelectedIds.includes(id));
+    const result = mergeBridgeSelectedIds(replace ? [] : bridgeSelectedIds, selectableNoteIds);
     setBridgeSelectedIds(result.ids);
     if (!replace && hasNewIncoming && bridgeSelectedIds.length >= BRIDGE_MAX_NOTE_COUNT) {
       pushToast(`징검다리 추천은 최대 ${BRIDGE_MAX_NOTE_COUNT}개 노트까지 선택할 수 있어요.`, "info");
@@ -1847,6 +1885,10 @@ function GraphScreenInner() {
 
   const toggleBridgeNote = (noteId: string) => {
     if (bridgeSelectionLocked) return;
+    if (!bridgeSelectedIds.includes(noteId) && !bridgeSelectableIdSet.has(noteId)) {
+      pushToast("색인된 노트만 AI 추천에 사용할 수 있어요.", "info");
+      return;
+    }
     clearBridgeGeneratedState();
     if (bridgeSelectedIds.includes(noteId)) {
       setBridgeSelectedIds(bridgeSelectedIds.filter((id) => id !== noteId));
@@ -1861,9 +1903,18 @@ function GraphScreenInner() {
 
   const selectLinkNotes = (noteIds: string[], replace = false) => {
     if (linkSelectionLocked || (!replace && noteIds.length === 0)) return;
+    const selectableNoteIds = noteIds.filter((id) => linkSelectableIdSet.has(id));
+    if (selectableNoteIds.length === 0) {
+      if (replace) {
+        clearLinkGeneratedState();
+        setLinkSelectedIds([]);
+      }
+      if (noteIds.length > 0) pushToast("색인된 노트만 AI 추천에 사용할 수 있어요.", "info");
+      return;
+    }
     clearLinkGeneratedState();
-    const hasNewIncoming = noteIds.some((id) => !linkSelectedIds.includes(id));
-    const result = mergeLinkSelectedIds(replace ? [] : linkSelectedIds, noteIds);
+    const hasNewIncoming = selectableNoteIds.some((id) => !linkSelectedIds.includes(id));
+    const result = mergeLinkSelectedIds(replace ? [] : linkSelectedIds, selectableNoteIds);
     setLinkSelectedIds(result.ids);
     if (!replace && hasNewIncoming && linkSelectedIds.length >= LINK_MAX_NOTE_COUNT) {
       pushToast(`AI 연결 추천은 최대 ${LINK_MAX_NOTE_COUNT}개 노트까지 선택할 수 있어요.`, "info");
@@ -1886,6 +1937,10 @@ function GraphScreenInner() {
 
   const toggleLinkNote = (noteId: string) => {
     if (linkSelectionLocked) return;
+    if (!linkSelectedIds.includes(noteId) && !linkSelectableIdSet.has(noteId)) {
+      pushToast("색인된 노트만 AI 추천에 사용할 수 있어요.", "info");
+      return;
+    }
     clearLinkGeneratedState();
     if (linkSelectedIds.includes(noteId)) {
       setLinkSelectedIds(linkSelectedIds.filter((id) => id !== noteId));
@@ -2305,6 +2360,14 @@ function GraphScreenInner() {
                 </button>
               </div>
               <p className="mt-2 break-words text-[11.5px] leading-5 text-txt3">{clusterStateMessage.body}</p>
+              <div className="mt-2 rounded-lg bg-txt/5 px-2.5 py-1.5 text-[11px] font-medium text-txt3">
+                {aiReadyNoteLabel} {aiClusterUsableNoteCount}개
+              </div>
+              {noteIndexStatusUnavailable ? (
+                <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-2.5 py-2 text-[11px] font-medium text-amber-700 dark:text-amber-200">
+                  색인 상태를 확인하지 못해 기존 방식으로 선택합니다.
+                </div>
+              ) : null}
               {clusterLatest?.state === "STALE" ? (
                 <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-2.5 py-2 text-[11px] font-medium text-amber-700 dark:text-amber-200">
                   노트가 변경됨 · 다시 분석 필요
@@ -2591,6 +2654,9 @@ function GraphScreenInner() {
               <p className="mt-2 text-[12px] leading-5 text-txt2">
                 그래프에서 2~10개 노트를 선택하세요. 선택 순서대로 AI가 새 문서 후보를 제안합니다.
               </p>
+              <p className="mt-1 text-[11px] leading-5 text-txt3">
+                {aiReadyNoteLabel} {bridgeSelectableIds.length}개만 선택할 수 있습니다.
+              </p>
             </div>
 
             <div className="scroll flex-1 overflow-y-auto p-4" aria-live="polite">
@@ -2633,7 +2699,9 @@ function GraphScreenInner() {
                 </div>
               ) : (
                 <div className="mb-4 rounded-xl border border-dashed border-line/70 bg-surface2/40 px-3 py-4 text-center text-[12px] text-txt3">
-                  추천에 사용할 노트를 먼저 선택하세요.
+                  {bridgeSelectableIds.length === 0
+                    ? "색인된 노트가 필요합니다. 색인 완료 후 다시 시도하세요."
+                    : "추천에 사용할 노트를 먼저 선택하세요."}
                 </div>
               )}
 
@@ -2752,6 +2820,9 @@ function GraphScreenInner() {
               <p className="mt-2 text-[12px] leading-5 text-txt2">
                 연결을 만들 원본 노트를 선택하세요. AI가 각 노트에서 이어볼 만한 대상 노트를 찾습니다.
               </p>
+              <p className="mt-1 text-[11px] leading-5 text-txt3">
+                {aiReadyNoteLabel} {linkSelectableIds.length}개만 선택할 수 있습니다.
+              </p>
             </div>
 
             <div className="scroll flex-1 overflow-y-auto p-4" aria-live="polite">
@@ -2794,7 +2865,9 @@ function GraphScreenInner() {
                 </div>
               ) : (
                 <div className="mb-4 rounded-xl border border-dashed border-line/70 bg-surface2/40 px-3 py-4 text-center text-[12px] text-txt3">
-                  연결 추천을 만들 원본 노트를 먼저 선택하세요.
+                  {linkSelectableIds.length === 0
+                    ? "색인된 노트가 필요합니다. 색인 완료 후 다시 시도하세요."
+                    : "연결 추천을 만들 원본 노트를 먼저 선택하세요."}
                 </div>
               )}
 

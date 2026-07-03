@@ -28,7 +28,16 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
     password: ${SPRING_DATASOURCE_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
+  sql:
+    init:
+      mode: always
+      # Hibernate ddl-auto가 먼저 테이블을 만든 뒤에 이 데이터 시드 스크립트가 실행되도록
+      # defer-datasource-initialization을 켠다. 순서가 바뀌면 신규 환경에서 ai_models
+      # 테이블이 아직 없는 상태로 INSERT가 실행되어 기동이 실패한다.
+      data-locations:
+        - classpath:db/seed/V20260703_01__seed_ai_model_catalog.sql
   jpa:
+    defer-datasource-initialization: true
     hibernate:
       ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:validate}
     properties:
@@ -38,6 +47,7 @@ spring:
 brainx:
   jwt:
     secret: ${JWT_SECRET:replace_with_at_least_32_byte_secret}
+  service-token: ${SERVICE_TOKEN:local-service-token}
   security:
     dev-auth:
       enabled: ${BRAINX_SECURITY_DEV_AUTH_ENABLED:false}
@@ -91,6 +101,13 @@ brainx:
     min-relation-confidence: ${BRAINX_NOTE_AUTO_LINK_MIN_RELATION_CONFIDENCE:0.70}
     max-source-windows-per-note: ${BRAINX_NOTE_AUTO_LINK_MAX_SOURCE_WINDOWS_PER_NOTE:12}
     max-suggestions-per-note: ${BRAINX_NOTE_AUTO_LINK_MAX_SUGGESTIONS_PER_NOTE:5}
+  note-index:
+    retry:
+      enabled: ${BRAINX_NOTE_INDEX_RETRY_ENABLED:true}
+      fixed-delay: ${BRAINX_NOTE_INDEX_RETRY_FIXED_DELAY:PT5M}
+      batch-size: ${BRAINX_NOTE_INDEX_RETRY_BATCH_SIZE:20}
+      max-attempts: ${BRAINX_NOTE_INDEX_RETRY_MAX_ATTEMPTS:10}
+      exhausted-delay: ${BRAINX_NOTE_INDEX_RETRY_EXHAUSTED_DELAY:PT24H}
   chat:
     title:
       enabled: ${BRAINX_CHAT_TITLE_ENABLED:true}

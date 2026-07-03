@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 
@@ -11,7 +19,7 @@ import {
   createMcpApiClient,
   listMcpApiClients,
   revokeMcpApiClient,
-  type McpApiClientItem
+  type McpApiClientItem,
 } from "@/lib/mcp-api";
 import { cx } from "@/lib/utils";
 
@@ -19,22 +27,38 @@ type McpApiKeysPanelVariant = "page" | "modal";
 type ExpirationOption = "30d" | "90d" | "365d" | "none";
 type ClientStatus = "active" | "expired" | "revoked";
 
-const MCP_SCOPE = "whoami";
-const EXPIRATION_OPTIONS: { value: ExpirationOption; label: string; days: number | null }[] = [
+const MCP_NOTE_TOOL_SCOPES = [
+  "whoami",
+  "notes:read",
+  "ai:search",
+  "notes:write",
+] as const;
+const SCOPE_LABELS: Record<string, string> = {
+  whoami: "본인 확인",
+  "notes:read": "노트 읽기",
+  "ai:search": "AI 검색",
+  "notes:write": "노트 쓰기",
+};
+const MCP_NOTE_TOOL_LABEL = "본인 확인, 노트 검색, 노트 열람, 노트 생성";
+const EXPIRATION_OPTIONS: {
+  value: ExpirationOption;
+  label: string;
+  days: number | null;
+}[] = [
   { value: "30d", label: "30일", days: 30 },
   { value: "90d", label: "90일", days: 90 },
   { value: "365d", label: "1년", days: 365 },
-  { value: "none", label: "만료 없음", days: null }
+  { value: "none", label: "만료 없음", days: null },
 ];
 
 const dateFormatter = new Intl.DateTimeFormat("ko-KR", {
   dateStyle: "medium",
-  timeStyle: "short"
+  timeStyle: "short",
 });
 
 export function McpApiKeysPanel({
   variant = "page",
-  className = ""
+  className = "",
 }: {
   variant?: McpApiKeysPanelVariant;
   className?: string;
@@ -53,8 +77,13 @@ export function McpApiKeysPanel({
   const [expiration, setExpiration] = useState<ExpirationOption>("90d");
   const [creating, setCreating] = useState(false);
   const [fieldError, setFieldError] = useState("");
-  const [issuedKey, setIssuedKey] = useState<{ clientId: string; apiKeyOnce: string } | null>(null);
-  const [pendingRevoke, setPendingRevoke] = useState<McpApiClientItem | null>(null);
+  const [issuedKey, setIssuedKey] = useState<{
+    clientId: string;
+    apiKeyOnce: string;
+  } | null>(null);
+  const [pendingRevoke, setPendingRevoke] = useState<McpApiClientItem | null>(
+    null,
+  );
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [mcpEndpoint, setMcpEndpoint] = useState("/mcp");
 
@@ -75,7 +104,7 @@ export function McpApiKeysPanel({
       }
       return false;
     },
-    [pushToast, router]
+    [pushToast, router],
   );
 
   const loadClients = useCallback(
@@ -88,17 +117,20 @@ export function McpApiKeysPanel({
       setError("");
       try {
         const data = await listMcpApiClients();
-        setClients(data.clients);
+        setClients(data.clients.filter(isVisibleClient));
       } catch (err) {
         if (handleAuthError(err)) return;
-        const message = err instanceof Error ? err.message : "MCP API key 목록을 불러오지 못했습니다.";
+        const message =
+          err instanceof Error
+            ? err.message
+            : "연결 키 목록을 불러오지 못했습니다.";
         setError(message);
       } finally {
         setLoading(false);
         setRefreshing(false);
       }
     },
-    [handleAuthError]
+    [handleAuthError],
   );
 
   useEffect(() => {
@@ -119,7 +151,7 @@ export function McpApiKeysPanel({
     event.preventDefault();
     const nextName = clientName.trim();
     if (!nextName) {
-      setFieldError("API key 이름을 입력해 주세요.");
+      setFieldError("연결 키 이름을 입력해 주세요.");
       nameInputRef.current?.focus();
       return;
     }
@@ -129,17 +161,20 @@ export function McpApiKeysPanel({
     try {
       const created = await createMcpApiClient({
         name: nextName,
-        scopes: [MCP_SCOPE],
-        expiresAt: expiresAtFromOption(expiration)
+        scopes: [...MCP_NOTE_TOOL_SCOPES],
+        expiresAt: expiresAtFromOption(expiration),
       });
       setIssuedKey(created);
       setClientName("");
       setExpiration("90d");
-      pushToast("API key를 생성했습니다. 지금 복사해 주세요.", "ok");
+      pushToast("연결 키를 생성했습니다. 지금 복사해 주세요.", "ok");
       await loadClients(false);
     } catch (err) {
       if (handleAuthError(err)) return;
-      const message = err instanceof Error ? err.message : "API key 생성에 실패했습니다. 입력값을 확인해 주세요.";
+      const message =
+        err instanceof Error
+          ? err.message
+          : "연결 키 생성에 실패했습니다. 입력값을 확인해 주세요.";
       setFieldError(message);
       nameInputRef.current?.focus();
     } finally {
@@ -152,34 +187,53 @@ export function McpApiKeysPanel({
     setRevokingId(pendingRevoke.clientId);
     try {
       await revokeMcpApiClient(pendingRevoke.clientId);
-      pushToast("API key를 폐기했습니다.", "ok");
+      pushToast("연결 키를 폐기했습니다.", "ok");
+      setClients((current) =>
+        current.filter((client) => client.clientId !== pendingRevoke.clientId),
+      );
       setPendingRevoke(null);
       await loadClients(false);
     } catch (err) {
       if (handleAuthError(err)) return;
-      pushToast(err instanceof Error ? err.message : "API key 폐기에 실패했습니다.", "err");
+      pushToast(
+        err instanceof Error ? err.message : "연결 키 폐기에 실패했습니다.",
+        "err",
+      );
     } finally {
       setRevokingId(null);
     }
   };
 
   const liveMessage = loading
-    ? "MCP API key 목록을 불러오는 중…"
+    ? "연결 키 목록을 불러오는 중…"
     : error
       ? error
-      : `${clients.length}개 MCP API key`;
-  const authHeaderValue = issuedKey ? `Authorization: Bearer ${issuedKey.apiKeyOnce}` : "Authorization: Bearer bxk_live_...";
+      : `${clients.length}개 연결 키`;
+  const authHeaderValue = issuedKey
+    ? `Authorization: Bearer ${issuedKey.apiKeyOnce}`
+    : "Authorization: Bearer bxk_live_...";
 
   return (
-    <section className={cx(tone.panel, className)} aria-labelledby="mcp-api-keys-title">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <section
+      className={cx(tone.panel, className)}
+      aria-labelledby="mcp-api-keys-title"
+    >
+      <header className={cx("flex flex-wrap items-start justify-between gap-3", tone.headerGap)}>
         <div className="min-w-0">
-          <p className={cx("text-[12px] font-semibold uppercase tracking-[0.08em]", tone.eyebrow)}>Agent Access</p>
-          <h2 id="mcp-api-keys-title" className={cx("mt-1 text-[20px] font-bold text-pretty", tone.heading)}>
-            MCP API Keys
+          <h2
+            id="mcp-api-keys-title"
+            className={cx(tone.title, tone.heading)}
+          >
+            API Keys
           </h2>
-          <p className={cx("mt-1 max-w-2xl text-[13px] leading-relaxed", tone.muted)}>
-            외부 MCP client와 agent가 BrainX에 접근할 때 사용하는 scoped key를 관리합니다.
+          <p
+            className={cx(
+              "mt-3 max-w-2xl text-[13px] leading-relaxed",
+              tone.muted,
+            )}
+          >
+            Codex 같은 외부 AI 도구가 BrainX 노트에 접근할 수 있도록 연결 키를
+            관리하세요.
           </p>
         </div>
         <button
@@ -188,27 +242,32 @@ export function McpApiKeysPanel({
           disabled={loading || refreshing}
           className={cx(tone.secondaryButton, "h-9 px-3 text-[12px]")}
         >
-          <span aria-hidden="true"><Icon name="refresh" size={14} /></span>
+          <span aria-hidden="true">
+            <Icon name="refresh" size={14} />
+          </span>
           {refreshing ? "새로고침 중…" : "새로고침"}
         </button>
-      </div>
-
-      <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,0.94fr)_minmax(0,1.06fr)]">
-        <form onSubmit={submitClient} className={cx("min-w-0 rounded-xl border p-4", tone.innerPanel)} noValidate>
-          <div className="flex items-start gap-3">
-            <span className={cx("grid h-9 w-9 shrink-0 place-items-center rounded-lg", tone.iconBox)} aria-hidden="true">
-              <Icon name="shield" size={17} />
-            </span>
-            <div className="min-w-0">
-              <h3 className={cx("text-[15px] font-semibold", tone.heading)}>새 API Key 생성</h3>
-              <p className={cx("mt-1 text-[12px] leading-relaxed", tone.muted)}>
-                v1 권한은 <span translate="no" className={tone.codeText}>whoami</span>로 고정됩니다.
-              </p>
-            </div>
+      </header>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.96fr)_minmax(0,1.04fr)]">
+        <form
+          onSubmit={submitClient}
+          className={cx(tone.section)}
+          noValidate
+        >
+          <div className={tone.sectionHead}>
+            <h3 className={cx("text-[15px] font-semibold", tone.heading)}>
+              새 연결 키 만들기
+            </h3>
+            <p className={cx("mt-1 text-[12px] leading-relaxed", tone.muted)}>
+              사용할 도구 이름과 만료 기간만 정하면 바로 발급됩니다.
+            </p>
           </div>
 
-          <div className="mt-4 grid gap-3">
-            <label htmlFor={nameId} className={cx("text-[12px] font-semibold", tone.label)}>
+          <div className="grid gap-3">
+            <label
+              htmlFor={nameId}
+              className={cx("text-[12px] font-semibold", tone.label)}
+            >
               이름
             </label>
             <input
@@ -229,19 +288,35 @@ export function McpApiKeysPanel({
               className={cx(tone.input, "h-10 w-full px-3 text-[13px]")}
             />
             {fieldError ? (
-              <p id={fieldErrorId} aria-live="polite" className="text-[12px] font-medium text-red-500">
+              <p
+                id={fieldErrorId}
+                aria-live="polite"
+                className="text-[12px] font-medium text-red-500"
+              >
                 {fieldError}
               </p>
             ) : null}
 
-            <label htmlFor={expirationId} className={cx("text-[12px] font-semibold", tone.label)}>
+            <div className={cx("rounded-[10px] px-3 py-2.5", tone.infoRow)}>
+              <div className={cx("mb-1 text-[12px] font-semibold", tone.label)}>
+                기본 권한
+              </div>
+              <PermissionBadges scopes={MCP_NOTE_TOOL_SCOPES} tone={tone} />
+            </div>
+
+            <label
+              htmlFor={expirationId}
+              className={cx("text-[12px] font-semibold", tone.label)}
+            >
               만료 기간
             </label>
             <select
               id={expirationId}
               name="mcp-api-key-expiration"
               value={expiration}
-              onChange={(event) => setExpiration(event.target.value as ExpirationOption)}
+              onChange={(event) =>
+                setExpiration(event.target.value as ExpirationOption)
+              }
               autoComplete="off"
               className={cx(tone.input, "h-10 w-full px-3 text-[13px]")}
             >
@@ -252,105 +327,143 @@ export function McpApiKeysPanel({
               ))}
             </select>
 
-            <button type="submit" disabled={creating} className={cx(tone.primaryButton, "mt-1 h-10 px-3 text-[13px]")}>
-              <span aria-hidden="true"><Icon name="plus" size={15} /></span>
-              {creating ? "API Key 생성 중…" : "API Key 생성"}
+            <button
+              type="submit"
+              disabled={creating}
+              className={cx(tone.primaryButton, "mt-1 h-10 px-3 text-[13px]")}
+            >
+              <span aria-hidden="true">
+                <Icon name="plus" size={15} />
+              </span>
+              {creating ? "연결 키 생성 중…" : "연결 키 생성"}
             </button>
           </div>
         </form>
 
-        <div className={cx("min-w-0 rounded-xl border p-4", tone.innerPanel)}>
-          <div className="flex items-start gap-3">
-            <span className={cx("grid h-9 w-9 shrink-0 place-items-center rounded-lg", tone.iconBox)} aria-hidden="true">
-              <Icon name="globe" size={17} />
-            </span>
-            <div className="min-w-0">
-              <h3 className={cx("text-[15px] font-semibold", tone.heading)}>연결 정보</h3>
-              <p className={cx("mt-1 text-[12px] leading-relaxed", tone.muted)}>
-                MCP Inspector나 agent client에서 아래 endpoint와 Bearer header를 사용합니다.
-              </p>
-            </div>
+        <div className={cx(tone.section)}>
+          <div className={tone.sectionHead}>
+            <h3 className={cx("text-[15px] font-semibold", tone.heading)}>
+              외부 도구에 연결하기
+            </h3>
+            <p className={cx("mt-1 text-[12px] leading-relaxed", tone.muted)}>
+              Codex, Claude Desktop, MCP Inspector에 아래 값을 복사해 넣습니다.
+            </p>
           </div>
-          <div className="mt-4 space-y-2">
+          <div className="space-y-2">
             <CopyRow
-              label="Endpoint"
+              label="연결 주소"
               value={mcpEndpoint}
-              onCopy={() => copyValue(mcpEndpoint, "MCP endpoint를 복사했습니다.")}
+              onCopy={() =>
+                copyValue(mcpEndpoint, "연결 주소를 복사했습니다.")
+              }
               tone={tone}
             />
             <CopyRow
-              label="Header"
+              label="인증 헤더"
               value={authHeaderValue}
-              onCopy={() => copyValue(authHeaderValue, "Authorization header를 복사했습니다.")}
+              onCopy={() =>
+                copyValue(
+                  authHeaderValue,
+                  "인증 헤더를 복사했습니다.",
+                )
+              }
               tone={tone}
             />
             <CopyRow
-              label="Tool"
-              value="brainx_whoami"
-              onCopy={() => copyValue("brainx_whoami", "Tool 이름을 복사했습니다.")}
+              label="사용 가능한 기능"
+              value={MCP_NOTE_TOOL_LABEL}
+              onCopy={() => copyValue(MCP_NOTE_TOOL_LABEL, "기능 목록을 복사했습니다.")}
               tone={tone}
             />
           </div>
         </div>
       </div>
-
       {issuedKey ? (
-        <div className={cx("mt-4 rounded-xl border p-4", tone.successPanel)} aria-live="polite">
+        <div
+          className={cx("mt-4 rounded-xl border p-4", tone.successPanel)}
+          aria-live="polite"
+        >
           <div className="flex min-w-0 items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className={cx("text-[14px] font-semibold", tone.heading)}>새 API key가 생성되었습니다</h3>
+              <h3 className={cx("text-[14px] font-semibold", tone.heading)}>
+                새 연결 키가 생성되었습니다
+              </h3>
               <p className={cx("mt-1 text-[12px] leading-relaxed", tone.muted)}>
                 이 값은 한 번만 표시됩니다. 닫으면 다시 볼 수 없습니다.
               </p>
             </div>
             <button
               type="button"
-              aria-label="생성된 API key 닫기"
+              aria-label="생성된 연결 키 닫기"
               onClick={() => setIssuedKey(null)}
               className={cx(tone.iconButton, "h-8 w-8")}
             >
-              <span aria-hidden="true"><Icon name="x" size={15} /></span>
+              <span aria-hidden="true">
+                <Icon name="x" size={15} />
+              </span>
             </button>
           </div>
           <div className="mt-3 flex min-w-0 items-center gap-2">
-            <code translate="no" className={cx("min-w-0 flex-1 truncate rounded-lg px-3 py-2 text-[12px]", tone.codeBlock)}>
+            <code
+              translate="no"
+              className={cx(
+                "min-w-0 flex-1 truncate rounded-lg px-3 py-2 text-[12px]",
+                tone.codeBlock,
+              )}
+            >
               {issuedKey.apiKeyOnce}
             </code>
             <button
               type="button"
-              aria-label="생성된 API key 복사"
-              onClick={() => copyValue(issuedKey.apiKeyOnce, "API key를 복사했습니다.")}
+              aria-label="생성된 연결 키 복사"
+              onClick={() =>
+                copyValue(issuedKey.apiKeyOnce, "연결 키를 복사했습니다.")
+              }
               className={cx(tone.iconButton, "h-9 w-9")}
             >
-              <span aria-hidden="true"><Icon name="copy" size={15} /></span>
+              <span aria-hidden="true">
+                <Icon name="copy" size={15} />
+              </span>
             </button>
           </div>
         </div>
       ) : null}
-
       <div className="mt-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className={cx("text-[15px] font-semibold", tone.heading)}>발급된 API Keys</h3>
+          <h3 className={cx("text-[15px] font-semibold", tone.heading)}>
+            발급된 연결 키
+          </h3>
           <p aria-live="polite" className={cx("text-[12px]", tone.muted)}>
             {liveMessage}
           </p>
         </div>
 
-        <div className={cx("mt-3 overflow-hidden rounded-xl border", tone.list)}>
-          {loading ? <StateRow tone={tone} message="MCP API key 목록을 불러오는 중…" /> : null}
+        <div
+          className={cx("mt-3 overflow-hidden rounded-xl border", tone.list)}
+        >
+          {loading ? (
+            <StateRow tone={tone} message="연결 키 목록을 불러오는 중…" />
+          ) : null}
           {!loading && error ? (
             <StateRow
               tone={tone}
               message={error}
               action={
-                <button type="button" onClick={() => void loadClients(false)} className={cx(tone.secondaryButton, "h-8 px-3 text-[12px]")}>
+                <button
+                  type="button"
+                  onClick={() => void loadClients(false)}
+                  className={cx(tone.secondaryButton, "h-8 px-3 text-[12px]")}
+                >
                   다시 시도
                 </button>
               }
             />
           ) : null}
           {!loading && !error && clients.length === 0 ? (
-            <StateRow tone={tone} message="아직 발급된 MCP API key가 없습니다." />
+            <StateRow
+              tone={tone}
+              message="아직 발급된 연결 키가 없습니다."
+            />
           ) : null}
           {!loading && !error
             ? clients.map((client) => (
@@ -365,7 +478,6 @@ export function McpApiKeysPanel({
             : null}
         </div>
       </div>
-
       {pendingRevoke ? (
         <RevokeConfirmDialog
           client={pendingRevoke}
@@ -382,7 +494,7 @@ function CopyRow({
   label,
   value,
   onCopy,
-  tone
+  tone,
 }: {
   label: string;
   value: string;
@@ -390,16 +502,58 @@ function CopyRow({
   tone: ReturnType<typeof panelTone>;
 }) {
   return (
-    <div className={cx("flex min-w-0 items-center gap-2 rounded-lg border px-3 py-2", tone.copyRow)}>
+    <div
+      className={cx(
+        "flex min-w-0 items-center gap-2 rounded-lg border px-3 py-2",
+        tone.copyRow,
+      )}
+    >
       <div className="min-w-0 flex-1">
-        <div className={cx("text-[11px] font-semibold", tone.label)}>{label}</div>
-        <code translate="no" className={cx("mt-0.5 block truncate text-[12px]", tone.codeText)}>
+        <div className={cx("text-[11px] font-semibold", tone.label)}>
+          {label}
+        </div>
+        <code
+          translate="no"
+          className={cx("mt-0.5 block truncate text-[12px]", tone.codeText)}
+        >
           {value}
         </code>
       </div>
-      <button type="button" aria-label={`${label} 복사`} onClick={onCopy} className={cx(tone.iconButton, "h-8 w-8")}>
-        <span aria-hidden="true"><Icon name="copy" size={14} /></span>
+      <button
+        type="button"
+        aria-label={`${label} 복사`}
+        onClick={onCopy}
+        className={cx(tone.iconButton, "h-8 w-8")}
+      >
+        <span aria-hidden="true">
+          <Icon name="copy" size={14} />
+        </span>
       </button>
+    </div>
+  );
+}
+
+function PermissionBadges({
+  scopes,
+  tone,
+}: {
+  scopes: readonly string[];
+  tone: ReturnType<typeof panelTone>;
+}) {
+  return (
+    <div className="flex min-w-0 flex-wrap gap-1.5">
+      {scopes.map((scope) => (
+        <span
+          key={scope}
+          className={cx(
+            "max-w-full truncate rounded-md px-2 py-1 text-[11px] font-semibold",
+            tone.scopeBadge,
+          )}
+          title={SCOPE_LABELS[scope] ? scope : undefined}
+        >
+          {SCOPE_LABELS[scope] ?? scope}
+        </span>
+      ))}
     </div>
   );
 }
@@ -408,7 +562,7 @@ function ClientRow({
   client,
   tone,
   revoking,
-  onRevoke
+  onRevoke,
 }: {
   client: McpApiClientItem;
   tone: ReturnType<typeof panelTone>;
@@ -420,19 +574,39 @@ function ClientRow({
   const revokeDisabled = status === "revoked" || revoking;
 
   return (
-    <div className={cx("flex min-w-0 flex-col gap-3 border-b px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between", tone.row)}>
+    <div
+      className={cx(
+        "flex min-w-0 flex-col gap-3 border-b px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between",
+        tone.row,
+      )}
+    >
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <p className={cx("min-w-0 truncate text-[14px] font-semibold", tone.heading)}>{client.name || "이름 없음"}</p>
+          <p
+            className={cx(
+              "min-w-0 truncate text-[14px] font-semibold",
+              tone.heading,
+            )}
+          >
+            {client.name || "이름 없음"}
+          </p>
           <span className={badge.className}>{badge.label}</span>
-          <span className={cx("rounded-md px-1.5 py-0.5 text-[11px] font-semibold", tone.scopeBadge)} translate="no">
-            {client.scopes.join(", ") || MCP_SCOPE}
-          </span>
         </div>
-        <code translate="no" className={cx("mt-1 block truncate text-[12px]", tone.codeText)}>
+        <code
+          translate="no"
+          className={cx("mt-1 block truncate text-[12px]", tone.codeText)}
+        >
           {client.clientId}
         </code>
-        <div className={cx("mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px]", tone.muted)}>
+        <div className="mt-2">
+          <PermissionBadges scopes={client.scopes} tone={tone} />
+        </div>
+        <div
+          className={cx(
+            "mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px]",
+            tone.muted,
+          )}
+        >
           <span>생성 {formatDate(client.createdAt)}</span>
           <span>최근 사용 {formatDate(client.lastUsedAt, "없음")}</span>
           <span>만료 {formatDate(client.expiresAt, "없음")}</span>
@@ -444,7 +618,9 @@ function ClientRow({
         disabled={revokeDisabled}
         className={cx(tone.dangerButton, "h-8 shrink-0 px-3 text-[12px]")}
       >
-        <span aria-hidden="true"><Icon name="trash" size={14} /></span>
+        <span aria-hidden="true">
+          <Icon name="trash" size={14} />
+        </span>
         {revoking ? "폐기 중…" : "폐기"}
       </button>
     </div>
@@ -454,14 +630,19 @@ function ClientRow({
 function StateRow({
   tone,
   message,
-  action
+  action,
 }: {
   tone: ReturnType<typeof panelTone>;
   message: string;
   action?: ReactNode;
 }) {
   return (
-    <div className={cx("flex min-h-[84px] items-center justify-between gap-3 px-4 py-4 text-[13px]", tone.muted)}>
+    <div
+      className={cx(
+        "flex min-h-[84px] items-center justify-between gap-3 px-4 py-4 text-[13px]",
+        tone.muted,
+      )}
+    >
       <span>{message}</span>
       {action}
     </div>
@@ -472,7 +653,7 @@ function RevokeConfirmDialog({
   client,
   busy,
   onCancel,
-  onConfirm
+  onConfirm,
 }: {
   client: McpApiClientItem;
   busy: boolean;
@@ -507,10 +688,16 @@ function RevokeConfirmDialog({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <h2 id={titleId} className="text-[16px] font-bold text-pretty">
-          API key를 폐기할까요?
+          연결 키를 폐기할까요?
         </h2>
-        <p id={descriptionId} className="mt-2 text-[13px] leading-relaxed text-txt3">
-          <span className="font-semibold text-txt">{client.name || client.clientId}</span> key는 즉시 사용할 수 없게 됩니다.
+        <p
+          id={descriptionId}
+          className="mt-2 text-[13px] leading-relaxed text-txt3"
+        >
+          <span className="font-semibold text-txt">
+            {client.name || client.clientId}
+          </span>{" "}
+          이 키는 즉시 사용할 수 없게 됩니다.
         </p>
         <div className="mt-4 flex justify-end gap-2">
           <button
@@ -528,13 +715,15 @@ function RevokeConfirmDialog({
             disabled={busy}
             className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-red-500 px-3 text-[13px] font-bold text-white transition-colors hover:bg-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70 disabled:cursor-wait disabled:opacity-60"
           >
-            <span aria-hidden="true"><Icon name="trash" size={14} /></span>
+            <span aria-hidden="true">
+              <Icon name="trash" size={14} />
+            </span>
             {busy ? "폐기 중…" : "폐기"}
           </button>
         </div>
       </div>
     </div>,
-    document.body
+    document.body,
   );
 }
 
@@ -548,18 +737,41 @@ function expiresAtFromOption(option: ExpirationOption) {
 
 function getClientStatus(client: McpApiClientItem): ClientStatus {
   if (client.revokedAt) return "revoked";
-  if (client.expiresAt && Date.parse(client.expiresAt) <= Date.now()) return "expired";
+  if (client.expiresAt && Date.parse(client.expiresAt) <= Date.now())
+    return "expired";
   return "active";
+}
+
+function isVisibleClient(client: McpApiClientItem) {
+  return !client.revokedAt;
 }
 
 function statusBadge(status: ClientStatus, tone: ReturnType<typeof panelTone>) {
   if (status === "revoked") {
-    return { label: "폐기됨", className: cx("rounded-md px-1.5 py-0.5 text-[11px] font-semibold", tone.revokedBadge) };
+    return {
+      label: "폐기됨",
+      className: cx(
+        "rounded-md px-1.5 py-0.5 text-[11px] font-semibold",
+        tone.revokedBadge,
+      ),
+    };
   }
   if (status === "expired") {
-    return { label: "만료됨", className: cx("rounded-md px-1.5 py-0.5 text-[11px] font-semibold", tone.expiredBadge) };
+    return {
+      label: "만료됨",
+      className: cx(
+        "rounded-md px-1.5 py-0.5 text-[11px] font-semibold",
+        tone.expiredBadge,
+      ),
+    };
   }
-  return { label: "활성", className: cx("rounded-md px-1.5 py-0.5 text-[11px] font-semibold", tone.activeBadge) };
+  return {
+    label: "활성",
+    className: cx(
+      "rounded-md px-1.5 py-0.5 text-[11px] font-semibold",
+      tone.activeBadge,
+    ),
+  };
 }
 
 function formatDate(value: string | null, fallback = "-") {
@@ -572,7 +784,12 @@ function formatDate(value: string | null, fallback = "-") {
 function panelTone(variant: McpApiKeysPanelVariant) {
   if (variant === "modal") {
     return {
-      panel: "rounded-xl border border-[#e5e0d8] bg-white p-5 text-[#36332f]",
+      panel: "text-[#36332f]",
+      headerGap: "mb-8",
+      title: "text-[24px] font-bold tracking-[-0.01em]",
+      section: "min-w-0 rounded-[12px] border border-[#e5e0d8] px-5 py-5",
+      sectionHead: "mb-4",
+      infoRow: "bg-[#fbfaf8]",
       innerPanel: "border-[#e5e0d8] bg-[#fbfaf8]",
       list: "border-[#e5e0d8] bg-white",
       row: "border-[#eee8df]",
@@ -585,20 +802,31 @@ function panelTone(variant: McpApiKeysPanelVariant) {
       eyebrow: "text-[#6c55f6]",
       codeText: "font-mono text-[#4a36aa]",
       codeBlock: "bg-white text-[#4a36aa] ring-1 ring-[#d8d0c4]",
-      input: "rounded-lg border border-[#ded8cf] bg-white text-[#36332f] outline-none transition-colors placeholder:text-[#aaa39a] focus-visible:border-[#6c55f6] focus-visible:ring-2 focus-visible:ring-[#6c55f6]/25",
-      primaryButton: "inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#6c55f6] font-bold text-white transition-colors hover:bg-[#5945e6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6c55f6]/40 disabled:cursor-wait disabled:opacity-60",
-      secondaryButton: "inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#ded8cf] bg-white font-semibold text-[#5f5a52] transition-colors hover:bg-[#f2efea] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6c55f6]/30 disabled:cursor-wait disabled:opacity-60",
-      dangerButton: "inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-white font-semibold text-red-600 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 disabled:cursor-not-allowed disabled:opacity-50",
-      iconButton: "grid place-items-center rounded-lg text-[#6d6861] transition-colors hover:bg-[#f2efea] hover:text-[#36332f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6c55f6]/30",
+      input:
+        "rounded-lg border border-[#ded8cf] bg-white text-[#36332f] outline-none transition-colors placeholder:text-[#aaa39a] focus-visible:border-[#6c55f6] focus-visible:ring-2 focus-visible:ring-[#6c55f6]/25",
+      primaryButton:
+        "inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#6c55f6] font-bold text-white transition-colors hover:bg-[#5945e6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6c55f6]/40 disabled:cursor-wait disabled:opacity-60",
+      secondaryButton:
+        "inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#ded8cf] bg-white font-semibold text-[#5f5a52] transition-colors hover:bg-[#f2efea] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6c55f6]/30 disabled:cursor-wait disabled:opacity-60",
+      dangerButton:
+        "inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-white font-semibold text-red-600 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 disabled:cursor-not-allowed disabled:opacity-50",
+      iconButton:
+        "grid place-items-center rounded-lg text-[#6d6861] transition-colors hover:bg-[#f2efea] hover:text-[#36332f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6c55f6]/30",
       scopeBadge: "bg-[#eeeafe] text-[#6c55f6]",
       activeBadge: "bg-emerald-50 text-emerald-700",
       expiredBadge: "bg-amber-50 text-amber-700",
-      revokedBadge: "bg-red-50 text-red-700"
+      revokedBadge: "bg-red-50 text-red-700",
     };
   }
 
   return {
-    panel: "rounded-2xl border border-line/60 bg-surface p-5 text-txt shadow-soft",
+    panel:
+      "rounded-2xl border border-line/60 bg-surface p-5 text-txt shadow-soft",
+    headerGap: "mb-5",
+    title: "text-[20px] font-bold text-pretty",
+    section: "min-w-0 rounded-xl border border-line/60 bg-surface2/35 p-4",
+    sectionHead: "mb-4",
+    infoRow: "bg-surface/70",
     innerPanel: "border-line/60 bg-surface2/35",
     list: "border-line/60 bg-surface/80",
     row: "border-line/50",
@@ -611,14 +839,19 @@ function panelTone(variant: McpApiKeysPanelVariant) {
     eyebrow: "text-primary",
     codeText: "font-mono text-primary",
     codeBlock: "bg-bg/40 text-primary ring-1 ring-line/50",
-    input: "rounded-lg border border-line/60 bg-surface text-txt outline-none transition-colors placeholder:text-txt3 focus-visible:border-primary/70 focus-visible:ring-2 focus-visible:ring-primary/35",
-    primaryButton: "inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary font-bold text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 disabled:cursor-wait disabled:opacity-60",
-    secondaryButton: "inline-flex items-center justify-center gap-1.5 rounded-lg border border-line/60 bg-surface2/55 font-semibold text-txt2 transition-colors hover:bg-surface2 hover:text-txt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-wait disabled:opacity-60",
-    dangerButton: "inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-400/35 bg-red-500/10 font-semibold text-red-300 transition-colors hover:bg-red-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60 disabled:cursor-not-allowed disabled:opacity-50",
-    iconButton: "grid place-items-center rounded-lg text-txt3 transition-colors hover:bg-surface2 hover:text-txt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+    input:
+      "rounded-lg border border-line/60 bg-surface text-txt outline-none transition-colors placeholder:text-txt3 focus-visible:border-primary/70 focus-visible:ring-2 focus-visible:ring-primary/35",
+    primaryButton:
+      "inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary font-bold text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 disabled:cursor-wait disabled:opacity-60",
+    secondaryButton:
+      "inline-flex items-center justify-center gap-1.5 rounded-lg border border-line/60 bg-surface2/55 font-semibold text-txt2 transition-colors hover:bg-surface2 hover:text-txt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-wait disabled:opacity-60",
+    dangerButton:
+      "inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-400/35 bg-red-500/10 font-semibold text-red-300 transition-colors hover:bg-red-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60 disabled:cursor-not-allowed disabled:opacity-50",
+    iconButton:
+      "grid place-items-center rounded-lg text-txt3 transition-colors hover:bg-surface2 hover:text-txt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
     scopeBadge: "bg-primary/15 text-primary",
     activeBadge: "bg-emerald-500/15 text-emerald-300",
     expiredBadge: "bg-amber-500/15 text-amber-300",
-    revokedBadge: "bg-red-500/15 text-red-300"
+    revokedBadge: "bg-red-500/15 text-red-300",
   };
 }

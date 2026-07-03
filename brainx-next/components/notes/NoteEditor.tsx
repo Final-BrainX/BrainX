@@ -33,7 +33,7 @@ import { PdfBlock } from "./PdfBlockNode";
 import { HtmlBlock } from "./HtmlBlockNode";
 import { blockWidthPercent, type BlockWidthMode } from "./BlockControls";
 import { FontSize, FontFamily, FONT_SIZE_PRESETS, FONT_FAMILY_PRESETS } from "./fontExtensions";
-import { WikiLink } from "./WikiLinkNode";
+import { WikiLink, WikiLinkLiveEdit } from "./WikiLinkNode";
 import { DragHandle } from "./DragHandleExtension";
 import { WikiLinkSuggestion } from "./WikiLinkSuggestion";
 import { WikiLinkAutocomplete } from "./WikiLinkAutocomplete";
@@ -44,6 +44,7 @@ import { TagSuggestion } from "./TagSuggestion";
 import { TagAutocomplete } from "./TagAutocomplete";
 import { TagNode } from "./TagNode";
 import { TaskListMarkdownBridge } from "./TaskListMarkdownBridge";
+import { ToggleNode } from "./ToggleNode";
 import { createInlineAssistStream, decideAiSuggestion } from "@/lib/intelligence-api";
 import {
   AI_CONTEXT_AROUND_CURSOR_CHARS,
@@ -2311,6 +2312,15 @@ const NOTE_EDITOR_EXTENSIONS = [
         appendTransaction(transactions, oldState, newState) {
           if (!transactions.some((tr) => tr.docChanged || tr.selectionSet)) return null;
 
+          let hasMermaidBlock = false;
+          newState.doc.descendants((node) => {
+            if (node.type.name === "codeBlock" && node.attrs.language === "mermaid") {
+              hasMermaidBlock = true;
+              return false;
+            }
+            return undefined;
+          });
+
           // "편집 중이던 mermaid 블록"을 트랜잭션 전(oldState) 선택 위치의 조상에서만 찾으면,
           // </> 버튼 클릭(mousedown에 preventDefault가 걸려 있어 selection이 그 블록으로 전혀
           // 옮겨가지 않음)이나 다이어그램 더블클릭(텍스트 위치로 매핑되지 않을 수 있음)으로
@@ -2324,6 +2334,7 @@ const NOTE_EDITOR_EXTENSIONS = [
               openBlocks.push({ pos });
             }
           });
+          if (!hasMermaidBlock && openBlocks.length === 0) return null;
           if (openBlocks.length === 0) return null;
 
           let tr: typeof newState.tr | null = null;
@@ -2366,12 +2377,14 @@ const NOTE_EDITOR_EXTENSIONS = [
   BrainXTableHeader,
   BrainXTableCell,
   WikiLink,
+  WikiLinkLiveEdit,
   WikiLinkSuggestion,
   TagNode,
   TagSuggestion,
   TaskList,
   TaskItem.configure({ nested: true }),
   TaskListMarkdownBridge,
+  ToggleNode,
   SlashCommandSuggestion,
 ];
 
@@ -2635,10 +2648,15 @@ function CustomBubbleMenu({
     }
     const rect = menuRef.current.getBoundingClientRect();
     const margin = 8;
+    // 선택 영역과 툴바 사이 간격 — 이전에는 간격이 0이라 툴바가 선택 영역 바로 위 경계에 딱
+    // 붙어 겹쳐 보였다. anchor.top/bottom은 rangeToAnchorRect에서 이미 드래그 방향과 무관하게
+    // (문서 순서 기준으로) 정규화돼 있으므로, 순방향/역방향 드래그 모두 이 값 하나로 동일하게
+    // 처리된다.
+    const gap = 8;
     let left = anchor.left - rect.width / 2;
     left = Math.max(margin, Math.min(left, window.innerWidth - rect.width - margin));
-      let top = anchor.top - rect.height + 0;
-    if (top < margin) top = anchor.bottom + 10; // 위쪽 공간이 부족하면 선택 영역 아래로
+    let top = anchor.top - rect.height - gap;
+    if (top < margin) top = anchor.bottom + gap; // 위쪽 공간이 부족할 때만 선택 영역 아래로
     setPos({ left, top });
   }, [anchor]);
 
@@ -2668,6 +2686,24 @@ function CustomBubbleMenu({
 /** 본문이 비어있고 포커스되지 않았을 때만 보이는 안내 문구 — placeholder처럼 동작 */
 const EDITOR_HINT_TEXT =
   "# 제목 · - 목록 · > 인용 · **굵게** · `코드` · ``` 코드블록 · ```mermaid 다이어그램 · ![](url) 이미지 · 텍스트 선택 → 버블 툴바";
+
+/* TipTap의 editor.isEmpty(isNodeEmpty)는 모든 자식을 재귀적으로 검사해 "텍스트가 하나도 없으면"
+   빈 문서로 판단한다. 토글은 제목이 summary attrs(문서 content가 아님)에 있고 본문은 빈 문단
+   하나뿐일 수 있어, 제목을 입력해도 이 재귀 검사에서는 여전히 "비어있음"으로 오판된다 — 그 결과
+   토글만 있는 노트에서도 "새 노트 가이드라인"이 계속 떠 있었다. 문서에 토글 노드가 하나라도
+   있으면 내용이 있는 것으로 간주해 이 오판을 피한다. */
+function isEditorTrulyEmpty(ed: Editor) {
+  let hasToggle = false;
+  ed.state.doc.descendants((node) => {
+    if (hasToggle) return false;
+    if (node.type.name === "toggleNode") {
+      hasToggle = true;
+      return false;
+    }
+    return true;
+  });
+  return hasToggle ? false : ed.isEmpty;
+}
 
 /** Notion S3 presigned URL(X-Amz-Expires 파라미터)이 포함된 이미지가 있으면 true.
     가져오기 중 이미지 다운로드에 실패해 원본 URL로 폴백된 경우에만 해당하며, 1시간 후 만료된다. */
@@ -2826,7 +2862,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
     },
     /* 본문 변경 → mock notes state로 디바운스 동기화 (탭 전환/재방문 시 내용 유지) */
     onUpdate: ({ editor: ed }) => {
-      setIsEmpty(ed.isEmpty);
+      setIsEmpty(isEditorTrulyEmpty(ed));
       const html = ed.getHTML();
       const noteId = note.id;
       if (contentSyncTimerRef.current) clearTimeout(contentSyncTimerRef.current);
@@ -3242,12 +3278,16 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       const isSameNote = syncedNoteIdRef.current === noteId;
       const editorHasFocus = editor.view.dom.contains(document.activeElement);
       if (isSameNote && editorHasFocus) {
-        setIsEmpty(editor.isEmpty);
+        setIsEmpty(isEditorTrulyEmpty(editor));
         return;
       }
       const nextContent = resolveEditorHtml(content);
       if (editor.getHTML() !== nextContent) {
-        editor.commands.setContent(nextContent);
+        // emitUpdate: false — 안 그러면 tiptap의 setContent가 onUpdate를 그대로 발생시켜(기본값
+        // emitUpdate=true), 노트를 열기만 해도(탭 전환/복귀 등 프로그램적 로드) onContentChange가
+        // 호출되어 실제로는 아무것도 안 고쳤는데 updatedAt이 갱신되는 버그가 있었다("최근 수정순"이
+        // "최근 열람순"처럼 동작해버림). 실제 사용자 입력에 의한 변경만 onUpdate를 타야 한다.
+        editor.commands.setContent(nextContent, { emitUpdate: false });
       }
       syncedNoteIdRef.current = noteId;
       setIsEmpty(content.trim() === "");

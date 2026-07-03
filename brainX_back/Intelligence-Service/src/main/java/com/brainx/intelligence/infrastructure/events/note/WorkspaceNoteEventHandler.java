@@ -6,14 +6,10 @@ import java.util.Set;
 
 import org.springframework.stereotype.Component;
 
-import com.brainx.intelligence.exploration.application.port.outbound.NoteSearchIndexPort;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteSummaryPort;
 import com.brainx.intelligence.infrastructure.events.consumer.BrainxEventHandler;
 import com.brainx.intelligence.infrastructure.events.consumer.EventProcessingContext;
 import com.brainx.intelligence.infrastructure.events.consumer.EventProcessingException;
-import com.brainx.intelligence.infrastructure.workspace.WorkspaceNoteAdapterException;
-import com.brainx.intelligence.shared.application.port.outbound.WorkspaceNotePort;
-import com.brainx.intelligence.shared.application.port.outbound.WorkspaceNotePort.NoteSnapshot;
 import com.brainx.intelligence.shared.domain.DocumentGroups;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -33,31 +29,22 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
     );
     private final ObjectMapper objectMapper;
     private final NoteProjectionStore noteProjectionStore;
-    private final WorkspaceNotePort workspaceNotePort;
-    private final NoteSearchIndexPort noteSearchIndexPort;
     private final NoteSummaryPort noteSummaryPort;
     private final MarkdownNoteChunker noteChunker;
-    private final NoteChunkManifestStore noteChunkManifestStore;
-    private final NoteChunkIndexPlanner noteChunkIndexPlanner;
+    private final NoteIndexingService noteIndexingService;
 
     public WorkspaceNoteEventHandler(
         ObjectMapper objectMapper,
         NoteProjectionStore noteProjectionStore,
-        WorkspaceNotePort workspaceNotePort,
-        NoteSearchIndexPort noteSearchIndexPort,
         NoteSummaryPort noteSummaryPort,
         MarkdownNoteChunker noteChunker,
-        NoteChunkManifestStore noteChunkManifestStore,
-        NoteChunkIndexPlanner noteChunkIndexPlanner
+        NoteIndexingService noteIndexingService
     ) {
         this.objectMapper = objectMapper;
         this.noteProjectionStore = noteProjectionStore;
-        this.workspaceNotePort = workspaceNotePort;
-        this.noteSearchIndexPort = noteSearchIndexPort;
         this.noteSummaryPort = noteSummaryPort;
         this.noteChunker = noteChunker;
-        this.noteChunkManifestStore = noteChunkManifestStore;
-        this.noteChunkIndexPlanner = noteChunkIndexPlanner;
+        this.noteIndexingService = noteIndexingService;
     }
 
     @Override
@@ -109,10 +96,10 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
             context.eventId(),
             context.envelope().occurredAt()
         );
-        boolean snapshotAvailable = tryIndexFromSnapshot(projection, version, null, context.eventId(), false, false);
+        boolean snapshotAvailable = noteIndexingService.indexFromSnapshot(projection, version, null, context.eventId(), false, false);
         if (!snapshotAvailable) {
             noteProjectionStore.save(projection);
-            replaceProvisionalIndex(
+            noteIndexingService.replaceProvisionalIndex(
                 projection,
                 noteChunker.chunk(
                     payload.userId(),
@@ -168,7 +155,7 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
             context.eventId(),
             context.envelope().occurredAt()
         ));
-        tryIndexFromSnapshot(base, version, payload.markdownHash(), context.eventId(), true, false);
+        noteIndexingService.indexFromSnapshot(base, version, payload.markdownHash(), context.eventId(), true, false);
     }
 
     private void handleNoteMetadataChanged(EventProcessingContext context) {
@@ -216,10 +203,10 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
         noteProjectionStore.save(updated);
 
         if (!updated.searchable()) {
-            removeIndex(updated, context.eventId());
+            noteIndexingService.removeIndex(updated, context.eventId());
             return;
         }
-        tryIndexFromSnapshot(updated, version, updated.markdownHash(), context.eventId(), true, titleChanged);
+        noteIndexingService.indexFromSnapshot(updated, version, updated.markdownHash(), context.eventId(), true, titleChanged);
     }
 
     private void handleNoteTagsChanged(EventProcessingContext context) {
@@ -252,7 +239,7 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
         NoteProjection updated = base.withTags(payload.tags(), context.eventId(), context.envelope().occurredAt());
         noteProjectionStore.save(updated);
         if (updated.searchable()) {
-            tryIndexFromSnapshot(updated, updated.version(), updated.markdownHash(), context.eventId(), true, false);
+            noteIndexingService.indexFromSnapshot(updated, updated.version(), updated.markdownHash(), context.eventId(), true, false);
         }
     }
 
@@ -269,7 +256,7 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
             .orElseGet(() -> minimalProjection(payload.userId(), documentGroupId, payload.noteId(), context))
             .trashed(context.eventId(), context.envelope().occurredAt());
         noteProjectionStore.save(updated);
-        removeIndex(updated, context.eventId());
+        noteIndexingService.removeIndex(updated, context.eventId());
     }
 
     private void handleNoteDeleted(EventProcessingContext context) {
@@ -285,204 +272,8 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
             .orElseGet(() -> minimalProjection(payload.userId(), documentGroupId, payload.noteId(), context))
             .deleted(context.eventId(), context.envelope().occurredAt());
         noteProjectionStore.save(updated);
-        removeIndex(updated, context.eventId());
+        noteIndexingService.removeIndex(updated, context.eventId());
         noteSummaryPort.deleteByUserIdAndNoteId(payload.userId(), payload.noteId());
-    }
-
-    private boolean tryIndexFromSnapshot(
-        NoteProjection base,
-        int minimumVersion,
-        String markdownHash,
-        String eventId,
-        boolean failOnSnapshotError,
-        boolean forceFullReplace
-    ) {
-        NoteSnapshot snapshot;
-        try {
-            snapshot = workspaceNotePort.getNoteSnapshot(base.noteId());
-        } catch (WorkspaceNoteAdapterException | IllegalStateException exception) {
-            if (!failOnSnapshotError) {
-                return false;
-            }
-            throw EventProcessingException.retryable("SNAPSHOT_UNAVAILABLE", "Workspace note snapshot is not available.");
-        }
-        if (snapshot == null) {
-            if (!failOnSnapshotError) {
-                return false;
-            }
-            throw EventProcessingException.retryable("SNAPSHOT_UNAVAILABLE", "Workspace note snapshot is not available.");
-        }
-        if (snapshot.version() < minimumVersion) {
-            throw EventProcessingException.retryable("SNAPSHOT_STALE", "Workspace note snapshot is older than the event.");
-        }
-
-        boolean titleChanged = base.searchIndexStatus() == NoteSearchIndexStatus.INDEXED
-            && !sameValue(base.title(), snapshot.title());
-        boolean requiresFullReplace = forceFullReplace
-            || titleChanged
-            || requiresIndexRecovery(base.searchIndexStatus());
-        NoteProjection indexed = base.withDocumentGroupId(snapshotDocumentGroupId(base, snapshot)).withSnapshot(
-            snapshot.title(),
-            snapshot.folderId(),
-            snapshot.tags(),
-            snapshot.version(),
-            markdownHash,
-            snapshot.markdown(),
-            eventId,
-            snapshot.updatedAt() == null ? Instant.now() : snapshot.updatedAt()
-        );
-        noteProjectionStore.save(indexed);
-        if (indexed.searchable()) {
-            replaceIndex(
-                indexed,
-                noteChunker.chunk(
-                    indexed.userId(),
-                    indexed.documentGroupId(),
-                    indexed.noteId(),
-                    indexed.title(),
-                    snapshot.markdown(),
-                    indexed.tags(),
-                    indexed.markdownHash(),
-                    indexed.version()
-                ),
-                indexed.version(),
-                indexed.markdownHash(),
-                eventId,
-                requiresFullReplace
-            );
-        }
-        return true;
-    }
-
-    private void replaceProvisionalIndex(NoteProjection projection, List<com.brainx.intelligence.exploration.domain.NoteSearchDocument> chunks, String eventId) {
-        try {
-            Instant indexedAt = Instant.now();
-            boolean indexed = noteSearchIndexPort.replaceNoteChunks(
-                projection.userId(),
-                projection.documentGroupId(),
-                projection.noteId(),
-                chunks
-            );
-            if (indexed) {
-                noteChunkManifestStore.replaceForNote(
-                    projection.userId(),
-                    projection.documentGroupId(),
-                    projection.noteId(),
-                    manifestsFor(chunks, projection.version(), null, indexedAt)
-                );
-                noteProjectionStore.save(projection.provisionallyIndexed(projection.version(), indexedAt));
-            }
-        } catch (RuntimeException exception) {
-            noteProjectionStore.save(projection.indexFailed(eventId, Instant.now()));
-            throw exception;
-        }
-    }
-
-    private void replaceIndex(
-        NoteProjection projection,
-        List<com.brainx.intelligence.exploration.domain.NoteSearchDocument> chunks,
-        int indexedVersion,
-        String indexedMarkdownHash,
-        String eventId,
-        boolean forceFullReplace
-    ) {
-        try {
-            Instant indexedAt = Instant.now();
-            NoteChunkIndexPlan plan = noteChunkIndexPlanner.plan(
-                noteChunkManifestStore.findByUserIdAndDocumentGroupIdAndNoteId(
-                    projection.userId(),
-                    projection.documentGroupId(),
-                    projection.noteId()
-                ),
-                chunks,
-                MarkdownNoteChunker.CHUNKER_VERSION,
-                indexedVersion,
-                indexedMarkdownHash,
-                indexedAt,
-                forceFullReplace
-            );
-            boolean indexed = applyIndexPlan(projection, chunks, plan);
-            if (indexed) {
-                noteChunkManifestStore.replaceForNote(
-                    projection.userId(),
-                    projection.documentGroupId(),
-                    projection.noteId(),
-                    plan.manifests()
-                );
-                noteProjectionStore.save(projection.indexed(indexedVersion, indexedMarkdownHash, indexedAt));
-            }
-        } catch (RuntimeException exception) {
-            noteProjectionStore.save(projection.indexFailed(eventId, Instant.now()));
-            throw exception;
-        }
-    }
-
-    private void removeIndex(NoteProjection projection, String eventId) {
-        try {
-            boolean removed = noteSearchIndexPort.deleteByUserIdAndDocumentGroupIdAndNoteId(
-                projection.userId(),
-                projection.documentGroupId(),
-                projection.noteId()
-            );
-            if (removed) {
-                noteChunkManifestStore.deleteByUserIdAndDocumentGroupIdAndNoteId(
-                    projection.userId(),
-                    projection.documentGroupId(),
-                    projection.noteId()
-                );
-                noteProjectionStore.save(projection.indexRemoved(eventId, Instant.now()));
-            }
-        } catch (RuntimeException exception) {
-            noteProjectionStore.save(projection.indexFailed(eventId, Instant.now()));
-            throw exception;
-        }
-    }
-
-    private boolean applyIndexPlan(
-        NoteProjection projection,
-        List<com.brainx.intelligence.exploration.domain.NoteSearchDocument> chunks,
-        NoteChunkIndexPlan plan
-    ) {
-        if (plan.fullReplace()) {
-            return noteSearchIndexPort.replaceNoteChunks(
-                projection.userId(),
-                projection.documentGroupId(),
-                projection.noteId(),
-                chunks
-            );
-        }
-        if (plan.delta().empty()) {
-            return true;
-        }
-        return noteSearchIndexPort.applyNoteChunkDelta(
-            projection.userId(),
-            projection.documentGroupId(),
-            projection.noteId(),
-            plan.delta()
-        );
-    }
-
-    private static List<NoteIndexChunkManifest> manifestsFor(
-        List<com.brainx.intelligence.exploration.domain.NoteSearchDocument> chunks,
-        Integer indexedVersion,
-        String indexedMarkdownHash,
-        Instant indexedAt
-    ) {
-        return chunks.stream()
-            .map(chunk -> NoteIndexChunkManifest.fromDocument(
-                chunk,
-                MarkdownNoteChunker.CHUNKER_VERSION,
-                indexedVersion,
-                indexedMarkdownHash,
-                indexedAt
-            ))
-            .toList();
-    }
-
-    private static boolean requiresIndexRecovery(NoteSearchIndexStatus status) {
-        return status == NoteSearchIndexStatus.NOT_INDEXED
-            || status == NoteSearchIndexStatus.PROVISIONAL
-            || status == NoteSearchIndexStatus.FAILED;
     }
 
     private <T> T readPayload(EventProcessingContext context, Class<T> payloadType) {
@@ -515,20 +306,6 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
             context.eventId(),
             context.envelope().occurredAt()
         );
-    }
-
-    private static String snapshotDocumentGroupId(NoteProjection base, NoteSnapshot snapshot) {
-        if (!DocumentGroups.DEFAULT_DOCUMENT_GROUP_ID.equals(base.documentGroupId())) {
-            return base.documentGroupId();
-        }
-        return snapshot.documentGroupId();
-    }
-
-    private static boolean sameValue(String left, String right) {
-        if (left == null) {
-            return right == null;
-        }
-        return left.equals(right);
     }
 
     private static String requireText(String value, String name) {

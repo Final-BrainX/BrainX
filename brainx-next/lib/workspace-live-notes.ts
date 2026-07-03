@@ -2,6 +2,7 @@
 
 import { CLUSTERS, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
 import { getGraph, graphEdgesForFlow } from "@/lib/graph-api";
+import { mergeNoteIndexStatuses } from "@/lib/note-index-statuses";
 import { listNotes, type WorkspaceNoteItem } from "@/lib/workspace-api";
 import { countWords, stripMarkdown } from "@/lib/utils";
 
@@ -23,7 +24,8 @@ export async function loadWorkspaceBrainXNotes(): Promise<BrainXNote[]> {
     }
   }
 
-  return noteData.notes.map((note) => workspaceItemToBrainXNote(note, linksByNoteId.get(note.noteId)));
+  const notes = noteData.notes.map((note) => workspaceItemToBrainXNote(note, linksByNoteId.get(note.noteId)));
+  return mergeNoteIndexStatuses(notes);
 }
 
 function workspaceItemToBrainXNote(note: WorkspaceNoteItem, links: Set<string> | undefined): BrainXNote {
@@ -38,6 +40,9 @@ function workspaceItemToBrainXNote(note: WorkspaceNoteItem, links: Set<string> |
     summary: summarize(markdown, note.title),
     tags: note.tags ?? [],
     links: Array.from(links ?? []),
+    searchIndexStatus: "UNKNOWN",
+    availableForAiFeatures: false,
+    indexedAt: null,
     updated: relativeUpdatedLabel(note.updatedAt),
     words: countWords(stripMarkdown(markdown)),
     isFavorite: false,

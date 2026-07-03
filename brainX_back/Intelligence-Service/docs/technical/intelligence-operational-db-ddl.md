@@ -130,7 +130,12 @@ create table if not exists intelligence_note_projections (
   search_index_status varchar(40),
   indexed_version integer,
   indexed_markdown_hash varchar(160),
-  indexed_at timestamp(6) with time zone
+  indexed_at timestamp(6) with time zone,
+  last_index_attempt_at timestamp(6) with time zone,
+  next_index_retry_at timestamp(6) with time zone,
+  index_attempt_count integer not null default 0,
+  last_index_error_code varchar(120),
+  last_index_error_message varchar(1000)
 );
 
 create table if not exists intelligence_note_index_chunks (
@@ -257,6 +262,16 @@ create index if not exists idx_note_projection_searchable_folder
     and content_pending = false
     and markdown is not null;
 
+create index if not exists idx_note_projection_index_retry
+  on intelligence_note_projections (next_index_retry_at, updated_at desc, note_id)
+  where archived = false
+    and trashed = false
+    and deleted = false
+    and (
+      search_index_status in ('NOT_INDEXED', 'PROVISIONAL', 'STALE', 'FAILED')
+      or content_pending = true
+    );
+
 create index if not exists idx_note_index_chunks_note
   on intelligence_note_index_chunks (user_id, document_group_id, note_id, chunk_index);
 
@@ -305,7 +320,22 @@ alter table intelligence_note_projections
   add column if not exists search_index_status varchar(40),
   add column if not exists indexed_version integer,
   add column if not exists indexed_markdown_hash varchar(160),
-  add column if not exists indexed_at timestamp(6) with time zone;
+  add column if not exists indexed_at timestamp(6) with time zone,
+  add column if not exists last_index_attempt_at timestamp(6) with time zone,
+  add column if not exists next_index_retry_at timestamp(6) with time zone,
+  add column if not exists index_attempt_count integer not null default 0,
+  add column if not exists last_index_error_code varchar(120),
+  add column if not exists last_index_error_message varchar(1000);
+
+create index if not exists idx_note_projection_index_retry
+  on intelligence_note_projections (next_index_retry_at, updated_at desc, note_id)
+  where archived = false
+    and trashed = false
+    and deleted = false
+    and (
+      search_index_status in ('NOT_INDEXED', 'PROVISIONAL', 'STALE', 'FAILED')
+      or content_pending = true
+    );
 
 alter table intelligence_chat_messages
   add column if not exists client_context text not null default '{}';

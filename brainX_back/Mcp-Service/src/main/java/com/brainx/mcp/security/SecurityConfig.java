@@ -38,7 +38,10 @@ public class SecurityConfig {
         ObjectMapper objectMapper,
         JwtTokenVerifier jwtTokenVerifier,
         ApiKeyAuthenticator apiKeyAuthenticator,
-        @Value("${brainx.mcp.api-key.prefix}") String apiKeyPrefix
+        @Value("${brainx.mcp.api-key.prefix}") String apiKeyPrefix,
+        @Value("${brainx.oauth.issuer}") String oauthIssuer,
+        @Value("${brainx.oauth.resource}") String oauthResource,
+        @Value("${brainx.oauth.protected-resource-metadata-url}") String protectedResourceMetadataUrl
     ) throws Exception {
         http
             .csrf(AbstractHttpConfigurer::disable)
@@ -46,14 +49,22 @@ public class SecurityConfig {
             .httpBasic(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .exceptionHandling(exceptionHandling -> exceptionHandling
-                .authenticationEntryPoint((request, response, exception) ->
-                    writeError(response, objectMapper, HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Authentication required."))
+                .authenticationEntryPoint((request, response, exception) -> {
+                    if (isMcpProtectedPath(request.getRequestURI())) {
+                        response.setHeader(
+                            "WWW-Authenticate",
+                            "Bearer resource_metadata=\"" + protectedResourceMetadataUrl + "\", scope=\"whoami notes:read ai:search notes:write\""
+                        );
+                    }
+                    writeError(response, objectMapper, HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Authentication required.");
+                })
                 .accessDeniedHandler((request, response, exception) ->
                     writeError(response, objectMapper, HttpStatus.FORBIDDEN, "FORBIDDEN", "Forbidden."))
             )
             .authorizeHttpRequests(authorize -> authorize
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                .requestMatchers("/.well-known/oauth-protected-resource").permitAll()
                 .requestMatchers("/api/v1/mcp/api-clients/**").hasRole("USER")
                 .requestMatchers("/api/v1/mcp/whoami", "/mcp", "/mcp/**").hasRole("MCP_CLIENT")
                 .anyRequest().denyAll()
@@ -64,11 +75,19 @@ public class SecurityConfig {
             UsernamePasswordAuthenticationFilter.class
         );
         http.addFilterBefore(
+            new OAuthMcpAuthenticationFilter(jwtTokenVerifier, apiKeyPrefix, oauthIssuer, oauthResource),
+            UsernamePasswordAuthenticationFilter.class
+        );
+        http.addFilterBefore(
             new JwtAuthenticationFilter(jwtTokenVerifier, apiKeyPrefix),
             UsernamePasswordAuthenticationFilter.class
         );
 
         return http.build();
+    }
+
+    private static boolean isMcpProtectedPath(String path) {
+        return path != null && (path.equals("/mcp") || path.startsWith("/mcp/") || path.equals("/api/v1/mcp/whoami"));
     }
 
     private static void writeError(

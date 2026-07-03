@@ -20,3 +20,5 @@ brainx:
   events:
     consumer:
       enabled: true
+    producer:
+      enabled: true

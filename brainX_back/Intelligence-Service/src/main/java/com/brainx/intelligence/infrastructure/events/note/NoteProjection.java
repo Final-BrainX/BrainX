@@ -24,7 +24,12 @@ public record NoteProjection(
     NoteSearchIndexStatus searchIndexStatus,
     Integer indexedVersion,
     String indexedMarkdownHash,
-    Instant indexedAt
+    Instant indexedAt,
+    Instant lastIndexAttemptAt,
+    Instant nextIndexRetryAt,
+    int indexAttemptCount,
+    String lastIndexErrorCode,
+    String lastIndexErrorMessage
 ) {
 
     public NoteProjection {
@@ -43,6 +48,11 @@ public record NoteProjection(
         if (indexedVersion != null && indexedVersion < 0) {
             throw new IllegalArgumentException("indexedVersion must not be negative.");
         }
+        if (indexAttemptCount < 0) {
+            indexAttemptCount = 0;
+        }
+        lastIndexErrorCode = normalizeError(lastIndexErrorCode, 120);
+        lastIndexErrorMessage = normalizeError(lastIndexErrorMessage, 1000);
         markdown = normalizeMarkdown(markdown);
         if (archived || trashed || deleted || searchIndexStatus == NoteSearchIndexStatus.REMOVED) {
             markdown = null;
@@ -53,6 +63,55 @@ public record NoteProjection(
             indexedMarkdownHash = null;
             indexedAt = null;
         }
+    }
+
+    public NoteProjection(
+        String userId,
+        String documentGroupId,
+        String noteId,
+        String title,
+        String folderId,
+        List<String> tags,
+        int version,
+        String markdownHash,
+        String markdown,
+        boolean contentPending,
+        boolean archived,
+        boolean trashed,
+        boolean deleted,
+        String lastEventId,
+        Instant updatedAt,
+        NoteSearchIndexStatus searchIndexStatus,
+        Integer indexedVersion,
+        String indexedMarkdownHash,
+        Instant indexedAt
+    ) {
+        this(
+            userId,
+            documentGroupId,
+            noteId,
+            title,
+            folderId,
+            tags,
+            version,
+            markdownHash,
+            markdown,
+            contentPending,
+            archived,
+            trashed,
+            deleted,
+            lastEventId,
+            updatedAt,
+            searchIndexStatus,
+            indexedVersion,
+            indexedMarkdownHash,
+            indexedAt,
+            null,
+            null,
+            0,
+            null,
+            null
+        );
     }
 
     public NoteProjection(
@@ -124,6 +183,11 @@ public record NoteProjection(
             defaultSearchIndexStatus(archived, trashed, deleted),
             null,
             null,
+            null,
+            null,
+            null,
+            0,
+            null,
             null
         );
     }
@@ -163,6 +227,11 @@ public record NoteProjection(
             updatedAt,
             defaultSearchIndexStatus(archived, trashed, deleted),
             null,
+            null,
+            null,
+            null,
+            null,
+            0,
             null,
             null
         );
@@ -262,7 +331,12 @@ public record NoteProjection(
             searchIndexStatus,
             indexedVersion,
             indexedMarkdownHash,
-            indexedAt
+            indexedAt,
+            lastIndexAttemptAt,
+            nextIndexRetryAt,
+            indexAttemptCount,
+            lastIndexErrorCode,
+            lastIndexErrorMessage
         );
     }
 
@@ -295,7 +369,12 @@ public record NoteProjection(
             targetStatus(version, markdownHash, archived, trashed, deleted),
             indexedVersion,
             indexedMarkdownHash,
-            indexedAt
+            indexedAt,
+            lastIndexAttemptAt,
+            nextIndexRetryAt,
+            indexAttemptCount,
+            lastIndexErrorCode,
+            lastIndexErrorMessage
         );
     }
 
@@ -328,7 +407,12 @@ public record NoteProjection(
             NoteSearchIndexStatus.STALE,
             indexedVersion,
             indexedMarkdownHash,
-            indexedAt
+            indexedAt,
+            lastIndexAttemptAt,
+            nextIndexRetryAt,
+            indexAttemptCount,
+            lastIndexErrorCode,
+            lastIndexErrorMessage
         );
     }
 
@@ -352,7 +436,12 @@ public record NoteProjection(
             NoteSearchIndexStatus.STALE,
             indexedVersion,
             indexedMarkdownHash,
-            indexedAt
+            indexedAt,
+            lastIndexAttemptAt,
+            nextIndexRetryAt,
+            indexAttemptCount,
+            lastIndexErrorCode,
+            lastIndexErrorMessage
         );
     }
 
@@ -376,7 +465,12 @@ public record NoteProjection(
             NoteSearchIndexStatus.STALE,
             indexedVersion,
             indexedMarkdownHash,
-            indexedAt
+            indexedAt,
+            lastIndexAttemptAt,
+            nextIndexRetryAt,
+            indexAttemptCount,
+            lastIndexErrorCode,
+            lastIndexErrorMessage
         );
     }
 
@@ -400,7 +494,12 @@ public record NoteProjection(
             NoteSearchIndexStatus.STALE,
             indexedVersion,
             indexedMarkdownHash,
-            indexedAt
+            indexedAt,
+            lastIndexAttemptAt,
+            nextIndexRetryAt,
+            indexAttemptCount,
+            lastIndexErrorCode,
+            lastIndexErrorMessage
         );
     }
 
@@ -424,7 +523,12 @@ public record NoteProjection(
             NoteSearchIndexStatus.INDEXED,
             version,
             markdownHash,
-            indexedAt
+            indexedAt,
+            null,
+            null,
+            0,
+            null,
+            null
         );
     }
 
@@ -448,7 +552,12 @@ public record NoteProjection(
             NoteSearchIndexStatus.PROVISIONAL,
             version,
             null,
-            indexedAt
+            indexedAt,
+            null,
+            null,
+            0,
+            null,
+            null
         );
     }
 
@@ -472,7 +581,12 @@ public record NoteProjection(
             NoteSearchIndexStatus.FAILED,
             indexedVersion,
             indexedMarkdownHash,
-            indexedAt
+            indexedAt,
+            lastIndexAttemptAt,
+            nextIndexRetryAt,
+            indexAttemptCount,
+            lastIndexErrorCode,
+            lastIndexErrorMessage
         );
     }
 
@@ -496,7 +610,106 @@ public record NoteProjection(
             NoteSearchIndexStatus.REMOVED,
             null,
             null,
+            null,
+            null,
+            null,
+            0,
+            null,
             null
+        );
+    }
+
+    public NoteProjection withIndexRetryFailure(
+        String eventId,
+        Instant attemptAt,
+        Instant nextRetryAt,
+        String errorCode,
+        String errorMessage,
+        boolean markFailed
+    ) {
+        return new NoteProjection(
+            userId,
+            documentGroupId,
+            noteId,
+            title,
+            folderId,
+            tags,
+            version,
+            markdownHash,
+            markdown,
+            contentPending,
+            archived,
+            trashed,
+            deleted,
+            eventId == null || eventId.isBlank() ? lastEventId : eventId,
+            attemptAt == null ? updatedAt : attemptAt,
+            markFailed ? NoteSearchIndexStatus.FAILED : searchIndexStatus,
+            indexedVersion,
+            indexedMarkdownHash,
+            indexedAt,
+            attemptAt,
+            nextRetryAt,
+            indexAttemptCount + 1,
+            errorCode,
+            errorMessage
+        );
+    }
+
+    public NoteProjection deferIndexRetry(Instant nextRetryAt) {
+        return new NoteProjection(
+            userId,
+            documentGroupId,
+            noteId,
+            title,
+            folderId,
+            tags,
+            version,
+            markdownHash,
+            markdown,
+            contentPending,
+            archived,
+            trashed,
+            deleted,
+            lastEventId,
+            updatedAt,
+            searchIndexStatus,
+            indexedVersion,
+            indexedMarkdownHash,
+            indexedAt,
+            lastIndexAttemptAt,
+            nextRetryAt,
+            indexAttemptCount,
+            lastIndexErrorCode,
+            lastIndexErrorMessage
+        );
+    }
+
+    public NoteProjection withIndexRetryExhausted(String eventId, Instant attemptAt, Instant nextRetryAt) {
+        return new NoteProjection(
+            userId,
+            documentGroupId,
+            noteId,
+            title,
+            folderId,
+            tags,
+            version,
+            markdownHash,
+            markdown,
+            contentPending,
+            archived,
+            trashed,
+            deleted,
+            eventId == null || eventId.isBlank() ? lastEventId : eventId,
+            attemptAt == null ? updatedAt : attemptAt,
+            NoteSearchIndexStatus.FAILED,
+            indexedVersion,
+            indexedMarkdownHash,
+            indexedAt,
+            attemptAt,
+            nextRetryAt,
+            indexAttemptCount,
+            lastIndexErrorCode,
+            lastIndexErrorMessage
         );
     }
 
@@ -529,6 +742,14 @@ public record NoteProjection(
             return null;
         }
         return value;
+    }
+
+    private static String normalizeError(String value, int maxLength) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.length() <= maxLength ? normalized : normalized.substring(0, maxLength);
     }
 
     private static String requireText(String value, String name) {
