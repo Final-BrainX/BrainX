@@ -14,6 +14,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 
+import com.brainx.intelligence.settings.domain.AiModel;
 import com.brainx.intelligence.settings.domain.AiModelSettings;
 import com.brainx.intelligence.settings.domain.AssistanceStyle;
 import com.brainx.intelligence.settings.domain.ConversationTone;
@@ -48,14 +49,18 @@ class SettingsJpaAdapterTest {
         entityManager.flush();
         entityManager.clear();
 
+        // ai_models는 db/seed 스크립트로 기본 카탈로그가 채워진 상태로 기동되므로,
+        // 전체 개수가 아니라 방금 저장한 모델이 포함되어 있는지로 검증한다.
         var models = settingsJpaAdapter.findAll();
 
-        assertThat(models).hasSize(1);
-        assertThat(models.getFirst().modelId()).isEqualTo("gpt-4o-mini");
-        assertThat(models.getFirst().vendorTokenCost().inputCostPer1kTokens()).isEqualByComparingTo("0.150000");
-        assertThat(models.getFirst().vendorTokenCost().cachedInputCostPer1kTokens()).isEqualByComparingTo("0.075000");
-        assertThat(models.getFirst().vendorTokenCost().outputCostPer1kTokens()).isEqualByComparingTo("0.600000");
-        assertThat(models.getFirst().vendorTokenCost().currencyCode()).isEqualTo("USD");
+        AiModel saved = models.stream()
+            .filter(model -> model.modelId().equals("gpt-4o-mini"))
+            .findFirst()
+            .orElseThrow();
+        assertThat(saved.vendorTokenCost().inputCostPer1kTokens()).isEqualByComparingTo("0.150000");
+        assertThat(saved.vendorTokenCost().cachedInputCostPer1kTokens()).isEqualByComparingTo("0.075000");
+        assertThat(saved.vendorTokenCost().outputCostPer1kTokens()).isEqualByComparingTo("0.600000");
+        assertThat(saved.vendorTokenCost().currencyCode()).isEqualTo("USD");
         assertThat(settingsJpaAdapter.existsByModelId("gpt-4o-mini")).isTrue();
         assertThat(settingsJpaAdapter.findByModelId("gpt-4o-mini")).isPresent();
     }

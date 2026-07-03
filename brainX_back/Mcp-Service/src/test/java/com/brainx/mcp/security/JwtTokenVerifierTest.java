@@ -47,4 +47,40 @@ class JwtTokenVerifierTest {
         assertThatThrownBy(() -> verifier.verifyAccessToken(JwtTestTokens.accessTokenWithoutSubject(SECRET)))
             .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void validMcpAccessTokenSucceeds() {
+        JwtTokenVerifier.McpJwtClaims claims = verifier.verifyMcpAccessToken(
+            JwtTestTokens.mcpAccessToken(
+                SECRET,
+                "usr_1",
+                "mcp_oauth_1",
+                "whoami notes:read",
+                "http://localhost:3000",
+                "http://localhost:3000/mcp"
+            ),
+            "http://localhost:3000",
+            "http://localhost:3000/mcp"
+        );
+
+        assertThat(claims.userId()).isEqualTo("usr_1");
+        assertThat(claims.clientId()).isEqualTo("mcp_oauth_1");
+        assertThat(claims.scopes()).containsExactly("whoami", "notes:read");
+    }
+
+    @Test
+    void mcpAccessTokenRejectsWrongResource() {
+        assertThatThrownBy(() -> verifier.verifyMcpAccessToken(
+            JwtTestTokens.mcpAccessToken(
+                SECRET,
+                "usr_1",
+                "mcp_oauth_1",
+                "whoami",
+                "http://localhost:3000",
+                "http://localhost:3000/mcp"
+            ),
+            "http://localhost:3000",
+            "http://localhost:3000/other"
+        )).isInstanceOf(IllegalArgumentException.class);
+    }
 }

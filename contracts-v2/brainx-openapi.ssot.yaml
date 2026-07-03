@@ -5774,6 +5774,176 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+  /.well-known/oauth-authorization-server:
+    get:
+      operationId: getOAuthAuthorizationServerMetadata
+      summary: MCP OAuth authorization server metadata 조회
+      tags:
+      - MCP Agent Gateway
+      x-producer-service: user-service
+      x-visibility: public
+      x-consumers:
+      - id: mcp.oauth-client
+        type: external-agent
+        description: Codex 등 MCP OAuth client discovery
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpOAuthAuthorizationServerMetadata'
+      security: []
+  /.well-known/openid-configuration:
+    get:
+      operationId: getOAuthOpenIdConfiguration
+      summary: MCP OAuth OpenID-compatible metadata 조회
+      tags:
+      - MCP Agent Gateway
+      x-producer-service: user-service
+      x-visibility: public
+      x-consumers:
+      - id: mcp.oauth-client
+        type: external-agent
+        description: Codex 등 MCP OAuth client discovery
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpOAuthAuthorizationServerMetadata'
+      security: []
+  /.well-known/oauth-protected-resource:
+    get:
+      operationId: getMcpOAuthProtectedResourceMetadata
+      summary: MCP OAuth protected resource metadata 조회
+      tags:
+      - MCP Agent Gateway
+      x-producer-service: mcp-service
+      x-visibility: public
+      x-consumers:
+      - id: mcp.oauth-client
+        type: external-agent
+        description: Codex 등 MCP OAuth client discovery
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpOAuthProtectedResourceMetadata'
+      security: []
+  /oauth/register:
+    post:
+      operationId: registerMcpOAuthClient
+      summary: MCP OAuth public client 동적 등록
+      tags:
+      - MCP Agent Gateway
+      x-producer-service: user-service
+      x-visibility: public
+      x-consumers:
+      - id: mcp.oauth-client
+        type: external-agent
+        description: Codex 등 MCP OAuth client dynamic registration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/McpOAuthClientRegistrationRequest'
+      responses:
+        '201':
+          description: 생성됨
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpOAuthClientRegistrationData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpOAuthError'
+      security: []
+  /oauth/token:
+    post:
+      operationId: issueMcpOAuthToken
+      summary: MCP OAuth token 발급
+      tags:
+      - MCP Agent Gateway
+      x-producer-service: user-service
+      x-visibility: public
+      x-consumers:
+      - id: mcp.oauth-client
+        type: external-agent
+        description: Codex 등 MCP OAuth client token exchange
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/McpOAuthTokenRequest'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpOAuthTokenResponse'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpOAuthError'
+      security: []
+  /api/v1/oauth/authorizations:
+    post:
+      operationId: createMcpOAuthAuthorization
+      summary: 로그인 사용자 기준 MCP OAuth authorization code 생성
+      tags:
+      - MCP Agent Gateway
+      x-producer-service: user-service
+      x-visibility: public
+      x-consumers:
+      - id: web.oauth-authorize
+        type: frontend
+        description: /oauth/authorize consent 화면
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/McpOAuthAuthorizationRequest'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/McpOAuthAuthorizationData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpOAuthError'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
   /api/v1/mcp/api-clients:
     post:
       operationId: createApiClient
@@ -6247,6 +6417,82 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/SemanticSearchData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: 충돌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+  /api/v1/intelligence/note-index-statuses:
+    post:
+      operationId: getNoteIndexStatuses
+      summary: 노트 검색 인덱스 상태 조회
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.graph
+        type: frontend
+        description: AI 연결/징검다리/분석 실행 전 선택 가능한 노트 상태 표시
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      description: >
+        Workspace 노트 목록/그래프에 Intelligence read model의 검색 인덱스 상태를 병합하기 위한 bulk 조회다.
+        projection이 없거나 요청 범위에서 찾을 수 없는 noteId는 NOT_INDEXED로 반환한다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteIndexStatusesRequest'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/NoteIndexStatusesData'
         '400':
           description: 잘못된 요청
           content:
@@ -8440,27 +8686,12 @@ paths:
       x-internal-sync-calls: []
       x-async-boundary: false
       parameters:
-      - name: from
-        in: query
-        required: true
-        schema:
-          type: string
-          format: date
-      - name: to
-        in: query
-        required: true
-        schema:
-          type: string
-          format: date
-      - name: groupBy
+      - name: month
         in: query
         required: false
+        description: yyyy-MM, 생략 시 이번 달
         schema:
           type: string
-          enum:
-          - DAILY
-          - WEEKLY
-          - MONTHLY
       responses:
         '200':
           description: 성공
@@ -15034,6 +15265,228 @@ components:
       required:
       - noteId
       additionalProperties: false
+    McpOAuthAuthorizationServerMetadata:
+      type: object
+      properties:
+        issuer:
+          type: string
+          format: uri
+        authorization_endpoint:
+          type: string
+          format: uri
+        token_endpoint:
+          type: string
+          format: uri
+        registration_endpoint:
+          type: string
+          format: uri
+        response_types_supported:
+          type: array
+          items:
+            type: string
+        grant_types_supported:
+          type: array
+          items:
+            type: string
+        token_endpoint_auth_methods_supported:
+          type: array
+          items:
+            type: string
+        code_challenge_methods_supported:
+          type: array
+          items:
+            type: string
+        scopes_supported:
+          type: array
+          items:
+            type: string
+      required:
+      - issuer
+      - authorization_endpoint
+      - token_endpoint
+      - registration_endpoint
+      - response_types_supported
+      - grant_types_supported
+      - code_challenge_methods_supported
+      - scopes_supported
+      additionalProperties: true
+    McpOAuthProtectedResourceMetadata:
+      type: object
+      properties:
+        resource:
+          type: string
+          format: uri
+        authorization_servers:
+          type: array
+          items:
+            type: string
+            format: uri
+        scopes_supported:
+          type: array
+          items:
+            type: string
+      required:
+      - resource
+      - authorization_servers
+      - scopes_supported
+      additionalProperties: true
+    McpOAuthClientRegistrationRequest:
+      type: object
+      properties:
+        client_name:
+          type: string
+        redirect_uris:
+          type: array
+          items:
+            type: string
+            format: uri
+        scope:
+          type: string
+          description: 공백 구분 MCP scope 목록
+      required:
+      - redirect_uris
+      additionalProperties: true
+    McpOAuthClientRegistrationData:
+      type: object
+      properties:
+        client_id:
+          type: string
+        client_name:
+          type: string
+        redirect_uris:
+          type: array
+          items:
+            type: string
+            format: uri
+        scope:
+          type: string
+        grant_types:
+          type: array
+          items:
+            type: string
+        response_types:
+          type: array
+          items:
+            type: string
+        token_endpoint_auth_method:
+          type: string
+          enum:
+          - none
+        client_id_issued_at:
+          type: integer
+          format: int64
+      required:
+      - client_id
+      - client_name
+      - redirect_uris
+      - scope
+      - grant_types
+      - response_types
+      - token_endpoint_auth_method
+      additionalProperties: true
+    McpOAuthTokenRequest:
+      type: object
+      properties:
+        grant_type:
+          type: string
+          enum:
+          - authorization_code
+          - refresh_token
+        code:
+          type: string
+        refresh_token:
+          type: string
+        redirect_uri:
+          type: string
+          format: uri
+        client_id:
+          type: string
+        code_verifier:
+          type: string
+        resource:
+          type: string
+          format: uri
+      required:
+      - grant_type
+      - client_id
+      - resource
+      additionalProperties: false
+    McpOAuthTokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          enum:
+          - Bearer
+        expires_in:
+          type: integer
+          format: int64
+        scope:
+          type: string
+        refresh_token:
+          type: string
+      required:
+      - access_token
+      - token_type
+      - expires_in
+      - scope
+      - refresh_token
+      additionalProperties: false
+    McpOAuthAuthorizationRequest:
+      type: object
+      properties:
+        clientId:
+          type: string
+        redirectUri:
+          type: string
+          format: uri
+        scope:
+          type: string
+        state:
+          type: string
+          nullable: true
+        codeChallenge:
+          type: string
+        codeChallengeMethod:
+          type: string
+          enum:
+          - S256
+        resource:
+          type: string
+          format: uri
+          nullable: true
+      required:
+      - clientId
+      - redirectUri
+      - codeChallenge
+      - codeChallengeMethod
+      additionalProperties: false
+    McpOAuthAuthorizationData:
+      type: object
+      properties:
+        redirectTo:
+          type: string
+          format: uri
+        expiresAt:
+          type: string
+          format: date-time
+      required:
+      - redirectTo
+      - expiresAt
+      additionalProperties: false
+    McpOAuthError:
+      type: object
+      properties:
+        error:
+          type: string
+        error_description:
+          type: string
+      required:
+      - error
+      - error_description
+      additionalProperties: true
     ApiClientCreateRequest:
       type: object
       properties:
@@ -15262,6 +15715,57 @@ components:
       required:
       - results
       - charged
+      additionalProperties: false
+    NoteSearchIndexStatus:
+      type: string
+      enum:
+      - NOT_INDEXED
+      - PROVISIONAL
+      - STALE
+      - INDEXED
+      - FAILED
+      - REMOVED
+    NoteIndexStatusesRequest:
+      type: object
+      properties:
+        documentGroupId:
+          type: string
+          description: 검색 인덱스 격리를 위한 논리적 문서 그룹 경계. 생략하면 default로 처리한다.
+        noteIds:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            type: string
+            minLength: 1
+      required:
+      - noteIds
+      additionalProperties: false
+    NoteIndexStatusesData:
+      type: object
+      properties:
+        notes:
+          type: array
+          items:
+            type: object
+            properties:
+              noteId:
+                type: string
+              searchIndexStatus:
+                $ref: '#/components/schemas/NoteSearchIndexStatus'
+              availableForAiFeatures:
+                type: boolean
+              indexedAt:
+                type: string
+                format: date-time
+                nullable: true
+            required:
+            - noteId
+            - searchIndexStatus
+            - availableForAiFeatures
+            additionalProperties: false
+      required:
+      - notes
       additionalProperties: false
     InlineAssistRequest:
       type: object
@@ -16116,17 +16620,60 @@ components:
     TokenUsageData:
       type: object
       properties:
-        usage:
+        planName:
+          type: string
+          nullable: true
+        monthlyCreditLimit:
+          type: integer
+          nullable: true
+          description: >
+            월 크레딧 한도. null이면 무제한. 1크레딧 = Intelligence-Service가 계산한
+            estimatedCost(USD)를 고정 환율로 환산한 원화 상당 원가 — 모델별 토큰 단가가
+            달라 토큰 개수는 실제 원가를 대표하지 못하므로 크레딧을 과금/한도 단위로 쓴다.
+        usedCredits:
+          type: integer
+        usagePercent:
+          type: number
+        resetDate:
+          type: string
+          format: date
+        byFeature:
           type: array
           items:
-            type: object
-            additionalProperties: true
-        total:
-          type: object
-          additionalProperties: true
+            $ref: '#/components/schemas/TokenUsageFeatureUsage'
+        recentDays:
+          type: array
+          items:
+            $ref: '#/components/schemas/TokenUsageDailyUsage'
       required:
-      - usage
-      - total
+      - usedCredits
+      - usagePercent
+      - resetDate
+      - byFeature
+      - recentDays
+      additionalProperties: false
+    TokenUsageFeatureUsage:
+      type: object
+      properties:
+        feature:
+          type: string
+        credits:
+          type: integer
+      required:
+      - feature
+      - credits
+      additionalProperties: false
+    TokenUsageDailyUsage:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        credits:
+          type: integer
+      required:
+      - date
+      - credits
       additionalProperties: false
     KnowledgeDashboardData:
       type: object

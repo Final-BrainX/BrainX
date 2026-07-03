@@ -114,6 +114,83 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+  /api/v1/intelligence/note-index-statuses:
+    post:
+      operationId: getNoteIndexStatuses
+      summary: 노트 검색 인덱스 상태 조회
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.graph
+        type: frontend
+        description: AI 연결/징검다리/분석 실행 전 선택 가능한 노트 상태 표시
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      description: 'Workspace 노트 목록/그래프에 Intelligence read model의 검색 인덱스 상태를 병합하기 위한 bulk 조회다. projection이 없거나 요청 범위에서 찾을
+        수 없는 noteId는 NOT_INDEXED로 반환한다.
+
+        '
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteIndexStatusesRequest'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/NoteIndexStatusesData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: 충돌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
   /api/v1/ai/inline-assists:
     post:
       operationId: createInlineAssist
@@ -1950,6 +2027,57 @@ components:
       required:
       - results
       - charged
+      additionalProperties: false
+    NoteSearchIndexStatus:
+      type: string
+      enum:
+      - NOT_INDEXED
+      - PROVISIONAL
+      - STALE
+      - INDEXED
+      - FAILED
+      - REMOVED
+    NoteIndexStatusesRequest:
+      type: object
+      properties:
+        documentGroupId:
+          type: string
+          description: 검색 인덱스 격리를 위한 논리적 문서 그룹 경계. 생략하면 default로 처리한다.
+        noteIds:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            type: string
+            minLength: 1
+      required:
+      - noteIds
+      additionalProperties: false
+    NoteIndexStatusesData:
+      type: object
+      properties:
+        notes:
+          type: array
+          items:
+            type: object
+            properties:
+              noteId:
+                type: string
+              searchIndexStatus:
+                $ref: '#/components/schemas/NoteSearchIndexStatus'
+              availableForAiFeatures:
+                type: boolean
+              indexedAt:
+                type: string
+                format: date-time
+                nullable: true
+            required:
+            - noteId
+            - searchIndexStatus
+            - availableForAiFeatures
+            additionalProperties: false
+      required:
+      - notes
       additionalProperties: false
     InlineAssistRequest:
       type: object

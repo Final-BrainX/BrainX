@@ -1,5 +1,6 @@
 package com.brainx.intelligence.infrastructure.persistence.jpa.note;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -64,6 +65,32 @@ interface NoteProjectionJpaRepository extends JpaRepository<NoteProjectionJpaEnt
         @Param("documentGroupId") String documentGroupId,
         @Param("folderId") String folderId,
         @Param("status") NoteSearchIndexStatus status,
+        Pageable pageable
+    );
+
+    @Query("""
+        select projection
+        from NoteProjectionJpaEntity projection
+        where projection.archived = false
+          and projection.trashed = false
+          and projection.deleted = false
+          and (
+            projection.searchIndexStatus in :statuses
+            or projection.contentPending = true
+          )
+          and (
+            projection.nextIndexRetryAt is null
+            or projection.nextIndexRetryAt <= :now
+          )
+        order by
+          case when projection.nextIndexRetryAt is null then 0 else 1 end asc,
+          projection.nextIndexRetryAt asc,
+          projection.updatedAt desc,
+          projection.noteId asc
+        """)
+    List<NoteProjectionJpaEntity> findRetryCandidates(
+        @Param("statuses") Collection<NoteSearchIndexStatus> statuses,
+        @Param("now") Instant now,
         Pageable pageable
     );
 }
