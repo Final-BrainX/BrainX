@@ -1159,22 +1159,28 @@ function UsagePanel() {
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
 
-    getMyTokenUsage()
-      .then((data) => {
-        if (active) setUsage(data);
-      })
-      .catch((error) => {
-        if (active) setUsage(null);
-        pushToast(error instanceof Error ? error.message : "크레딧 사용량을 불러오지 못했습니다.", "err");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+    const refreshUsage = () => {
+      setLoading(true);
+      getMyTokenUsage()
+        .then((data) => {
+          if (active) setUsage(data);
+        })
+        .catch((error) => {
+          if (active) setUsage(null);
+          pushToast(error instanceof Error ? error.message : "크레딧 사용량을 불러오지 못했습니다.", "err");
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    };
+
+    refreshUsage();
+    window.addEventListener("brainx-token-usage-changed", refreshUsage);
 
     return () => {
       active = false;
+      window.removeEventListener("brainx-token-usage-changed", refreshUsage);
     };
   }, [pushToast]);
 

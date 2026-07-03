@@ -803,11 +803,13 @@ function Sidebar({ onOpenSettings, notesExplorerOpen }: { onOpenSettings: (tab?:
     refreshTokenUsage();
     window.addEventListener("brainx-auth-session-changed", refreshTokenUsage);
     window.addEventListener("brainx-subscription-changed", refreshTokenUsage);
+    window.addEventListener("brainx-token-usage-changed", refreshTokenUsage);
 
     return () => {
       active = false;
       window.removeEventListener("brainx-auth-session-changed", refreshTokenUsage);
       window.removeEventListener("brainx-subscription-changed", refreshTokenUsage);
+      window.removeEventListener("brainx-token-usage-changed", refreshTokenUsage);
     };
   }, []);
 
