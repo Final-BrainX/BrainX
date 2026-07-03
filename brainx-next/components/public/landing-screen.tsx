@@ -310,12 +310,12 @@ const sectionVariants = {
 
 const itemVariants = {
   hidden: { opacity: 0, y: 40 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.85, ease: [0.22, 1, 0.36, 1] } }
+  visible: { opacity: 1, y: 0, transition: { duration: 0.85, ease: "circOut" } }
 };
 
 const singleItemVariants = {
   hidden: { opacity: 0, y: 40 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.85, ease: [0.22, 1, 0.36, 1], delay: 1.2 } }
+  visible: { opacity: 1, y: 0, transition: { duration: 0.85, ease: "circOut", delay: 1.2 } }
 };
 
 
