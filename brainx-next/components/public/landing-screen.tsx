@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
-import { motion, useInView } from "framer-motion";
+import { motion, useInView, type Variants, type Transition } from "framer-motion";
 
 import { useRouter } from "next/navigation";
 
@@ -303,19 +303,25 @@ function useSingleTyping(text: string, start: boolean, typingSpeed = 15) {
   return { displayed, isDone: frameIndex === frames.length - 1 };
 }
 
-const sectionVariants = {
+
+const itemTransition: Transition = {
+  duration: 0.6,
+  ease: [0.22, 1, 0.36, 1],
+};
+
+const sectionVariants: Variants = {
   hidden: {},
   visible: { transition: { staggerChildren: 0.22, delayChildren: 1.2 } }
 };
 
-const itemVariants = {
+const itemVariants: Variants = {
   hidden: { opacity: 0, y: 40 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.85, ease: "circOut" } }
+  visible: { opacity: 1, y: 0, transition: itemTransition }
 };
 
-const singleItemVariants = {
+const singleItemVariants: Variants = {
   hidden: { opacity: 0, y: 40 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.85, ease: "circOut", delay: 1.2 } }
+  visible: { opacity: 1, y: 0, transition: itemTransition }
 };
 
 
@@ -588,8 +594,7 @@ export function LandingScreen() {
           className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4"
           variants={sectionVariants}
           initial="hidden"
-          animate={inView1 ? "visible" : "hidden"}
-        >
+          animate={inView1 ? "visible" : "hidden"}>
           {features.map((feature) => (
             <motion.div key={feature.title} variants={itemVariants} className="h-full">
               <FeatureCard {...feature} />
@@ -652,7 +657,7 @@ export function LandingScreen() {
             </div>
           </div>
         </div>
-        <motion.div 
+        <motion.div
           className="mx-auto grid max-w-4xl gap-5 md:grid-cols-3"
           variants={sectionVariants}
           initial="hidden"
@@ -688,11 +693,7 @@ export function LandingScreen() {
       </section>
 
       <section ref={section3Ref} className="mx-auto max-w-[1180px] px-6 py-16 md:px-10">
-        <motion.div
-          variants={singleItemVariants}
-          initial="hidden"
-          animate={inView3 ? "visible" : "hidden"}
-        >
+        <motion.div variants={singleItemVariants} initial="hidden" animate={inView3 ? "visible" : "hidden"}>
           <Card glow className="relative overflow-hidden border-primary/40 p-12 text-center">
             <div className="absolute inset-0 grid-bg opacity-40" />
             <div className="relative">
