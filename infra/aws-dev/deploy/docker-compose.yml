@@ -235,6 +235,7 @@ services:
       TOSS_CONFIRM_URL: ${TOSS_CONFIRM_URL:-https://api.tosspayments.com/v1/payments/confirm}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       BRAINX_EVENTS_OUTBOX_ENABLED: "true"
+      BRAINX_EVENTS_CONSUMER_ENABLED: "true"
       JPA_DDL_AUTO: update
     expose:
       - "8084"

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState, useCallback } from "react";
-import { X, Plus, Eye, SquarePen, Pin, PanelRight, PanelRightClose } from "lucide-react";
+import { X, Plus, Eye, SquarePen, Pin } from "lucide-react";
 import { cx } from "@/lib/utils";
 import { Tab, MockNote, DragPayload } from "@/lib/notes/noteTypes";
 import type { EditMode } from "./NoteEditor";
@@ -210,39 +210,26 @@ export default function TabBar({
         </button>
       </div>
 
-      {/* 우측 컨트롤: 읽기/편집 모드 전환, 컨텍스트 패널 토글 */}
-      {(showModeToggle || onContextToggle) && (
+      {/* 우측 컨트롤: 읽기/편집 모드 전환만 남긴다 — 컨텍스트 패널 토글 버튼은 여기(패널마다
+          반복되는 TabBar)가 아니라 상단 Toolbar(저장/초기화 옆, NotesWorkspace.tsx)에 딱 하나만
+          두기로 했다. Split View로 패널이 늘어날 때마다 이 자리에 컨텍스트 버튼이 패널 수만큼
+          중복 생성되던 문제가 있었다 — onContextToggle을 여기서 더 이상 쓰지 않으면 자동으로
+          해결된다(prop 자체는 위쪽 상위 컴포넌트 체인에서 여전히 넘어오지만 여기선 무시). */}
+      {showModeToggle && (
         <div className="flex shrink-0 items-center border-l border-line/40 px-1.5 gap-0.5">
-          {showModeToggle && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onModeToggle(); }}
-              title={mode === "edit" ? "읽기 모드로 전환" : "편집 모드로 전환"}
-              className={cx(
-                "inline-flex h-[22px] w-[22px] items-center justify-center rounded transition-all",
-                mode === "edit"
-                  ? "text-primary hover:bg-primary/10"
-                  : "text-txt3/60 hover:bg-surface2/70 hover:text-txt"
-              )}
-              >
-                {mode === "edit" ? <SquarePen size={13} /> : <Eye size={13} />}
-              </button>
-          )}
-          {onContextToggle && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onContextToggle(); }}
-              title={contextOpen ? "컨텍스트 패널 닫기" : "컨텍스트 패널 열기"}
-              className={cx(
-                "inline-flex h-[22px] w-[22px] items-center justify-center rounded transition-colors",
-                contextOpen
-                  ? "text-primary hover:bg-primary/10"
-                  : "text-txt3/60 hover:bg-surface2/70 hover:text-txt"
-              )}
-            >
-              {contextOpen ? <PanelRightClose size={13} /> : <PanelRight size={13} />}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onModeToggle(); }}
+            title={mode === "edit" ? "읽기 모드로 전환" : "편집 모드로 전환"}
+            className={cx(
+              "inline-flex h-[22px] w-[22px] items-center justify-center rounded transition-all",
+              mode === "edit"
+                ? "text-primary hover:bg-primary/10"
+                : "text-txt3/60 hover:bg-surface2/70 hover:text-txt"
+            )}
+          >
+            {mode === "edit" ? <SquarePen size={13} /> : <Eye size={13} />}
+          </button>
         </div>
       )}
 

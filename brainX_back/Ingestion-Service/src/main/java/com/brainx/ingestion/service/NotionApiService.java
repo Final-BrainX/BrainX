@@ -36,6 +36,7 @@ public class NotionApiService {
 
     private static final String NOTION_VERSION = "2022-06-28";
     private static final String NOTION_API = "https://api.notion.com/v1";
+    private static final int MAX_COLUMN_RECURSION_DEPTH = 20;
 
     // code → access_token 교환
     public NotionTokenResult exchangeToken(String code, String redirectUri) {
@@ -59,6 +60,11 @@ public class NotionApiService {
             ResponseEntity<Map> res = restTemplate.postForEntity(
                     tokenUrl, new HttpEntity<>(body, headers), Map.class);
             Map<String, Object> data = res.getBody();
+            if (data == null || data.get("access_token") == null) {
+                log.error("Notion 토큰 교환 실패: 응답 바디가 비어있음 (status={})", res.getStatusCode());
+                throw BrainXException.badRequest("NOTION_TOKEN_ERROR",
+                        "Notion 인증 코드 교환에 실패했습니다. 응답이 비어 있습니다.");
+            }
             return new NotionTokenResult(
                     (String) data.get("access_token"),
                     (String) data.get("workspace_id"),
@@ -69,6 +75,8 @@ public class NotionApiService {
             log.error("Notion 토큰 교환 실패: status={}, body={}", e.getStatusCode(), notionBody);
             throw BrainXException.badRequest("NOTION_TOKEN_ERROR",
                     "Notion 인증 코드 교환에 실패했습니다. [status=" + e.getStatusCode() + ", body=" + notionBody + ", clientId앞4자=" + clientIdPrefix + ", secret앞4자=" + clientSecretPrefix + "]");
+        } catch (BrainXException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Notion 토큰 교환 실패(기타 예외): type={}, msg={}", e.getClass().getSimpleName(), e.getMessage(), e);
             throw BrainXException.badRequest("NOTION_TOKEN_ERROR",
@@ -142,8 +150,16 @@ public class NotionApiService {
     }
 
     // 페이지 블록 → Markdown 변환
-    @SuppressWarnings("unchecked")
     public String getPageMarkdown(String pageId, String accessToken, String userId) {
+        return getPageMarkdown(pageId, accessToken, userId, 0);
+    }
+
+    @SuppressWarnings("unchecked")
+    private String getPageMarkdown(String pageId, String accessToken, String userId, int depth) {
+        if (depth > MAX_COLUMN_RECURSION_DEPTH) {
+            log.warn("column 중첩 재귀 깊이 초과: pageId={}, depth={}", pageId, depth);
+            return "";
+        }
         try {
             rateLimiter.acquire();
             ResponseEntity<Map> res = restTemplate.exchange(
@@ -153,7 +169,7 @@ public class NotionApiService {
                     Map.class
             );
             List<Map<String, Object>> results = (List<Map<String, Object>>) res.getBody().get("results");
-            return convertBlocksToMarkdown(results, accessToken, userId);
+            return convertBlocksToMarkdown(results, accessToken, userId, depth);
         } catch (Exception e) {
             log.warn("Notion 블록 조회 실패: {}", e.getMessage());
             return "";
@@ -161,19 +177,19 @@ public class NotionApiService {
     }
 
     @SuppressWarnings("unchecked")
-    private String convertBlocksToMarkdown(List<Map<String, Object>> blocks, String accessToken, String userId) {
+    private String convertBlocksToMarkdown(List<Map<String, Object>> blocks, String accessToken, String userId, int depth) {
         if (blocks == null) return "";
         StringBuilder sb = new StringBuilder();
         for (Map<String, Object> block : blocks) {
             String type = (String) block.get("type");
-            String line = convertBlock(block, type, accessToken, userId);
+            String line = convertBlock(block, type, accessToken, userId, depth);
             if (line != null) sb.append(line).append("\n");
         }
         return sb.toString();
     }
 
     @SuppressWarnings("unchecked")
-    private String convertBlock(Map<String, Object> block, String type, String accessToken, String userId) {
+    private String convertBlock(Map<String, Object> block, String type, String accessToken, String userId, int depth) {
         try {
             return switch (type) {
                 case "paragraph" -> richText((Map<String, Object>) block.get("paragraph"));
@@ -227,7 +243,7 @@ public class NotionApiService {
                     // 자식 블록 재귀 조회
                     if (Boolean.TRUE.equals(block.get("has_children"))) {
                         String blockId = (String) block.get("id");
-                        yield getPageMarkdown(blockId, accessToken, userId);
+                        yield getPageMarkdown(blockId, accessToken, userId, depth + 1);
                     }
                     yield null;
                 }
@@ -387,13 +403,17 @@ public class NotionApiService {
     public List<ChildDatabaseRef> getAllChildDatabasesDeep(String pageId, String accessToken) {
         List<ChildDatabaseRef> refs = new ArrayList<>();
         Set<String> seenIds = new java.util.LinkedHashSet<>();
-        collectChildDatabasesDeep(pageId, accessToken, refs, seenIds);
+        collectChildDatabasesDeep(pageId, accessToken, refs, seenIds, 0);
         return refs;
     }
 
     @SuppressWarnings("unchecked")
     private void collectChildDatabasesDeep(String blockId, String accessToken,
-                                            List<ChildDatabaseRef> refs, Set<String> seenIds) {
+                                            List<ChildDatabaseRef> refs, Set<String> seenIds, int depth) {
+        if (depth > MAX_COLUMN_RECURSION_DEPTH) {
+            log.warn("child_database 재귀 깊이 초과: blockId={}, depth={}", blockId, depth);
+            return;
+        }
         try {
             rateLimiter.acquire();
             ResponseEntity<Map> res = restTemplate.exchange(
@@ -413,7 +433,7 @@ public class NotionApiService {
                     refs.add(new ChildDatabaseRef(id, (String) db.get("title")));
                 } else if (List.of("column_list", "column").contains(type)
                            && Boolean.TRUE.equals(block.get("has_children"))) {
-                    collectChildDatabasesDeep(id, accessToken, refs, seenIds);
+                    collectChildDatabasesDeep(id, accessToken, refs, seenIds, depth + 1);
                 }
             }
         } catch (Exception e) {
@@ -429,13 +449,17 @@ public class NotionApiService {
     public List<ChildPageRef> getAllChildPagesDeep(String pageId, String accessToken) {
         List<ChildPageRef> refs = new ArrayList<>();
         Set<String> seenIds = new java.util.LinkedHashSet<>();
-        collectChildPagesDeep(pageId, accessToken, refs, seenIds);
+        collectChildPagesDeep(pageId, accessToken, refs, seenIds, 0);
         return refs;
     }
 
     @SuppressWarnings("unchecked")
     private void collectChildPagesDeep(String blockId, String accessToken,
-                                        List<ChildPageRef> refs, Set<String> seenIds) {
+                                        List<ChildPageRef> refs, Set<String> seenIds, int depth) {
+        if (depth > MAX_COLUMN_RECURSION_DEPTH) {
+            log.warn("child_page 재귀 깊이 초과: blockId={}, depth={}", blockId, depth);
+            return;
+        }
         try {
             rateLimiter.acquire();
             ResponseEntity<Map> res = restTemplate.exchange(
@@ -456,7 +480,7 @@ public class NotionApiService {
                 } else if (List.of("column_list", "column").contains(type)
                            && Boolean.TRUE.equals(block.get("has_children"))) {
                     // getPageMarkdown이 재귀하는 컨테이너와 동일한 범위만 탐색
-                    collectChildPagesDeep(id, accessToken, refs, seenIds);
+                    collectChildPagesDeep(id, accessToken, refs, seenIds, depth + 1);
                 }
             }
         } catch (Exception e) {
