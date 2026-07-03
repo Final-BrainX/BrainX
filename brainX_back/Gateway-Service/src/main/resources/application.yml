@@ -38,7 +38,7 @@ spring:
             - RemoveRequestHeader=Origin
           routes:
             - id: commerce-service-user-subscription
-              uri: ${COMMERCE_SERVICE_URL:http://localhost:8084}
+              uri: lb://Commerce-Service
               predicates:
                 - Path=/api/v1/users/me/subscription
               filters:
@@ -53,7 +53,7 @@ spring:
                 - Path=/api/v1/users/me/token-usage
 
             - id: internal-user-service-users
-              uri: ${USER_SERVICE_URL:http://localhost:8080}
+              uri: lb://User-Service
               predicates:
                 - Path=/internal/v1/users/**
               filters:
@@ -63,7 +63,7 @@ spring:
                     fallbackUri: forward:/fallback/user
 
             - id: internal-user-service-support
-              uri: ${USER_SERVICE_URL:http://localhost:8080}
+              uri: lb://User-Service
               predicates:
                 - Path=/internal/v1/support/**
               filters:
@@ -73,7 +73,7 @@ spring:
                     fallbackUri: forward:/fallback/user
 
             - id: internal-commerce-service
-              uri: ${COMMERCE_SERVICE_URL:http://localhost:8084}
+              uri: lb://Commerce-Service
               predicates:
                 - Path=/internal/v1/billing/**,/internal/v1/plans/**
               filters:
@@ -83,7 +83,7 @@ spring:
                     fallbackUri: forward:/fallback/commerce
 
             - id: internal-user-health
-              uri: ${USER_SERVICE_URL:http://localhost:8080}
+              uri: lb://User-Service
               predicates:
                 - Path=/internal/v1/health/user
               filters:
@@ -96,7 +96,7 @@ spring:
                 - RewritePath=/internal/v1/health/user,/actuator/health
 
             - id: internal-commerce-health
-              uri: ${COMMERCE_SERVICE_URL:http://localhost:8084}
+              uri: lb://Commerce-Service
               predicates:
                 - Path=/internal/v1/health/commerce
               filters:
@@ -109,7 +109,7 @@ spring:
                 - RewritePath=/internal/v1/health/commerce,/actuator/health
 
             - id: internal-workspace-health
-              uri: ${WORKSPACE_SERVICE_URL:http://localhost:8082}
+              uri: lb://Workspace-Service
               predicates:
                 - Path=/internal/v1/health/workspace
               filters:
@@ -122,7 +122,7 @@ spring:
                 - RewritePath=/internal/v1/health/workspace,/actuator/health
 
             - id: internal-workspace-service
-              uri: ${WORKSPACE_SERVICE_URL:http://localhost:8082}
+              uri: lb://Workspace-Service
               predicates:
                 - Path=/internal/v1/workspace/**
               filters:
@@ -132,7 +132,7 @@ spring:
                     fallbackUri: forward:/fallback/workspace
 
             - id: internal-ingestion-health
-              uri: ${INGESTION_SERVICE_URL:http://localhost:8083}
+              uri: lb://Ingestion-Service
               predicates:
                 - Path=/internal/v1/health/ingestion
               filters:
@@ -145,7 +145,7 @@ spring:
                 - RewritePath=/internal/v1/health/ingestion,/actuator/health
 
             - id: internal-intelligence-health
-              uri: ${INTELLIGENCE_SERVICE_URL:http://localhost:8086}
+              uri: lb://intelligence-service
               predicates:
                 - Path=/internal/v1/health/intelligence
               filters:
@@ -158,14 +158,14 @@ spring:
                 - RewritePath=/internal/v1/health/intelligence,/actuator/health
 
             - id: internal-mcp-health
-              uri: ${MCP_SERVICE_URL:http://localhost:8087}
+              uri: lb://mcp-service
               predicates:
                 - Path=/internal/v1/health/mcp
               filters:
                 - RewritePath=/internal/v1/health/mcp,/actuator/health
 
             - id: user-service-auth
-              uri: ${USER_SERVICE_URL:http://localhost:8080}
+              uri: lb://User-Service
               predicates:
                 - Path=/api/v1/auth/**
               filters:
@@ -185,12 +185,12 @@ spring:
                     fallbackUri: forward:/fallback/user
 
             - id: mcp-service
-              uri: ${MCP_SERVICE_URL:http://localhost:8087}
+              uri: lb://mcp-service
               predicates:
                 - Path=/api/v1/mcp/**,/mcp,/mcp/**
 
             - id: user-service-users
-              uri: ${USER_SERVICE_URL:http://localhost:8080}
+              uri: lb://User-Service
               predicates:
                 - Path=/api/v1/users/**
               filters:
@@ -200,7 +200,7 @@ spring:
                     fallbackUri: forward:/fallback/user
 
             - id: user-service-support
-              uri: ${USER_SERVICE_URL:http://localhost:8080}
+              uri: lb://User-Service
               predicates:
                 - Path=/api/v1/support/**
               filters:
@@ -210,7 +210,7 @@ spring:
                     fallbackUri: forward:/fallback/user
 
             - id: workspace-service
-              uri: ${WORKSPACE_SERVICE_URL:http://localhost:8082}
+              uri: lb://Workspace-Service
               predicates:
                 - Path=/api/v1/workspace/**,/api/v1/notes,/api/v1/notes/**,/api/v1/folders,/api/v1/folders/**,/api/v1/recent-activities,/api/v1/recent-activities/**,/api/v1/tags/**,/api/v1/favorites/**,/api/v1/graph,/api/v1/graph/**,/api/v1/share-links,/api/v1/share-links/**
               filters:
@@ -220,7 +220,7 @@ spring:
                     fallbackUri: forward:/fallback/workspace
 
             - id: ingestion-service
-              uri: ${INGESTION_SERVICE_URL:http://localhost:8083}
+              uri: lb://Ingestion-Service
               predicates:
                 - Path=/api/v1/imports/**,/api/v1/exports,/api/v1/exports/**,/v1/publish-jobs,/v1/publish-jobs/**,/api/v1/extension/**,/api/v1/assets/**
               filters:
@@ -230,7 +230,7 @@ spring:
                     fallbackUri: forward:/fallback/ingestion
 
             - id: commerce-service
-              uri: ${COMMERCE_SERVICE_URL:http://localhost:8084}
+              uri: lb://Commerce-Service
               predicates:
                 - Path=/api/v1/plans,/api/v1/plans/**,/api/v1/subscriptions/**,/api/v1/billing/**
               filters:
@@ -240,7 +240,7 @@ spring:
                     fallbackUri: forward:/fallback/commerce
 
             - id: admin-service
-              uri: ${ADMIN_SERVICE_URL:http://localhost:8085}
+              uri: lb://Admin-Service
               predicates:
                 - Path=/api/v1/admin/**
               filters:
@@ -248,6 +248,14 @@ spring:
                   args:
                     name: adminServiceCircuitBreaker
                     fallbackUri: forward:/fallback/admin
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:http://localhost:8761/eureka/}
+  instance:
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:localhost}
+    instance-id: ${spring.application.name}:${server.port}
 
 management:
   metrics:

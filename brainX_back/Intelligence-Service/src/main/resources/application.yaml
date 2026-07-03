@@ -4,6 +4,11 @@ server:
 spring:
   application:
     name: intelligence-service
+  cloud:
+    discovery:
+      client:
+        simple:
+          enabled: false
   autoconfigure:
     exclude:
       - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
@@ -212,6 +217,14 @@ brainx:
         document-group-id: ${BRAINX_DEV_NOTE_AUTO_LINK_DOCUMENT_GROUP_ID:default}
         max-notes: ${BRAINX_DEV_NOTE_AUTO_LINK_MAX_NOTES:0}
         model-id: ${BRAINX_DEV_NOTE_AUTO_LINK_MODEL_ID:${OPENAI_CHAT_MODEL:gpt-5.4-mini}}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:http://localhost:8761/eureka/}
+  instance:
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:localhost}
+    instance-id: ${spring.application.name}:${server.port}
 
 management:
   metrics:

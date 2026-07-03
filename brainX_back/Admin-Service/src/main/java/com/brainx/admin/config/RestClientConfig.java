@@ -3,6 +3,7 @@ package com.brainx.admin.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.cloud.client.loadbalancer.LoadBalanced;
 import org.springframework.web.client.RestClient;
 
 @Configuration
@@ -21,32 +22,38 @@ public class RestClientConfig {
     private String workspaceServiceUrl;
 
     @Bean
-    public RestClient userRestClient() {
-        return RestClient.builder()
+    @LoadBalanced
+    public RestClient.Builder loadBalancedRestClientBuilder() {
+        return RestClient.builder();
+    }
+
+    @Bean
+    public RestClient userRestClient(RestClient.Builder loadBalancedRestClientBuilder) {
+        return loadBalancedRestClientBuilder
                 .baseUrl(userServiceUrl)
                 .defaultHeader("X-Service-Token", serviceToken)
                 .build();
     }
 
     @Bean
-    public RestClient commerceRestClient() {
-        return RestClient.builder()
+    public RestClient commerceRestClient(RestClient.Builder loadBalancedRestClientBuilder) {
+        return loadBalancedRestClientBuilder
                 .baseUrl(commerceServiceUrl)
                 .defaultHeader("X-Service-Token", serviceToken)
                 .build();
     }
 
     @Bean
-    public RestClient workspaceRestClient() {
-        return RestClient.builder()
+    public RestClient workspaceRestClient(RestClient.Builder loadBalancedRestClientBuilder) {
+        return loadBalancedRestClientBuilder
                 .baseUrl(workspaceServiceUrl)
                 .defaultHeader("X-Service-Token", serviceToken)
                 .build();
     }
 
     @Bean
-    public RestClient defaultRestClient() {
-        return RestClient.builder()
+    public RestClient defaultRestClient(RestClient.Builder loadBalancedRestClientBuilder) {
+        return loadBalancedRestClientBuilder
                 .defaultHeader("X-Service-Token", serviceToken)
                 .build();
     }

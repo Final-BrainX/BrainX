@@ -11,6 +11,7 @@ from pathlib import PurePosixPath
 
 
 ALL_SERVICES = [
+    "discovery-service",
     "gateway-service",
     "user-service",
     "workspace-service",
@@ -24,6 +25,7 @@ ALL_SERVICES = [
 ]
 
 PATH_RULES: list[tuple[str, set[str]]] = [
+    ("brainX_back/Discovery-Service/", {"discovery-service"}),
     ("brainX_back/Gateway-Service/", {"gateway-service"}),
     ("brainX_back/User-Service/", {"user-service"}),
     ("brainX_back/Workspace-Service/", {"workspace-service"}),

@@ -62,6 +62,15 @@ brainx:
     outbox:
       enabled: ${BRAINX_EVENTS_OUTBOX_ENABLED:false}
       relay-delay-ms: ${BRAINX_EVENTS_OUTBOX_RELAY_DELAY_MS:2000}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:http://localhost:8761/eureka/}
+  instance:
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:localhost}
+    instance-id: ${spring.application.name}:${server.port}
+
 logging:
   level:
     com.brainx: DEBUG

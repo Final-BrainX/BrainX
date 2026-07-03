@@ -9,9 +9,11 @@
 - Database: one RDS PostgreSQL instance, service-specific logical databases
 - Object storage: private S3 bucket for future user assets, note images, and attachments
 - Container runtime on EC2:
-  - `gateway-service`, `user-service`, `workspace-service`, `ingestion-service`, `commerce-service`, `admin-service`, `intelligence-service`, `mcp-service`
+  - `discovery-service`, `gateway-service`, `user-service`, `workspace-service`, `ingestion-service`, `commerce-service`, `admin-service`, `intelligence-service`, `mcp-service`
   - `frontend`, `admin-frontend`
   - `prometheus`, `grafana`, `redis`, `neo4j`, `qdrant`, `kafka`, `caddy`
+
+`discovery-service` listens on port `8761` and stays on the internal registry path; Caddy does not publish it as a public route.
 - Public entry:
   - user frontend: `https://<public-domain>/`
   - admin frontend: `https://<admin-domain>/`
@@ -43,7 +45,7 @@ The rightmost "Open Files" panels query `process_files_open_files` first and fal
 
 `Ingestion-Service` also needs `spring-boot-starter-actuator` in its Gradle dependencies so the `/actuator/prometheus` endpoint exists at runtime; without that starter, Prometheus has nothing to scrape and Grafana panels stay on `No data`.
 
-`Admin-Service` talks to `user-service`, `commerce-service`, `workspace-service`, `ingestion-service`, and `intelligence-service` through Docker DNS names inside the shared compose network. Do not leave those URLs on the container defaults of `localhost`, or the admin screens will fail as soon as they try to read another service's data.
+`Discovery-Service` is the Eureka registry for the AWS dev stack. The gateway and backend services register with it before they start serving traffic, and Admin-Service reads `User-Service`, `Commerce-Service`, and `Workspace-Service` through Eureka-backed `RestClient` beans instead of hardcoded Docker DNS names.
 
 Grafana is mounted behind Caddy on the admin site path so we do not need to expose a new public port. It reuses the existing runtime admin password (`SEED_ADMIN_PASSWORD`) for the initial Grafana login.
 
