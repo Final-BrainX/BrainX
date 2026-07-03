@@ -87,6 +87,44 @@ services:
       - "9090"
     mem_limit: 768m
 
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    container_name: brainx-node-exporter
+    restart: unless-stopped
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/rootfs"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    expose:
+      - "9100"
+    mem_limit: 128m
+
+  discovery-service:
+    image: ${ECR_REGISTRY}/brainx-dev-discovery-service:${DISCOVERY_SERVICE_TAG:-dev-latest}
+    container_name: brainx-discovery-service
+    restart: unless-stopped
+    environment:
+      SERVER_PORT: "8761"
+      JAVA_TOOL_OPTIONS: -Xms128m -Xmx256m -XX:+ExitOnOutOfMemoryError
+      EUREKA_SERVER_ENABLE_SELF_PRESERVATION: "false"
+    ports:
+      - "8761:8761"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://localhost:8761/actuator/health | grep -q UP",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 384m
+
   gateway-service:
     image: ${ECR_REGISTRY}/brainx-dev-gateway-service:${GATEWAY_SERVICE_TAG:-dev-latest}
     container_name: brainx-gateway-service
@@ -97,15 +135,12 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       SERVICE_TOKEN: ${SERVICE_TOKEN}
       FRONTEND_BASE_URL: ${PUBLIC_BASE_URL}
-      USER_SERVICE_URL: http://user-service:8080
-      WORKSPACE_SERVICE_URL: http://workspace-service:8082
-      INGESTION_SERVICE_URL: http://ingestion-service:8083
-      COMMERCE_SERVICE_URL: http://commerce-service:8084
-      ADMIN_SERVICE_URL: http://admin-service:8085
-      MCP_SERVICE_URL: http://mcp-service:8087
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:-http://discovery-service:8761/eureka/}
+      EUREKA_INSTANCE_HOSTNAME: gateway-service
     expose:
       - "8088"
     depends_on:
+      - discovery-service
       - user-service
       - workspace-service
       - ingestion-service
@@ -145,10 +180,13 @@ services:
       NAVER_CLIENT_ID: ${NAVER_CLIENT_ID:-}
       NAVER_CLIENT_SECRET: ${NAVER_CLIENT_SECRET:-}
       NAVER_REDIRECT_URI: ${PUBLIC_BASE_URL}/oauth/naver/callback
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:-http://discovery-service:8761/eureka/}
+      EUREKA_INSTANCE_HOSTNAME: user-service
       JPA_DDL_AUTO: update
     expose:
       - "8080"
     depends_on:
+      - discovery-service
       - redis
     mem_limit: 1024m
 
@@ -175,10 +213,13 @@ services:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       BRAINX_EVENTS_OUTBOX_ENABLED: "true"
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:-http://discovery-service:8761/eureka/}
+      EUREKA_INSTANCE_HOSTNAME: workspace-service
       JPA_DDL_AUTO: update
     expose:
       - "8082"
     depends_on:
+      - discovery-service
       - redis
       - neo4j
       - kafka
@@ -205,12 +246,15 @@ services:
       CDN_BASE_URL: ${CDN_BASE_URL}
       ASSET_STORAGE_DIR: ${ASSET_STORAGE_DIR}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:-http://discovery-service:8761/eureka/}
+      EUREKA_INSTANCE_HOSTNAME: ingestion-service
       JPA_DDL_AUTO: update
     volumes:
       - ingestion_asset_storage:/app/asset-storage
     expose:
       - "8083"
     depends_on:
+      - discovery-service
       - workspace-service
       - kafka
     mem_limit: 1280m
@@ -235,11 +279,14 @@ services:
       TOSS_CONFIRM_URL: ${TOSS_CONFIRM_URL:-https://api.tosspayments.com/v1/payments/confirm}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       BRAINX_EVENTS_OUTBOX_ENABLED: "true"
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:-http://discovery-service:8761/eureka/}
+      EUREKA_INSTANCE_HOSTNAME: commerce-service
       BRAINX_EVENTS_CONSUMER_ENABLED: "true"
       JPA_DDL_AUTO: update
     expose:
       - "8084"
     depends_on:
+      - discovery-service
       - kafka
     mem_limit: 1024m
 
@@ -257,13 +304,13 @@ services:
       ADMIN_DB_NAME: ${ADMIN_DB_NAME:-brainx_admin}
       JWT_SECRET: ${JWT_SECRET}
       SERVICE_TOKEN: ${SERVICE_TOKEN}
-      GATEWAY_SERVICE_URL: ${GATEWAY_SERVICE_URL:-http://gateway-service:8088}
-      USER_SERVICE_URL: http://user-service:8080
-      COMMERCE_SERVICE_URL: http://commerce-service:8084
-      WORKSPACE_SERVICE_URL: http://workspace-service:8082
-      INGESTION_SERVICE_URL: http://ingestion-service:8083
-      INTELLIGENCE_SERVICE_URL: http://intelligence-service:8086
-      MCP_SERVICE_URL: http://mcp-service:8087
+      GATEWAY_SERVICE_URL: ${GATEWAY_SERVICE_URL:-http://Gateway-Service}
+      USER_SERVICE_URL: ${USER_SERVICE_URL:-http://User-Service}
+      COMMERCE_SERVICE_URL: ${COMMERCE_SERVICE_URL:-http://Commerce-Service}
+      WORKSPACE_SERVICE_URL: ${WORKSPACE_SERVICE_URL:-http://Workspace-Service}
+      INGESTION_SERVICE_URL: ${INGESTION_SERVICE_URL:-http://ingestion-service}
+      INTELLIGENCE_SERVICE_URL: ${INTELLIGENCE_SERVICE_URL:-http://intelligence-service}
+      MCP_SERVICE_URL: ${MCP_SERVICE_URL:-http://mcp-service}
       SEED_ADMIN_LOGIN_ID: ${SEED_ADMIN_LOGIN_ID:-admin}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
       SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-BrainX Admin}
@@ -274,9 +321,13 @@ services:
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-}
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:-http://discovery-service:8761/eureka/}
+      EUREKA_INSTANCE_HOSTNAME: admin-service
       JPA_DDL_AUTO: update
     expose:
       - "8085"
+    depends_on:
+      - discovery-service
     mem_limit: 1024m
 
   intelligence-service:
@@ -316,9 +367,12 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       BRAINX_EVENTS_CONSUMER_ENABLED: "true"
       BRAINX_EVENTS_PRODUCER_ENABLED: "true"
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:-http://discovery-service:8761/eureka/}
+      EUREKA_INSTANCE_HOSTNAME: intelligence-service
     expose:
       - "8086"
     depends_on:
+      - discovery-service
       - qdrant
       - kafka
       - workspace-service
@@ -347,8 +401,12 @@ services:
       INTELLIGENCE_SERVICE_URL: http://intelligence-service:8086
       SPRING_JPA_HIBERNATE_DDL_AUTO: update
       JPA_DDL_AUTO: update
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:-http://discovery-service:8761/eureka/}
+      EUREKA_INSTANCE_HOSTNAME: mcp-service
     expose:
       - "8087"
+    depends_on:
+      - discovery-service
     mem_limit: 768m
 
   redis:

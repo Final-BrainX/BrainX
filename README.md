@@ -1,4 +1,4 @@
-﻿# BrainX
+# BrainX
 
 > AI 기반 지식 관리 플랫폼  
 
@@ -87,6 +87,7 @@ BrainX/
 ├─ brainX_front/          # 이전 Vite/React 프론트엔드 실험 코드
 ├─ brainX_back/           # Spring Boot MSA 백엔드 워크스페이스
 │  ├─ User-Service/       # 인증/사용자 서비스 (포트 8080)
+│  ├─ Discovery-Service/  # Eureka registry (포트 8761)
 │  ├─ Gateway-Service/    # 프론트 단일 진입점/API 라우팅 서비스 (포트 8088)
 │  ├─ Ingestion-Service/  # 가져오기/내보내기 서비스 (포트 8083) — 구현 중
 │  ├─ Workspace-Service/  # 노트/폴더/그래프 원장 서비스 (포트 8082) — 구현 중
@@ -362,17 +363,20 @@ API key fallback을 직접 테스트할 때만 `bearer_token_env_var = "BRAINX_M
 ```powershell
 cd C:\Edu\Final\BrainX\brainX_back
 Copy-Item .env.example .env
+Copy-Item .\env\discovery-service.env.example .\env\discovery-service.env
 Copy-Item .\env\gateway-service.env.example .\env\gateway-service.env
 Copy-Item .\env\user-service.env.example .\env\user-service.env
 Copy-Item .\env\workspace-service.env.example .\env\workspace-service.env
 Copy-Item .\env\ingestion-service.env.example .\env\ingestion-service.env
 Copy-Item .\env\commerce-service.env.example .\env\commerce-service.env
+Copy-Item .\env\intelligence-service.env.example .\env\intelligence-service.env
 Copy-Item .\env\mcp-service.env.example .\env\mcp-service.env
 docker compose up -d
 ```
 
 `.env`는 각자 로컬 값만 넣고 Git에 올리지 않습니다. `JWT_SECRET`은 JWT를 발급/검증하는 User-Service, Workspace-Service, Ingestion-Service, Intelligence-Service, Mcp-Service가 같은 값을 사용해야 합니다.
 `env/*.env`도 서비스별 로컬 실행 값이므로 Git에 올리지 않습니다.
+배포 환경은 이 로컬 예시 파일을 읽지 않고, `infra/aws-dev/scripts/deploy_remote.sh`가 만든 `/opt/brainx/env/runtime.env`와 `infra/aws-dev/deploy/docker-compose.yml`을 사용합니다.
 
 DB만 Docker로 띄우려면 `docker compose up -d`를 사용합니다. 백엔드 앱까지 컨테이너로 함께 띄우려면 아래처럼 `apps` 프로필을 사용합니다.
 
@@ -381,7 +385,30 @@ cd C:\Edu\Final\BrainX\brainX_back
 docker compose --profile apps up -d --build
 ```
 
-`apps` 프로필은 `Gateway-Service`(8088), `User-Service`(8080), `Workspace-Service`(8082), `Ingestion-Service`(8083), `Commerce-Service`(8084), `Admin-Service`(8085), `Intelligence-Service`(8086), `Mcp-Service`(8087)를 모두 실행합니다. MCP semantic search가 Intelligence-Service를 호출하므로 같은 프로필에서 Qdrant도 함께 실행됩니다. 이 방식으로 앱을 띄우면 각 서비스를 로컬 Gradle/IDE에서 따로 실행할 필요는 없습니다. 프론트엔드는 계속 `brainx-next`에서 실행하면 됩니다.
+`apps` 프로필은 `Discovery-Service`(8761), `Gateway-Service`(8088), `User-Service`(8080), `Workspace-Service`(8082), `Ingestion-Service`(8083), `Commerce-Service`(8084), `Intelligence-Service`(8086), `Admin-Service`(8085), `Mcp-Service`(8087)를 모두 실행합니다. MCP semantic search가 Intelligence-Service를 호출하고 Discovery가 Eureka registry 역할을 하므로, 이 프로필에서 필요한 공용 인프라와 앱을 한 번에 올릴 수 있습니다. 이 방식으로 앱을 띄우면 각 서비스를 로컬 Gradle/IDE에서 따로 실행할 필요는 없습니다. 프론트엔드는 계속 `brainx-next`에서 실행하면 됩니다.
+
+권장 실행 순서는 다음과 같습니다.
+
+1. `postgres`, `redis`, `neo4j`, `kafka` 같은 공용 인프라를 먼저 올립니다.
+1. `Discovery-Service`가 `UP`이 된 뒤 각 백엔드가 Eureka에 등록되도록 기다립니다.
+1. `Gateway-Service`, `User-Service`, `Workspace-Service`, `Ingestion-Service`, `Commerce-Service`, `Intelligence-Service`, `Admin-Service`, `Mcp-Service`를 순서대로 확인합니다.
+1. `Admin-Service`는 `apps` 프로필에서 Discovery에 등록된 서비스명(`User-Service`, `Commerce-Service`, `Workspace-Service`, `Ingestion-Service`, `Intelligence-Service`, `Mcp-Service`) 기준으로 내부 호출을 수행합니다.
+
+Eureka 서비스명은 `spring.application.name`과 대소문자가 정확히 같아야 합니다. BrainX 배포에서는 `User-Service`, `Commerce-Service`, `Workspace-Service`, `Admin-Service`, `Gateway-Service`는 대문자 표기 그대로 쓰고, `ingestion-service`, `intelligence-service`, `mcp-service`는 소문자 표기를 유지합니다.
+
+앱 포트 매핑은 아래와 같습니다.
+
+| Service | Port | Purpose |
+| --- | --- | --- |
+| Discovery-Service | 8761 | Eureka registry |
+| Gateway-Service | 8088 | Public API gateway |
+| User-Service | 8080 | Auth, account, identity |
+| Workspace-Service | 8082 | Notes, folders, graph |
+| Ingestion-Service | 8083 | Import/export |
+| Commerce-Service | 8084 | Billing, subscriptions |
+| Admin-Service | 8085 | Admin console backend |
+| Intelligence-Service | 8086 | AI, search, RAG |
+| Mcp-Service | 8087 | MCP endpoint and API key gateway |
 
 Admin-Service만 Docker로 실행하려면 아래 명령을 사용합니다.
 
@@ -396,13 +423,14 @@ docker compose --profile apps up -d --build admin-service
 
 | Service | 자동 import |
 | --- | --- |
+| Discovery-Service | `../.env`, `../env/discovery-service.env` |
 | Gateway-Service | `../.env`, `../env/gateway-service.env` |
 | Admin-Service | `../.env`, `../env/admin-service.env` |
 | User-Service | `../.env`, `../env/user-service.env` |
 | Workspace-Service | Docker 실행 시 `env/workspace-service.env`; 로컬 IDE 실행 시 동일한 값을 Run Configuration에 지정 |
 | Ingestion-Service | `../.env`, `../env/ingestion-service.env` |
 | Commerce-Service | `../.env`, `../env/commerce-service.env` |
-| Intelligence-Service | Docker 실행 시 `docker-compose.yml` environment, 로컬 IDE 실행 시 `.env` 값을 Run Configuration에 지정 |
+| Intelligence-Service | `../.env`, `../env/intelligence-service.env` |
 | Mcp-Service | `../.env`, `../env/mcp-service.env` |
 
 `JWT_SECRET`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, `DB_DRIVER`, `JPA_DDL_AUTO`처럼 모든 서비스가 공유하는 값은 `.env`에 둡니다. 서비스별 논리 DB 이름도 `.env`의 `USER_DB_NAME`, `WORKSPACE_DB_NAME`, `INGESTION_DB_NAME`, `COMMERCE_DB_NAME`, `INTELLIGENCE_DB_NAME`, `MCP_DB_NAME`으로 관리합니다.
@@ -432,9 +460,11 @@ Workspace-Service는 노트 저장 시 본문 `[[...]]` 위키링크와 TipTap `
 
 DB 접속 계정과 비밀번호는 루트 `.env`의 `POSTGRES_USER`, `POSTGRES_PASSWORD`를 모든 서비스가 공통으로 사용합니다. 각 서비스는 자기 `application.yml`에서 `.env`의 DB host/port와 서비스별 DB name을 조합해 JDBC URL을 만듭니다.
 
+Discovery-Service는 Eureka registry 역할을 하는 인프라 서비스입니다. Gateway와 각 백엔드는 Discovery에 등록한 뒤 `lb://` 라우팅과 서비스명 기반 조회를 사용합니다.
+
 ### Backend: Gateway-Service (포트 8088)
 
-프론트가 바라보는 단일 API 진입점입니다. Docker Compose 내부에서는 서비스명으로 라우팅합니다.
+프론트가 바라보는 단일 API 진입점입니다. 현재는 Eureka 등록 서비스명을 `lb://`로 조회해 라우팅합니다.
 
 | Path | Target |
 | --- | --- |
@@ -475,6 +505,15 @@ Docker Compose로 실행할 때는 `user-service` 컨테이너가 `REDIS_HOST=re
 
 ```powershell
 cd C:\Edu\Final\BrainX\brainX_back\Gateway-Service
+.\gradlew.bat bootRun
+```
+
+### Backend: Discovery-Service (포트 8761)
+
+Eureka registry를 띄우는 인프라 서비스입니다.
+
+```powershell
+cd C:\Edu\Final\BrainX\brainX_back\Discovery-Service
 .\gradlew.bat bootRun
 ```
 

@@ -2,6 +2,7 @@ locals {
   name_prefix = "${var.project_name}-${var.environment}"
 
   service_repositories = {
+    discovery-service    = "${local.name_prefix}-discovery-service"
     gateway-service      = "${local.name_prefix}-gateway-service"
     user-service         = "${local.name_prefix}-user-service"
     workspace-service    = "${local.name_prefix}-workspace-service"

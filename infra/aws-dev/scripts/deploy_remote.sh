@@ -144,8 +144,15 @@ KAKAO_CLIENT_ID="$(get_parameter KAKAO_CLIENT_ID)"
 KAKAO_CLIENT_SECRET="$(get_parameter KAKAO_CLIENT_SECRET)"
 NAVER_CLIENT_ID="$(get_parameter NAVER_CLIENT_ID)"
 NAVER_CLIENT_SECRET="$(get_parameter NAVER_CLIENT_SECRET)"
+EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE="$(get_parameter EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE 'http://discovery-service:8761/eureka/')"
 ADMIN_DB_NAME="$(get_parameter ADMIN_DB_NAME brainx_admin)"
-GATEWAY_SERVICE_URL="$(get_parameter GATEWAY_SERVICE_URL 'http://gateway-service:8088')"
+GATEWAY_SERVICE_URL="$(get_parameter GATEWAY_SERVICE_URL 'http://Gateway-Service')"
+USER_SERVICE_URL="$(get_parameter USER_SERVICE_URL 'http://User-Service')"
+COMMERCE_SERVICE_URL="$(get_parameter COMMERCE_SERVICE_URL 'http://Commerce-Service')"
+WORKSPACE_SERVICE_URL="$(get_parameter WORKSPACE_SERVICE_URL 'http://Workspace-Service')"
+INGESTION_SERVICE_URL="$(get_parameter INGESTION_SERVICE_URL 'http://ingestion-service')"
+INTELLIGENCE_SERVICE_URL="$(get_parameter INTELLIGENCE_SERVICE_URL 'http://intelligence-service')"
+MCP_SERVICE_URL="$(get_parameter MCP_SERVICE_URL 'http://mcp-service')"
 MAIL_HOST="$(get_parameter MAIL_HOST 'smtp.gmail.com')"
 MAIL_PORT="$(get_parameter MAIL_PORT 587)"
 MAIL_USERNAME="$(get_parameter MAIL_USERNAME)"
@@ -197,7 +204,7 @@ write_env() {
 }
 
 for key in \
-  GATEWAY_SERVICE_TAG USER_SERVICE_TAG WORKSPACE_SERVICE_TAG INGESTION_SERVICE_TAG \
+  DISCOVERY_SERVICE_TAG GATEWAY_SERVICE_TAG USER_SERVICE_TAG WORKSPACE_SERVICE_TAG INGESTION_SERVICE_TAG \
   COMMERCE_SERVICE_TAG ADMIN_SERVICE_TAG INTELLIGENCE_SERVICE_TAG MCP_SERVICE_TAG \
   FRONTEND_TAG ADMIN_FRONTEND_TAG; do
   ensure_tag "$key"
@@ -212,6 +219,7 @@ fi
 
 for service in $services; do
   case "$service" in
+    discovery-service) set_tag DISCOVERY_SERVICE_TAG "$IMAGE_TAG" ;;
     gateway-service) set_tag GATEWAY_SERVICE_TAG "$IMAGE_TAG" ;;
     user-service) set_tag USER_SERVICE_TAG "$IMAGE_TAG" ;;
     workspace-service) set_tag WORKSPACE_SERVICE_TAG "$IMAGE_TAG" ;;
@@ -230,6 +238,7 @@ done
 {
   write_env AWS_REGION "$AWS_REGION"
   write_env ECR_REGISTRY "$ECR_REGISTRY"
+  write_env EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE "$EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE"
   write_env PUBLIC_BASE_URL "$PUBLIC_BASE_URL"
   write_env ADMIN_PUBLIC_BASE_URL "$ADMIN_PUBLIC_BASE_URL"
   write_env PUBLIC_SITE_ADDRESS "$PUBLIC_SITE_ADDRESS"
@@ -244,6 +253,12 @@ done
   write_env NEO4J_PASSWORD "$NEO4J_PASSWORD"
   write_env ADMIN_DB_NAME "$ADMIN_DB_NAME"
   write_env GATEWAY_SERVICE_URL "$GATEWAY_SERVICE_URL"
+  write_env USER_SERVICE_URL "$USER_SERVICE_URL"
+  write_env COMMERCE_SERVICE_URL "$COMMERCE_SERVICE_URL"
+  write_env WORKSPACE_SERVICE_URL "$WORKSPACE_SERVICE_URL"
+  write_env INGESTION_SERVICE_URL "$INGESTION_SERVICE_URL"
+  write_env INTELLIGENCE_SERVICE_URL "$INTELLIGENCE_SERVICE_URL"
+  write_env MCP_SERVICE_URL "$MCP_SERVICE_URL"
   write_env MAIL_HOST "$MAIL_HOST"
   write_env MAIL_PORT "$MAIL_PORT"
   write_env SEED_ADMIN_PASSWORD "$SEED_ADMIN_PASSWORD"
@@ -335,6 +350,23 @@ fi
 
 docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" ps
 docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+
+echo "Discovery health:"
+discovery_healthy=false
+for attempt in $(seq 1 24); do
+  if curl -fsS --max-time 10 http://127.0.0.1:8761/actuator/health >/dev/null; then
+    echo "Discovery health is UP on attempt $attempt"
+    discovery_healthy=true
+    break
+  fi
+  echo "Discovery health attempt $attempt failed"
+  sleep 5
+done
+
+if [ "$discovery_healthy" != "true" ]; then
+  echo "Discovery health did not become available." >&2
+  exit 1
+fi
 
 echo "Gateway health:"
 curl -fsS --max-time 10 -H "Host: $PUBLIC_SITE_ADDRESS" http://127.0.0.1:80/api/v1/plans >/dev/null || true

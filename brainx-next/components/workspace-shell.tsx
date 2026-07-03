@@ -7,6 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useGuideStore } from "@/lib/use-guide-store";
 import { useBrainX } from "@/components/brainx-provider";
 import { Avatar, Badge, Btn, Icon, ThemeToggle } from "@/components/brainx-ui";
+import { BrandLogo } from "@/components/brand-logo";
 import { AccountSettingsModal } from "@/components/utility/account-settings-modal";
 import { PanelLeftClose, PanelLeft } from "lucide-react";
 import type { BrainXNote } from "@/lib/brainx-data";
@@ -802,11 +803,13 @@ function Sidebar({ onOpenSettings, notesExplorerOpen }: { onOpenSettings: (tab?:
     refreshTokenUsage();
     window.addEventListener("brainx-auth-session-changed", refreshTokenUsage);
     window.addEventListener("brainx-subscription-changed", refreshTokenUsage);
+    window.addEventListener("brainx-token-usage-changed", refreshTokenUsage);
 
     return () => {
       active = false;
       window.removeEventListener("brainx-auth-session-changed", refreshTokenUsage);
       window.removeEventListener("brainx-subscription-changed", refreshTokenUsage);
+      window.removeEventListener("brainx-token-usage-changed", refreshTokenUsage);
     };
   }, []);
 
@@ -1073,9 +1076,7 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
             onClick={() => router.push("/")}
             className="flex items-center group"
           >
-            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[0.4rem] bg-gradient-to-br from-primary via-accent to-cyan shadow-glow">
-              <Icon name="brain" size={19} className="text-white" strokeWidth={1.6} />
-            </div>
+            <BrandLogo size={36} shadow />
           </button>
         </div>
         <div className="md:ml-2 md:flex-1 md:max-w-lg">

@@ -620,7 +620,8 @@ public class WorkspaceService {
     @Transactional(readOnly = true)
     public InternalNoteSnapshotData snapshot(String noteId) {
         Note note = noteRepository.findById(noteId).orElseThrow(() -> notFound("NOTE_NOT_FOUND", "Note not found."));
-        return new InternalNoteSnapshotData(note.getNoteId(), note.getTitle(), note.getMarkdown(), note.getTags(), note.getFolderId(),
+        List<String> tags = new ArrayList<>(note.getTags());
+        return new InternalNoteSnapshotData(note.getNoteId(), note.getTitle(), note.getMarkdown(), tags, note.getFolderId(),
                 note.getVersion(), note.getUpdatedAt());
     }
 

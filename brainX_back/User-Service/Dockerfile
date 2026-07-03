@@ -7,8 +7,8 @@ COPY gradle ./gradle
 COPY gradlew gradlew.bat ./
 COPY src ./src
 
-RUN --mount=type=cache,target=/home/gradle/.gradle/caches,uid=1000,gid=1000 \
-    --mount=type=cache,target=/home/gradle/.gradle/wrapper,uid=1000,gid=1000 \
+RUN --mount=type=cache,target=/home/gradle/.gradle/caches,uid=1000,gid=1000,sharing=locked \
+    --mount=type=cache,target=/home/gradle/.gradle/wrapper,uid=1000,gid=1000,sharing=locked \
     gradle clean bootJar --no-daemon
 
 FROM eclipse-temurin:21-jre-alpine

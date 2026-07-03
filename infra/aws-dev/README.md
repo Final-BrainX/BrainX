@@ -9,9 +9,11 @@
 - Database: one RDS PostgreSQL instance, service-specific logical databases
 - Object storage: private S3 bucket for future user assets, note images, and attachments
 - Container runtime on EC2:
-  - `gateway-service`, `user-service`, `workspace-service`, `ingestion-service`, `commerce-service`, `admin-service`, `intelligence-service`, `mcp-service`
+  - `discovery-service`, `gateway-service`, `user-service`, `workspace-service`, `ingestion-service`, `commerce-service`, `admin-service`, `intelligence-service`, `mcp-service`
   - `frontend`, `admin-frontend`
   - `prometheus`, `grafana`, `redis`, `neo4j`, `qdrant`, `kafka`, `caddy`
+
+`discovery-service` listens on port `8761` and stays on the internal registry path; Caddy does not publish it as a public route.
 - Public entry:
   - user frontend: `https://<public-domain>/`
   - admin frontend: `https://<admin-domain>/`
@@ -43,7 +45,7 @@ The rightmost "Open Files" panels query `process_files_open_files` first and fal
 
 `Ingestion-Service` also needs `spring-boot-starter-actuator` in its Gradle dependencies so the `/actuator/prometheus` endpoint exists at runtime; without that starter, Prometheus has nothing to scrape and Grafana panels stay on `No data`.
 
-`Admin-Service` talks to `user-service`, `commerce-service`, `workspace-service`, `ingestion-service`, and `intelligence-service` through Docker DNS names inside the shared compose network. Do not leave those URLs on the container defaults of `localhost`, or the admin screens will fail as soon as they try to read another service's data.
+`Discovery-Service` is the Eureka registry for the AWS dev stack. The gateway and backend services register with it before they start serving traffic, and Admin-Service reads `User-Service`, `Commerce-Service`, and `Workspace-Service` through Eureka-backed `RestClient` beans instead of hardcoded Docker DNS names.
 
 Grafana is mounted behind Caddy on the admin site path so we do not need to expose a new public port. It reuses the existing runtime admin password (`SEED_ADMIN_PASSWORD`) for the initial Grafana login.
 
@@ -65,6 +67,8 @@ Terraform state is stored in the S3 backend declared in `terraform/backend.tf`:
 - Locking: native S3 lockfile with `use_lockfile = true`
 
 The state bucket is bootstrapped outside this stack and has versioning, AES256 server-side encryption, and public access block enabled. Keep `terraform.tfstate` and `tfplan` files local-only; they are intentionally ignored.
+
+The dev EC2 host is kept stable during normal Terraform applies. We do not force instance replacement on `user_data` edits, so bootstrap changes should be introduced intentionally instead of recreating the running app host during a routine infra update.
 
 ### Cost Control
 
@@ -169,7 +173,7 @@ Runtime app secrets and service configuration are managed through AWS SSM Parame
 
 Workflow: `.github/workflows/brainx-dev-deploy.yml`
 
-- Push to `main` detects changed paths and builds only affected images.
+- Push to `main` detects changed paths and builds only affected images. If the change only touches the runtime deployment paths under `infra/aws-dev/deploy/`, `infra/aws-dev/scripts/`, `infra/aws-dev/terraform/`, or the deploy workflow, the pipeline promotes it to a full stack build/deploy so newly introduced images such as `discovery-service` exist before `docker compose up` refreshes the stack.
 - `workflow_dispatch` can deploy all services or a specific service list.
 - Workflow-level concurrency serializes AWS dev deploys with `group: brainx-dev-deploy` and `cancel-in-progress: false`.
 - Image tags:
@@ -177,7 +181,8 @@ Workflow: `.github/workflows/brainx-dev-deploy.yml`
   - moving: `dev-latest`
 - Docker build cache uses Docker Buildx GitHub Actions cache with one scope per service. The first build for a service can miss, and later builds reuse cache layers across GitHub-hosted runners.
 - Deploy uses SSM `AWS-RunShellScript`; no SSH key or port 22 is required.
-- Remote deploy reads SSM parameters in one batch, skips repeated database bootstrap after the first successful run for the current RDS target, and avoids image pulls for config-only deploys.
+- GitHub waits on SSM by polling the command status until it reaches a terminal state, so longer remote redeploys no longer trip the default AWS CLI waiter timeout.
+- Remote deploy reads SSM parameters in one batch, skips repeated database bootstrap after the first successful run for the current RDS target, and only skips image pulls when the deployment is not already rebuilding the affected stack.
 - Remote deploy prints SSM stdout/stderr, `docker compose ps`, and endpoint checks. GitHub endpoint verification is limited to the changed service categories.
 - For deploy overlap or endpoint verification failures, use [`troubleshooting.md`](troubleshooting.md).
 
@@ -196,6 +201,8 @@ Path mapping:
 | `brainx-next/**` | `frontend` |
 | `brainx-admin-next/**` | `admin-frontend` |
 | `contracts-v2/**` | `intelligence-service`, `mcp-service`, `frontend` |
-| `infra/aws-dev/**` or workflow file | deploy config refresh |
+| `infra/aws-dev/deploy/**`, `infra/aws-dev/scripts/**`, `infra/aws-dev/terraform/**`, or workflow file | deploy config refresh, full-stack redeploy trigger |
 
 For first deployment after adding Mcp-Service, run Terraform apply first so the `brainx-dev-mcp-service` ECR repository exists, then run the workflow manually with `deploy_all=true` so every ECR image exists before partial deployments start.
+
+For first deployment after adding Discovery-Service or any other new backend service, run Terraform apply first so the matching `brainx-dev-<service>` ECR repository and GitHub Actions ECR policy exist before the workflow tries to push the image. If the repo is missing or the policy is stale, the build step will fail with a `403 Forbidden` push error.

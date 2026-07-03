@@ -100,6 +100,14 @@ brainx:
 
   service-token: ${SERVICE_TOKEN:local-service-token}
 
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:http://localhost:8761/eureka/}
+  instance:
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:localhost}
+    instance-id: ${spring.application.name}:${server.port}
+
 management:
   metrics:
     tags:

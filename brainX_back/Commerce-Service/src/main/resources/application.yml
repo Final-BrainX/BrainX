@@ -55,6 +55,14 @@ brainx:
       group-id: ${BRAINX_EVENTS_CONSUMER_GROUP_ID:commerce-service}
       topic: ${BRAINX_EVENTS_TOPIC_TOKEN_USAGE_RECORDED_REQUESTED:brainx.knowledge.intelligence.token-usage-recorded-requested.v1}
 
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:http://localhost:8761/eureka/}
+  instance:
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:localhost}
+    instance-id: ${spring.application.name}:${server.port}
+
 toss:
   client-key: ${TOSS_CLIENT_KEY:your_toss_client_key}
   secret-key: ${TOSS_SECRET_KEY:your_toss_secret_key}

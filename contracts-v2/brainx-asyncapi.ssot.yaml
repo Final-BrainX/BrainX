@@ -5261,6 +5261,8 @@ x-ssot:
   owner: BrainX architecture
   revisionDate: '2026-06-16'
   openapi: brainx-openapi.ssot.yaml
+  sourceNotes:
+  - Discovery-Service/Eureka is infrastructure and is outside the async event contract surface.
   rules:
   - All event consumers must be idempotent by eventId.
   - Use correlationId from the originating HTTP request when available.
