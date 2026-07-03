@@ -9,21 +9,29 @@ class TokenUsageFeatureLabelsTest {
     void mapsKnownFeatureIdsToUiCategories() {
         Assertions.assertThat(TokenUsageFeatureLabels.labelFor("inline-assist-chat"))
                 .isEqualTo(TokenUsageFeatureLabels.AI_WRITING_ASSIST);
+        // 자동 요약은 제품 UI에서 별도 화면 없이 챗봇으로 연결되므로 AI_CHATBOT으로 합산된다.
         Assertions.assertThat(TokenUsageFeatureLabels.labelFor("insight-report-chat"))
-                .isEqualTo(TokenUsageFeatureLabels.AUTO_SUMMARY);
+                .isEqualTo(TokenUsageFeatureLabels.AI_CHATBOT);
         Assertions.assertThat(TokenUsageFeatureLabels.labelFor("rag-chat"))
                 .isEqualTo(TokenUsageFeatureLabels.AI_CHATBOT);
         Assertions.assertThat(TokenUsageFeatureLabels.labelFor("chat-router-classifier"))
                 .isEqualTo(TokenUsageFeatureLabels.AI_CHATBOT);
         Assertions.assertThat(TokenUsageFeatureLabels.labelFor("bridge-concepts"))
                 .isEqualTo(TokenUsageFeatureLabels.AUTO_TAG_ORGANIZATION);
-        Assertions.assertThat(TokenUsageFeatureLabels.labelFor("link-suggestions"))
-                .isEqualTo(TokenUsageFeatureLabels.AUTO_TAG_ORGANIZATION);
     }
 
     @Test
     void unmappedFeatureIdFallsBackToOther() {
         Assertions.assertThat(TokenUsageFeatureLabels.labelFor("some-future-feature"))
+                .isEqualTo(TokenUsageFeatureLabels.OTHER);
+    }
+
+    @Test
+    void linkSuggestionsIsIntentionallyUnmappedBecauseItNeverCarriesTokenUsage() {
+        // link-suggestions는 ConnectionService의 LinkSuggestionCreatedEvent 필드로만 쓰이고,
+        // 실제 토큰 사용량은 내부적으로 note-auto-link-vector-refine-chat으로 기록되므로
+        // 이 featureId로 recordTokenUsage가 호출되는 일이 없다. 매핑을 추가하지 않는다.
+        Assertions.assertThat(TokenUsageFeatureLabels.labelFor("link-suggestions"))
                 .isEqualTo(TokenUsageFeatureLabels.OTHER);
     }
 }

@@ -46,7 +46,7 @@ public class TokenUsageRaw {
     private int reasoningTokens;
     @Column(name = "total_tokens", nullable = false)
     private int totalTokens;
-    @Column(name = "estimated_cost", precision = 12, scale = 6)
+    @Column(name = "estimated_cost", precision = 24, scale = 12)
     private BigDecimal estimatedCost;
     @Column(name = "cost_currency")
     private String costCurrency;

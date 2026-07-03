@@ -142,10 +142,12 @@ class TokenUsageServiceTest {
         Assertions.assertThat(data.usedCredits()).isEqualTo(680_000L);
         Assertions.assertThat(data.usagePercent()).isEqualTo(68.0);
         Assertions.assertThat(data.resetDate()).isEqualTo("2026-08-01");
+        // 이번 달 이력이 없는 카테고리(자동 태그 정리)도 0크레딧으로 항상 노출된다.
+        // 자동 요약은 별도 카테고리가 아니라 AI 챗봇으로 합산되므로 여기엔 나타나지 않는다.
         Assertions.assertThat(data.byFeature()).extracting(FeatureUsage::feature)
-                .containsExactly("AI 글쓰기 도우미", "AI 챗봇", "시맨틱 검색");
+                .containsExactly("AI 글쓰기 도우미", "AI 챗봇", "시맨틱 검색", "자동 태그 정리");
         Assertions.assertThat(data.byFeature()).extracting(FeatureUsage::credits)
-                .containsExactly(480_000L, 160_000L, 40_000L);
+                .containsExactly(480_000L, 160_000L, 40_000L, 0L);
         Assertions.assertThat(data.recentDays()).hasSize(7);
         Assertions.assertThat(data.recentDays()).allSatisfy(d -> Assertions.assertThat(d.credits()).isEqualTo(0L));
     }

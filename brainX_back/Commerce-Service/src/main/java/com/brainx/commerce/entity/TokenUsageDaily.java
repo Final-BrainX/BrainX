@@ -23,7 +23,7 @@ public class TokenUsageDaily {
     private TokenUsageDailyId id;
     @Column(name = "total_tokens", nullable = false)
     private long totalTokens;
-    @Column(name = "estimated_cost", nullable = false, precision = 14, scale = 6)
+    @Column(name = "estimated_cost", nullable = false, precision = 24, scale = 12)
     private BigDecimal estimatedCost;
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;

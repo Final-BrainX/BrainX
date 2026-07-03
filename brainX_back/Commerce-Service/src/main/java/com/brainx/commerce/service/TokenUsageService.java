@@ -27,6 +27,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -93,7 +94,8 @@ public class TokenUsageService {
                 ? (usedCredits * 100.0) / monthlyCreditLimit
                 : 0.0;
 
-        Map<String, Long> creditsByLabel = new HashMap<>();
+        Map<String, Long> creditsByLabel = new LinkedHashMap<>();
+        TokenUsageFeatureLabels.KNOWN_LABELS.forEach(label -> creditsByLabel.put(label, 0L));
         for (TokenUsageMonthly row : monthlyRows) {
             String label = TokenUsageFeatureLabels.labelFor(row.getId().getFeatureId());
             creditsByLabel.merge(label, CreditConverter.toCredits(row.getEstimatedCost()), Long::sum);

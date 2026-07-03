@@ -32,6 +32,7 @@ spring:
         - classpath:db/migration/V20260702_02__update_plan_pricing_and_token_limits.sql
         - classpath:db/migration/V20260702_03__switch_plan_limits_to_credits.sql
         - classpath:db/migration/V20260702_04__rescale_credits_to_100_per_won.sql
+        - classpath:db/migration/V20260703_01__widen_token_usage_cost_precision.sql
   jpa:
     hibernate:
       ddl-auto: ${JPA_DDL_AUTO:update}
