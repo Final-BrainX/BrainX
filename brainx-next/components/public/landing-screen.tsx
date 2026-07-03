@@ -417,21 +417,21 @@ export function LandingScreen() {
 
   const isLoggedIn = Boolean(session?.accessToken);
 
-  const section1Ref = useRef<HTMLElement>(null);
+  const section1Ref = useRef<HTMLDivElement>(null);
   const inView1 = useInView(section1Ref, { root: containerRef, once: true, amount: 0.2 });
   const { displayed: t1, isDone: t1Done } = useSingleTyping("저장 그 이상, 생각을 연결합니다", inView1);
   const t1_p1 = t1.slice(0, 9);
   const t1_p2 = t1.slice(9, 15);
   const t1_p3 = t1.slice(15);
 
-  const sectionCompareRef = useRef<HTMLElement>(null);
+  const sectionCompareRef = useRef<HTMLDivElement>(null);
   const inViewCompare = useInView(sectionCompareRef, { root: containerRef, once: true, amount: 1 });
 
-  const section2Ref = useRef<HTMLElement>(null);
+  const section2Ref = useRef<HTMLDivElement>(null);
   const inView2 = useInView(section2Ref, { root: containerRef, once: true, amount: 1 });
   const { displayed: t2, isDone: t2Done } = useSingleTyping("생각의 크기에 맞춰", inView2);
 
-  const section3Ref = useRef<HTMLElement>(null);
+  const section3Ref = useRef<HTMLDivElement>(null);
   const inView3 = useInView(section3Ref, { root: containerRef, once: true, amount: 1 });
   const { displayed: t3, isDone: t3Done } = useSingleTyping("머릿속 우주를 정리할 시간", inView3);
 
@@ -493,15 +493,15 @@ export function LandingScreen() {
 
   return (
     <>
-      <div 
-      ref={containerRef} 
-      data-route 
+      <div
+      ref={containerRef}
+      data-route
       className="relative h-screen overflow-y-auto scroll transition-colors duration-1000"
       style={{
-        backgroundColor: sloganIndex === 0 
-          ? "rgb(var(--accent) / 0.08)" 
-          : sloganIndex === 1 
-          ? "rgb(var(--primary) / 0.08)" 
+        backgroundColor: sloganIndex === 0
+          ? "rgb(var(--accent) / 0.08)"
+          : sloganIndex === 1
+          ? "rgb(var(--primary) / 0.08)"
           : "rgb(var(--cyan) / 0.08)"
       }}
     >
