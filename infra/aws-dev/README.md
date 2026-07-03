@@ -68,6 +68,8 @@ Terraform state is stored in the S3 backend declared in `terraform/backend.tf`:
 
 The state bucket is bootstrapped outside this stack and has versioning, AES256 server-side encryption, and public access block enabled. Keep `terraform.tfstate` and `tfplan` files local-only; they are intentionally ignored.
 
+The dev EC2 host is kept stable during normal Terraform applies. We do not force instance replacement on `user_data` edits, so bootstrap changes should be introduced intentionally instead of recreating the running app host during a routine infra update.
+
 ### Cost Control
 
 개발환경을 쓰지 않을 때는 Terraform 변수로 EC2와 RDS runtime을 멈출 수 있다.
