@@ -194,6 +194,12 @@ function parseJson(value: string): unknown {
   }
 }
 
+function notifyTokenUsageChanged() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("brainx-token-usage-changed"));
+  }
+}
+
 function buildHeaders(headers?: HeadersInit, options?: IntelligenceRequestOptions) {
   const session = readAuthSession();
   const next = new Headers(headers);
@@ -218,7 +224,10 @@ export function semanticSearch(payload: SemanticSearchRequest, options?: Intelli
       body: JSON.stringify(payload),
     },
     options
-  );
+  ).then((data) => {
+    notifyTokenUsageChanged();
+    return data;
+  });
 }
 
 export function getNoteIndexStatuses(payload: NoteIndexStatusesRequest, options?: IntelligenceRequestOptions) {
@@ -236,7 +245,13 @@ export function createInlineAssistStream(
   payload: InlineAssistRequest,
   handlers?: IntelligenceStreamHandlers<InlineAssistDoneEvent>
 ) {
-  return streamRequest<InlineAssistDoneEvent>("/api/v1/ai/inline-assists", payload, handlers);
+  return streamRequest<InlineAssistDoneEvent>("/api/v1/ai/inline-assists", payload, {
+    ...handlers,
+    onDone: (data) => {
+      notifyTokenUsageChanged();
+      handlers?.onDone?.(data);
+    },
+  });
 }
 
 export function decideAiSuggestion(
@@ -295,7 +310,13 @@ export function sendChatMessageStream(
   return streamRequest<ChatMessageDoneEvent>(
     `/api/v1/ai/chat-threads/${encodeURIComponent(threadId)}/messages`,
     payload,
-    handlers
+    {
+      ...handlers,
+      onDone: (data) => {
+        notifyTokenUsageChanged();
+        handlers?.onDone?.(data);
+      },
+    }
   );
 }
 
@@ -340,7 +361,10 @@ export function createBridgeConcepts(payload: BridgeConceptsRequest, options?: I
       body: JSON.stringify(payload),
     },
     options
-  );
+  ).then((data) => {
+    notifyTokenUsageChanged();
+    return data;
+  });
 }
 
 export function createLinkSuggestions(payload: LinkSuggestionsRequest, options?: IntelligenceRequestOptions) {
@@ -351,7 +375,10 @@ export function createLinkSuggestions(payload: LinkSuggestionsRequest, options?:
       body: JSON.stringify(payload),
     },
     options
-  );
+  ).then((data) => {
+    notifyTokenUsageChanged();
+    return data;
+  });
 }
 
 export function requestClusterJob(payload: ClusterJobCreateRequest, options?: IntelligenceRequestOptions) {
@@ -362,7 +389,10 @@ export function requestClusterJob(payload: ClusterJobCreateRequest, options?: In
       body: JSON.stringify(payload),
     },
     options
-  );
+  ).then((data) => {
+    notifyTokenUsageChanged();
+    return data;
+  });
 }
 
 export function getLatestClusterJob(
