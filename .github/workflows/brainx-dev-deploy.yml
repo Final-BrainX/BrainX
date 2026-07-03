@@ -21,6 +21,10 @@ permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: brainx-dev-deploy
+  cancel-in-progress: false
+
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   AWS_ROLE_TO_ASSUME: ${{ vars.AWS_ROLE_TO_ASSUME }}
@@ -148,6 +152,9 @@ jobs:
       - name: Log in to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build and push image
         shell: bash
         env:
@@ -185,6 +192,10 @@ jobs:
               CONTEXT="brainX_back/Intelligence-Service"
               DOCKERFILE="infra/aws-dev/dockerfiles/intelligence-service.Dockerfile"
               ;;
+            mcp-service)
+              CONTEXT="brainX_back/Mcp-Service"
+              DOCKERFILE="brainX_back/Mcp-Service/Dockerfile"
+              ;;
             frontend)
               CONTEXT="brainx-next"
               DOCKERFILE="infra/aws-dev/dockerfiles/brainx-next.Dockerfile"
@@ -214,15 +225,18 @@ jobs:
             )
           fi
 
-          docker build \
+          CACHE_SCOPE="brainx-dev-$SERVICE"
+
+          docker buildx build \
+            --progress=plain \
+            --push \
             -f "$DOCKERFILE" \
             -t "$IMAGE_URI:$IMAGE_TAG" \
             -t "$IMAGE_URI:dev-latest" \
+            --cache-from "type=gha,scope=$CACHE_SCOPE" \
+            --cache-to "type=gha,mode=max,scope=$CACHE_SCOPE" \
             "${BUILD_ARGS[@]}" \
             "$CONTEXT"
-
-          docker push "$IMAGE_URI:$IMAGE_TAG"
-          docker push "$IMAGE_URI:dev-latest"
 
   deploy:
     name: Deploy changed services
@@ -321,15 +335,37 @@ jobs:
 
       - name: Verify public endpoints
         shell: bash
+        env:
+          CHANGED_SERVICES: ${{ needs.detect.outputs.services_space }}
+          DEPLOY_CONFIG_CHANGED: ${{ needs.detect.outputs.deploy_config_changed }}
         run: |
           set -euo pipefail
+
+          has_service() {
+            target="$1"
+            for service in $CHANGED_SERVICES; do
+              if [ "$service" = "$target" ]; then
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          has_backend_service() {
+            for service in $CHANGED_SERVICES; do
+              case "$service" in
+                *-service) return 0 ;;
+              esac
+            done
+            return 1
+          }
 
           check_endpoint() {
             label="$1"
             url="$2"
             mode="$3"
 
-            for attempt in $(seq 1 12); do
+            for attempt in $(seq 1 24); do
               status="$(
                 curl -sS -o /dev/null -w "%{http_code}" --max-time 20 "$url" || true
               )"
@@ -359,8 +395,16 @@ jobs:
             return 1
           }
 
-          check_endpoint "frontend" "$AWS_DEV_PUBLIC_BASE_URL/" ok
-          check_endpoint "admin frontend" "$AWS_DEV_ADMIN_PUBLIC_BASE_URL/" ok
-          check_endpoint "plans api" "$AWS_DEV_PUBLIC_BASE_URL/api/v1/plans" non5xx
-          check_endpoint "notes api" "$AWS_DEV_PUBLIC_BASE_URL/api/v1/notes" non5xx
-          check_endpoint "ai models api" "$AWS_DEV_PUBLIC_BASE_URL/api/v1/ai/models" non5xx
+          if [ "$DEPLOY_CONFIG_CHANGED" = "true" ] || has_service frontend; then
+            check_endpoint "frontend" "$AWS_DEV_PUBLIC_BASE_URL/" ok
+          fi
+
+          if [ "$DEPLOY_CONFIG_CHANGED" = "true" ] || has_service admin-frontend; then
+            check_endpoint "admin frontend" "$AWS_DEV_ADMIN_PUBLIC_BASE_URL/" ok
+          fi
+
+          if [ "$DEPLOY_CONFIG_CHANGED" = "true" ] || has_backend_service; then
+            check_endpoint "plans api" "$AWS_DEV_PUBLIC_BASE_URL/api/v1/plans" non5xx
+            check_endpoint "notes api" "$AWS_DEV_PUBLIC_BASE_URL/api/v1/notes" non5xx
+            check_endpoint "ai models api" "$AWS_DEV_PUBLIC_BASE_URL/api/v1/ai/models" non5xx
+          fi

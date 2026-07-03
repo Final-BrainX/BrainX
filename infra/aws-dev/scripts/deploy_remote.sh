@@ -7,6 +7,8 @@ ENV_DIR="$APP_DIR/env"
 STATE_DIR="$APP_DIR/state"
 RUNTIME_ENV="$ENV_DIR/runtime.env"
 TAG_STATE="$STATE_DIR/image-tags.env"
+DB_BOOTSTRAP_STATE="$STATE_DIR/database-bootstrap.env"
+PARAMETER_CACHE="$STATE_DIR/ssm-parameters.json"
 COMPOSE_FILE="$CURRENT_DIR/docker-compose.yml"
 
 required_env() {
@@ -50,11 +52,49 @@ if [ ! -f "$COMPOSE_FILE" ]; then
   exit 1
 fi
 
+load_parameters() {
+  aws ssm get-parameters-by-path \
+    --path "$SSM_PARAMETER_PREFIX" \
+    --with-decryption \
+    --recursive \
+    --query 'Parameters[].{Name:Name,Value:Value}' \
+    --output json \
+    --region "$AWS_REGION" > "$PARAMETER_CACHE"
+  chmod 600 "$PARAMETER_CACHE"
+}
+
 get_parameter() {
   name="$1"
   default_value="${2:-}"
   set +e
-  value="$(aws ssm get-parameter --with-decryption --name "$SSM_PARAMETER_PREFIX/$name" --query Parameter.Value --output text --region "$AWS_REGION" 2>/dev/null)"
+  value="$(
+    PARAMETER_CACHE="$PARAMETER_CACHE" \
+    SSM_PARAMETER_PREFIX="$SSM_PARAMETER_PREFIX" \
+    PARAMETER_NAME="$name" \
+    python3 - <<'PY'
+import json
+import os
+import sys
+
+cache_path = os.environ["PARAMETER_CACHE"]
+prefix = os.environ["SSM_PARAMETER_PREFIX"].rstrip("/")
+name = os.environ["PARAMETER_NAME"]
+target = f"{prefix}/{name}"
+
+try:
+    with open(cache_path, "r", encoding="utf-8") as fp:
+        parameters = json.load(fp)
+except FileNotFoundError:
+    parameters = []
+
+for parameter in parameters:
+    if parameter.get("Name") == target:
+        print(parameter.get("Value", ""))
+        sys.exit(0)
+
+sys.exit(1)
+PY
+  )"
   status=$?
   set -e
   if [ "$status" -eq 0 ]; then
@@ -73,6 +113,8 @@ require_parameter() {
   fi
   printf '%s' "$value"
 }
+
+load_parameters
 
 rds_secret_json="$(aws secretsmanager get-secret-value --secret-id "$RDS_SECRET_ARN" --query SecretString --output text --region "$AWS_REGION")"
 POSTGRES_USER="$(RDS_SECRET_JSON="$rds_secret_json" python3 - <<'PY'
@@ -156,7 +198,8 @@ write_env() {
 
 for key in \
   GATEWAY_SERVICE_TAG USER_SERVICE_TAG WORKSPACE_SERVICE_TAG INGESTION_SERVICE_TAG \
-  COMMERCE_SERVICE_TAG ADMIN_SERVICE_TAG INTELLIGENCE_SERVICE_TAG FRONTEND_TAG ADMIN_FRONTEND_TAG; do
+  COMMERCE_SERVICE_TAG ADMIN_SERVICE_TAG INTELLIGENCE_SERVICE_TAG MCP_SERVICE_TAG \
+  FRONTEND_TAG ADMIN_FRONTEND_TAG; do
   ensure_tag "$key"
 done
 
@@ -176,6 +219,7 @@ for service in $services; do
     commerce-service) set_tag COMMERCE_SERVICE_TAG "$IMAGE_TAG" ;;
     admin-service) set_tag ADMIN_SERVICE_TAG "$IMAGE_TAG" ;;
     intelligence-service) set_tag INTELLIGENCE_SERVICE_TAG "$IMAGE_TAG" ;;
+    mcp-service) set_tag MCP_SERVICE_TAG "$IMAGE_TAG" ;;
     frontend) set_tag FRONTEND_TAG "$IMAGE_TAG" ;;
     admin-frontend) set_tag ADMIN_FRONTEND_TAG "$IMAGE_TAG" ;;
     caddy) ;;
@@ -245,22 +289,45 @@ WHERE NOT EXISTS (
 SQL
 }
 
-if ! command -v psql >/dev/null 2>&1; then
-  apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-client
+database_bootstrap_fingerprint() {
+  printf 'RDS_HOST=%s\n' "$RDS_HOST"
+  printf 'RDS_PORT=%s\n' "$RDS_PORT"
+  printf 'POSTGRES_USER=%s\n' "$POSTGRES_USER"
+  printf 'DB_NAMES=%s\n' "brainx_user brainx_workspace brainx_ingestion brainx_commerce brainx_admin brainx_intelligence brainx_mcp"
+}
+
+run_database_bootstrap=true
+if [ -f "$DB_BOOTSTRAP_STATE" ] && [ "$(cat "$DB_BOOTSTRAP_STATE")" = "$(database_bootstrap_fingerprint)" ]; then
+  run_database_bootstrap=false
 fi
 
-for db_name in brainx_user brainx_workspace brainx_ingestion brainx_commerce brainx_admin brainx_intelligence; do
-  create_database "$db_name"
-done
+if [ "$run_database_bootstrap" = "true" ]; then
+  if ! command -v psql >/dev/null 2>&1; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-client
+  fi
+
+  for db_name in brainx_user brainx_workspace brainx_ingestion brainx_commerce brainx_admin brainx_intelligence brainx_mcp; do
+    create_database "$db_name"
+  done
+
+  database_bootstrap_fingerprint > "$DB_BOOTSTRAP_STATE"
+  chmod 600 "$DB_BOOTSTRAP_STATE"
+else
+  echo "Database bootstrap already completed for current RDS target."
+fi
 
 aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
 cd "$CURRENT_DIR"
 
 if [ "${DEPLOY_CONFIG_CHANGED:-false}" = "true" ]; then
-  docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" pull || true
-  docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" up -d --remove-orphans
+  if [ -n "$services" ]; then
+    docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" pull $services
+  else
+    echo "Config-only deployment; skipping image pull."
+  fi
+  docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" up -d --remove-orphans --force-recreate
 else
   docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" pull $services
   docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" up -d --no-deps $services

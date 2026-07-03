@@ -87,6 +87,10 @@ brainx:
     max-source-windows-per-note: ${BRAINX_NOTE_AUTO_LINK_MAX_SOURCE_WINDOWS_PER_NOTE:12}
     max-suggestions-per-note: ${BRAINX_NOTE_AUTO_LINK_MAX_SUGGESTIONS_PER_NOTE:5}
   chat:
+    title:
+      enabled: ${BRAINX_CHAT_TITLE_ENABLED:true}
+      model: ${BRAINX_CHAT_TITLE_MODEL:gpt-5.4-nano}
+      max-length: ${BRAINX_CHAT_TITLE_MAX_LENGTH:20}
     router:
       enabled: ${BRAINX_CHAT_ROUTER_ENABLED:true}
       model: ${BRAINX_CHAT_ROUTER_MODEL:gpt-5.4-nano}
@@ -193,6 +197,9 @@ brainx:
         model-id: ${BRAINX_DEV_NOTE_AUTO_LINK_MODEL_ID:${OPENAI_CHAT_MODEL:gpt-5.4-mini}}
 
 management:
+  metrics:
+    tags:
+      application: ${spring.application.name}
   endpoint:
     health:
       probes:
@@ -205,4 +212,4 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus

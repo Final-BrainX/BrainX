@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { useBrainX } from "@/components/brainx-provider";
 import { Badge, Btn, Card, Icon, SectionHead, ThemeToggle, Toggle } from "@/components/brainx-ui";
+import { McpApiKeysPanel } from "@/components/utility/mcp-api-keys-panel";
 import { SectionCard } from "@/components/utility/utility-shared";
 import {
   cancelAccountDeletion,
@@ -292,6 +293,10 @@ export function SettingsScreen() {
             </div>
           </div>
         </SectionCard>
+      </div>
+
+      <div className="mt-4">
+        <McpApiKeysPanel variant="page" />
       </div>
     </div>
   );

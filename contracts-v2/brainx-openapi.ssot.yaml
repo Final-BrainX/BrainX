@@ -2,6 +2,9 @@ openapi: 3.0.3
 info:
   title: BrainX API SSOT
   version: 1.0.0-revised
+  license:
+    name: Proprietary
+    url: https://brainx.p-e.kr
   description: 'BrainX 공개 및 내부 REST 계약 문서.
 
 
@@ -23,8 +26,8 @@ info:
 
     - operation 단위 이벤트 결합은 x-produces-events로 표현하고 AsyncAPI SSOT를 참조한다.'
 servers:
-- url: http://localhost:8080
-  description: 로컬 API 게이트웨이
+- url: https://brainx.p-e.kr
+  description: AWS dev API 게이트웨이. 로컬 개발은 Gateway-Service 기본 포트 8088을 사용한다.
 - url: https://api.brainx.com
   description: 운영 API 게이트웨이
 tags:
@@ -35,7 +38,9 @@ tags:
 - name: Knowledge Workspace
   description: 노트, 폴더, 링크, 공유, 워크스페이스의 원장 서비스
 - name: Content Ingestion & Publishing
-  description: 파일, 변환, 가져오기, 내보내기, 발행, 확장 프로그램 및 MCP
+  description: 파일, 변환, 가져오기, 내보내기, 발행 및 확장 프로그램
+- name: MCP Agent Gateway
+  description: 외부 에이전트와 MCP 클라이언트용 도구 게이트웨이 및 범위 제한 API key 관리
 - name: Knowledge Intelligence
   description: 시맨틱 검색, RAG, AI 제안, 리포트 및 모델 설정
 - name: Commerce & Operations
@@ -1561,6 +1566,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/UserNotificationsData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth: []
   /api/v1/users/me/notifications/{notificationId}/read:
@@ -1598,6 +1605,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/UserNotificationData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth: []
   /api/v1/support/tickets:
@@ -5765,25 +5774,21 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
-  /api/v1/api-clients:
+  /api/v1/mcp/api-clients:
     post:
       operationId: createApiClient
-      summary: API 클라이언트 생성
+      summary: MCP API 클라이언트 생성
       tags:
-      - Content Ingestion & Publishing
-      x-producer-service: content-ingestion-publishing
-      x-implementation-status: not-implemented
+      - MCP Agent Gateway
+      x-producer-service: mcp-service
       x-visibility: public
       x-consumers:
       - id: web.settings
         type: frontend
         description: 계정, 프로필, 보안 및 AI 설정 화면
-      x-produces-events:
-      - ApiClientCreated
+      x-produces-events: []
       x-internal-sync-calls: []
       x-async-boundary: false
-      parameters:
-      - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -5842,6 +5847,213 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+    get:
+      operationId: listMcpApiClients
+      summary: MCP API 클라이언트 목록 조회
+      tags:
+      - MCP Agent Gateway
+      x-producer-service: mcp-service
+      x-visibility: public
+      x-consumers:
+      - id: web.settings
+        type: frontend
+        description: 계정, 프로필, 보안 및 AI 설정 화면
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ApiClientListData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: 충돌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+  /api/v1/mcp/api-clients/{clientId}:
+    delete:
+      operationId: revokeMcpApiClient
+      summary: MCP API 클라이언트 폐기
+      tags:
+      - MCP Agent Gateway
+      x-producer-service: mcp-service
+      x-visibility: public
+      x-consumers:
+      - id: web.settings
+        type: frontend
+        description: 계정, 프로필, 보안 및 AI 설정 화면
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: clientId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      type: object
+                      nullable: true
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: 충돌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+  /api/v1/mcp/whoami:
+    get:
+      operationId: getMcpWhoami
+      summary: MCP API key 인증 정보 확인
+      tags:
+      - MCP Agent Gateway
+      x-producer-service: mcp-service
+      x-visibility: public
+      x-consumers:
+      - id: external-agent
+        type: external-client
+        description: 범위 제한 API 키 및 MCP 자동화 클라이언트
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/McpWhoamiData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: 충돌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - scopedApiKey: []
   /api/v1/mcp/tools:
     get:
       operationId: listMcpTools
@@ -8858,6 +9070,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminUsersData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -9135,6 +9349,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminMessagesData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -9276,6 +9492,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminUserDetailData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -9325,6 +9543,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminUserPlanChangeData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -9374,6 +9594,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminUserStatusChangeData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -9423,6 +9645,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminUserWithdrawalData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -9475,6 +9699,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminUserBulkActionData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -9502,7 +9728,7 @@ paths:
         reason: signup and active user summary
       x-produces-events: []
       x-async-boundary: false
-      x-implementation-note: KPI cards are rendered from Admin-Service authoritative aggregates. KPI deltas compare the latest live values with the most recent persisted daily monitoring snapshot, and service uptime is derived from recent persisted health snapshots instead of a frontend placeholder. A Spring scheduler captures the daily snapshot at 23:59 Asia/Seoul. Before that cutoff, the admin web app must keep overview data refreshed from live reads instead of relying on the persisted snapshot list. If Commerce-Service billing reads fail, Admin-Service may respond with zeroed billing aggregates so the admin shell can still render.
+      x-implementation-note: KPI cards are rendered from Admin-Service authoritative aggregates. KPI deltas compare the latest live values with the most recent persisted daily monitoring snapshot, and service uptime is derived from recent persisted health snapshots instead of a frontend placeholder. A Spring scheduler captures the daily snapshot at 23:59 Asia/Seoul. Before that cutoff, the admin web app must keep overview data refreshed from live reads instead of relying on the persisted snapshot list. `activeUserTrend` must be rendered as the previous persisted daily snapshots plus a current-day live overlay from User-Service, and if a same-day snapshot already exists it must win over the live overlay. If Commerce-Service billing reads fail, Admin-Service may respond with zeroed billing aggregates so the admin shell can still render.
       responses:
         '200':
           description: Success
@@ -9517,6 +9743,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminDashboardOverviewData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -9552,6 +9780,8 @@ paths:
                       type: array
                       items:
                         $ref: '#/components/schemas/AdminMonitoringSnapshotData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -9585,6 +9815,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminKafkaLagData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -9612,6 +9844,8 @@ paths:
       responses:
         '204':
           description: No Content
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -9650,6 +9884,8 @@ paths:
                       type: array
                       items:
                         $ref: '#/components/schemas/AdminServiceHealthSnapshotData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -9677,6 +9913,8 @@ paths:
       responses:
         '204':
           description: No Content
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -9712,6 +9950,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminMeData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -9756,6 +9996,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminMeData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -9789,6 +10031,8 @@ paths:
       responses:
         '204':
           description: No Content
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -9928,6 +10172,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminBillingSummaryData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -9990,6 +10236,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminPaymentsData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -10040,6 +10288,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminPaymentActionData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -10084,6 +10334,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminPaymentActionData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -10114,6 +10366,8 @@ paths:
       responses:
         '204':
           description: No Content
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -10149,6 +10403,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminSubscriptionsData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -10179,6 +10435,8 @@ paths:
       responses:
         '204':
           description: No Content
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -10214,6 +10472,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminPaymentFailuresData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -10249,6 +10509,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminPlansData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -10298,6 +10560,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminPlanData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -10418,6 +10682,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminSupportTicketData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -10466,6 +10732,8 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/AdminSupportTicketData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -10495,6 +10763,8 @@ paths:
       responses:
         '204':
           description: No Content
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth:
         - ROLE_ADMIN
@@ -11395,6 +11665,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/InternalUserBulkActionData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
       security:
       - serviceTokenAuth: []
   /internal/v1/support/tickets:
@@ -12352,6 +12624,7 @@ components:
       type: apiKey
       in: header
       name: X-BrainX-Api-Key
+      description: 'Mcp-Service API key. MCP clients may also send the same key as `Authorization: Bearer bxk_live_...`.'
     providerSignature:
       type: apiKey
       in: header
@@ -12360,6 +12633,13 @@ components:
       type: http
       scheme: bearer
       bearerFormat: service-jwt
+  responses:
+    UnauthorizedError:
+      description: 인증 필요
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiErrorResponse'
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -14702,11 +14982,69 @@ components:
       properties:
         clientId:
           type: string
-        clientSecretOnce:
+        apiKeyOnce:
           type: string
       required:
       - clientId
-      - clientSecretOnce
+      - apiKeyOnce
+      additionalProperties: false
+    ApiClientListData:
+      type: object
+      properties:
+        clients:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiClientItem'
+      required:
+      - clients
+      additionalProperties: false
+    ApiClientItem:
+      type: object
+      properties:
+        clientId:
+          type: string
+        name:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+      - clientId
+      - name
+      - scopes
+      - createdAt
+      additionalProperties: false
+    McpWhoamiData:
+      type: object
+      properties:
+        userId:
+          type: string
+        clientId:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+      required:
+      - userId
+      - clientId
+      - scopes
       additionalProperties: false
     McpToolsData:
       type: object
@@ -14893,6 +15231,10 @@ components:
           description: 이 채팅 스레드의 논리적 문서 그룹 경계. 생략하면 Knowledge Intelligence는 default로 처리한다.
         title:
           type: string
+          description: 스레드 생성 fallback 제목. initialMessage가 있으면 서버는 AI 제목 생성을 먼저 시도하고, 실패 시 이 값을 사용한다.
+        initialMessage:
+          type: string
+          description: AI 스레드 제목 생성을 위한 첫 사용자 메시지. 제목 생성 입력 전용이며 chat message로 저장되지 않는다.
         modelId:
           type: string
       required:
@@ -16320,7 +16662,7 @@ components:
           $ref: '#/components/schemas/AdminTrendSeriesData'
         activeUserTrend:
           $ref: '#/components/schemas/AdminTrendSeriesData'
-          description: 관리자 모니터링 overview의 활성 사용자 추이 시계열
+          description: 관리자 모니터링 overview의 활성 사용자 추이 시계열. 전일 값은 persisted monitoring snapshot, 오늘 값은 User-Service live overlay를 우선 사용하되 당일 snapshot이 있으면 persisted 값을 사용한다.
       required:
       - kpis
       - services

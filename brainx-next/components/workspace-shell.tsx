@@ -34,7 +34,7 @@ const NAV = [
   { id: "chat", labelKey: "nav.chat" as const, icon: "chat" as const, path: "/chat" },
 ];
 
-type SettingsTab = "profile" | "general" | "notifications" | "import" | "usage" | "stats" | "support" | "upgrade";
+type SettingsTab = "profile" | "general" | "notifications" | "apiKeys" | "import" | "usage" | "stats" | "support" | "upgrade";
 
 function isActive(pathname: string, path: string) {
   if (path === "/notes") return pathname.startsWith("/notes");

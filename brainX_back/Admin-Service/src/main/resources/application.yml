@@ -60,16 +60,21 @@ brainx:
     workspace-service-url: ${WORKSPACE_SERVICE_URL:http://localhost:8082}
     ingestion-service-url: ${INGESTION_SERVICE_URL:http://localhost:8083}
     intelligence-service-url: ${INTELLIGENCE_SERVICE_URL:http://localhost:8086}
+    mcp-service-url: ${MCP_SERVICE_URL:http://localhost:8087}
     user-health-url: ${USER_HEALTH_URL:${brainx.services.user-service-url}/actuator/health}
     commerce-health-url: ${COMMERCE_HEALTH_URL:${brainx.services.commerce-service-url}/actuator/health}
     workspace-health-url: ${WORKSPACE_HEALTH_URL:${brainx.services.workspace-service-url}/actuator/health}
     ingestion-health-url: ${INGESTION_HEALTH_URL:${brainx.services.ingestion-service-url}/actuator/health}
     intelligence-health-url: ${INTELLIGENCE_HEALTH_URL:${brainx.services.intelligence-service-url}/actuator/health}
+    mcp-health-url: ${MCP_HEALTH_URL:${brainx.services.mcp-service-url}/actuator/health}
   kafka:
     monitoring:
       consumer-group-id: ${BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID:intelligence-service}
 
 management:
+  metrics:
+    tags:
+      application: ${spring.application.name}
   endpoint:
     health:
       probes:
@@ -82,7 +87,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
 
 logging:
   level:

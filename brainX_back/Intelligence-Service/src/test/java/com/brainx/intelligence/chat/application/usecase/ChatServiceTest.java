@@ -43,6 +43,7 @@ import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatChunk;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatResponse;
+import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTokenUsage;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
@@ -57,6 +58,7 @@ class ChatServiceTest {
             + "현재 노트의 핵심 흐름, 관련 개념, 설명에 필요한 근거 문장을 함께 제공한다.";
 
     private final ChatProperties properties = new ChatProperties();
+    private final ChatTitleProperties titleProperties = new ChatTitleProperties();
     private final FakeChatRouteDecider routeDecider = new FakeChatRouteDecider();
     private final FakeChatPersistencePort persistencePort = new FakeChatPersistencePort();
     private final FakeNoteChunkRetrievalPort retrievalPort = new FakeNoteChunkRetrievalPort();
@@ -67,8 +69,15 @@ class ChatServiceTest {
     private final AiTokenUsageCostEstimator usageCostEstimator = new AiTokenUsageCostEstimator(catalogPort);
     private final AiUsageRecorder aiUsageRecorder = new AiUsageRecorder(tokenUsagePort, usageCostEstimator);
     private final FakeChatEventPort chatEventPort = new FakeChatEventPort();
+    private final ChatThreadTitleGenerator titleGenerator = new ChatThreadTitleGenerator(
+        titleProperties,
+        entitlementPort,
+        aiChatPort,
+        aiUsageRecorder
+    );
     private final ChatService service = new ChatService(
         properties,
+        titleGenerator,
         routeDecider,
         persistencePort,
         retrievalPort,
@@ -106,15 +115,129 @@ class ChatServiceTest {
             "user-1",
             null,
             "RAG 질문",
+            null,
             "gpt-test"
         ));
 
         assertThat(result.documentGroupId()).isEqualTo("default");
         assertThat(result.title()).isEqualTo("RAG 질문");
         assertThat(result.modelId()).isEqualTo("gpt-test");
+        assertThat(aiChatPort.generateCalls).isZero();
         assertThat(persistencePort.threads).hasSize(1);
         assertThat(chatEventPort.threadEvents).hasSize(1);
         assertThat(chatEventPort.threadEvents.getFirst().threadId()).isEqualTo(result.threadId());
+    }
+
+    @Test
+    void createChatThreadUsesAiGeneratedTitleFromInitialMessage() {
+        aiChatPort.generateResponse = new AiChatResponse(
+            "\"RAG 검색 전략\"",
+            new AiTokenUsage(16, 4, 20)
+        );
+
+        var result = service.createChatThread(new CreateChatThreadCommand(
+            "user-1",
+            "group-1",
+            "RAG와 검색을 어떻게 설계하면 좋을까?",
+            "RAG와 semantic search를 같이 쓰는 검색 전략을 정리해줘",
+            "gpt-test"
+        ));
+
+        assertThat(result.title()).isEqualTo("RAG 검색 전략");
+        assertThat(persistencePort.threads.getFirst().title()).isEqualTo("RAG 검색 전략");
+        assertThat(chatEventPort.threadEvents.getFirst().title()).isEqualTo("RAG 검색 전략");
+        assertThat(aiChatPort.generateCalls).isEqualTo(1);
+        assertThat(aiChatPort.lastGenerateRequest.modelId()).isEqualTo("gpt-5.4-nano");
+        assertThat(aiChatPort.lastGenerateRequest.messages().getLast().content())
+            .contains("RAG와 semantic search를 같이 쓰는 검색 전략을 정리해줘")
+            .contains("최대 20자");
+        assertThat(tokenUsagePort.records).hasSize(1);
+        assertThat(tokenUsagePort.records.getFirst().featureId()).isEqualTo("chat-thread-title");
+    }
+
+    @Test
+    void createChatThreadFallsBackWhenAiTitleIsBlank() {
+        aiChatPort.generateResponse = new AiChatResponse("   ", new AiTokenUsage(16, 1, 17));
+
+        var result = service.createChatThread(new CreateChatThreadCommand(
+            "user-1",
+            null,
+            "fallback title",
+            "제목 생성이 비어도 대화를 만들어줘",
+            "gpt-test"
+        ));
+
+        assertThat(result.title()).isEqualTo("fallback title");
+        assertThat(aiChatPort.generateCalls).isEqualTo(1);
+    }
+
+    @Test
+    void createChatThreadLimitsAiGeneratedTitleLength() {
+        aiChatPort.generateResponse = new AiChatResponse(
+            "abcdefghijklmnopqrstuvwxy",
+            null
+        );
+
+        var result = service.createChatThread(new CreateChatThreadCommand(
+            "user-1",
+            null,
+            "fallback title",
+            "긴 제목이 생성되는 상황",
+            "gpt-test"
+        ));
+
+        assertThat(result.title()).isEqualTo("abcdefghijklmnopqrst");
+    }
+
+    @Test
+    void createChatThreadFallsBackWhenAiTitleGenerationFails() {
+        aiChatPort.generateException = new IllegalStateException("provider down");
+
+        var result = service.createChatThread(new CreateChatThreadCommand(
+            "user-1",
+            null,
+            "fallback title",
+            "제목 생성 실패 상황",
+            "gpt-test"
+        ));
+
+        assertThat(result.title()).isEqualTo("fallback title");
+        assertThat(aiChatPort.generateCalls).isEqualTo(1);
+        assertThat(persistencePort.threads).hasSize(1);
+    }
+
+    @Test
+    void createChatThreadFallsBackWhenAiTitleGenerationDisabled() {
+        titleProperties.setEnabled(false);
+
+        var result = service.createChatThread(new CreateChatThreadCommand(
+            "user-1",
+            null,
+            "fallback title",
+            "AI 제목 생성 비활성 상태",
+            "gpt-test"
+        ));
+
+        assertThat(result.title()).isEqualTo("fallback title");
+        assertThat(aiChatPort.generateCalls).isZero();
+    }
+
+    @Test
+    void createChatThreadFallsBackWhenTitleEntitlementDenied() {
+        entitlementPort.allowed = false;
+        entitlementPort.reasonCode = "quota_exceeded";
+
+        var result = service.createChatThread(new CreateChatThreadCommand(
+            "user-1",
+            null,
+            "fallback title",
+            "AI 제목 권한 거부 상황",
+            "gpt-test"
+        ));
+
+        assertThat(result.title()).isEqualTo("fallback title");
+        assertThat(entitlementPort.lastRequest.capability()).isEqualTo("RAG_CHAT");
+        assertThat(aiChatPort.generateCalls).isZero();
     }
 
     @Test
@@ -899,12 +1022,21 @@ class ChatServiceTest {
     private static final class FakeAiChatPort implements AiChatPort {
 
         private int calls;
+        private int generateCalls;
         private AiChatRequest lastRequest;
+        private AiChatRequest lastGenerateRequest;
+        private AiChatResponse generateResponse = new AiChatResponse("", null);
+        private RuntimeException generateException;
         private Flux<AiChatChunk> chunks = Flux.empty();
 
         @Override
         public AiChatResponse generate(AiChatRequest request) {
-            return new AiChatResponse("", null);
+            generateCalls++;
+            lastGenerateRequest = request;
+            if (generateException != null) {
+                throw generateException;
+            }
+            return generateResponse;
         }
 
         @Override

@@ -1480,6 +1480,7 @@ function GraphScreenInner() {
   const { notes: mockNotes, pushToast } = useBrainX();
   const [liveNotes, setLiveNotes] = useState<BrainXNote[] | null>(null);
   const [liveEdges, setLiveEdges] = useState<Array<{ source: string; target: string; bridge?: boolean }> | null>(null);
+  const [graphDataVersion, setGraphDataVersion] = useState(0);
   const [clusterLatest, setClusterLatest] = useState<ClusterJobLatestData | null>(null);
   const [clusterStatus, setClusterStatus] = useState<AiClusterStatus>("idle");
   const [clusterError, setClusterError] = useState<string | null>(null);
@@ -1626,6 +1627,7 @@ function GraphScreenInner() {
           const draftNotes = draftsToBrainXNotes(data.drafts);
           setLiveNotes(draftNotes);
           setLiveEdges(deriveDraftWikiLinkEdges(draftNotes));
+          setGraphDataVersion((version) => version + 1);
         } catch (error) {
           if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
           setLiveNotes([]);
@@ -1663,6 +1665,7 @@ function GraphScreenInner() {
         });
         setLiveNotes(optimisticNotes.length > 0 ? [...optimisticNotes, ...graphNotes] : graphNotes);
         setLiveEdges(graphEdgesForFlow(graph));
+        setGraphDataVersion((version) => version + 1);
       } catch (error) {
         if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
         setLiveNotes([]);
@@ -2129,7 +2132,7 @@ function GraphScreenInner() {
       return;
     }
     void refreshClusterLatest({ showError: false });
-  }, [aiClusterPanelEnabled, hasGraphData, refreshClusterLatest]);
+  }, [aiClusterPanelEnabled, graphDataVersion, hasGraphData, refreshClusterLatest]);
 
   useEffect(() => {
     if (!hasGraphData) {

@@ -48,6 +48,7 @@ services:
       INGESTION_SERVICE_URL: http://ingestion-service:8083
       COMMERCE_SERVICE_URL: http://commerce-service:8084
       ADMIN_SERVICE_URL: http://admin-service:8085
+      MCP_SERVICE_URL: http://mcp-service:8087
     ports:
       - "8088:8088"
     depends_on:
@@ -58,6 +59,8 @@ services:
       ingestion-service:
         condition: service_started
       commerce-service:
+        condition: service_started
+      mcp-service:
         condition: service_started
     healthcheck:
       test:
@@ -178,6 +181,7 @@ services:
       WORKSPACE_SERVICE_URL: http://workspace-service:8082
       INGESTION_SERVICE_URL: http://ingestion-service:8083
       INTELLIGENCE_SERVICE_URL: http://intelligence-service:8086
+      MCP_SERVICE_URL: http://mcp-service:8087
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID: intelligence-service
     ports:
@@ -198,6 +202,53 @@ services:
       retries: 10
       start_period: 30s
 
+  mcp-service:
+    profiles:
+      - apps
+    build:
+      context: ./Mcp-Service
+    container_name: brainx-mcp-service
+    restart: unless-stopped
+    env_file:
+      - ./.env
+      - ./env/mcp-service.env
+    environment:
+      SERVER_PORT: "8087"
+      POSTGRES_HOST: postgres
+      MCP_DB_NAME: ${MCP_DB_NAME:-brainx_mcp}
+      JWT_SECRET: ${JWT_SECRET:-replace_with_at_least_32_byte_secret}
+    ports:
+      - "8087:8087"
+    depends_on:
+      postgres-service-databases:
+        condition: service_completed_successfully
+
+  postgres-service-databases:
+    profiles:
+      - apps
+    image: postgres:16-alpine
+    container_name: brainx-postgres-service-databases
+    restart: "no"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${USER_DB_NAME:-brainx_user}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1234}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-1234}
+      USER_DB_NAME: ${USER_DB_NAME:-brainx_user}
+      WORKSPACE_DB_NAME: ${WORKSPACE_DB_NAME:-brainx_workspace}
+      INGESTION_DB_NAME: ${INGESTION_DB_NAME:-brainx_ingestion}
+      COMMERCE_DB_NAME: ${COMMERCE_DB_NAME:-brainx_commerce}
+      ADMIN_DB_NAME: ${ADMIN_DB_NAME:-brainx_admin}
+      INTELLIGENCE_DB_NAME: ${INTELLIGENCE_DB_NAME:-intelligence_service}
+      MCP_DB_NAME: ${MCP_DB_NAME:-brainx_mcp}
+    volumes:
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["sh", "/docker-entrypoint-initdb.d/01-create-service-databases.sh"]
+
   postgres:
     image: postgres:16-alpine
     container_name: brainx-postgres
@@ -211,6 +262,7 @@ services:
       INGESTION_DB_NAME: ${INGESTION_DB_NAME:-brainx_ingestion}
       COMMERCE_DB_NAME: ${COMMERCE_DB_NAME:-brainx_commerce}
       ADMIN_DB_NAME: ${ADMIN_DB_NAME:-brainx_admin}
+      MCP_DB_NAME: ${MCP_DB_NAME:-brainx_mcp}
     ports:
       - "5432:5432"
     volumes:

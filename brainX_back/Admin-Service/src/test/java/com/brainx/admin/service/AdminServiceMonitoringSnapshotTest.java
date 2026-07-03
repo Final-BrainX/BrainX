@@ -1,6 +1,7 @@
 package com.brainx.admin.service;
 
 import com.brainx.admin.dto.AdminDtos.AdminBillingSummaryData;
+import com.brainx.admin.dto.AdminDtos.AdminDashboardOverviewData;
 import com.brainx.admin.dto.AdminDtos.AdminMonitoringSnapshotData;
 import com.brainx.admin.dto.AdminDtos.KafkaLagState;
 import com.brainx.admin.entity.AdminMonitoringSnapshot;
@@ -191,6 +192,102 @@ class AdminServiceMonitoringSnapshotTest {
         Assertions.assertThat(data.snapshotId()).isEqualTo("ams_existing");
         verify(monitoringSnapshotRepository, never()).save(any(AdminMonitoringSnapshot.class));
         verify(kafkaLagCollector, never()).collect(anyString());
+    }
+
+    @Test
+    void collectServiceHealthsIncludesMcpService() {
+        OffsetDateTime capturedAt = OffsetDateTime.parse("2026-07-01T12:00:00+09:00");
+        ReflectionTestUtils.setField(adminService, "userHealthUrl", "http://user/actuator/health");
+        ReflectionTestUtils.setField(adminService, "commerceHealthUrl", "http://commerce/actuator/health");
+        ReflectionTestUtils.setField(adminService, "workspaceHealthUrl", "http://workspace/actuator/health");
+        ReflectionTestUtils.setField(adminService, "ingestionHealthUrl", "http://ingestion/actuator/health");
+        ReflectionTestUtils.setField(adminService, "intelligenceHealthUrl", "http://intelligence/actuator/health");
+        ReflectionTestUtils.setField(adminService, "mcpHealthUrl", "http://mcp/actuator/health");
+        ReflectionTestUtils.setField(adminService, "serviceToken", "test-service-token");
+
+        doReturn(defaultHealthGet).when(defaultRestClient).get();
+        doReturn(defaultHealthRequest).when(defaultHealthGet).uri(anyString());
+        doReturn(defaultHealthRequest).when(defaultHealthRequest).header(eq("X-Service-Token"), eq("test-service-token"));
+        doReturn(defaultHealthResponse).when(defaultHealthRequest).retrieve();
+        when(defaultHealthResponse.toEntity(String.class)).thenReturn(ResponseEntity.ok("{}"));
+
+        var healths = adminService.collectServiceHealths(false, capturedAt);
+
+        Assertions.assertThat(healths)
+                .extracting("name")
+                .containsExactly(
+                        "User-Service",
+                        "Commerce-Service",
+                        "Workspace-Service",
+                        "Ingestion-Service",
+                        "Intelligence-Service",
+                        "Mcp-Service"
+                );
+        verify(defaultHealthGet).uri("http://mcp/actuator/health");
+    }
+
+    @Test
+    void dashboardOverviewUsesPersistedSnapshotsForPreviousDaysAndTodayLiveOverlay() {
+        OffsetDateTime julyThirdMorning = OffsetDateTime.parse("2026-07-03T08:50:00+09:00");
+        ReflectionTestUtils.setField(adminService, "monitoringTimezone", "Asia/Seoul");
+
+        AdminBillingSummaryData summary = new AdminBillingSummaryData(
+                new BigDecimal("1234567"),
+                12,
+                new BigDecimal("890123"),
+                3
+        );
+        AdminService.InternalTrendSeriesDto liveTrend = new AdminService.InternalTrendSeriesDto(
+                "dailyActiveUsers",
+                List.of(2, 4, 6, 8, 9),
+                "최근 5일",
+                5,
+                "Asia/Seoul",
+                "User-Service"
+        );
+        AdminService.InternalUserGrowthSummaryDto userGrowthSummary = new AdminService.InternalUserGrowthSummaryDto(42, liveTrend);
+
+        AdminMonitoringSnapshot julyFirstSnapshot = createMonitoringSnapshot(
+                "ams_20260701",
+                new BigDecimal("1"),
+                1,
+                new BigDecimal("1"),
+                0,
+                7,
+                0,
+                "intelligence-service",
+                KafkaLagState.HEALTHY,
+                "Current lag 0 msgs",
+                OffsetDateTime.parse("2026-07-01T23:59:00+09:00")
+        );
+        AdminMonitoringSnapshot julySecondSnapshot = createMonitoringSnapshot(
+                "ams_20260702",
+                new BigDecimal("1"),
+                1,
+                new BigDecimal("1"),
+                0,
+                8,
+                0,
+                "intelligence-service",
+                KafkaLagState.HEALTHY,
+                "Current lag 0 msgs",
+                OffsetDateTime.parse("2026-07-02T23:59:00+09:00")
+        );
+
+        doReturn(summary).when(adminService).billingSummary();
+        doReturn(userGrowthSummary).when(adminService).fetchUserGrowthSummary(14);
+        doReturn(List.of()).when(adminService).collectServiceHealths(eq(false), any());
+        when(operationEvents.findTop20ByOrderByCreatedAtDesc()).thenReturn(List.of());
+        when(monitoringSnapshotRepository.findAll()).thenReturn(List.of(julyFirstSnapshot, julySecondSnapshot));
+        when(monitoringSnapshotRepository.findAllByOrderByCapturedAtDesc()).thenReturn(List.of(julySecondSnapshot, julyFirstSnapshot));
+        when(monitoringSnapshotRepository.findTop2ByOrderByCapturedAtDesc()).thenReturn(List.of(julySecondSnapshot, julyFirstSnapshot));
+
+        AdminDashboardOverviewData overview = adminService.dashboardOverview();
+
+        Assertions.assertThat(overview.activeUserTrend().values()).hasSize(14);
+        Assertions.assertThat(overview.activeUserTrend().values().subList(11, 14)).containsExactly(7, 8, 9);
+        Assertions.assertThat(overview.activeUserTrend().periodLabel()).isEqualTo("최근 13일 snapshot + 오늘 live");
+        Assertions.assertThat(overview.activeUserTrend().source()).isEqualTo("AdminMonitoringSnapshot + User-Service live overlay");
     }
 
     private void stubCaptureInputs(OffsetDateTime capturedAt) {

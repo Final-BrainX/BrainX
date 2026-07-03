@@ -4,6 +4,7 @@ import { memo, useMemo } from "react";
 
 import { Icon } from "@/components/brainx-ui";
 import { cx } from "@/lib/utils";
+import { BrandLogo } from "@/components/brand-logo";
 
 type LoadingSkeletonProps = {
   title?: string;
@@ -38,10 +39,8 @@ const LoadingSkeleton = memo(function LoadingSkeleton({
     >
       <div className="mx-auto flex w-full max-w-md flex-col items-center gap-8 text-center">
         <div className="relative">
-          <div className="logo-orb">
-            <div className="orb-ring" aria-hidden="true" />
-            <div className="orb-ring2" aria-hidden="true" />
-            <Icon name="brain" size={compact ? 26 : 30} className="relative z-10 text-white" />
+          <div className="relative animate-pulse mb-2">
+            <BrandLogo size={compact ? 56 : 64} shadow />
           </div>
         </div>
 

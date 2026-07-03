@@ -414,7 +414,10 @@ export interface components {
         ChatThreadCreateRequest: {
             /** @description 이 채팅 스레드의 논리적 문서 그룹 경계. 생략하면 Knowledge Intelligence는 default로 처리한다. */
             documentGroupId?: string;
+            /** @description 스레드 생성 fallback 제목. initialMessage가 있으면 서버는 AI 제목 생성을 먼저 시도하고, 실패 시 이 값을 사용한다. */
             title: string;
+            /** @description AI 스레드 제목 생성을 위한 첫 사용자 메시지. 제목 생성 입력 전용이며 chat message로 저장되지 않는다. */
+            initialMessage?: string;
             modelId: string;
         };
         ChatThreadUpdateRequest: {

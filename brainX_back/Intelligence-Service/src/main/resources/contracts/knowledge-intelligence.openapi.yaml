@@ -2,6 +2,9 @@ openapi: 3.0.3
 info:
   title: BrainX API SSOT - Knowledge Intelligence
   version: 1.0.0-revised
+  license:
+    name: Proprietary
+    url: https://brainx.p-e.kr
   description: 'BrainX 공개 및 내부 REST 계약 문서.
 
 
@@ -23,8 +26,8 @@ info:
 
     - operation 단위 이벤트 결합은 x-produces-events로 표현하고 AsyncAPI SSOT를 참조한다.'
 servers:
-- url: http://localhost:8080
-  description: 로컬 API 게이트웨이
+- url: https://brainx.p-e.kr
+  description: AWS dev API 게이트웨이. 로컬 개발은 Gateway-Service 기본 포트 8088을 사용한다.
 - url: https://api.brainx.com
   description: 운영 API 게이트웨이
 tags:
@@ -1918,6 +1921,10 @@ components:
           description: 이 채팅 스레드의 논리적 문서 그룹 경계. 생략하면 Knowledge Intelligence는 default로 처리한다.
         title:
           type: string
+          description: 스레드 생성 fallback 제목. initialMessage가 있으면 서버는 AI 제목 생성을 먼저 시도하고, 실패 시 이 값을 사용한다.
+        initialMessage:
+          type: string
+          description: AI 스레드 제목 생성을 위한 첫 사용자 메시지. 제목 생성 입력 전용이며 chat message로 저장되지 않는다.
         modelId:
           type: string
       required:

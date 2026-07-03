@@ -95,6 +95,7 @@ public class ChatService implements
     private static final int THREAD_PREVIEW_LENGTH = 160;
 
     private final ChatProperties properties;
+    private final ChatThreadTitleGenerator titleGenerator;
     private final ChatRouteDecider chatRouteDecider;
     private final ChatPersistencePort chatPersistencePort;
     private final NoteChunkRetrievalPort noteChunkRetrievalPort;
@@ -106,6 +107,7 @@ public class ChatService implements
 
     public ChatService(
         ChatProperties properties,
+        ChatThreadTitleGenerator titleGenerator,
         ChatRouteDecider chatRouteDecider,
         ChatPersistencePort chatPersistencePort,
         NoteChunkRetrievalPort noteChunkRetrievalPort,
@@ -116,6 +118,7 @@ public class ChatService implements
         ChatEventPort chatEventPort
     ) {
         this.properties = properties;
+        this.titleGenerator = titleGenerator;
         this.chatRouteDecider = chatRouteDecider;
         this.chatPersistencePort = chatPersistencePort;
         this.noteChunkRetrievalPort = noteChunkRetrievalPort;
@@ -129,9 +132,10 @@ public class ChatService implements
     @Override
     public ChatThreadResult createChatThread(CreateChatThreadCommand command) {
         String userId = requireText(command.userId(), "userId");
-        String title = requireText(command.title(), "title");
+        String fallbackTitle = requireText(command.title(), "title");
         String modelId = requireText(command.modelId(), "modelId");
         String documentGroupId = DocumentGroups.normalize(command.documentGroupId());
+        String title = titleGenerator.titleFor(userId, command.initialMessage(), fallbackTitle);
         ChatThread thread = chatPersistencePort.saveThread(new ChatThread(
             UUID.randomUUID().toString(),
             userId,

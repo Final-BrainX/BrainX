@@ -111,7 +111,7 @@ BrainX/
 - `next.config.mjs`에서 Turbopack root를 `brainx-next` 폴더로 고정해, 루트에 다른 lockfile이 있어도 개발 서버가 잘못된 워크스페이스 루트를 잡지 않도록 했습니다.
 - 관리자 콘솔 mock 기준으로 관리자 계정 이메일 입력, 미확인 문의 수 배지, 답변 완료 문의의 답변 입력 숨김, 환불 시 무료 플랜 전환, 로그인 기기 국가만 표시, 구독 다음 결제일의 월간/연간 표기를 반영했습니다.
 - 관리자 생성 계정의 이메일은 로그인 후 프로필 이메일 칸까지 그대로 이어지도록 맞췄고, Billing 화면과 Admin 화면에서는 구독 시작일과 다음 결제일을 주기별(월간 30일, 연간 365일)로 표시합니다.
-- 관리자 모니터링 화면에는 검은색 `status-line` 업데이트 문구, 최근 14일 활성 사용자/매출 그래프, Excel 호환 리포트 다운로드가 추가되었습니다.
+- 관리자 모니터링 화면에는 검은색 `status-line` 업데이트 문구, 최근 14일 활성 사용자/매출 그래프, Excel 호환 리포트 다운로드가 추가되었습니다. 활성 사용자 추이는 전일까지는 `admin_monitoring_snapshots` persisted 이력을 사용하고, 오늘 23:59 Asia/Seoul snapshot이 아직 없으면 오늘 칸만 `User-Service` live 값으로 overlay합니다.
 - 관리자 모니터링 우측 레일에는 관리자 목록 아래 게임 채팅형 메시지함이 있으며, 전체 발송/선택 발송과 unread `SMS` 건수, `읽음` 모달을 함께 지원합니다.
 - 환불은 관리자 사유를 함께 전달하고, 환불 안내 메일 발송과 Commerce 구독의 `free` 전환을 기준으로 사용자 화면이 주기적으로 최신 플랜을 다시 읽어오도록 맞췄습니다.
 - Commerce 환불은 `REFUNDED` 상태를 DB 체크 제약에 포함하도록 보정했고, 결제사에서 이미 취소된 결제라면 로컬 원장과 구독 상태를 `환불 완료 + free 전환`으로 재동기화하도록 처리했습니다.
@@ -212,6 +212,7 @@ BrainX/
 | User-Service | 채영 | 사용자 신원, 인증, 로그인/회원가입/온보딩, 계정 보안, 동의, 마이페이지, 노트 사용 통계, 로그인 세션 Redis 기록 | 구현 중 (포트 8080) |
 | Admin-Service | 채영 | 관리자 페이지, 사용자 관리, 결제 관리, 환불, 모니터링, 사용자 통계, 문의 답장, 모델별 LLM 토큰 소비량 | API shell 구현 중 (포트 8085) |
 | Intelligence-Service | 영진 | 시맨틱 검색, RAG, LLM 호출, AI 추천, 요약, 토큰 사용량 service 처리 | 구현 중 (포트 8086) |
+| Mcp-Service | 미정 | 외부 agent/MCP client용 API key 발급/검증, MCP Streamable HTTP endpoint, agent tool gateway | 인증 v1 구현 중 (포트 8087) |
 | Ingestion-Service | 환유 | 파일 처리, 변환, 가져오기, 내보내기, 외부 연동 | 구현 중 (포트 8083) |
 | Commerce-Service | 환유 | 결제 API, 플랜, 구독/상품 관리 | 구현 중 (포트 8084) — Toss Payments 결제, 플랜 조회/변경/취소 |
 | Workspace-Service | 예진, 진주, 채영 | 노트, 폴더, 링크, 그래프, 지식 워크스페이스 원장 | 구현 중 (포트 8082) — 노트/폴더/링크/그래프/공유 API |
@@ -230,6 +231,7 @@ BrainX/
 - 다중 Workspace 기준의 1차 public 계약은 `GET/POST /api/v1/workspaces`, `GET/PATCH /api/v1/workspaces/{documentGroupId}`, `GET /api/v1/workspaces/{documentGroupId}/sync`를 따른다.
 - Workspace 전환은 1차에서 별도 selection 저장 API 없이 프론트 Context와 각 API 호출의 `documentGroupId` 전달로 처리한다.
 - AI, import, extension, MCP 등에서 노트를 변경할 때도 Workspace command API를 통해 처리합니다.
+- Mcp-Service는 외부 agent 인증과 MCP `/mcp` transport를 소유합니다. 노트 검색/쓰기 tool은 Workspace/Intelligence public 또는 internal API를 통해 붙입니다.
 - 토큰 사용량은 public command API로 직접 노출하지 않고 event 기반으로 집계합니다.
 - 서비스 책임이 겹치면 DB를 공유하지 말고 API/이벤트 계약을 먼저 정의합니다.
 
@@ -243,6 +245,16 @@ API와 이벤트 계약의 기준은 `contracts-v2`입니다.
 - `contracts-v2/brainx-asyncapi.html`: AsyncAPI 문서 산출물
 
 공통 public prefix는 `/api/v1`입니다. 단, 현재 구현된 Ingestion publish helper는 `/v1/publish-jobs`입니다. 인증은 Access Token Bearer 방식과 Refresh Token/HttpOnly Secure Cookie 전략을 기준으로 합니다. AI 응답 스트리밍은 SSE를 기준으로 둡니다.
+MCP client용 API key 관리는 `POST|GET /api/v1/mcp/api-clients`, `DELETE /api/v1/mcp/api-clients/{clientId}`가 담당하고, 실제 MCP transport endpoint는 `/mcp`입니다.
+
+### MCP Agent Access
+
+MCP v1은 별도 OAuth 없이 사용자 access token으로 scoped API key를 발급한 뒤 agent가 그 key를 사용합니다.
+
+1. 사용자 JWT로 `POST /api/v1/mcp/api-clients`에 `{ "name": "...", "scopes": ["whoami"] }`를 보내 `apiKeyOnce`를 발급합니다.
+2. `apiKeyOnce`는 한 번만 표시되므로 안전한 password manager에 저장합니다. DB에는 원문 대신 hash만 저장됩니다.
+3. 검증은 `GET /api/v1/mcp/whoami`에 `Authorization: Bearer bxk_live_...` 또는 `X-BrainX-Api-Key: bxk_live_...`를 보내 확인합니다.
+4. MCP Inspector나 agent client는 `https://<public-domain>/mcp`에 Bearer API key로 연결한 뒤 `brainx_whoami` tool을 호출합니다.
 
 공통 응답 기본형:
 
@@ -335,10 +347,11 @@ Copy-Item .\env\user-service.env.example .\env\user-service.env
 Copy-Item .\env\workspace-service.env.example .\env\workspace-service.env
 Copy-Item .\env\ingestion-service.env.example .\env\ingestion-service.env
 Copy-Item .\env\commerce-service.env.example .\env\commerce-service.env
+Copy-Item .\env\mcp-service.env.example .\env\mcp-service.env
 docker compose up -d
 ```
 
-`.env`는 각자 로컬 값만 넣고 Git에 올리지 않습니다. `JWT_SECRET`은 User-Service, Workspace-Service, Ingestion-Service가 같은 값을 사용해야 합니다.
+`.env`는 각자 로컬 값만 넣고 Git에 올리지 않습니다. `JWT_SECRET`은 JWT를 발급/검증하는 User-Service, Workspace-Service, Ingestion-Service, Intelligence-Service, Mcp-Service가 같은 값을 사용해야 합니다.
 `env/*.env`도 서비스별 로컬 실행 값이므로 Git에 올리지 않습니다.
 
 DB만 Docker로 띄우려면 `docker compose up -d`를 사용합니다. 백엔드 앱까지 컨테이너로 함께 띄우려면 아래처럼 `apps` 프로필을 사용합니다.
@@ -348,7 +361,7 @@ cd C:\Edu\Final\BrainX\brainX_back
 docker compose --profile apps up -d --build
 ```
 
-`apps` 프로필은 `Gateway-Service`(8088), `User-Service`(8080), `Workspace-Service`(8082), `Ingestion-Service`(8083), `Commerce-Service`(8084), `Admin-Service`(8085)를 모두 실행합니다. 이 방식으로 앱을 띄우면 각 서비스를 로컬 Gradle/IDE에서 따로 실행할 필요는 없습니다. 프론트엔드는 계속 `brainx-next`에서 실행하면 됩니다.
+`apps` 프로필은 `Gateway-Service`(8088), `User-Service`(8080), `Workspace-Service`(8082), `Ingestion-Service`(8083), `Commerce-Service`(8084), `Admin-Service`(8085), `Mcp-Service`(8087)를 모두 실행합니다. 이 방식으로 앱을 띄우면 각 서비스를 로컬 Gradle/IDE에서 따로 실행할 필요는 없습니다. 프론트엔드는 계속 `brainx-next`에서 실행하면 됩니다.
 
 Admin-Service만 Docker로 실행하려면 아래 명령을 사용합니다.
 
@@ -369,10 +382,12 @@ docker compose --profile apps up -d --build admin-service
 | Workspace-Service | Docker 실행 시 `env/workspace-service.env`; 로컬 IDE 실행 시 동일한 값을 Run Configuration에 지정 |
 | Ingestion-Service | `../.env`, `../env/ingestion-service.env` |
 | Commerce-Service | `../.env`, `../env/commerce-service.env` |
+| Mcp-Service | `../.env`, `../env/mcp-service.env` |
 
-`JWT_SECRET`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, `DB_DRIVER`, `JPA_DDL_AUTO`처럼 모든 서비스가 공유하는 값은 `.env`에 둡니다. 서비스별 논리 DB 이름도 `.env`의 `USER_DB_NAME`, `WORKSPACE_DB_NAME`, `INGESTION_DB_NAME`, `COMMERCE_DB_NAME`으로 관리합니다.
+`JWT_SECRET`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, `DB_DRIVER`, `JPA_DDL_AUTO`처럼 모든 서비스가 공유하는 값은 `.env`에 둡니다. 서비스별 논리 DB 이름도 `.env`의 `USER_DB_NAME`, `WORKSPACE_DB_NAME`, `INGESTION_DB_NAME`, `COMMERCE_DB_NAME`, `MCP_DB_NAME`으로 관리합니다.
 Admin-Service는 관리자 시드용 `SEED_ADMIN_LOGIN_ID`, `SEED_ADMIN_PASSWORD`, `SEED_ADMIN_NAME`도 `../env/admin-service.env`에서 함께 읽습니다.
 Docker Compose로 앱을 실행할 때는 앱 컨테이너에만 `POSTGRES_HOST=postgres`를 자동으로 덮어씁니다. 로컬 Gradle/IDE 실행은 `.env`의 `POSTGRES_HOST=localhost`를 그대로 사용합니다.
+기존 `brainx_postgres_data` 볼륨이 있는 개발 환경에서도 새 논리 DB가 누락되지 않도록 `apps` 프로필은 `postgres-service-databases` one-shot 컨테이너로 DB 생성 스크립트를 매번 idempotent하게 확인한 뒤 앱 컨테이너를 시작합니다.
 
 기본 DB 접속 정보:
 
@@ -382,6 +397,7 @@ Docker Compose로 앱을 실행할 때는 앱 컨테이너에만 `POSTGRES_HOST=
 | Workspace-Service | PostgreSQL | `jdbc:postgresql://localhost:5432/brainx_workspace` |
 | Ingestion-Service | PostgreSQL | `jdbc:postgresql://localhost:5432/brainx_ingestion` |
 | Commerce-Service | PostgreSQL | `jdbc:postgresql://localhost:5432/brainx_commerce` |
+| Mcp-Service | PostgreSQL | `jdbc:postgresql://localhost:5432/brainx_mcp` |
 
 그래프 projection/read model용 Neo4j도 Docker Compose로 함께 실행됩니다. Neo4j는 Workspace-Service의 PostgreSQL 원장을 대체하지 않으며, 노트/링크 이벤트를 바탕으로 갱신되는 그래프 조회 저장소입니다.
 
@@ -547,7 +563,7 @@ Admin-Service의 관리자 첫 화면 read model은 Commerce-Service billing rea
 Commerce-Service는 EC2에서 수동으로 넣었던 `commerce_subscriptions.billing_cycle`, `commerce_checkout_sessions.billing_cycle`, `commerce_checkout_sessions_status_check` 보정을 `src/main/resources/db/migration/V20260701_01__repair_billing_cycle_columns.sql`로 추적합니다. Spring SQL init가 이 migration SQL을 JPA schema update보다 먼저 적용해 오래된 운영 DB도 같은 스키마 보정을 따라가게 했습니다.
 모니터링 대시보드의 Kafka 큐 대기 Lag는 추정값이 아니라 Kafka consumer group의 현재 lag를 읽어오며, 일별 스냅샷에도 함께 저장해서 목록과 상세가 같은 상태를 보게 했습니다.
 Kafka lag 카드의 live 값은 별도 `/api/v1/admin/monitoring/kafka-lag`로 읽어 UI를 가볍게 유지하고, 브로커 연결 실패는 `연결 실패`, committed offset이 없으면 `미집계`, 실제 lag가 0일 때만 `정상`으로 보여 줍니다. 운영 알람 기준은 `1,000 msgs` 이상 경고, `5,000 msgs` 이상 심각으로 두었습니다.
-모니터링 서비스 체크에는 `Intelligence-Service`도 포함해 AI 응답/지연을 실제 health probe 기준으로 보여 줍니다.
+모니터링 서비스 체크에는 `Intelligence-Service`와 `Mcp-Service`도 포함해 AI/MCP 응답과 지연을 실제 health probe 기준으로 보여 줍니다.
 모니터링 overview의 KPI delta는 직전 persisted snapshot 대비 증감률로 계산하고, 서비스 uptime은 최근 health snapshot 표본(최대 20건)에서 `DOWN`이 아닌 상태(`UP`, `DEGRADED`) 비율로 계산합니다. 프런트는 overview 응답의 KPI를 다시 mock으로 조립하지 않고 Admin-Service가 내려준 값을 그대로 사용합니다. persisted snapshot은 Admin-Service가 매일 `23:59`에 스케줄러로 저장하며, 오늘 날짜가 아직 `23:59 Asia/Seoul` 이전이면 관리자 화면은 persisted 이력만 보지 않고 live overview와 current-day monitoring overlay를 함께 새로고침해야 합니다.
 서비스 체크 상태는 `UP`(정상 응답 + 허용 지연), `DEGRADED`(비정상 응답 또는 지연 임계치 초과), `DOWN`(호출 실패) 3단계로 통일합니다.
 overview의 차트 응답은 숫자 배열만 내려주지 않고 `periodLabel`/`timezone`/`source`를 함께 내려, 프런트가 `최근 14일` 같은 고정 문구를 하드코딩하지 않고 Admin-Service overview 메타데이터를 그대로 사용합니다.
@@ -555,7 +571,7 @@ overview의 실데이터 차트는 `Commerce-Service`의 `/internal/v1/billing/r
 `/api/v1/admin/monitoring/snapshots`는 과거 날짜에 대해서는 persisted row만 내려주고, 오늘 날짜의 persisted row가 아직 없으면 live KPI/active user/Kafka lag를 합성한 `persisted=false` current-day overlay row를 맨 앞에 함께 내려줍니다. `brainx-admin-next` 모니터링 화면은 이 목록과 overview를 주기적으로 다시 읽고, `새로고침` 버튼도 실제 API reload를 수행해야 합니다.
 운영 로그 기반으로 MSA 개선률을 비교할 때는 [`brainX_back/scripts/calc_msa_efficiency.py`](brainX_back/scripts/calc_msa_efficiency.py)를 사용합니다. baseline/current 폴더에 `Admin-Service`의 `GET /api/v1/admin/monitoring/health` JSON과 Gateway access log를 넣고 `--json` 또는 일반 출력으로 실행하면 `latency reduction`, `fallback interference reduction`, `availability change`를 함께 계산합니다.
 Gateway health proxy(`/internal/v1/health/*`)는 downstream actuator가 직접 `503`을 돌려줘도 circuit breaker fallback으로 흡수하도록 `statusCodes: 503`을 명시합니다. 또한 Gateway outbound DNS resolver는 `brainx.gateway.httpclient.dns.*` 설정으로 query timeout, negative TTL, resolve query count를 짧게 제한해 이름 해석 단계 블로킹을 줄입니다.
-관리자 모니터링 화면은 상단 선형 차트를 활성 사용자 추이로, 하단 막대 차트를 매출 분석으로 분리해 overview의 `activeUserTrend`와 `revenueTrend`를 각각 실데이터 그대로 사용합니다.
+관리자 모니터링 화면은 상단 선형 차트를 활성 사용자 추이로, 하단 막대 차트를 매출 분석으로 분리해 overview의 `activeUserTrend`와 `revenueTrend`를 각각 실데이터 그대로 사용합니다. `activeUserTrend`는 최근 13일 persisted monitoring snapshot에 오늘 live overlay를 합성하며, 당일 snapshot이 이미 있으면 live 대신 persisted 값을 사용합니다.
 overview summary는 결제/사용자 지표 외에 `Workspace-Service`의 `/internal/v1/workspace/monitoring/summary`를 통해 전체 노트 수, 총 저장량, 오늘 생성된 노트 수를 함께 내려줍니다. 관리자 모니터링의 Workspace 원장 카드와 일부 실시간 로그는 이 내부 API의 최근 활동 목록을 사용합니다.
 
 | 화면 | Method | Path | 소유 데이터/연동 |

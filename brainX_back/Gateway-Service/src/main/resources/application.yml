@@ -152,6 +152,13 @@ spring:
                       - 503
                 - RewritePath=/internal/v1/health/intelligence,/actuator/health
 
+            - id: internal-mcp-health
+              uri: ${MCP_SERVICE_URL:http://localhost:8087}
+              predicates:
+                - Path=/internal/v1/health/mcp
+              filters:
+                - RewritePath=/internal/v1/health/mcp,/actuator/health
+
             - id: user-service-auth
               uri: ${USER_SERVICE_URL:http://localhost:8080}
               predicates:
@@ -161,6 +168,11 @@ spring:
                   args:
                     name: userServiceCircuitBreaker
                     fallbackUri: forward:/fallback/user
+
+            - id: mcp-service
+              uri: ${MCP_SERVICE_URL:http://localhost:8087}
+              predicates:
+                - Path=/api/v1/mcp/**,/mcp,/mcp/**
 
             - id: user-service-users
               uri: ${USER_SERVICE_URL:http://localhost:8080}
@@ -249,11 +261,15 @@ brainx:
       public-paths:
         - /actuator/health
         - /actuator/info
+        - /actuator/prometheus
         - /api/v1/auth/**
         - /api/v1/plans
         - /api/v1/plans/**
         - /api/v1/assets/*/file
         - /api/v1/assets/proxy-image
+        - /api/v1/mcp/**
+        - /mcp
+        - /mcp/**
     httpclient:
       dns:
         query-timeout: ${BRAINX_GATEWAY_DNS_QUERY_TIMEOUT:1s}

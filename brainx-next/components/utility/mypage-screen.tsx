@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 
 import { useBrainX } from "@/components/brainx-provider";
-import { Icon } from "@/components/brainx-ui";
+import { Icon, Btn, Card, Toggle, Avatar } from "@/components/brainx-ui";
 import type { BrainXNote } from "@/lib/brainx-data";
 import { getOAuthAuthorization, logout, type OAuthProvider } from "@/lib/auth-api";
 import {
@@ -85,15 +85,8 @@ function readImageFile(event: ChangeEvent<HTMLInputElement>, onLoad: (value: str
 
 function ProfileAvatar({ name, imageUrl, size = 112 }: { name: string; imageUrl?: string | null; size?: number }) {
   return (
-    <div
-      style={{ width: size, height: size }}
-      className="grid shrink-0 place-items-center overflow-hidden rounded-full border-4 border-white bg-black text-white shadow-[0_18px_35px_rgb(15_23_42/0.18)]"
-    >
-      {imageUrl ? (
-        <img src={imageUrl} alt="프로필 이미지" className="h-full w-full object-cover" />
-      ) : (
-        <span className="text-[30px] font-bold tracking-tight">{name.slice(0, 2)}</span>
-      )}
+    <div className="relative shadow-soft rounded-full bg-bg p-1 shrink-0" style={{ width: size + 8, height: size + 8 }}>
+      <Avatar name={name} imageUrl={imageUrl} size={size} />
     </div>
   );
 }
@@ -127,7 +120,7 @@ function ContributionGrid({ notes }: { notes: BrainXNote[] }) {
   const startDate = new Date(today);
   startDate.setDate(today.getDate() - (weekCount * 7 - 1));
   const totalCells = weekCount * 7;
-  const colors = ["#ebedf0", "#d9f7e3", "#9be9a8", "#40c463", "#30a14e"];
+  const colors = ["var(--surface2)", "rgb(var(--primary) / 0.2)", "rgb(var(--primary) / 0.4)", "rgb(var(--primary) / 0.7)", "rgb(var(--primary))"];
   const noteCountsByDate = notes.reduce<Record<string, number>>((counts, note) => {
     const targetDate = new Date(note.updatedAt || note.createdAt);
     if (Number.isNaN(targetDate.getTime())) return counts;
@@ -147,9 +140,9 @@ function ContributionGrid({ notes }: { notes: BrainXNote[] }) {
   const rangeLabel = `${startDate.getFullYear()}년 ${startDate.getMonth() + 1}월 - ${today.getFullYear()}년 ${today.getMonth() + 1}월`;
 
   return (
-    <div className="scroll overflow-x-auto rounded-[6px] border border-[#d0d7de] bg-white px-4 py-4">
+    <Card className="overflow-x-auto px-4 py-4 scroll">
       <div className="mx-auto" style={{ width: `${graphWidth}px` }}>
-        <div className="mb-3 flex items-center justify-between text-[12px] text-[#57606a]">
+        <div className="mb-3 flex items-center justify-between text-[12px] text-txt3">
           <span>{rangeLabel}</span>
           <span>노트 작성/저장 기준</span>
         </div>
@@ -162,7 +155,7 @@ function ContributionGrid({ notes }: { notes: BrainXNote[] }) {
           }}
         >
           <div />
-          <div className="relative mb-2 h-4 text-[12px] text-[#24292f]" style={{ width: `${gridWidth}px` }}>
+          <div className="relative mb-2 h-4 text-[12px] text-txt" style={{ width: `${gridWidth}px` }}>
             {monthLabels.map((month) => (
               <span key={`${month.label}-${month.week}`} className="absolute top-0" style={{ left: `${month.week * weekStep}px` }}>
                 {month.label}
@@ -170,7 +163,7 @@ function ContributionGrid({ notes }: { notes: BrainXNote[] }) {
             ))}
           </div>
 
-          <div className="relative h-[115px] text-[12px] text-[#57606a]">
+          <div className="relative h-[115px] text-[12px] text-txt3">
             {dayLabels.map((day) => (
               <span key={day.label} className="absolute right-1" style={{ top: `${day.row * weekStep - 1}px` }}>
                 {day.label}
@@ -195,7 +188,7 @@ function ContributionGrid({ notes }: { notes: BrainXNote[] }) {
                 <span
                   key={index}
                   title={`${dateKey(cellDate)} · ${count}개 노트`}
-                  className="rounded-[3px] outline outline-1 outline-white"
+                  className="rounded-[3px] ring-1 ring-inset ring-line/10"
                   style={{ width: `${cellSize}px`, height: `${cellSize}px`, backgroundColor: colors[intensity] }}
                 />
               );
@@ -203,7 +196,7 @@ function ContributionGrid({ notes }: { notes: BrainXNote[] }) {
           </div>
 
           <div />
-          <div className="mt-4 flex items-center justify-between text-[12px] text-[#57606a]">
+          <div className="mt-4 flex items-center justify-between text-[12px] text-txt3">
             <span>노트를 작성하거나 저장한 날짜를 기준으로 표시됩니다</span>
             <div className="flex items-center gap-1">
               <span>적음</span>
@@ -217,7 +210,7 @@ function ContributionGrid({ notes }: { notes: BrainXNote[] }) {
           </div>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -252,7 +245,7 @@ function UsageMeter({
 
 function TokenUsageCard() {
   return (
-    <div className="card rounded-2xl shadow-soft p-5">
+    <Card className="p-5">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h3 className="text-[16px] font-semibold text-txt">사용량</h3>
@@ -285,7 +278,7 @@ function TokenUsageCard() {
           tone="from-accent to-pink-400"
         />
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -421,9 +414,9 @@ function ActivityLineChart({ points }: { points: { label: string; value: number 
       <svg viewBox={`0 0 ${width} ${height}`} className="h-[230px] min-w-[620px] w-full" role="img" aria-label="생성 추이 그래프">
         {[0, 1, 2, 3].map((line) => {
           const y = padding.top + (innerHeight / 3) * line;
-          return <line key={line} x1={padding.left} x2={width - padding.right} y1={y} y2={y} stroke="#eee7dc" />;
+          return <line key={line} x1={padding.left} x2={width - padding.right} y1={y} y2={y} stroke="var(--line)" opacity={0.5} />;
         })}
-        <polyline fill="none" points={path} stroke="#111827" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />
+        <polyline fill="none" points={path} stroke="rgb(var(--primary))" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />
         <polygon
           points={`${padding.left},${height - padding.bottom} ${path} ${width - padding.right},${height - padding.bottom}`}
           fill="url(#activityFill)"
@@ -431,16 +424,16 @@ function ActivityLineChart({ points }: { points: { label: string; value: number 
         />
         <defs>
           <linearGradient id="activityFill" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="#6366f1" stopOpacity="0.32" />
-            <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+            <stop offset="0%" stopColor="rgb(var(--primary))" stopOpacity="0.32" />
+            <stop offset="100%" stopColor="rgb(var(--primary))" stopOpacity="0" />
           </linearGradient>
         </defs>
         {coordinates.map((point) => (
-          <circle key={`${point.label}-${point.x}`} cx={point.x} cy={point.y} r="4.5" fill="#111827" stroke="#ffffff" strokeWidth="2" />
+          <circle key={`${point.label}-${point.x}`} cx={point.x} cy={point.y} r="4.5" fill="rgb(var(--primary))" stroke="var(--bg)" strokeWidth="2" />
         ))}
         {coordinates.map((point, index) =>
           index % labelStep === 0 || index === coordinates.length - 1 ? (
-            <text key={point.label} x={point.x} y={height - 10} textAnchor="middle" className="fill-neutral-500 text-[11px]">
+            <text key={point.label} x={point.x} y={height - 10} textAnchor="middle" className="fill-txt3 text-[11px]">
               {point.label}
             </text>
           ) : null
@@ -469,20 +462,20 @@ function ActivityDashboard({
   const activeLabel = ACTIVITY_FILTERS.find((filter) => filter.id === period)?.label ?? "주별";
 
   return (
-    <section className="mt-8 rounded-[22px] border border-[#dedbd5] bg-white/70 px-5 py-6 shadow-[0_18px_45px_rgb(15_23_42/0.06)] md:px-6">
+    <section className="mt-8 rounded-[22px] border border-line/40 bg-surface/70 px-5 py-6 shadow-soft md:px-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <p className="text-[13px] font-semibold text-neutral-500">개인 활동 지표</p>
-          <h2 className="mt-1 text-[22px] font-bold tracking-tight text-neutral-950">BrainX 활동 리포트</h2>
+          <p className="text-[13px] font-semibold text-txt2">개인 활동 지표</p>
+          <h2 className="mt-1 text-[22px] font-bold tracking-tight text-txt">BrainX 활동 리포트</h2>
         </div>
-        <div className="inline-flex w-fit rounded-full border border-neutral-200 bg-white p-1 shadow-sm">
+        <div className="inline-flex w-fit rounded-full border border-line bg-surface p-1 shadow-sm">
           {ACTIVITY_FILTERS.map((filter) => (
             <button
               key={filter.id}
               type="button"
               onClick={() => onPeriodChange(filter.id)}
               className={`h-9 rounded-full px-4 text-[13px] font-semibold transition ${
-                period === filter.id ? "bg-neutral-950 text-white shadow-sm" : "text-neutral-600 hover:bg-neutral-100"
+                period === filter.id ? "bg-txt text-bg shadow-sm" : "text-txt2 hover:bg-surface2"
               }`}
             >
               {filter.label}
@@ -498,41 +491,41 @@ function ActivityDashboard({
           { label: "연속 작성 스트릭", value: `${streak}일`, caption: "최근 작성 흐름" },
           { label: "연결 수", value: totalLinks.toLocaleString(), caption: "노트 간 링크" }
         ].map((stat) => (
-          <div key={stat.label} className="rounded-2xl border border-[#eee8df] bg-[#fbfaf7] p-4">
-            <p className="text-[12px] font-medium text-neutral-500">{stat.label}</p>
-            <p className="mt-2 text-[26px] font-bold tracking-tight text-neutral-950">{stat.value}</p>
-            <p className="mt-1 text-[12px] text-neutral-500">{stat.caption}</p>
+          <div key={stat.label} className="rounded-2xl border border-line/40 bg-surface2 p-4">
+            <p className="text-[12px] font-medium text-txt2">{stat.label}</p>
+            <p className="mt-2 text-[26px] font-bold tracking-tight text-txt">{stat.value}</p>
+            <p className="mt-1 text-[12px] text-txt3">{stat.caption}</p>
           </div>
         ))}
       </div>
 
       <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="rounded-2xl border border-[#eee8df] bg-white p-4">
+        <Card className="p-4">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <h3 className="text-[16px] font-semibold text-neutral-950">생성 추이 그래프</h3>
-              <p className="mt-1 text-[12px] text-neutral-500">{activeLabel} 기준으로 노트 생성과 연결 활동을 표시합니다.</p>
+              <h3 className="text-[16px] font-semibold text-txt">생성 추이 그래프</h3>
+              <p className="mt-1 text-[12px] text-txt3">{activeLabel} 기준으로 노트 생성과 연결 활동을 표시합니다.</p>
             </div>
           </div>
           <ActivityLineChart points={series} />
-        </div>
+        </Card>
 
-        <div className="rounded-2xl border border-[#eee8df] bg-white p-4">
-          <h3 className="text-[16px] font-semibold text-neutral-950">가장 많이 연결된 노트 TOP 5</h3>
+        <Card className="p-4">
+          <h3 className="text-[16px] font-semibold text-txt">가장 많이 연결된 노트 TOP 5</h3>
           <div className="mt-4 space-y-3">
             {topConnectedNotes.map((note, index) => (
-              <div key={note.id} className="flex items-center gap-3 rounded-xl bg-[#fbfaf7] px-3 py-3">
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-neutral-950 text-[12px] font-bold text-white">
+              <div key={note.id} className="flex items-center gap-3 rounded-xl bg-surface2 px-3 py-3">
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-txt text-[12px] font-bold text-bg">
                   {index + 1}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[14px] font-semibold text-neutral-950">{note.title}</p>
-                  <p className="mt-0.5 text-[12px] text-neutral-500">{note.links.length}개 연결 · {note.words.toLocaleString()}단어</p>
+                  <p className="truncate text-[14px] font-semibold text-txt">{note.title}</p>
+                  <p className="mt-0.5 text-[12px] text-txt3">{note.links.length}개 연결 · {note.words.toLocaleString()}단어</p>
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       </div>
     </section>
   );
@@ -577,12 +570,12 @@ function PasswordInput({
         placeholder={placeholder}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-10 w-full rounded-xl border border-neutral-300 px-3 pr-11 text-[14px] outline-none transition focus:border-neutral-900"
+        className="h-10 w-full rounded-xl border border-line/60 bg-surface px-3 pr-11 text-[14px] text-txt outline-none transition focus:border-primary/60"
       />
       <button
         type="button"
         onClick={onToggle}
-        className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900"
+        className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-txt3 transition hover:bg-surface2 hover:text-txt"
         aria-label={visible ? "비밀번호 숨기기" : "비밀번호 보기"}
       >
         <Icon name={visible ? "eyeOff" : "eye"} size={17} />
@@ -603,12 +596,12 @@ function ImageActionMenu({
   return (
     <div
       onClick={(event) => event.stopPropagation()}
-      className={`absolute z-40 w-32 overflow-hidden rounded-2xl border border-neutral-200 bg-white p-1.5 text-neutral-950 shadow-[0_14px_35px_rgb(0_0_0/0.18)] ${className}`}
+      className={`absolute z-40 w-32 overflow-hidden rounded-2xl border border-line/60 bg-surface p-1.5 text-txt shadow-soft ${className}`}
     >
-      <button type="button" onClick={onChoose} className="h-9 w-full rounded-xl px-3 text-left text-[13px] font-medium hover:bg-neutral-100">
+      <button type="button" onClick={onChoose} className="h-9 w-full rounded-xl px-3 text-left text-[13px] font-medium hover:bg-surface2">
         사진 선택
       </button>
-      <button type="button" onClick={onDelete} className="h-9 w-full rounded-xl px-3 text-left text-[13px] font-medium text-red-600 hover:bg-red-50">
+      <button type="button" onClick={onDelete} className="h-9 w-full rounded-xl px-3 text-left text-[13px] font-medium text-red-500 hover:bg-red-500/10">
         삭제
       </button>
     </div>
@@ -627,16 +620,11 @@ function ConsentToggle({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between rounded-xl bg-neutral-50 px-3 py-3">
-      <span className="text-[14px] text-neutral-800">{label}</span>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => onChange(!checked)}
-        className={`relative h-7 w-12 rounded-full transition ${checked ? "bg-black" : "bg-neutral-300"} disabled:opacity-50`}
-      >
-        <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition ${checked ? "left-6" : "left-1"}`} />
-      </button>
+    <div className="flex items-center justify-between rounded-xl bg-surface2 px-3 py-3">
+      <span className="text-[14px] text-txt">{label}</span>
+      <div className={disabled ? "pointer-events-none opacity-50" : ""}>
+        <Toggle on={checked} onChange={(v) => !disabled && onChange(v)} size="sm" />
+      </div>
     </div>
   );
 }
@@ -809,22 +797,21 @@ function AccountSettingsModal({
     >
       <div
         ref={dialogRef}
-        className="max-h-[88svh] w-full max-w-[628px] overflow-hidden rounded-[26px] bg-white text-neutral-950 shadow-[0_24px_80px_rgb(0_0_0/0.35)]"
+        className="max-h-[88svh] w-full max-w-[628px] overflow-hidden rounded-[26px] bg-bg text-txt shadow-[0_24px_80px_rgb(0_0_0/0.35)]"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="flex h-[68px] items-center justify-between border-b border-neutral-200 px-6">
-          <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full hover:bg-neutral-100" aria-label="닫기">
+        <div className="flex h-[68px] items-center justify-between border-b border-line/40 px-6 bg-surface/40">
+          <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full hover:bg-surface2" aria-label="닫기">
             <Icon name="x" size={19} />
           </button>
           <h2 className="text-[20px] font-semibold">계정 설정</h2>
-          <button
-            type="button"
+          <Btn
+            variant="primary"
             onClick={saveProfile}
             disabled={savingProfile || !nickname.trim()}
-            className="h-10 rounded-full bg-black px-6 text-[15px] font-medium text-white shadow-[0_5px_14px_rgb(0_0_0/0.22)] disabled:opacity-45"
           >
             {savingProfile ? "저장 중" : "저장"}
-          </button>
+          </Btn>
         </div>
 
         <div className="scroll max-h-[calc(88svh-68px)] overflow-y-auto">
@@ -891,12 +878,12 @@ function AccountSettingsModal({
                 <input
                   value={nickname}
                   onChange={(event) => setNickname(event.target.value)}
-                  className="h-11 w-full rounded-xl border border-neutral-300 bg-white px-3.5 text-[15px] text-neutral-950 outline-none transition focus:border-neutral-900"
+                  className="h-11 w-full rounded-xl border border-line/60 bg-surface px-3.5 text-[15px] text-txt outline-none transition focus:border-primary/60"
                 />
               </label>
               <label className="block">
                 <FieldLabel>이메일</FieldLabel>
-                <input value={profile?.email ?? ""} disabled className="h-11 w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3.5 text-[15px] text-neutral-500" />
+                <input value={profile?.email ?? ""} disabled className="h-11 w-full rounded-xl border border-line/40 bg-surface2 px-3.5 text-[15px] text-txt3" />
               </label>
             </div>
           </ModalSection>
@@ -934,7 +921,7 @@ function AccountSettingsModal({
                 );
               })}
             </div>
-            <p className="text-[13px] leading-5 text-neutral-500">연결된 소셜 계정으로 로그인해도 현재 BrainX 계정으로 들어옵니다.</p>
+            <p className="text-[13px] leading-5 text-txt3">연결된 소셜 계정으로 로그인해도 현재 BrainX 계정으로 들어옵니다.</p>
           </ModalSection>
 
           <ModalSection title="비밀번호 변경">
@@ -972,21 +959,21 @@ function AccountSettingsModal({
                       onChange={(value) => setPasswords((current) => ({ ...current, newPasswordConfirm: value }))}
                       onToggle={() => setVisiblePasswords((current) => ({ ...current, newPasswordConfirm: !current.newPasswordConfirm }))}
                     />
-                    <button
-                      type="button"
+                    <Btn
+                      variant="primary"
                       onClick={submitPassword}
                       disabled={!passwords.currentPassword || !passwords.newPassword || !passwords.newPasswordConfirm}
-                      className="mt-1 h-10 rounded-xl bg-black px-4 text-[14px] font-medium text-white transition hover:bg-neutral-800 disabled:opacity-40"
+                      className="mt-1 w-full"
                     >
-                      비밀번호저장
-                    </button>
+                      비밀번호 저장
+                    </Btn>
                   </div>
                 ) : null}
               </>
             ) : (
-              <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-4">
-                <p className="text-[15px] font-medium text-neutral-950">소셜 로그인 계정은 비밀번호가 없습니다.</p>
-                <p className="mt-1.5 text-[14px] leading-6 text-neutral-600">
+              <div className="rounded-xl border border-line/40 bg-surface2 px-4 py-4">
+                <p className="text-[15px] font-medium text-txt">소셜 로그인 계정은 비밀번호가 없습니다.</p>
+                <p className="mt-1.5 text-[14px] leading-6 text-txt3">
                   이메일 비밀번호 로그인을 사용하려면 비밀번호를 새로 설정해 주세요.
                 </p>
               </div>
@@ -1004,10 +991,10 @@ function AccountSettingsModal({
 
           <ModalSection title="회원 탈퇴">
             <div className="space-y-3">
-              <input value={deletionReason} onChange={(event) => setDeletionReason(event.target.value)} placeholder="탈퇴 사유" className="h-10 w-full rounded-xl border border-neutral-300 px-3 text-[14px]" />
+              <input value={deletionReason} onChange={(event) => setDeletionReason(event.target.value)} placeholder="탈퇴 사유" className="h-10 w-full rounded-xl border border-line/60 bg-surface px-3 text-[14px] text-txt outline-none transition focus:border-primary/60" />
               <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={submitDeletion} className="h-10 rounded-xl bg-red-600 px-4 text-[14px] font-medium text-white">탈퇴 요청</button>
-                <button type="button" onClick={cancelDeletion} className="h-10 rounded-xl border border-neutral-300 bg-white px-4 text-[14px] font-medium hover:border-black">탈퇴 요청 취소</button>
+                <Btn variant="primary" onClick={submitDeletion} className="bg-red-500 hover:bg-red-600">탈퇴 요청</Btn>
+                <Btn variant="soft" onClick={cancelDeletion}>탈퇴 요청 취소</Btn>
               </div>
             </div>
           </ModalSection>
@@ -1067,7 +1054,7 @@ export function MyPageScreen() {
   };
 
   return (
-    <div data-route className="min-h-full bg-[#fbfaf8] text-neutral-950">
+    <div data-route className="min-h-full bg-bg text-txt">
       <div className="mx-auto max-w-[1100px] px-5 pb-16 pt-8 md:px-8 md:pt-10">
         <section className="relative">
           <div className="relative z-0 h-[220px] overflow-hidden rounded-[28px] bg-[linear-gradient(120deg,#a9c5fb_0%,#eba2df_48%,#f48d68_100%)] md:h-[274px]">
@@ -1077,28 +1064,19 @@ export function MyPageScreen() {
             <ProfileAvatar name={name} imageUrl={profile?.profileImageUrl} size={150} />
           </div>
 
-          <div className="mt-9 flex flex-col gap-5 border-b border-[#e7e2da] pb-8 md:flex-row md:items-end md:justify-between">
+          <div className="mt-9 flex flex-col gap-5 border-b border-line/40 pb-8 md:flex-row md:items-end md:justify-between">
             <div>
-              <p className="mb-2 text-[14px] font-medium text-neutral-500">내 페이지</p>
+              <p className="mb-2 text-[14px] font-medium text-txt3">내 페이지</p>
             <h1 className="text-[38px] font-bold tracking-tight md:text-[44px]">{loading ? "불러오는 중" : name}</h1>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setSettingsOpen(true)}
-                className="inline-flex h-12 items-center gap-2 rounded-full border border-neutral-300 bg-white px-5 text-[15px] font-medium transition hover:border-neutral-900"
-              >
-                계정 설정 <Icon name="settings" size={16} />
-              </button>
-              <button
-                type="button"
-                onClick={handleLogout}
-                disabled={loggingOut}
-                className="inline-flex h-12 items-center gap-2 rounded-full border border-red-200 bg-white px-5 text-[15px] font-medium text-red-600 transition hover:border-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                로그아웃 <Icon name="logout" size={16} />
-              </button>
+              <Btn variant="soft" icon="settings" onClick={() => setSettingsOpen(true)}>
+                계정 설정
+              </Btn>
+              <Btn variant="soft" icon="logout" onClick={handleLogout} disabled={loggingOut} className="text-red-500 hover:text-red-600">
+                로그아웃
+              </Btn>
             </div>
           </div>
         </section>

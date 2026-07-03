@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Archive, Compass, MoreHorizontal, PencilLine, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 import {
@@ -388,12 +388,20 @@ export function ChatScreen() {
   const [draftSaveStates, setDraftSaveStates] = useState<Record<string, DraftNoteSaveState>>({});
   const detailRequestIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [input]);
 
   useEffect(() => {
     void loadModels();
@@ -608,6 +616,7 @@ export function ChatScreen() {
         }
         thread = await createChatThread({
           title: threadTitleFromQuestion(trimmed),
+          initialMessage: trimmed,
           modelId: model.id
         });
         setActiveThread(thread);
@@ -1027,6 +1036,7 @@ export function ChatScreen() {
           <div className="mx-auto max-w-2xl">
             <div className="card flex items-end gap-2 rounded-2xl p-2 transition-colors focus-within:border-primary/50">
               <textarea
+                ref={textareaRef}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 rows={1}
@@ -1038,7 +1048,7 @@ export function ChatScreen() {
                   }
                 }}
                 placeholder={activeThreadArchived ? "보관된 대화는 보관 해제 후 이어서 쓸 수 있습니다." : "내 노트에게 질문하기…  (Shift+Enter 줄바꿈)"}
-                className="max-h-32 flex-1 resize-none bg-transparent px-2 py-2 text-[15.5px] text-txt outline-none placeholder:text-[15px] placeholder:text-txt3 disabled:cursor-wait"
+                className="scroll max-h-[min(240px,32svh)] min-h-10 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-2 text-[15.5px] leading-6 text-txt outline-none placeholder:text-[15px] placeholder:text-txt3 disabled:cursor-wait"
               />
               <button
                 type="button"

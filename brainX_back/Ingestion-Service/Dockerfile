@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 FROM gradle:8.14.3-jdk21-alpine AS build
 WORKDIR /workspace
 
@@ -7,7 +8,9 @@ COPY gradlew gradlew.bat ./
 COPY src ./src
 
 #RUN gradle clean bootJar -x test --no-daemon
-RUN gradle clean bootJar --no-daemon
+RUN --mount=type=cache,target=/home/gradle/.gradle/caches,uid=1000,gid=1000 \
+    --mount=type=cache,target=/home/gradle/.gradle/wrapper,uid=1000,gid=1000 \
+    gradle clean bootJar --no-daemon
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app

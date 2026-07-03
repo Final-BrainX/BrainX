@@ -90,6 +90,7 @@ class ChatControllerTest {
                     {
                       "documentGroupId": "group-1",
                       "title": "RAG 질문",
+                      "initialMessage": "RAG에 대해 알려줘",
                       "modelId": "gpt-test"
                     }
                     """))
@@ -104,6 +105,7 @@ class ChatControllerTest {
             command.userId().equals("user-1")
                 && command.documentGroupId().equals("group-1")
                 && command.title().equals("RAG 질문")
+                && command.initialMessage().equals("RAG에 대해 알려줘")
                 && command.modelId().equals("gpt-test")
         ));
     }

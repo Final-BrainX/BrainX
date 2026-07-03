@@ -18,6 +18,7 @@ services:
       - admin-frontend
       - gateway-service
       - intelligence-service
+      - mcp-service
       - grafana
     mem_limit: 256m
 
@@ -69,7 +70,8 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
     expose:
       - "3000"
     mem_limit: 1024m
@@ -100,6 +102,7 @@ services:
       INGESTION_SERVICE_URL: http://ingestion-service:8083
       COMMERCE_SERVICE_URL: http://commerce-service:8084
       ADMIN_SERVICE_URL: http://admin-service:8085
+      MCP_SERVICE_URL: http://mcp-service:8087
     expose:
       - "8088"
     depends_on:
@@ -108,6 +111,7 @@ services:
       - ingestion-service
       - commerce-service
       - admin-service
+      - mcp-service
     mem_limit: 768m
 
   user-service:
@@ -258,6 +262,7 @@ services:
       WORKSPACE_SERVICE_URL: http://workspace-service:8082
       INGESTION_SERVICE_URL: http://ingestion-service:8083
       INTELLIGENCE_SERVICE_URL: http://intelligence-service:8086
+      MCP_SERVICE_URL: http://mcp-service:8087
       SEED_ADMIN_LOGIN_ID: ${SEED_ADMIN_LOGIN_ID:-admin}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
       SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-BrainX Admin}
@@ -317,6 +322,27 @@ services:
       - kafka
       - workspace-service
     mem_limit: 2560m
+
+  mcp-service:
+    image: ${ECR_REGISTRY}/brainx-dev-mcp-service:${MCP_SERVICE_TAG:-dev-latest}
+    container_name: brainx-mcp-service
+    restart: unless-stopped
+    environment:
+      SERVER_PORT: "8087"
+      JAVA_TOOL_OPTIONS: -Xms128m -Xmx512m -XX:+ExitOnOutOfMemoryError
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${RDS_HOST}:${RDS_PORT}/brainx_mcp
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_URL: jdbc:postgresql://${RDS_HOST}:${RDS_PORT}/brainx_mcp
+      DB_USERNAME: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      MCP_DB_NAME: brainx_mcp
+      JWT_SECRET: ${JWT_SECRET}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      JPA_DDL_AUTO: update
+    expose:
+      - "8087"
+    mem_limit: 768m
 
   redis:
     image: redis:7-alpine

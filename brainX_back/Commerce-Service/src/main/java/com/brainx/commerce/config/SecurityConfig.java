@@ -32,7 +32,7 @@ public class SecurityConfig {
                 .headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/actuator/health", "/h2-console/**").permitAll()
+                        .requestMatchers("/actuator/health", "/actuator/prometheus", "/h2-console/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/payments/webhooks/*").permitAll()
                         // TEMP: 로그인 없이 결제 기능 테스트용. 실제 로그인 연동 완료 후 제거할 것.
                         .requestMatchers("/api/v1/plans", "/api/v1/users/me/subscription",

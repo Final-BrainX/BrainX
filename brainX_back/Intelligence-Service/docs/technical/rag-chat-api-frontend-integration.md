@@ -19,12 +19,23 @@
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/v1/ai/chat-threads?limit=&cursor=` | 최근 메시지 기준 thread 목록 조회 |
-| `POST` | `/api/v1/ai/chat-threads` | 첫 질문 전 새 thread 생성 |
+| `POST` | `/api/v1/ai/chat-threads` | 첫 질문 전 새 thread 생성 및 선택적 AI 제목 생성 |
 | `GET` | `/api/v1/ai/chat-threads/{threadId}` | 저장된 thread와 messages 재조회 |
 | `POST` | `/api/v1/ai/chat-threads/{threadId}/messages` | RAG 답변 SSE stream |
 | `GET` | `/api/v1/ai/models` | 사용 가능한 model 목록 |
 
 프론트는 browser에서 8086을 직접 호출하지 않는다. `brainx-next`는 same-origin `/api/intelligence/...`를 호출하고, Next route handler가 `/api/v1/...` backend path로 proxy한다.
+
+## Thread Title Generation
+
+`POST /api/v1/ai/chat-threads`는 기존 `title`에 더해 optional `initialMessage`를 받을 수 있다. `/chat`은 첫 질문을 `initialMessage`로 보내고, 서버는 thread 저장 전에 AI로 짧은 한국어 주제 제목을 생성한다.
+
+- `initialMessage`는 제목 생성 입력 전용이며 `intelligence_chat_messages`에 저장하지 않는다.
+- 제목 생성 설정은 `brainx.chat.title.enabled`, `brainx.chat.title.model`, `brainx.chat.title.max-length`를 사용한다.
+- 기본 모델은 `gpt-5.4-nano`, 기본 최대 길이는 20자다.
+- AI 응답은 한 줄 제목으로 정규화하고, 따옴표/markdown 접두사/마침표를 제거한 뒤 최대 길이로 제한한다.
+- AI provider 오류, 빈 응답, 권한/쿼터 거부, disabled 상태에서는 request의 `title`을 fallback으로 저장한다.
+- `ChatThreadCreated` event와 API response에는 항상 최종 저장 제목을 넣는다.
 
 ## Thread List Contract
 
@@ -73,11 +84,13 @@ Thread list item은 다음 값을 포함한다.
 1. mount 시 `listChatThreads({ limit: 20 })`와 `listAiModels()`를 호출한다.
 2. model API가 empty/error이면 backend default와 맞춰 `gpt-5.4-mini`를 fallback으로 사용한다.
 3. thread를 클릭하면 `getChatThread(threadId)`로 저장된 messages와 citations를 불러온다.
-4. 새 대화에서 첫 질문을 보내면 먼저 `createChatThread(...)`를 호출한다.
+4. 새 대화에서 첫 질문을 보내면 먼저 `createChatThread(...)`를 호출하고, `initialMessage`로 AI 제목 생성을 요청한다.
 5. 질문 전송은 `sendChatMessageStream(...)`을 사용한다.
 6. SSE `delta`는 assistant placeholder message에 즉시 누적한다.
 7. `done` 이후 `getChatThread(threadId)`로 저장 상태를 재조회해 message id, citations, token usage 기반 데이터를 맞춘다.
 8. streaming 중에는 새 대화, thread 전환, 추가 전송을 잠가 상태 꼬임을 막는다.
+
+Composer textarea는 `scrollHeight` 기준으로 자동 확장된다. 최소 1줄에서 시작하고, 최대 `min(240px, 32svh)`를 넘으면 textarea 내부 스크롤을 사용한다. `Enter` 전송과 `Shift+Enter` 줄바꿈 동작은 유지한다.
 
 Workspace-level `/chat`는 명시 source context가 없으므로 message payload의 `clientContext`는 다음 shape를 보낸다.
 
