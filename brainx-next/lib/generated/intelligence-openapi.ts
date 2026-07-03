@@ -24,6 +24,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/intelligence/note-index-statuses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 노트 검색 인덱스 상태 조회
+         * @description Workspace 노트 목록/그래프에 Intelligence read model의 검색 인덱스 상태를 병합하기 위한 bulk 조회다. projection이 없거나 요청 범위에서 찾을 수 없는 noteId는 NOT_INDEXED로 반환한다.
+         */
+        post: operations["getNoteIndexStatuses"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ai/inline-assists": {
         parameters: {
             query?: never;
@@ -329,6 +349,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/internal/v1/intelligence/semantic-search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * [Internal] Semantic search for service callers
+         * @description Service-token protected semantic search endpoint for internal callers that must provide the target userId explicitly.
+         */
+        post: operations["semanticSearchInternal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -373,6 +413,23 @@ export interface components {
             limit?: number;
             hybridWithClientKeywordIds?: string[];
         };
+        InternalSemanticSearchRequest: {
+            userId: string;
+            /**
+             * @description Search scope. DOCUMENT_GROUP searches within documentGroupId (default group if omitted). USER searches all note chunks owned by the user and must not include documentGroupId.
+             * @default DOCUMENT_GROUP
+             * @enum {string}
+             */
+            scope?: "DOCUMENT_GROUP" | "USER";
+            /** @description RAG/검색 격리를 위한 논리 문서 그룹 경계. 생략하면 Knowledge Intelligence가 default로 처리한다. */
+            documentGroupId?: string;
+            query: string;
+            filters?: {
+                [key: string]: unknown;
+            };
+            limit?: number;
+            hybridWithClientKeywordIds?: string[];
+        };
         SemanticSearchData: {
             results: {
                 noteId: string;
@@ -384,6 +441,22 @@ export interface components {
             }[];
             tokenEstimate?: number;
             charged: boolean;
+        };
+        /** @enum {string} */
+        NoteSearchIndexStatus: "NOT_INDEXED" | "PROVISIONAL" | "STALE" | "INDEXED" | "FAILED" | "REMOVED";
+        NoteIndexStatusesRequest: {
+            /** @description 검색 인덱스 격리를 위한 논리적 문서 그룹 경계. 생략하면 default로 처리한다. */
+            documentGroupId?: string;
+            noteIds: string[];
+        };
+        NoteIndexStatusesData: {
+            notes: {
+                noteId: string;
+                searchIndexStatus: components["schemas"]["NoteSearchIndexStatus"];
+                availableForAiFeatures: boolean;
+                /** Format: date-time */
+                indexedAt?: string | null;
+            }[];
         };
         InlineAssistRequest: {
             noteId: string;
@@ -677,6 +750,86 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ApiSuccessBase"] & {
                         data: components["schemas"]["SemanticSearchData"];
+                    };
+                };
+            };
+            /** @description 잘못된 요청 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 인증 필요 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 권한 없음 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 찾을 수 없음 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 충돌 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 서버 내부 오류 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    getNoteIndexStatuses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NoteIndexStatusesRequest"];
+            };
+        };
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["NoteIndexStatusesData"];
                     };
                 };
             };
@@ -2304,6 +2457,68 @@ export interface operations {
                 };
             };
             /** @description 서버 내부 오류 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    semanticSearchInternal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InternalSemanticSearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["SemanticSearchData"];
+                    };
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Server error */
             500: {
                 headers: {
                     [name: string]: unknown;

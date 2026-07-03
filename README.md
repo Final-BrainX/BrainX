@@ -137,7 +137,7 @@ BrainX/
 | `/login`, `/signup`, `/onboarding` | Auth | 이메일 인증, 로그인, OAuth, 온보딩 UI |
 | `/home` | Home | 지식 통계, 즐겨찾기, 최근 노트, AI 추천 연결 |
 | `/notes`, `/notes/[id]` | Note Editor | TipTap 기반 리치 에디터. 표/Mermaid/이미지/위키링크/문서 타이포그래피, 폴더 드래그앤드롭을 지원. 본문 저장 포맷(HTML/JSON/Markdown)은 아직 설계 결정 대상 |
-| `/graph` | Graph | 노트 링크 기반 인터랙티브 지식 그래프, 클러스터/시간 필터, AI 연결/두 개념 wiki-link 기반 징검다리 추천 |
+| `/graph` | Graph | 노트 링크 기반 인터랙티브 지식 그래프, 클러스터/시간 필터, 색인 완료 노트 기준 AI 연결/두 개념 wiki-link 기반 징검다리 추천 |
 | `/chat` | AI Chat | 노트 근거 기반 RAG 채팅 UX, 모델 전환 UI, source note 표시, 제목+개인 노트 톤 AI 초안 작성 및 Workspace 노트 저장 |
 | `/import` | Import | 파일/외부 서비스 가져오기 UX |
 | `/billing` | Billing | 플랜/결제 UX |
@@ -249,13 +249,14 @@ MCP client용 API key 관리는 `POST|GET /api/v1/mcp/api-clients`, `DELETE /api
 
 ### MCP Agent Access
 
-MCP v1은 별도 OAuth 없이 사용자 access token으로 scoped API key를 발급한 뒤 agent가 그 key를 사용합니다.
+MCP 기본 연결 방식은 OAuth 2.1 + PKCE입니다. Codex 같은 MCP client는 BrainX의 protected resource metadata를 읽고 `/oauth/authorize` 브라우저 승인 흐름을 거쳐 `/mcp`에 접근합니다.
 
-1. 사용자 JWT로 `POST /api/v1/mcp/api-clients`에 `{ "name": "...", "scopes": ["whoami", "notes:read", "ai:search", "notes:write"] }`를 보내 `apiKeyOnce`를 발급합니다.
-   `/settings`의 MCP API Keys 패널도 Codex 노트 도구용 key를 만들 때 같은 네 scope를 기본으로 보냅니다.
-2. `apiKeyOnce`는 한 번만 표시되므로 안전한 password manager에 저장합니다. DB에는 원문 대신 hash만 저장됩니다.
-3. 검증은 `GET /api/v1/mcp/whoami`에 `Authorization: Bearer bxk_live_...` 또는 `X-BrainX-Api-Key: bxk_live_...`를 보내 확인합니다.
-4. MCP Inspector나 agent client는 `https://<public-domain>/mcp`에 Bearer API key로 연결한 뒤 MCP tool catalog를 통해 도구를 호출합니다. REST `/api/v1/mcp/tools`와 `/api/v1/mcp/tool-calls`는 compatibility 계약으로 남아 있고 Codex v1 연동은 `/mcp` transport를 사용합니다.
+1. MCP client는 `https://<public-domain>/mcp`에 연결하고, 인증이 없으면 `WWW-Authenticate`의 `resource_metadata`를 따라 OAuth discovery를 수행합니다.
+2. `codex mcp login brainx` 같은 client login 흐름에서 BrainX `/oauth/authorize` 화면이 열리고, 로그인 사용자가 scope를 승인합니다.
+3. User-Service는 `typ=mcp_access`, `aud/resource=https://<public-domain>/mcp`, `scope`를 가진 MCP access token과 refresh token을 발급합니다.
+4. Mcp-Service는 `/mcp`와 `GET /api/v1/mcp/whoami`에서 OAuth access token 또는 기존 MCP API key를 모두 허용합니다.
+
+개발자용 fallback으로 API key도 유지합니다. 사용자 JWT로 `POST /api/v1/mcp/api-clients`에 `{ "name": "...", "scopes": ["whoami", "notes:read", "ai:search", "notes:write"] }`를 보내 `apiKeyOnce`를 발급하고, `Authorization: Bearer bxk_live_...` 또는 `X-BrainX-Api-Key`로 사용할 수 있습니다. `/settings`의 MCP API Keys 패널도 같은 네 scope를 기본으로 보냅니다. `apiKeyOnce`는 한 번만 표시되므로 안전한 password manager에 저장해야 하며, DB에는 원문 대신 hash만 저장됩니다. REST `/api/v1/mcp/tools`와 `/api/v1/mcp/tool-calls`는 compatibility 계약으로 남아 있고 Codex v1 연동은 `/mcp` transport를 사용합니다.
 
 MCP v1 tool:
 
@@ -269,8 +270,11 @@ Codex Streamable HTTP 설정 예시:
 ```toml
 [mcp_servers.brainx]
 url = "https://<public-domain>/mcp"
-bearer_token_env_var = "BRAINX_MCP_API_KEY"
+scopes = ["whoami", "notes:read", "ai:search", "notes:write"]
+oauth_resource = "https://<public-domain>/mcp"
 ```
+
+API key fallback을 직접 테스트할 때만 `bearer_token_env_var = "BRAINX_MCP_API_KEY"`를 사용할 수 있습니다. 공개 플러그인 기본 경로는 OAuth login입니다.
 
 공통 응답 기본형:
 

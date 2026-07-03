@@ -15,7 +15,8 @@
 - Public entry:
   - user frontend: `https://<public-domain>/`
   - admin frontend: `https://<admin-domain>/`
-  - `/mcp*`, `/api/v1/mcp/*` route directly to Mcp-Service through Caddy.
+  - `/mcp*`, `/api/v1/mcp/*`, `/.well-known/oauth-protected-resource` route directly to Mcp-Service through Caddy.
+  - `/oauth/token`, `/oauth/register`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration` route directly to User-Service through Caddy for MCP OAuth discovery/login.
   - Grafana: `https://<admin-domain>/grafana/`
   - `/api/v1/ai/*`, `/api/v1/intelligence/*`, `/api/v1/notes/*/summary`, `/api/v1/users/me/style-profile` route directly to Intelligence-Service through Caddy.
   - other `/api/v1/*` routes go to Gateway-Service.

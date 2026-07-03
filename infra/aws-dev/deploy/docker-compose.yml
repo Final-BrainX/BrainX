@@ -340,6 +340,9 @@ services:
       MCP_DB_NAME: brainx_mcp
       JWT_SECRET: ${JWT_SECRET}
       SERVICE_TOKEN: ${SERVICE_TOKEN}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      BRAINX_OAUTH_ISSUER: ${PUBLIC_BASE_URL}
+      BRAINX_MCP_RESOURCE: ${PUBLIC_BASE_URL}/mcp
       WORKSPACE_SERVICE_URL: http://workspace-service:8082
       INTELLIGENCE_SERVICE_URL: http://intelligence-service:8086
       SPRING_JPA_HIBERNATE_DDL_AUTO: update

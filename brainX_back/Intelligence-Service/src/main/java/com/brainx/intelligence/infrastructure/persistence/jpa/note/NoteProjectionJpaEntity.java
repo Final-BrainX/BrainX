@@ -85,6 +85,21 @@ public class NoteProjectionJpaEntity {
     @Column(name = "indexed_at")
     private Instant indexedAt;
 
+    @Column(name = "last_index_attempt_at")
+    private Instant lastIndexAttemptAt;
+
+    @Column(name = "next_index_retry_at")
+    private Instant nextIndexRetryAt;
+
+    @Column(name = "index_attempt_count", nullable = false)
+    private int indexAttemptCount;
+
+    @Column(name = "last_index_error_code", length = 120)
+    private String lastIndexErrorCode;
+
+    @Column(name = "last_index_error_message", length = 1000)
+    private String lastIndexErrorMessage;
+
     protected NoteProjectionJpaEntity() {
     }
 
@@ -110,6 +125,11 @@ public class NoteProjectionJpaEntity {
         entity.indexedVersion = projection.indexedVersion();
         entity.indexedMarkdownHash = projection.indexedMarkdownHash();
         entity.indexedAt = projection.indexedAt();
+        entity.lastIndexAttemptAt = projection.lastIndexAttemptAt();
+        entity.nextIndexRetryAt = projection.nextIndexRetryAt();
+        entity.indexAttemptCount = projection.indexAttemptCount();
+        entity.lastIndexErrorCode = projection.lastIndexErrorCode();
+        entity.lastIndexErrorMessage = projection.lastIndexErrorMessage();
         return entity;
     }
 
@@ -141,7 +161,12 @@ public class NoteProjectionJpaEntity {
             searchIndexStatus,
             indexedVersion,
             indexedMarkdownHash,
-            indexedAt
+            indexedAt,
+            lastIndexAttemptAt,
+            nextIndexRetryAt,
+            indexAttemptCount,
+            lastIndexErrorCode,
+            lastIndexErrorMessage
         );
     }
 }

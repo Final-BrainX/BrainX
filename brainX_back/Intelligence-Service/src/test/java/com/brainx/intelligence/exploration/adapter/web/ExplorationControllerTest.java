@@ -24,6 +24,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase;
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase.GetNoteSummaryQuery;
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase.NoteSummaryResult;
+import com.brainx.intelligence.exploration.application.port.inbound.GetNoteIndexStatusesUseCase;
+import com.brainx.intelligence.exploration.application.port.inbound.GetNoteIndexStatusesUseCase.NoteIndexStatusView;
+import com.brainx.intelligence.exploration.application.port.inbound.GetNoteIndexStatusesUseCase.NoteIndexStatusesCommand;
+import com.brainx.intelligence.exploration.application.port.inbound.GetNoteIndexStatusesUseCase.NoteIndexStatusesResponse;
 import com.brainx.intelligence.exploration.application.port.inbound.SemanticSearchUseCase;
 import com.brainx.intelligence.exploration.application.port.inbound.SemanticSearchUseCase.SearchResultView;
 import com.brainx.intelligence.exploration.application.port.inbound.SemanticSearchUseCase.SemanticSearchCommand;
@@ -43,6 +47,9 @@ class ExplorationControllerTest {
 
     @MockitoBean
     private SemanticSearchUseCase semanticSearchUseCase;
+
+    @MockitoBean
+    private GetNoteIndexStatusesUseCase getNoteIndexStatusesUseCase;
 
     @MockitoBean
     private GetNoteSummaryUseCase getNoteSummaryUseCase;
@@ -175,6 +182,55 @@ class ExplorationControllerTest {
                       "scope": "USER",
                       "documentGroupId": "group-1",
                       "query": "전체 노트 검색"
+                    }
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.success").value(false))
+            .andExpect(jsonPath("$.error.code").value("BAD_REQUEST"));
+    }
+
+    @Test
+    void noteIndexStatusesMatchesOpenApiContract() throws Exception {
+        when(getNoteIndexStatusesUseCase.getNoteIndexStatuses(any(NoteIndexStatusesCommand.class)))
+            .thenReturn(new NoteIndexStatusesResponse(List.of(
+                new NoteIndexStatusView("note-1", "INDEXED", true, java.time.Instant.parse("2026-07-03T00:00:00Z")),
+                new NoteIndexStatusView("note-2", "FAILED", false, null)
+            )));
+
+        mockMvc.perform(post("/api/v1/intelligence/note-index-statuses")
+                .with(user("user-1"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "documentGroupId": "group-1",
+                      "noteIds": ["note-1", "note-2"]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true))
+            .andExpect(jsonPath("$.data.notes[0].noteId").value("note-1"))
+            .andExpect(jsonPath("$.data.notes[0].searchIndexStatus").value("INDEXED"))
+            .andExpect(jsonPath("$.data.notes[0].availableForAiFeatures").value(true))
+            .andExpect(jsonPath("$.data.notes[0].indexedAt").value("2026-07-03T00:00:00Z"))
+            .andExpect(jsonPath("$.data.notes[1].noteId").value("note-2"))
+            .andExpect(jsonPath("$.data.notes[1].searchIndexStatus").value("FAILED"))
+            .andExpect(jsonPath("$.data.notes[1].availableForAiFeatures").value(false));
+
+        verify(getNoteIndexStatusesUseCase).getNoteIndexStatuses(argThat(command ->
+            command.userId().equals("user-1")
+                && command.documentGroupId().equals("group-1")
+                && command.noteIds().equals(List.of("note-1", "note-2"))
+        ));
+    }
+
+    @Test
+    void noteIndexStatusesRejectsEmptyNoteIds() throws Exception {
+        mockMvc.perform(post("/api/v1/intelligence/note-index-statuses")
+                .with(user("user-1"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "noteIds": []
                     }
                     """))
             .andExpect(status().isBadRequest())

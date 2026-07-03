@@ -8,6 +8,9 @@ type Schemas = components["schemas"];
 
 export type SemanticSearchRequest = Schemas["SemanticSearchRequest"];
 export type SemanticSearchData = Schemas["SemanticSearchData"];
+export type NoteIndexStatusesRequest = Schemas["NoteIndexStatusesRequest"];
+export type NoteIndexStatusesData = Schemas["NoteIndexStatusesData"];
+export type NoteSearchIndexStatus = Schemas["NoteSearchIndexStatus"];
 export type InlineAssistRequest = Schemas["InlineAssistRequest"];
 export type AiSuggestionDecisionRequest = Schemas["AiSuggestionDecisionRequest"];
 export type AiSuggestionDecisionData = Schemas["AiSuggestionDecisionData"];
@@ -60,6 +63,13 @@ type SseFrame = {
   data: string;
 };
 
+export class IntelligenceAuthRequiredError extends Error {
+  constructor(message = "로그인이 만료되었습니다. 다시 로그인해 주세요.") {
+    super(message);
+    this.name = "IntelligenceAuthRequiredError";
+  }
+}
+
 const INTELLIGENCE_API_BASE_URL = "";
 const DEV_USER_ID = process.env.NEXT_PUBLIC_WORKSPACE_DEV_USER_ID?.trim();
 
@@ -77,7 +87,7 @@ async function authedRequest<T>(path: string, init?: RequestInit, options?: Inte
   const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
   if (response.status === 401 || response.status === 403) {
     clearAuthSession();
-    throw new Error("로그인이 만료되었습니다. 다시 로그인해 주세요.");
+    throw new IntelligenceAuthRequiredError();
   }
   if (!payload) {
     throw new Error("서버 응답을 읽을 수 없습니다.");
@@ -102,7 +112,7 @@ async function streamRequest<TDone>(
 
   if (response.status === 401 || response.status === 403) {
     clearAuthSession();
-    throw new Error("로그인이 만료되었습니다. 다시 로그인해 주세요.");
+    throw new IntelligenceAuthRequiredError();
   }
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as ApiResponse<unknown> | null;
@@ -203,6 +213,17 @@ function buildHeaders(headers?: HeadersInit, options?: IntelligenceRequestOption
 export function semanticSearch(payload: SemanticSearchRequest, options?: IntelligenceRequestOptions) {
   return authedRequest<SemanticSearchData>(
     "/api/v1/intelligence/semantic-search",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    options
+  );
+}
+
+export function getNoteIndexStatuses(payload: NoteIndexStatusesRequest, options?: IntelligenceRequestOptions) {
+  return authedRequest<NoteIndexStatusesData>(
+    "/api/v1/intelligence/note-index-statuses",
     {
       method: "POST",
       body: JSON.stringify(payload),

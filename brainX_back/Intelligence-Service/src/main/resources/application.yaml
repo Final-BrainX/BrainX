@@ -96,6 +96,13 @@ brainx:
     min-relation-confidence: ${BRAINX_NOTE_AUTO_LINK_MIN_RELATION_CONFIDENCE:0.70}
     max-source-windows-per-note: ${BRAINX_NOTE_AUTO_LINK_MAX_SOURCE_WINDOWS_PER_NOTE:12}
     max-suggestions-per-note: ${BRAINX_NOTE_AUTO_LINK_MAX_SUGGESTIONS_PER_NOTE:5}
+  note-index:
+    retry:
+      enabled: ${BRAINX_NOTE_INDEX_RETRY_ENABLED:true}
+      fixed-delay: ${BRAINX_NOTE_INDEX_RETRY_FIXED_DELAY:PT5M}
+      batch-size: ${BRAINX_NOTE_INDEX_RETRY_BATCH_SIZE:20}
+      max-attempts: ${BRAINX_NOTE_INDEX_RETRY_MAX_ATTEMPTS:10}
+      exhausted-delay: ${BRAINX_NOTE_INDEX_RETRY_EXHAUSTED_DELAY:PT24H}
   chat:
     title:
       enabled: ${BRAINX_CHAT_TITLE_ENABLED:true}

@@ -25,6 +25,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import com.brainx.intelligence.infrastructure.web.ApiErrorResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -91,6 +92,7 @@ public class SecurityConfig {
 
         return http
             .authorizeHttpRequests(authorize -> {
+                authorize.dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll();
                 authorize.requestMatchers("/internal/v1/**").hasRole("SERVICE");
                 var apiRequests = authorize.requestMatchers("/api/v1/**");
                 if (localApiPermitAll) {

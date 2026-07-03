@@ -32,15 +32,21 @@ class WorkspaceNoteEventHandlerTest {
     private final FakeSearchIndex searchIndex = new FakeSearchIndex();
     private final FakeSummaryPort summaryPort = new FakeSummaryPort();
     private final FakeChunkManifestStore chunkManifestStore = new FakeChunkManifestStore();
-    private final WorkspaceNoteEventHandler handler = new WorkspaceNoteEventHandler(
-        objectMapper,
+    private final MarkdownNoteChunker noteChunker = new MarkdownNoteChunker();
+    private final NoteIndexingService noteIndexingService = new NoteIndexingService(
         projectionStore,
         workspace,
         searchIndex,
-        summaryPort,
-        new MarkdownNoteChunker(),
+        noteChunker,
         chunkManifestStore,
         new NoteChunkIndexPlanner()
+    );
+    private final WorkspaceNoteEventHandler handler = new WorkspaceNoteEventHandler(
+        objectMapper,
+        projectionStore,
+        summaryPort,
+        noteChunker,
+        noteIndexingService
     );
 
     @Test
@@ -548,6 +554,11 @@ class WorkspaceNoteEventHandlerTest {
                 .filter(projection -> projection.searchIndexStatus() == NoteSearchIndexStatus.INDEXED)
                 .limit(limit)
                 .toList();
+        }
+
+        @Override
+        public List<NoteProjection> findIndexRetryCandidates(Instant now, int limit) {
+            return List.of();
         }
 
         @Override

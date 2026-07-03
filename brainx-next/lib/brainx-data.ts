@@ -13,6 +13,10 @@ export type BrainXNote = {
   id: string;
   title: string;
   markdown: string;
+  searchIndexStatus?: "NOT_INDEXED" | "PROVISIONAL" | "STALE" | "INDEXED" | "FAILED" | "REMOVED" | "UNKNOWN";
+  availableForAiFeatures?: boolean;
+  indexedAt?: string | null;
+  indexStatusUnavailable?: boolean;
   folderId: ClusterId;
   cluster: ClusterId;
   summary: string;

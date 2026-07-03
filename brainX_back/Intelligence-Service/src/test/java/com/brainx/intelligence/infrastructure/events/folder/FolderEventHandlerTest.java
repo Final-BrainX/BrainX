@@ -258,6 +258,11 @@ class FolderEventHandlerTest {
         }
 
         @Override
+        public List<NoteProjection> findIndexRetryCandidates(Instant now, int limit) {
+            return List.of();
+        }
+
+        @Override
         public NoteProjection save(NoteProjection projection) {
             projections.put(key(projection.userId(), projection.documentGroupId(), projection.noteId()), projection);
             return projection;

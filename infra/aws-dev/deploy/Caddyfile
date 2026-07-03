@@ -1,7 +1,17 @@
 {$PUBLIC_SITE_ADDRESS} {
+	@mcpWellKnown path /.well-known/oauth-protected-resource
+	handle @mcpWellKnown {
+		reverse_proxy mcp-service:8087
+	}
+
 	@mcp path /mcp* /api/v1/mcp/*
 	handle @mcp {
 		reverse_proxy mcp-service:8087
+	}
+
+	@oauth path /oauth/token /oauth/register /.well-known/oauth-authorization-server /.well-known/openid-configuration
+	handle @oauth {
+		reverse_proxy user-service:8080
 	}
 
 	@intelligence path /api/v1/ai/* /api/v1/intelligence/* /api/v1/notes/*/summary /api/v1/users/me/style-profile
