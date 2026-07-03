@@ -43,8 +43,8 @@ PATH_RULES: list[tuple[str, set[str]]] = [
 ]
 
 DEPLOY_CONFIG_PREFIXES = (
-    "infra/aws-dev/deploy/",
-    "infra/aws-dev/scripts/deploy_remote.sh",
+    "infra/aws-dev/",
+    ".github/workflows/brainx-dev-deploy.yml",
 )
 
 
