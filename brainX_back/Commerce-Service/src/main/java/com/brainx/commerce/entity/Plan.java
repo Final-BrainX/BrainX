@@ -39,18 +39,18 @@ public class Plan {
     private List<String> features = new ArrayList<>();
     @Column(nullable = false)
     private boolean active;
-    @Column(name = "monthly_token_limit")
-    private Long monthlyTokenLimit;
+    @Column(name = "monthly_credit_limit")
+    private Long monthlyCreditLimit;
 
     public Plan(String planId, String name, long price, String currency, int tier, List<String> features,
-                Long monthlyTokenLimit, boolean active) {
+                Long monthlyCreditLimit, boolean active) {
         this.planId = planId;
         this.name = name;
         this.price = price;
         this.currency = currency;
         this.tier = tier;
         this.features = features == null ? new ArrayList<>() : new ArrayList<>(features);
-        this.monthlyTokenLimit = monthlyTokenLimit;
+        this.monthlyCreditLimit = monthlyCreditLimit;
         this.active = active;
     }
 

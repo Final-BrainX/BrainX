@@ -12,7 +12,7 @@ import { PanelLeftClose, PanelLeft } from "lucide-react";
 import type { BrainXNote } from "@/lib/brainx-data";
 import { cx, stripMarkdown } from "@/lib/utils";
 import { semanticSearch, type SemanticSearchData } from "@/lib/intelligence-api";
-import { formatTokenCount, formatTokenPercent, TOKEN_USAGE_SUMMARY } from "@/lib/token-usage";
+import { formatCreditCount, formatTokenPercent } from "@/lib/token-usage";
 import {
   buildAuthPath,
   readAuthSession,
@@ -20,8 +20,10 @@ import {
 } from "@/lib/auth-api";
 import {
   getMySubscription,
+  getMyTokenUsage,
   PAYMENT_RESULT_MESSAGE_TYPE,
   type Subscription,
+  type TokenUsageData,
 } from "@/lib/commerce-api";
 import { getMyNotifications, getMyProfile, markMyNotificationRead, type MyNotification } from "@/lib/user-api";
 
@@ -776,6 +778,39 @@ function SidebarItem({
 
 function Sidebar({ onOpenSettings, notesExplorerOpen }: { onOpenSettings: (tab?: SettingsTab) => void; notesExplorerOpen?: boolean }) {
   const { t } = useBrainX();
+  const [tokenUsage, setTokenUsage] = useState<TokenUsageData | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    const refreshTokenUsage = () => {
+      if (!readAuthSession()?.accessToken) {
+        if (active) setTokenUsage(null);
+        return;
+      }
+      getMyTokenUsage()
+        .then((data) => {
+          if (active) setTokenUsage(data);
+        })
+        .catch(() => {
+          if (active) setTokenUsage(null);
+        });
+    };
+
+    refreshTokenUsage();
+    window.addEventListener("brainx-auth-session-changed", refreshTokenUsage);
+    window.addEventListener("brainx-subscription-changed", refreshTokenUsage);
+
+    return () => {
+      active = false;
+      window.removeEventListener("brainx-auth-session-changed", refreshTokenUsage);
+      window.removeEventListener("brainx-subscription-changed", refreshTokenUsage);
+    };
+  }, []);
+
+  const usedCredits = tokenUsage?.usedCredits ?? 0;
+  const usagePercent = tokenUsage?.usagePercent ?? 0;
+  const monthlyCreditLimit = tokenUsage?.monthlyCreditLimit ?? null;
 
   return (
     <aside
@@ -798,7 +833,7 @@ function Sidebar({ onOpenSettings, notesExplorerOpen }: { onOpenSettings: (tab?:
           type="button"
           onClick={() => onOpenSettings("usage")}
           className="group relative grid aspect-square w-full place-items-center rounded-[0.4rem] glass text-accent transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-soft"
-          aria-label="AI 토큰 사용량 보기"
+          aria-label="AI 크레딧 사용량 보기"
         >
           <Icon name="bolt" size={18} />
           <span className="hidden">
@@ -817,12 +852,12 @@ function Sidebar({ onOpenSettings, notesExplorerOpen }: { onOpenSettings: (tab?:
           >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#8c877f]">AI 토큰 사용량</div>
+                <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#8c877f]">AI 크레딧 사용량</div>
                 <div className="mt-2 text-[22px] font-bold tracking-[-0.03em] text-[#2f2d2a]">
-                  {formatTokenPercent(TOKEN_USAGE_SUMMARY.percent)}
+                  {formatTokenPercent(usagePercent)}
                 </div>
                 <div className="mt-1 text-[12px] text-[#6d6861]">
-                  {formatTokenCount(TOKEN_USAGE_SUMMARY.used)} / {formatTokenCount(TOKEN_USAGE_SUMMARY.limit)} 토큰
+                  {formatCreditCount(usedCredits)} / {monthlyCreditLimit != null ? `${formatCreditCount(monthlyCreditLimit)} 크레딧` : "무제한"}
                 </div>
               </div>
               <div className="rounded-full bg-[#f4efe8] px-2.5 py-1 text-[11px] font-semibold text-[#8c877f]">
@@ -832,13 +867,13 @@ function Sidebar({ onOpenSettings, notesExplorerOpen }: { onOpenSettings: (tab?:
 
             <div className="mt-4">
               <div className="mb-2 flex items-center justify-between text-[11px] text-[#6d6861]">
-                <span>현재 전체 토큰 사용량</span>
-                <span>{formatTokenPercent(TOKEN_USAGE_SUMMARY.percent)}</span>
+                <span>현재 전체 크레딧 사용량</span>
+                <span>{formatTokenPercent(usagePercent)}</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-[#ebe7e1]">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-primary via-accent to-cyan"
-                  style={{ width: `${TOKEN_USAGE_SUMMARY.percent}%` }}
+                  style={{ width: `${Math.min(100, Math.max(0, usagePercent))}%` }}
                 />
               </div>
             </div>

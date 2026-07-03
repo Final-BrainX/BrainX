@@ -99,7 +99,8 @@ class TokenUsageServiceTest {
         Map<String, Object> published = payloadCaptor.getValue();
         Assertions.assertThat(published.get("ledgerId")).isEqualTo("evt_1");
         Assertions.assertThat(published.get("usageRequestId")).isEqualTo("req_1");
-        Assertions.assertThat(published.get("remainingQuota")).isEqualTo(999_850L);
+        // 0.0012 USD * 1600 KRW/USD * 100 크레딧/원 = 192 크레딧
+        Assertions.assertThat(published.get("remainingQuota")).isEqualTo(999_808L);
     }
 
     @Test
@@ -127,25 +128,26 @@ class TokenUsageServiceTest {
         when(planRepository.findById("pro"))
                 .thenReturn(Optional.of(new Plan("pro", "Pro", 500, "KRW", 1, List.of(), 1_000_000L, true)));
         when(monthlyRepository.findByIdUserIdAndIdYearMonth("usr_1", "2026-07")).thenReturn(List.of(
-                new TokenUsageMonthly(new TokenUsageMonthlyId("usr_1", "2026-07", "rag-chat"), 30_000L, BigDecimal.ZERO, Instant.now()),
-                new TokenUsageMonthly(new TokenUsageMonthlyId("usr_1", "2026-07", "note-search-index-embedding"), 20_000L, BigDecimal.ZERO, Instant.now()),
-                new TokenUsageMonthly(new TokenUsageMonthlyId("usr_1", "2026-07", "inline-assist-chat"), 100_000L, BigDecimal.ZERO, Instant.now())
+                new TokenUsageMonthly(new TokenUsageMonthlyId("usr_1", "2026-07", "rag-chat"), 30_000L, new BigDecimal("1.00"), Instant.now()),
+                new TokenUsageMonthly(new TokenUsageMonthlyId("usr_1", "2026-07", "note-search-index-embedding"), 20_000L, new BigDecimal("0.25"), Instant.now()),
+                new TokenUsageMonthly(new TokenUsageMonthlyId("usr_1", "2026-07", "inline-assist-chat"), 100_000L, new BigDecimal("3.00"), Instant.now())
         ));
         when(dailyRepository.sumByUserAndDateRange(any(), any(), any())).thenReturn(List.of());
 
         TokenUsageData data = tokenUsageService().getMyTokenUsage("usr_1", month);
 
+        // 크레딧 = estimatedCost(USD) * 1600 * 100. inline-assist 3.00->480,000, rag-chat 1.00->160,000, embedding 0.25->40,000
         Assertions.assertThat(data.planName()).isEqualTo("Pro");
-        Assertions.assertThat(data.monthlyLimit()).isEqualTo(1_000_000L);
-        Assertions.assertThat(data.usedTokens()).isEqualTo(150_000L);
-        Assertions.assertThat(data.usagePercent()).isEqualTo(15.0);
+        Assertions.assertThat(data.monthlyCreditLimit()).isEqualTo(1_000_000L);
+        Assertions.assertThat(data.usedCredits()).isEqualTo(680_000L);
+        Assertions.assertThat(data.usagePercent()).isEqualTo(68.0);
         Assertions.assertThat(data.resetDate()).isEqualTo("2026-08-01");
         Assertions.assertThat(data.byFeature()).extracting(FeatureUsage::feature)
-                .containsExactly("AI 글쓰기 도우미", "시맨틱 검색");
-        Assertions.assertThat(data.byFeature()).extracting(FeatureUsage::tokens)
-                .containsExactly(100_000L, 50_000L);
+                .containsExactly("AI 글쓰기 도우미", "AI 챗봇", "시맨틱 검색");
+        Assertions.assertThat(data.byFeature()).extracting(FeatureUsage::credits)
+                .containsExactly(480_000L, 160_000L, 40_000L);
         Assertions.assertThat(data.recentDays()).hasSize(7);
-        Assertions.assertThat(data.recentDays()).allSatisfy(d -> Assertions.assertThat(d.tokens()).isEqualTo(0L));
+        Assertions.assertThat(data.recentDays()).allSatisfy(d -> Assertions.assertThat(d.credits()).isEqualTo(0L));
     }
 
     @Test
@@ -155,21 +157,22 @@ class TokenUsageServiceTest {
         when(monthlyRepository.findByIdUserIdAndIdYearMonth(any(), any())).thenReturn(List.of());
         LocalDate today = LocalDate.now(java.time.ZoneOffset.UTC);
         when(dailyRepository.sumByUserAndDateRange(eq("usr_1"), any(), any())).thenReturn(List.of(
-                dailyTotal(today, 42L)
+                dailyTotal(today, new BigDecimal("0.03"))
         ));
 
         TokenUsageData data = tokenUsageService().getMyTokenUsage("usr_1", month);
 
         Assertions.assertThat(data.planName()).isNull();
-        Assertions.assertThat(data.monthlyLimit()).isNull();
+        Assertions.assertThat(data.monthlyCreditLimit()).isNull();
         Assertions.assertThat(data.usagePercent()).isEqualTo(0.0);
         List<DailyUsage> days = data.recentDays();
         Assertions.assertThat(days).hasSize(7);
         Assertions.assertThat(days.get(days.size() - 1).date()).isEqualTo(today.toString());
-        Assertions.assertThat(days.get(days.size() - 1).tokens()).isEqualTo(42L);
+        // 0.03 USD * 1600 * 100 = 4,800 크레딧
+        Assertions.assertThat(days.get(days.size() - 1).credits()).isEqualTo(4_800L);
     }
 
-    private TokenUsageDailyRepository.DailyTotal dailyTotal(LocalDate date, long totalTokens) {
+    private TokenUsageDailyRepository.DailyTotal dailyTotal(LocalDate date, BigDecimal estimatedCost) {
         return new TokenUsageDailyRepository.DailyTotal() {
             @Override
             public LocalDate getUsageDate() {
@@ -178,7 +181,12 @@ class TokenUsageServiceTest {
 
             @Override
             public long getTotalTokens() {
-                return totalTokens;
+                return 0L;
+            }
+
+            @Override
+            public BigDecimal getEstimatedCost() {
+                return estimatedCost;
             }
         };
     }

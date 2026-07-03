@@ -14904,11 +14904,14 @@ components:
         planName:
           type: string
           nullable: true
-        monthlyLimit:
+        monthlyCreditLimit:
           type: integer
           nullable: true
-          description: 월 토큰 한도. null이면 무제한.
-        usedTokens:
+          description: >
+            월 크레딧 한도. null이면 무제한. 1크레딧 = Intelligence-Service가 계산한
+            estimatedCost(USD)를 고정 환율로 환산한 원화 상당 원가 — 모델별 토큰 단가가
+            달라 토큰 개수는 실제 원가를 대표하지 못하므로 크레딧을 과금/한도 단위로 쓴다.
+        usedCredits:
           type: integer
         usagePercent:
           type: number
@@ -14924,7 +14927,7 @@ components:
           items:
             $ref: '#/components/schemas/TokenUsageDailyUsage'
       required:
-      - usedTokens
+      - usedCredits
       - usagePercent
       - resetDate
       - byFeature
@@ -14935,11 +14938,11 @@ components:
       properties:
         feature:
           type: string
-        tokens:
+        credits:
           type: integer
       required:
       - feature
-      - tokens
+      - credits
       additionalProperties: false
     TokenUsageDailyUsage:
       type: object
@@ -14947,11 +14950,11 @@ components:
         date:
           type: string
           format: date
-        tokens:
+        credits:
           type: integer
       required:
       - date
-      - tokens
+      - credits
       additionalProperties: false
     KnowledgeDashboardData:
       type: object

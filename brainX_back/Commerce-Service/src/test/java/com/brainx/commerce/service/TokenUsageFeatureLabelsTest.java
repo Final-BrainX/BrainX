@@ -12,7 +12,9 @@ class TokenUsageFeatureLabelsTest {
         Assertions.assertThat(TokenUsageFeatureLabels.labelFor("insight-report-chat"))
                 .isEqualTo(TokenUsageFeatureLabels.AUTO_SUMMARY);
         Assertions.assertThat(TokenUsageFeatureLabels.labelFor("rag-chat"))
-                .isEqualTo(TokenUsageFeatureLabels.SEMANTIC_SEARCH);
+                .isEqualTo(TokenUsageFeatureLabels.AI_CHATBOT);
+        Assertions.assertThat(TokenUsageFeatureLabels.labelFor("chat-router-classifier"))
+                .isEqualTo(TokenUsageFeatureLabels.AI_CHATBOT);
         Assertions.assertThat(TokenUsageFeatureLabels.labelFor("bridge-concepts"))
                 .isEqualTo(TokenUsageFeatureLabels.AUTO_TAG_ORGANIZATION);
         Assertions.assertThat(TokenUsageFeatureLabels.labelFor("link-suggestions"))
@@ -21,8 +23,6 @@ class TokenUsageFeatureLabelsTest {
 
     @Test
     void unmappedFeatureIdFallsBackToOther() {
-        Assertions.assertThat(TokenUsageFeatureLabels.labelFor("chat-router-classifier"))
-                .isEqualTo(TokenUsageFeatureLabels.OTHER);
         Assertions.assertThat(TokenUsageFeatureLabels.labelFor("some-future-feature"))
                 .isEqualTo(TokenUsageFeatureLabels.OTHER);
     }

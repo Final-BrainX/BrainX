@@ -26,7 +26,7 @@ public interface TokenUsageDailyRepository extends JpaRepository<TokenUsageDaily
                 @Param("featureId") String featureId, @Param("tokens") long tokens, @Param("cost") BigDecimal cost);
 
     @Query("""
-            SELECT d.id.usageDate AS usageDate, SUM(d.totalTokens) AS totalTokens
+            SELECT d.id.usageDate AS usageDate, SUM(d.totalTokens) AS totalTokens, SUM(d.estimatedCost) AS estimatedCost
             FROM TokenUsageDaily d
             WHERE d.id.userId = :userId AND d.id.usageDate BETWEEN :from AND :to
             GROUP BY d.id.usageDate
@@ -37,5 +37,6 @@ public interface TokenUsageDailyRepository extends JpaRepository<TokenUsageDaily
     interface DailyTotal {
         LocalDate getUsageDate();
         long getTotalTokens();
+        BigDecimal getEstimatedCost();
     }
 }

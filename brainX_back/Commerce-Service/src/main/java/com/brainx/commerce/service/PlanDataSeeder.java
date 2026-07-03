@@ -9,8 +9,11 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * 플랜 시드 데이터. 가격은 등급 변경 동작 자체를 검증하기 위한 TEMP 테스트 값이다.
- * 실제 요금으로 전환할 때 PRO/MAX price를 정식 가격으로 되돌릴 것.
+ * 플랜 시드 데이터.
+ * 한도는 토큰 개수가 아니라 크레딧(= Intelligence-Service가 계산한 estimatedCost(USD)를
+ * CreditConverter로 환산한 원가, 100크레딧 = 1원 상당)이다. 모델별 단가가 달라
+ * 토큰 개수로는 실제 원가를 대표하지 못하므로, 구독가 대비 AI 원가 비중을 25~30%대로 맞춘
+ * 크레딧 예산으로 한도를 정의한다.
  */
 @Component
 @RequiredArgsConstructor
@@ -28,14 +31,12 @@ public class PlanDataSeeder {
         }
 
         planRepository.save(new Plan(FREE_PLAN_ID, "무료", 0, "KRW", 0,
-                List.of("노트 무제한", "AI 토큰 월 50,000", "기기 2대", "기본 검색"), 50_000L, true));
+                List.of("노트 무제한", "AI 크레딧 월 20,000", "기기 2대", "기본 검색"), 20_000L, true));
 
-        // TEMP: 결제 플로우 테스트용 가격. 실제 요금(₩12,900 등)으로 전환 전 임시로 500원으로 둔다.
-        planRepository.save(new Plan(PRO_PLAN_ID, "Pro", 500, "KRW", 1,
-                List.of("AI 토큰 월 100만", "시맨틱 검색", "버전 기록 30일", "우선 처리"), 1_000_000L, true));
+        planRepository.save(new Plan(PRO_PLAN_ID, "Pro", 24_000, "KRW", 1,
+                List.of("AI 크레딧 월 600,000", "시맨틱 검색", "버전 기록 30일", "우선 처리"), 600_000L, true));
 
-        // TEMP: 결제 플로우 테스트용 가격. 실제 요금(₩29,900 등)으로 전환 전 임시로 1000원으로 둔다.
-        planRepository.save(new Plan(MAX_PLAN_ID, "Max", 1000, "KRW", 2,
-                List.of("AI 토큰 무제한", "최신 모델 우선", "팀 공유", "우선 지원"), null, true));
+        planRepository.save(new Plan(MAX_PLAN_ID, "Max", 80_000, "KRW", 2,
+                List.of("AI 크레딧 월 2,000,000", "최신 모델 우선", "팀 공유", "우선 지원"), 2_000_000L, true));
     }
 }

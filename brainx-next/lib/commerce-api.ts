@@ -45,6 +45,19 @@ export type CheckoutConfirmResult = {
   subscriptionStatus: SubscriptionStatus;
 };
 
+export type TokenUsageFeatureUsage = { feature: string; credits: number };
+export type TokenUsageDailyUsage = { date: string; credits: number };
+
+export type TokenUsageData = {
+  planName: string | null;
+  monthlyCreditLimit: number | null;
+  usedCredits: number;
+  usagePercent: number;
+  resetDate: string;
+  byFeature: TokenUsageFeatureUsage[];
+  recentDays: TokenUsageDailyUsage[];
+};
+
 function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
   return response.message ?? response.error?.message ?? fallback;
 }
@@ -103,4 +116,9 @@ export async function cancelSubscription(cancelAtPeriodEnd: boolean) {
     method: "POST",
     body: JSON.stringify({ cancelAtPeriodEnd })
   });
+}
+
+export async function getMyTokenUsage(month?: string) {
+  const query = month ? `?month=${encodeURIComponent(month)}` : "";
+  return authedRequest<TokenUsageData>(`/api/v1/users/me/token-usage${query}`);
 }

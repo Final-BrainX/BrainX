@@ -148,8 +148,8 @@ public class CommerceDtos {
 
     public record TokenUsageData(
             String planName,
-            Long monthlyLimit,
-            long usedTokens,
+            Long monthlyCreditLimit,
+            long usedCredits,
             double usagePercent,
             String resetDate,
             List<FeatureUsage> byFeature,
@@ -157,9 +157,9 @@ public class CommerceDtos {
     ) {
     }
 
-    public record FeatureUsage(String feature, long tokens) {
+    public record FeatureUsage(String feature, long credits) {
     }
 
-    public record DailyUsage(String date, long tokens) {
+    public record DailyUsage(String date, long credits) {
     }
 }

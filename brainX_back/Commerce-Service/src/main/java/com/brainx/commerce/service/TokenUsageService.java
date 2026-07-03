@@ -81,39 +81,41 @@ public class TokenUsageService {
     public TokenUsageData getMyTokenUsage(String userId, YearMonth month) {
         Plan plan = resolvePlan(userId);
         String planName = plan != null ? plan.getName() : null;
-        Long monthlyLimit = plan != null ? plan.getMonthlyTokenLimit() : null;
+        Long monthlyCreditLimit = plan != null ? plan.getMonthlyCreditLimit() : null;
 
         String yearMonthKey = month.toString();
         List<TokenUsageMonthly> monthlyRows = monthlyRepository.findByIdUserIdAndIdYearMonth(userId, yearMonthKey);
 
-        long usedTokens = monthlyRows.stream().mapToLong(TokenUsageMonthly::getTotalTokens).sum();
-        double usagePercent = (monthlyLimit != null && monthlyLimit > 0)
-                ? (usedTokens * 100.0) / monthlyLimit
+        long usedCredits = monthlyRows.stream()
+                .mapToLong(row -> CreditConverter.toCredits(row.getEstimatedCost()))
+                .sum();
+        double usagePercent = (monthlyCreditLimit != null && monthlyCreditLimit > 0)
+                ? (usedCredits * 100.0) / monthlyCreditLimit
                 : 0.0;
 
-        Map<String, Long> tokensByLabel = new HashMap<>();
+        Map<String, Long> creditsByLabel = new HashMap<>();
         for (TokenUsageMonthly row : monthlyRows) {
             String label = TokenUsageFeatureLabels.labelFor(row.getId().getFeatureId());
-            tokensByLabel.merge(label, row.getTotalTokens(), Long::sum);
+            creditsByLabel.merge(label, CreditConverter.toCredits(row.getEstimatedCost()), Long::sum);
         }
-        List<FeatureUsage> byFeature = tokensByLabel.entrySet().stream()
+        List<FeatureUsage> byFeature = creditsByLabel.entrySet().stream()
                 .map(entry -> new FeatureUsage(entry.getKey(), entry.getValue()))
-                .sorted(Comparator.comparingLong(FeatureUsage::tokens).reversed())
+                .sorted(Comparator.comparingLong(FeatureUsage::credits).reversed())
                 .toList();
 
         String resetDate = month.plusMonths(1).atDay(1).toString();
         List<DailyUsage> recentDays = recentDailyUsage(userId);
 
-        return new TokenUsageData(planName, monthlyLimit, usedTokens, usagePercent, resetDate, byFeature, recentDays);
+        return new TokenUsageData(planName, monthlyCreditLimit, usedCredits, usagePercent, resetDate, byFeature, recentDays);
     }
 
     private Long calculateRemainingQuota(String userId, String yearMonth) {
-        long monthlyUsed = monthlyRepository.findByIdUserIdAndIdYearMonth(userId, yearMonth).stream()
-                .mapToLong(TokenUsageMonthly::getTotalTokens)
+        long monthlyUsedCredits = monthlyRepository.findByIdUserIdAndIdYearMonth(userId, yearMonth).stream()
+                .mapToLong(row -> CreditConverter.toCredits(row.getEstimatedCost()))
                 .sum();
         Plan plan = resolvePlan(userId);
-        Long monthlyLimit = plan != null ? plan.getMonthlyTokenLimit() : null;
-        return monthlyLimit != null ? Math.max(0, monthlyLimit - monthlyUsed) : null;
+        Long monthlyCreditLimit = plan != null ? plan.getMonthlyCreditLimit() : null;
+        return monthlyCreditLimit != null ? Math.max(0, monthlyCreditLimit - monthlyUsedCredits) : null;
     }
 
     // 아직 구독 레코드가 없는 신규 사용자를 무제한으로 잘못 표시하지 않도록 기본 Free 플랜으로 취급한다.
@@ -127,14 +129,14 @@ public class TokenUsageService {
     private List<DailyUsage> recentDailyUsage(String userId) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         LocalDate sevenDaysAgo = today.minusDays(6);
-        Map<LocalDate, Long> dailyTotals = dailyRepository.sumByUserAndDateRange(userId, sevenDaysAgo, today).stream()
+        Map<LocalDate, Long> creditsByDate = dailyRepository.sumByUserAndDateRange(userId, sevenDaysAgo, today).stream()
                 .collect(Collectors.toMap(
                         TokenUsageDailyRepository.DailyTotal::getUsageDate,
-                        TokenUsageDailyRepository.DailyTotal::getTotalTokens));
+                        row -> CreditConverter.toCredits(row.getEstimatedCost())));
 
         List<DailyUsage> recentDays = new ArrayList<>();
         for (LocalDate date = sevenDaysAgo; !date.isAfter(today); date = date.plusDays(1)) {
-            recentDays.add(new DailyUsage(date.toString(), dailyTotals.getOrDefault(date, 0L)));
+            recentDays.add(new DailyUsage(date.toString(), creditsByDate.getOrDefault(date, 0L)));
         }
         return recentDays;
     }
