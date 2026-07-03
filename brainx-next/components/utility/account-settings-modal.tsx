@@ -20,10 +20,13 @@ import { getOAuthAuthorization, logout, readAuthSession, type OAuthProvider } fr
 import {
   cancelSubscription,
   getMySubscription,
+  getMyTokenUsage,
   getPlans,
   PAYMENT_RESULT_MESSAGE_TYPE,
   type Plan as CommercePlan,
-  type Subscription as CommerceSubscription
+  type Subscription as CommerceSubscription,
+  type TokenUsageData,
+  type TokenUsageDailyUsage
 } from "@/lib/commerce-api";
 import {
   AuthRequiredError,
@@ -45,7 +48,7 @@ import { cx } from "@/lib/utils";
 import type { ThemeMode } from "@/components/brainx-provider";
 import type { LanguageCode } from "@/lib/i18n";
 import { useGuideStore } from "@/lib/use-guide-store";
-import { TOKEN_USAGE_SUMMARY } from "@/lib/token-usage";
+import { formatCreditCount, formatResetDate, formatTokenPercent, iconForFeature } from "@/lib/token-usage";
 
 type TabId = "profile" | "general" | "notifications" | "apiKeys" | "import" | "usage" | "stats" | "support" | "upgrade";
 type SocialProvider = "google" | "kakao" | "naver";
@@ -96,8 +99,6 @@ const SOCIAL: Record<SocialProvider, { name: string; mark: string; bg: string; f
   kakao: { name: "카카오", mark: "K", bg: "#fee500", fg: "#191919", border: "#efd900" },
   naver: { name: "네이버", mark: "N", bg: "#03c75a", fg: "#fff", border: "#03b653" }
 };
-
-const usageRows = TOKEN_USAGE_SUMMARY.breakdown;
 
 function displayName(profile: MyProfile | null) {
   return profile?.nickname?.trim() || profile?.email?.split("@")[0] || readAuthSession()?.nickname || "사용자";
@@ -298,21 +299,55 @@ function ProgressBar({ percent, thick = false }: { percent: number; thick?: bool
   );
 }
 
+const MINI_BARS_MAX_HEIGHT_PX = 60;
+const MINI_BARS_MIN_VISIBLE_HEIGHT_PX = 4;
+const DAYS_PER_MONTH = 30;
+
+// MiniBars는 value를 그대로 px 높이로 쓰므로 그리기 전에 정규화해야 한다. "이 7일 중 최댓값"을
+// 기준으로 잡으면, 활성화된 날이 하루뿐일 때 그 하루가 실제 사용량과 무관하게 항상 100%로
+// 보여서 와닿지 않는다 — 대신 월 크레딧 한도의 하루치(한도/30)를 고정 기준선으로 삼아
+// "그날 하루 예산 대비 몇 %를 썼는지"를 보여준다. 하루 예산을 넘긴 날은 100%에서 자른다.
+function normalizeBarHeights(values: number[], dailyBudget: number | null): number[] {
+  const reference = dailyBudget && dailyBudget > 0 ? dailyBudget : Math.max(1, ...values);
+  return values.map((value) =>
+    value > 0
+      ? Math.min(MINI_BARS_MAX_HEIGHT_PX, Math.max(MINI_BARS_MIN_VISIBLE_HEIGHT_PX, Math.round((value / reference) * MINI_BARS_MAX_HEIGHT_PX)))
+      : 0
+  );
+}
+
+const WEEKDAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"];
+// Date.getDay(): 0=일 1=월 2=화 3=수 4=목 5=금 6=토. WEEKDAY_LABELS(월~일) 순서에 대응하는 getDay() 값.
+const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
+
+// recentDays는 오래된 날짜 순으로 오고 마지막 항목이 항상 "오늘"이다. 이걸 월~일 고정 순서로
+// 재배치하고, 재배치 후 어느 위치가 "오늘"인지 함께 돌려준다(오늘 요일 강조 표시용).
+function reorderToWeekStart(days: TokenUsageDailyUsage[]) {
+  const todayDate = days.length > 0 ? days[days.length - 1].date : null;
+  const ordered = WEEKDAY_ORDER.map((weekday) =>
+    days.find((day) => new Date(`${day.date}T00:00:00`).getDay() === weekday) ?? null
+  );
+  const todayIndex = ordered.findIndex((day) => day?.date === todayDate);
+  return { ordered, todayIndex };
+}
+
 function MiniBars({
   values,
   labels,
-  activeIndex = 3
+  activeIndex = 3,
+  activeClassName = "bg-[#6c55f6]"
 }: {
   values: number[];
   labels: string[];
   activeIndex?: number;
+  activeClassName?: string;
 }) {
   return (
     <div className="mt-5 flex h-[122px] items-end justify-between gap-8 px-5">
       {values.map((value, index) => (
         <div key={`${labels[index]}-${index}`} className="flex flex-1 flex-col items-center gap-2">
           <div
-            className={cx("w-full max-w-[30px] rounded-[5px]", index === activeIndex ? "bg-[#6c55f6]" : "bg-[#e6e1fb]")}
+            className={cx("w-full max-w-[30px] rounded-[5px]", index === activeIndex ? activeClassName : "bg-[#e6e1fb]")}
             style={{ height: `${value}px` }}
           />
           <span className="text-[11px] text-[#8c877f]">{labels[index]}</span>
@@ -1118,59 +1153,114 @@ function NotificationsPanel() {
 }
 
 function UsagePanel() {
-  const used = 287400;
-  const limit = 1000000;
-  const percent = 28.7;
+  const { pushToast } = useBrainX();
+  const [usage, setUsage] = useState<TokenUsageData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+
+    getMyTokenUsage()
+      .then((data) => {
+        if (active) setUsage(data);
+      })
+      .catch((error) => {
+        if (active) setUsage(null);
+        pushToast(error instanceof Error ? error.message : "크레딧 사용량을 불러오지 못했습니다.", "err");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [pushToast]);
+
+  if (loading) {
+    return (
+      <>
+        <header className="mb-7">
+          <h1 className="text-[24px] font-bold tracking-[-0.01em] text-[#2f2d2a]">AI 크레딧 사용량</h1>
+          <p className="mt-3 text-[13px] text-[#6d6861]">이번 달 AI 크레딧 사용 현황입니다.</p>
+        </header>
+        <div className="rounded-[12px] border border-[#e5e0d8] px-5 py-10 text-center text-[13px] text-[#8c877f]">
+          크레딧 사용량을 불러오는 중입니다.
+        </div>
+      </>
+    );
+  }
+
+  const usedCredits = usage?.usedCredits ?? 0;
+  const usagePercent = usage?.usagePercent ?? 0;
+  const monthlyCreditLimit = usage?.monthlyCreditLimit ?? null;
+  const planName = usage?.planName ?? "Free";
+  const byFeature = usage?.byFeature ?? [];
+  const recentDays = usage?.recentDays ?? [];
+
+  const planBadge = `${planName} · ${monthlyCreditLimit != null ? `월 ${formatCreditCount(monthlyCreditLimit)} 크레딧` : "무제한"}`;
+  const resetDateLabel = usage?.resetDate ? formatResetDate(usage.resetDate) : "";
+  const dailyCreditBudget = monthlyCreditLimit != null ? monthlyCreditLimit / DAYS_PER_MONTH : null;
+  const { ordered: orderedDays, todayIndex } = reorderToWeekStart(recentDays);
+  const barValues = normalizeBarHeights(orderedDays.map((day) => day?.credits ?? 0), dailyCreditBudget);
+  const barLabels = WEEKDAY_LABELS;
 
   return (
     <>
       <header className="mb-7">
-        <h1 className="text-[24px] font-bold tracking-[-0.01em] text-[#2f2d2a]">AI 토큰 사용량</h1>
-        <p className="mt-3 text-[13px] text-[#6d6861]">이번 달 AI 토큰 사용 현황입니다.</p>
+        <h1 className="text-[24px] font-bold tracking-[-0.01em] text-[#2f2d2a]">AI 크레딧 사용량</h1>
+        <p className="mt-3 text-[13px] text-[#6d6861]">이번 달 AI 크레딧 사용 현황입니다.</p>
       </header>
       <section className="mb-7 rounded-[12px] border border-[#e5e0d8] px-5 py-4">
         <div className="mb-2 flex items-center justify-between">
           <span className="text-[12px] text-[#6d6861]">이번 달 사용량</span>
-          <span className="rounded-md bg-[#eeeafe] px-2 py-0.5 text-[10px] font-bold text-[#6c55f6]">Pro · 월 100만 토큰</span>
+          <span className="rounded-md bg-[#eeeafe] px-2 py-0.5 text-[10px] font-bold text-[#6c55f6]">{planBadge}</span>
         </div>
         <div className="mb-3 flex items-end gap-1">
-          <span className="text-[31px] font-bold tracking-[-0.02em] text-[#36332f]">{used.toLocaleString()}</span>
-          <span className="pb-1 text-[15px] font-semibold text-[#8c877f]">/ {limit.toLocaleString()} 토큰</span>
+          <span className="text-[31px] font-bold tracking-[-0.02em] text-[#36332f]">{formatCreditCount(usedCredits)}</span>
+          <span className="pb-1 text-[15px] font-semibold text-[#8c877f]">
+            {monthlyCreditLimit != null ? `/ ${formatCreditCount(monthlyCreditLimit)} 크레딧` : "/ 무제한"}
+          </span>
         </div>
-        <ProgressBar percent={percent} thick />
+        <ProgressBar percent={Math.min(100, Math.max(0, usagePercent))} thick />
         <div className="mt-3 flex justify-between text-[12px]">
-          <span className="font-bold text-[#36332f]">{percent}% 사용</span>
-          <span className="text-[#6d6861]">2026년 7월 1일 초기화</span>
+          <span className="font-bold text-[#36332f]">{formatTokenPercent(usagePercent)} 사용</span>
+          <span className="text-[#6d6861]">{resetDateLabel}</span>
         </div>
       </section>
 
       <section className="mb-7">
         <SectionLabel>기능별 사용량</SectionLabel>
-        <div className="space-y-4">
-          {usageRows.map((row) => (
-            <div key={row.label} className="grid grid-cols-[32px_1fr] items-center gap-3">
-              <div className="grid h-[30px] w-[30px] place-items-center rounded-[7px] bg-[#eeeafe] text-[#6c55f6]">
-                <Icon name={row.icon} size={15} />
-              </div>
-              <div>
-                <div className="mb-2 flex items-center justify-between text-[12px]">
-                  <span className="font-semibold text-[#36332f]">{row.label}</span>
-                  <span className="text-[#6d6861]">{row.value.toLocaleString()}</span>
+        {byFeature.length ? (
+          <div className="space-y-4">
+            {byFeature.map((row) => (
+              <div key={row.feature} className="grid grid-cols-[32px_1fr] items-center gap-3">
+                <div className="grid h-[30px] w-[30px] place-items-center rounded-[7px] bg-[#eeeafe] text-[#6c55f6]">
+                  <Icon name={iconForFeature(row.feature)} size={15} />
                 </div>
-                <ProgressBar percent={row.percent} />
+                <div>
+                  <div className="mb-2 flex items-center justify-between text-[12px]">
+                    <span className="font-semibold text-[#36332f]">{row.feature}</span>
+                    <span className="text-[#6d6861]">{formatCreditCount(row.credits)}</span>
+                  </div>
+                  <ProgressBar percent={usedCredits > 0 ? (row.credits / usedCredits) * 100 : 0} />
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[12px] text-[#8c877f]">이번 달 사용 내역이 없습니다.</p>
+        )}
       </section>
 
       <section>
         <SectionLabel>최근 7일 추이</SectionLabel>
-        <MiniBars values={[45, 70, 56, 90, 80, 34, 27]} labels={["월", "화", "수", "목", "금", "토", "일"]} />
+        <MiniBars values={barValues} labels={barLabels} activeIndex={todayIndex} activeClassName="bg-[#1d4ed8]" />
         <div className="mt-5 flex items-center justify-between rounded-[12px] bg-[#eeeafe] px-4 py-3">
           <div>
-            <div className="text-[13px] font-bold text-[#36332f]">더 많은 토큰이 필요하신가요?</div>
-            <p className="mt-1 text-[12px] text-[#6d6861]">Max로 업그레이드하면 AI 토큰을 무제한으로 사용할 수 있어요.</p>
+            <div className="text-[13px] font-bold text-[#36332f]">더 많은 크레딧이 필요하신가요?</div>
+            <p className="mt-1 text-[12px] text-[#6d6861]">Max로 업그레이드하면 AI 크레딧을 훨씬 더 많이 사용할 수 있어요.</p>
           </div>
           <ModalButton primary disabled>Max 알아보기</ModalButton>
         </div>

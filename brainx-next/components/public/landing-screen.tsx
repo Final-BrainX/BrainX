@@ -536,9 +536,14 @@ export function LandingScreen() {
               </Btn>
             </>
           ) : (
+            <>
             <Btn variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => router.push("/login")}>
               로그인
             </Btn>
+              <Btn variant="primary" size="sm" onClick={() => router.push("/home")}>
+                BrainX 시작하기
+              </Btn>
+            </>
           )}
         </div>
       </header>

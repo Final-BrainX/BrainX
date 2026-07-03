@@ -47,6 +47,11 @@ spring:
                     name: commerceServiceCircuitBreaker
                     fallbackUri: forward:/fallback/commerce
 
+            - id: commerce-service-user-token-usage
+              uri: ${COMMERCE_SERVICE_URL:http://localhost:8084}
+              predicates:
+                - Path=/api/v1/users/me/token-usage
+
             - id: internal-user-service-users
               uri: ${USER_SERVICE_URL:http://localhost:8080}
               predicates:

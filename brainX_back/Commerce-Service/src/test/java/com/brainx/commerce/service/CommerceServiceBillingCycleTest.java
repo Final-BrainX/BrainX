@@ -61,7 +61,7 @@ class CommerceServiceBillingCycleTest {
 
     @Test
     void createCheckoutSessionAppliesYearlyDiscountAndStoresBillingCycle() {
-        Plan yearlyPlan = new Plan("pro", "Pro", 10000L, "KRW", 2, List.of("A", "B"), true);
+        Plan yearlyPlan = new Plan("pro", "Pro", 10000L, "KRW", 2, List.of("A", "B"), 1_000_000L, true);
         when(planRepository.findById("pro")).thenReturn(Optional.of(yearlyPlan));
         when(checkoutSessionRepository.save(any(CheckoutSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -92,7 +92,7 @@ class CommerceServiceBillingCycleTest {
     }
 
     private void assertRenewalWindow(CheckoutSession.BillingCycle billingCycle, int days) {
-        Plan plan = new Plan("pro", "Pro", 10000L, "KRW", 2, List.of("A", "B"), true);
+        Plan plan = new Plan("pro", "Pro", 10000L, "KRW", 2, List.of("A", "B"), 1_000_000L, true);
         when(planRepository.findById("pro")).thenReturn(Optional.of(plan));
         when(subscriptionRepository.findById("usr_1")).thenReturn(Optional.empty());
         when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(invocation -> invocation.getArgument(0));

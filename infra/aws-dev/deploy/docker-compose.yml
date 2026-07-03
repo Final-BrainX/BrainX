@@ -235,6 +235,7 @@ services:
       TOSS_CONFIRM_URL: ${TOSS_CONFIRM_URL:-https://api.tosspayments.com/v1/payments/confirm}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       BRAINX_EVENTS_OUTBOX_ENABLED: "true"
+      BRAINX_EVENTS_CONSUMER_ENABLED: "true"
       JPA_DDL_AUTO: update
     expose:
       - "8084"
@@ -338,6 +339,9 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       MCP_DB_NAME: brainx_mcp
       JWT_SECRET: ${JWT_SECRET}
+      SERVICE_TOKEN: ${SERVICE_TOKEN}
+      WORKSPACE_SERVICE_URL: http://workspace-service:8082
+      INTELLIGENCE_SERVICE_URL: http://intelligence-service:8086
       SPRING_JPA_HIBERNATE_DDL_AUTO: update
       JPA_DDL_AUTO: update
     expose:

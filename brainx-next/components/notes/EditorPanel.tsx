@@ -198,10 +198,11 @@ export default function EditorPanel({
   const [titleDraft, setTitleDraft] = useState(note?.title ?? "");
   const titleInputRef = useRef<HTMLInputElement>(null);
 
-  // note 교체 시 초기화 — 방금 생성된 빈 새 노트("새 노트" + 빈 본문)는 곧바로 제목 편집 상태로 연다
+  // note 교체 시 초기화 — 방금 생성된 빈 새 노트("새 노트", 중복 시 "새 노트1"/"새 노트2"… 자동 넘버링된
+  // 제목 + 빈 본문)는 곧바로 제목 편집 상태로 연다
   useEffect(() => {
     setTitleDraft(note?.title ?? "");
-    const isFreshNote = !!note && note.content.trim() === "" && note.title === "새 노트";
+    const isFreshNote = !!note && note.content.trim() === "" && /^새 노트\d*$/.test(note.title);
     setIsEditingTitle(isFreshNote);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note?.id]);
@@ -394,9 +395,11 @@ export default function EditorPanel({
                   ref={titleInputRef}
                   value={titleDraft}
                   onChange={(e) => {
-                    const nextTitle = e.target.value;
-                    setTitleDraft(nextTitle);
-                    if (note && nextTitle !== note.title) onTitleChange(note.id, nextTitle);
+                    // 입력 중에는 로컬 draft만 갱신한다 — 실시간으로 onTitleChange를 호출하면
+                    // NotesWorkspace의 중복 검사(handleTitleChange)가 타이핑할 때마다 실행되어
+                    // 제목을 다 쓰기도 전에 "중복" 토스트가 반복해서 뜨는 문제가 있었다. 실제 커밋은
+                    // commitTitle(Enter/blur)에서만 한다.
+                    setTitleDraft(e.target.value);
                   }}
                   onBlur={() => commitTitle()}
                   onKeyDown={(e) => {

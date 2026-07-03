@@ -145,4 +145,21 @@ public class CommerceDtos {
 
     public record SubscriptionCancelData(String planId, String status, Instant cancelAt) {
     }
+
+    public record TokenUsageData(
+            String planName,
+            Long monthlyCreditLimit,
+            long usedCredits,
+            double usagePercent,
+            String resetDate,
+            List<FeatureUsage> byFeature,
+            List<DailyUsage> recentDays
+    ) {
+    }
+
+    public record FeatureUsage(String feature, long credits) {
+    }
+
+    public record DailyUsage(String date, long credits) {
+    }
 }

@@ -9,10 +9,12 @@ import type { EditMode, AiActionType, NoteEditorHandle } from "./NoteEditor";
 import { MOCK_NOTES, MOCK_FOLDERS } from "@/lib/notes/mockNotes";
 import {
   USE_MOCK_NOTES,
+  WorkspaceApiError,
   createWorkspaceFolder,
   createWorkspaceNote,
   deleteWorkspaceFolder,
   deleteWorkspaceNote,
+  getNote,
   getWorkspaceNoteDraft,
   issueWorkspaceNoteDraftId,
   listFolders,
@@ -44,7 +46,6 @@ import NotesExplorer from "./NotesExplorer";
 import RightSidebar, { type PendingAiRequest } from "./RightSidebar";
 import { moveNoteIntoFolder, reorderNoteRelativeTo, moveFolderUnder, reorderFolderRelativeTo } from "@/lib/notes/folderDnd";
 import { exportNote, uploadAndImportFile, type ExportFormat } from "@/lib/ingestion-api";
-import { downloadPdfFile, downloadTextFile, htmlToMarkdown, htmlToPlainText, safeFileName } from "@/lib/notes/exportNoteContent";
 import { markdownToHtml } from "./NoteEditor";
 import { useBrainX } from "@/components/brainx-provider";
 import { consumePendingNoteClaim, readAuthSession } from "@/lib/auth-api";
@@ -68,6 +69,23 @@ function makeBlankNote(folderId?: string): MockNote {
     version: 1,
     persisted: false,
   };
+}
+
+/** 30초 주기 draft flush(NoteDraftFlushScheduler)가 백그라운드에서 note.version을 올릴 수 있어,
+    Ctrl+S가 들고 있던 baseVersion이 그 사이 낡아 409 NOTE_VERSION_CONFLICT가 날 수 있다. 서버가
+    돌려주는 실제 serverVersion으로 딱 한 번만 재시도한다 — 그래도 실패하면(진짜 동시 편집 충돌)
+    그대로 던져 기존 에러 처리(저장 실패 상태 표시)를 그대로 탄다. */
+async function saveNoteContentWithVersionRetry(note: MockNote) {
+  try {
+    return await updateWorkspaceNoteContent(note);
+  } catch (error) {
+    if (!(error instanceof WorkspaceApiError) || error.code !== "NOTE_VERSION_CONFLICT") {
+      throw error;
+    }
+    const serverVersion =
+      typeof error.details?.serverVersion === "number" ? error.details.serverVersion : (await getNote(note.id)).version;
+    return await updateWorkspaceNoteContent({ ...note, version: serverVersion });
+  }
 }
 
 const SAVE_BUTTON_TITLE: Record<SaveStatus, string> = {
@@ -447,8 +465,18 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     window.addEventListener("mouseup", onUp);
   }, [contextPanelSize]);
   // MOCK_NOTES를 가변 상태로 복사 → 제목 수정/새 노트 생성 시 사이드바/헤더/컨텍스트 패널 즉시 반영
-  const [notes, setNotes] = useState<MockNote[]>(() => USE_MOCK_NOTES ? [...MOCK_NOTES] : []);
-  const [folders, setFolders] = useState<MockFolder[]>(() => USE_MOCK_NOTES ? [...MOCK_FOLDERS] : []);
+  const [notes, setNotes] = useState<MockNote[]>(() => {
+    if (USE_MOCK_NOTES) return [...MOCK_NOTES];
+    if (!persistKey) return [];
+    const key = resolveActorPersistKey(persistKey);
+    return readSession(key)?.notes ?? [];
+  });
+  const [folders, setFolders] = useState<MockFolder[]>(() => {
+    if (USE_MOCK_NOTES) return [...MOCK_FOLDERS];
+    if (!persistKey) return [];
+    const key = resolveActorPersistKey(persistKey);
+    return readSession(key)?.folders ?? [];
+  });
   // 탭(노트 인스턴스)별 읽기/편집 모드 — tabId 기준. 패널이 아니라 탭 단위라서 같은 패널 안에서
   // 탭마다 다른 모드를 가질 수 있고, 같은 노트를 여러 패널에 열어도 각 탭이 독립적으로 유지된다.
   // 기록이 없는 tabId는 항상 "edit"로 취급한다(새 노트/새로 연 노트는 기본 편집 모드).
@@ -501,6 +529,27 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     notes: USE_MOCK_NOTES ? [...MOCK_NOTES] : [],
     folders: USE_MOCK_NOTES ? [...MOCK_FOLDERS] : [],
   });
+
+  /* 게스트 여부 — 인증 세션이 없으면 게스트 */
+  const isGuest = useMemo(() => {
+    const session = readAuthSession();
+    return !session?.accessToken;
+  }, []);
+
+  /* 같은 depth에서 동일 이름의 노트 중복 여부 확인 (노트↔노트만, 폴더와는 허용) */
+  const checkNoteDuplicate = useCallback((title: string, folderId: string | null | undefined): boolean => {
+    const normalizedFolderId = folderId ?? null;
+    return notes.some(
+      (n) => (n.folderId ?? null) === normalizedFolderId && n.title.trim() === title.trim()
+    );
+  }, [notes]);
+
+  /* 같은 depth에서 동일 이름의 폴더 중복 여부 확인 (폴더↔폴더만, 형제 폴더 기준) */
+  const checkFolderDuplicate = useCallback((name: string, parentFolderId: string | null, excludeId?: string): boolean => {
+    return folders.some(
+      (f) => f.id !== excludeId && (f.parentFolderId ?? null) === (parentFolderId ?? null) && f.name.trim() === name.trim()
+    );
+  }, [folders]);
 
   const panelCount = countLeaves(state.root);
   const hasSplitPanels = panelCount > 1;
@@ -742,20 +791,36 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setTabMode((prev) => ({ ...prev, [tabId]: mode }));
   }, []);
 
-  /* 노트 제목 변경 → notes 상태 갱신 (사이드바/탭/헤더/컨텍스트 즉시 반영) */
+  /* 노트 제목 변경(에디터 상단 제목 입력) → notes 상태 갱신 (사이드바/탭/헤더/컨텍스트 즉시 반영).
+     같은 위치에 동일 제목이 이미 있으면 커밋하지 않는다 — 사이드바 rename(handleRenameNoteFromExplorer)과
+     동일한 중복 검사를 공유한다. 거부되면 notes 상태가 바뀌지 않으므로 EditorPanel은 note.title을
+     그대로 다시 보여줘 자동으로 이전 제목으로 되돌아간다. */
   const handleTitleChange = useCallback((noteId: string, newTitle: string) => {
+    const note = notes.find((n) => n.id === noteId);
+    if (!note) return;
+    if (newTitle !== note.title && checkNoteDuplicate(newTitle, note.folderId)) {
+      pushToast("이미 같은 이름의 노트가 있습니다.", "err");
+      return;
+    }
     draftDirtyNoteIdsRef.current.add(noteId);
     setNotes((prev) =>
       prev.map((n) => (n.id === noteId ? { ...n, title: newTitle, updatedAt: Date.now() } : n))
     );
-  }, []);
+  }, [notes, checkNoteDuplicate, pushToast]);
 
   /* 노트 본문 변경(에디터 onUpdate 디바운스) → notes 상태 갱신, 탭 전환 후에도 내용 유지 */
   const handleContentChange = useCallback((noteId: string, newContentHtml: string) => {
-    draftDirtyNoteIdsRef.current.add(noteId);
-    setNotes((prev) =>
-      prev.map((n) => (n.id === noteId ? { ...n, content: newContentHtml, updatedAt: Date.now() } : n))
-    );
+    let didChange = false;
+    setNotes((prev) => {
+      const existing = prev.find((note) => note.id === noteId);
+      if (!existing || existing.content === newContentHtml) return prev;
+
+      didChange = true;
+      return prev.map((n) => (n.id === noteId ? { ...n, content: newContentHtml, updatedAt: Date.now() } : n));
+    });
+    if (didChange) {
+      draftDirtyNoteIdsRef.current.add(noteId);
+    }
   }, []);
 
   /* 노트 전체 타이포그래피(기본 글꼴 크기 배율/레벨별 개별 크기/문서 기본 글꼴) 변경 — 선택
@@ -889,14 +954,49 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   /* 새 노트 생성 (선택된 폴더 또는 지정된 폴더 안에 생성), 지정한 패널의 새 탭으로 연다.
      title을 주면(위키링크에서 생성하는 경우) 그 제목으로 바로 생성한다. */
   const createNote = useCallback((folderId: string | undefined, paneId: string, title?: string) => {
+    /* 게스트 노트 생성 제한 */
+    if (isGuest && notes.length >= 10) {
+      pushToast("체험 모드에서는 노트를 최대 10개까지 생성할 수 있습니다.", "err");
+      return "";
+    }
+    /* 명시적 title이 주어진 경우(위키링크 생성 등)는 사용자의 의도된 이름이므로 기존처럼 중복이면
+       막는다. 반면 기본값("새 노트")은 자동 생성값이라 막는 대신 자동 넘버링한다:
+       새 노트 → 새 노트1 → 새 노트2 … 처럼 같은 위치에서 비어있는 이름을 찾아 사용한다. */
+    let noteTitle: string;
+    if (title) {
+      if (checkNoteDuplicate(title, folderId ?? null)) {
+        pushToast("같은 위치에 동일한 이름의 노트가 이미 있습니다.", "err");
+        return "";
+      }
+      noteTitle = title;
+    } else {
+      noteTitle = "새 노트";
+      let suffix = 1;
+      while (checkNoteDuplicate(noteTitle, folderId ?? null)) {
+        noteTitle = `새 노트${suffix}`;
+        suffix += 1;
+      }
+    }
     const newNote = makeBlankNote(folderId);
-    if (title) newNote.title = title;
+    newNote.title = noteTitle;
     const localNoteId = newNote.id;
     const newTabId = uid();
     setNotes((prev) => [newNote, ...prev]);
     setPaneTabs((prev) => {
       const current = prev[paneId];
       const newTab: Tab = { id: newTabId, kind: "note", noteId: newNote.id };
+      // 현재 활성 탭이 없거나(진짜 Welcome), 있어도 그 노트를 찾을 수 없는 "제목 없음" 상태
+      // (삭제된 노트를 가리키는 등)라면 새 탭을 옆에 추가하지 않고 그 자리를 실제 노트로
+      // 교체한다 — Welcome Board/깨진 탭에서 새 노트를 만들면 새 탭이 따로 생기고 깨진 탭은
+      // 그대로 남던 문제가 있었다.
+      const activeTab = current?.tabs.find((t) => t.id === current.activeTabId);
+      const activeIsEmptyOrBroken =
+        !activeTab || (activeTab.kind === "note" && !notes.some((n) => n.id === activeTab.noteId));
+      if (current && activeIsEmptyOrBroken) {
+        const replacedTabs = current.tabs.map((t) => (t.id === current.activeTabId ? newTab : t));
+        const newTabs = activeTab ? replacedTabs : [...current.tabs, newTab];
+        return { ...prev, [paneId]: { tabs: newTabs, activeTabId: newTab.id } };
+      }
       const newTabs = current ? [...current.tabs, newTab] : [newTab];
       return { ...prev, [paneId]: { tabs: newTabs, activeTabId: newTabId } };
     });
@@ -926,7 +1026,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }
 
     return newNote.id;
-  }, [onActiveNoteChange]);
+  }, [isGuest, notes, checkNoteDuplicate, pushToast, onActiveNoteChange]);
 
   /* 사이드바 "+ 새 노트" 버튼 → 현재 선택된 폴더 안에, 활성 패널의 새 탭으로 생성 */
   const handleNewNote = useCallback((folderId?: string) => {
@@ -1041,6 +1141,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
      승계되려면(claim 시 workspaceService.reassignGuestFolders) 처음부터 Postgres에 있어야
      한다. 실패하면 토스트만 띄우고 로컬 상태는 그대로 둔다(화면에서만 사라지는 일 방지). */
   const handleCreateFolder = useCallback((parentFolderId: string | null, name: string) => {
+    /* 게스트 폴더 생성 제한 */
+    if (isGuest && folders.length >= 10) {
+      pushToast("체험 모드에서는 폴더를 최대 10개까지 생성할 수 있습니다.", "err");
+      return;
+    }
+    /* 같은 depth 동일 이름 폴더 중복 방지 */
+    if (checkFolderDuplicate(name, parentFolderId)) {
+      pushToast("같은 위치에 동일한 이름의 폴더가 이미 있습니다.", "err");
+      return;
+    }
     if (USE_MOCK_NOTES) {
       setFolders((prev) => [...prev, { id: `folder-${uid()}`, name, parentFolderId }]);
       return;
@@ -1052,9 +1162,14 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       .catch((error) => {
         pushToast(error instanceof Error ? error.message : "폴더를 만들지 못했습니다.", "err");
       });
-  }, [pushToast]);
+  }, [isGuest, folders, checkFolderDuplicate, pushToast]);
 
   const handleRenameFolder = useCallback((folderId: string, newName: string) => {
+    const folder = folders.find((f) => f.id === folderId);
+    if (folder && checkFolderDuplicate(newName, folder.parentFolderId, folderId)) {
+      pushToast("같은 위치에 동일한 이름의 폴더가 이미 있습니다.", "err");
+      return;
+    }
     if (USE_MOCK_NOTES) {
       setFolders((prev) => prev.map((f) => (f.id === folderId ? { ...f, name: newName } : f)));
       return;
@@ -1068,7 +1183,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       .catch((error) => {
         pushToast(error instanceof Error ? error.message : "폴더 이름을 바꾸지 못했습니다.", "err");
       });
-  }, [pushToast]);
+  }, [folders, checkFolderDuplicate, pushToast]);
 
   const handleChangeFolderColor = useCallback((folderId: string, color: string) => {
     setFolders((prev) => prev.map((f) => (f.id === folderId ? { ...f, color } : f)));
@@ -1207,14 +1322,73 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       });
   }, [folders, notes, applyLocalNotesDeletion, pushToast]);
 
+  /* 다중 삭제 — 탐색기에서 Ctrl/Shift 다중 선택 후 Delete 키 또는 컨텍스트 메뉴로 호출된다.
+     폴더 삭제는 cascade(하위 포함)이므로 먼저 폴더를 처리해 중복 처리를 방지한다.
+     노트는 handleDeleteNote(단건)와 동일한 정책으로 처리한다 — 서버에 이미 존재하는 노트("note_"
+     접두사)는 DELETE API가 성공한 것만 로컬에서 지운다(이전에는 API 호출을 fire-and-forget으로
+     쏘고 실패 여부와 무관하게 로컬에서 먼저 지워버려서, 삭제가 실패해도 화면에서는 사라졌다가
+     새로고침하면 되살아나는 것처럼 보이는 불일치가 있었다). 아직 서버에 없는 로컬 전용 초안
+     노트는 바로 지운다. */
+  const handleDeleteMultiple = useCallback((noteIds: string[], folderIds: string[]) => {
+    /* 폴더를 먼저 삭제(cascade로 하위 노트/폴더가 함께 사라지므로 순서가 중요) */
+    for (const fid of folderIds) {
+      handleDeleteFolder(fid);
+    }
+    if (noteIds.length === 0) return;
+
+    if (USE_MOCK_NOTES) {
+      applyLocalNotesDeletion(new Set(noteIds));
+      return;
+    }
+
+    const localOnlyIds = noteIds.filter((id) => !id.startsWith("note_"));
+    const serverIds = noteIds.filter((id) => id.startsWith("note_"));
+    if (localOnlyIds.length > 0) applyLocalNotesDeletion(new Set(localOnlyIds));
+    if (serverIds.length === 0) return;
+
+    void Promise.allSettled(serverIds.map((nid) => deleteWorkspaceNote(nid, "trash"))).then((results) => {
+      const succeeded = new Set<string>();
+      let failedCount = 0;
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") succeeded.add(serverIds[index]);
+        else failedCount += 1;
+      });
+      if (succeeded.size > 0) applyLocalNotesDeletion(succeeded);
+      if (failedCount > 0) {
+        pushToast(`${failedCount}개의 노트를 삭제하지 못했습니다.`, "err");
+      }
+    });
+  }, [handleDeleteFolder, applyLocalNotesDeletion, pushToast]);
+
   const handleSelectFolder = useCallback((folderId: string | null) => {
     setSelectedFolderId(folderId);
   }, []);
 
+  /* 탐색기에서 노트 이름 변경 (중복 체크 포함) */
+  const handleRenameNoteFromExplorer = useCallback((noteId: string, newTitle: string) => {
+    const note = notes.find((n) => n.id === noteId);
+    if (!note) return;
+    if (checkNoteDuplicate(newTitle, note.folderId)) {
+      pushToast("같은 위치에 동일한 이름의 노트가 이미 있습니다.", "err");
+      return;
+    }
+    handleTitleChange(noteId, newTitle);
+  }, [notes, checkNoteDuplicate, handleTitleChange, pushToast]);
+
   /* 노트 탐색기 드래그앤드랍 — 노트를 폴더/루트로 이동, 또는 같은 레벨에서 순서 변경. */
   const handleMoveNoteToFolder = useCallback((noteId: string, targetFolderId: string | null) => {
+    const note = notes.find((n) => n.id === noteId);
+    if (note) {
+      const titleConflict = notes.some(
+        (n) => n.id !== noteId && (n.folderId ?? null) === (targetFolderId ?? null) && n.title.trim() === note.title.trim()
+      );
+      if (titleConflict) {
+        pushToast("이동할 위치에 동일한 이름의 노트가 이미 있습니다.", "err");
+        return;
+      }
+    }
     setNotes((prev) => moveNoteIntoFolder(prev, noteId, targetFolderId));
-  }, []);
+  }, [notes, pushToast]);
 
   const handleReorderNote = useCallback((noteId: string, referenceNoteId: string, position: "before" | "after") => {
     setNotes((prev) => reorderNoteRelativeTo(prev, noteId, referenceNoteId, position));
@@ -1222,6 +1396,11 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
 
   /* 폴더 이동 — 자기 자신/하위 폴더로의 이동은 folderDnd의 canFolderMoveUnder가 차단(null 반환 시 무시) */
   const handleMoveFolderToParent = useCallback((folderId: string, targetParentId: string | null) => {
+    /* 이동 목적지에 같은 이름의 형제 폴더가 있으면 막는다 */
+    if (checkFolderDuplicate(folders.find((f) => f.id === folderId)?.name ?? "", targetParentId, folderId)) {
+      pushToast("이동할 위치에 동일한 이름의 폴더가 이미 있습니다.", "err");
+      return;
+    }
     const next = moveFolderUnder(folders, folderId, targetParentId);
     if (!next) return;
     if (USE_MOCK_NOTES) {
@@ -1239,7 +1418,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       .catch((error) => {
         pushToast(error instanceof Error ? error.message : "폴더를 이동하지 못했습니다.", "err");
       });
-  }, [folders, pushToast]);
+  }, [folders, checkFolderDuplicate, pushToast]);
 
   const handleReorderFolder = useCallback((folderId: string, referenceFolderId: string, position: "before" | "after") => {
     setFolders((prev) => reorderFolderRelativeTo(prev, folderId, referenceFolderId, position) ?? prev);
@@ -1326,10 +1505,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     );
     if (!hasAnyRealTabs) {
       resetToBlank();
-      if (USE_MOCK_NOTES) {
-        setNotes(saved.notes);
-        setFolders(saved.folders);
-      }
+      setNotes(saved.notes);
+      setFolders(saved.folders);
       hydratedRef.current = true;
       return;
     }
@@ -1357,10 +1534,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }
     setState({ root: saved.root, activeId: nextActiveId });
     setPaneTabs(nextPaneTabs);
-    if (USE_MOCK_NOTES) {
-      setNotes(saved.notes);
-      setFolders(saved.folders);
-    }
+    setNotes(saved.notes);
+    setFolders(saved.folders);
     hydratedRef.current = true;
   }, []);
 
@@ -1464,16 +1639,15 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       // 노트를 탭에 끼워넣기"는 건너뛴다(actor가 막 바뀐 시점의 URL은 새 actor와 무관할 수
       // 있음). 승계됐다면 방금 게스트가 쓰던 탭 그대로, 로그아웃이라 게스트 키에 예전 세션이
       // 있었다면 그걸로, 둘 다 없으면 빈 Welcome으로 그려진다 — 그래서 여기서 직접 탭/패널을
-      // 비우지 않는다(승계된 탭을 비워버리면 "이어받기"가 깨짐). notes/folders/탭 모드는
-      // 이전 actor 것이 잠깐 보이지 않도록 즉시 비우고 loadFromServer가 새 actor 기준으로
-      // 다시 채운다.
+      // 비우지 않는다(승계된 탭을 비워버리면 "이어받기"가 깨짐). notes/folders도 먼저 비우지
+      // 않고, 방금 applyHydration이 복원한 스냅샷을 유지한 채 loadFromServer가 새 actor 기준
+      // 최신값으로 조용히 교체한다 — 그렇지 않으면 탐색기가 "빈 상태 → Redis/DB 결과"로
+      // 한 번 더 깜빡인다.
       if (detail?.resetWorkspace && persistKey) {
         const nextKey = resolveActorPersistKey(persistKey);
         setActorPersistKey(nextKey);
         applyHydration(nextKey, false);
         setTabMode({});
-        setNotes([]);
-        setFolders([]);
         draftDirtyNoteIdsRef.current.clear();
       }
       void loadFromServer(detail?.noteId);
@@ -1511,6 +1685,35 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialTab.kind === "note" ? initialTab.noteId : "start"]);
+
+  /* noteId가 있지만 실제로 notes 배열에 없는(삭제됐거나 애초에 존재한 적 없는 — 예: 유효하지
+     않은 URL로 직접 진입, 초기화 직후 세션 복원 등) "제목 없음" 탭을 정리한다. 그런 탭은
+     EditorPanel이 Welcome Board와 동일한 화면을 보여주게 만드는데(EditorPanel.tsx의 `!note`
+     분기), 애초에 탭 목록에 남아있으면 안 된다 — Welcome Board는 탭이 아니라 진짜 empty
+     state여야 한다. 초기 로드/세션 복원이 끝나기 전에는 건드리지 않는다(그 사이 아직 notes가
+     덜 채워졌을 뿐인 정상 탭까지 지워버리는 걸 막기 위해). */
+  useEffect(() => {
+    if (isInitialWorkspaceLoading || !hydratedRef.current) return;
+    const noteIds = new Set(notes.map((n) => n.id));
+    setPaneTabs((prev) => {
+      let changed = false;
+      const next: typeof prev = {};
+      for (const [paneId, tabState] of Object.entries(prev)) {
+        const validTabs = tabState.tabs.filter((t) => t.kind !== "note" || noteIds.has(t.noteId));
+        if (validTabs.length === tabState.tabs.length) {
+          next[paneId] = tabState;
+          continue;
+        }
+        changed = true;
+        const activeStillValid = validTabs.some((t) => t.id === tabState.activeTabId);
+        next[paneId] = {
+          tabs: validTabs,
+          activeTabId: activeStillValid ? tabState.activeTabId : (validTabs[validTabs.length - 1]?.id ?? ""),
+        };
+      }
+      return changed ? next : prev;
+    });
+  }, [notes, isInitialWorkspaceLoading]);
 
   // 변경 사항을 디바운스 저장 (백그라운드 자동저장 — 실패해도 조용히 무시, 수동 저장이 실패 상태를 노출).
   // 다만 "모든 탭을 닫아 Welcome으로 돌아간" 전환만은 디바운스 없이 즉시 기록한다 — 350ms 안에
@@ -1625,7 +1828,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       return;
     }
 
-    const content = await updateWorkspaceNoteContent(note);
+    const content = await saveNoteContentWithVersionRetry(note);
     const metadata = await updateWorkspaceNoteMetadata({ ...note, version: content.version, persisted: true });
     setNotes((prev) =>
       prev.map((item) =>
@@ -1685,6 +1888,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setExportingFormat(format);
     try {
       exportNote(activeNote.id, format).catch(() => {});
+      const { downloadPdfFile, downloadTextFile, htmlToMarkdown, htmlToPlainText, safeFileName } =
+        await import("@/lib/notes/exportNoteContent");
       const fileName = safeFileName(activeNote.title);
       // 에디터 HTML 우선, 없으면 content가 마크다운인지 판별 후 직접 변환한다.
       // 노션 가져오기 등 마크다운으로 저장된 노트는 "<"로 시작하지 않는다.
@@ -1733,10 +1938,18 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
 
   // 위키링크([[노트]]) 기능에 필요한 컨텍스트 — 노트 목록 조회/존재 확인/이동/생성을 에디터
   // 깊숙이(NoteEditor → CodeBlockView 같은 중첩 단계 없이도) 어디서든 쓸 수 있게 한다.
-  const wikiLinkNoteRefs = useMemo(() => notes.map((n) => ({ id: n.id, title: n.title })), [notes]);
+  const wikiLinkNoteRefs = useMemo(
+    () => notes.map((n) => ({ id: n.id, title: n.title, folderId: n.folderId ?? null })),
+    [notes]
+  );
+  const wikiLinkFolderRefs = useMemo(
+    () => folders.map((f) => ({ id: f.id, name: f.name, parentFolderId: f.parentFolderId })),
+    [folders]
+  );
   const wikiLinkValue = useMemo<WikiLinkContextValue>(
     () => ({
       notes: wikiLinkNoteRefs,
+      folders: wikiLinkFolderRefs,
       resolveTitle: (title) => resolveWikiLinkTitle(wikiLinkNoteRefs, title),
       onNavigate: (title) => {
         const found = resolveWikiLinkTitle(wikiLinkNoteRefs, title);
@@ -1746,7 +1959,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         createNote(undefined, primaryPaneId, title);
       },
     }),
-    [wikiLinkNoteRefs, handleNoteClick, createNote, primaryPaneId]
+    [wikiLinkNoteRefs, wikiLinkFolderRefs, handleNoteClick, createNote, primaryPaneId]
   );
 
   // 노트/탭/패널 데이터 초기화가 끝나기 전에는 워크스페이스 전체를 로딩 상태로 대체한다 —
@@ -1851,7 +2064,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
             onToggleFolderFavorite={handleToggleFolderFavorite}
             onDeleteFolder={handleDeleteFolder}
             onDeleteNote={handleDeleteNote}
-            onRenameNote={handleTitleChange}
+            onRenameNote={handleRenameNoteFromExplorer}
             onDragStart={handleSidebarDragStart}
             onDragEnd={handleDragEnd}
             onMoveNoteToFolder={handleMoveNoteToFolder}
@@ -1859,6 +2072,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
             onMoveFolderToParent={handleMoveFolderToParent}
             onReorderFolder={handleReorderFolder}
             onDropFiles={handleDropFiles}
+            isGuest={isGuest}
+            onDeleteMultiple={handleDeleteMultiple}
           />
         )}
 

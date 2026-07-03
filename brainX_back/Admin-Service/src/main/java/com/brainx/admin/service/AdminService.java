@@ -119,9 +119,7 @@ public class AdminService {
         InternalUserGrowthSummaryDto userGrowthSummary = fetchUserGrowthSummary(OVERVIEW_TREND_DAYS);
         InternalWorkspaceMonitoringSummaryDto workspaceSummary = fetchWorkspaceMonitoringSummary();
         int activeUsers = userGrowthSummary != null ? userGrowthSummary.activeUsers() : countActiveUsers();
-        TrendSeriesData activeUserTrend = userGrowthSummary != null
-                ? toTrendSeriesData(userGrowthSummary.trend())
-                : buildActiveUserTrend(activeUsers);
+        TrendSeriesData activeUserTrend = buildOverviewActiveUserTrend(capturedAt, userGrowthSummary, activeUsers);
         SnapshotDelta delta = snapshotDelta();
 
         List<ServiceHealthData> healths = collectServiceHealths(false, capturedAt);
@@ -1231,6 +1229,46 @@ public class AdminService {
         );
     }
 
+    private TrendSeriesData buildOverviewActiveUserTrend(
+            OffsetDateTime capturedAt,
+            InternalUserGrowthSummaryDto userGrowthSummary,
+            int activeUsers
+    ) {
+        SnapshotWindow today = snapshotWindow(capturedAt);
+        Map<LocalDate, Integer> activeUsersBySnapshotDate = new HashMap<>();
+
+        for (AdminMonitoringSnapshot snapshot : monitoringSnapshotRepository.findAllByOrderByCapturedAtDesc()) {
+            LocalDate snapshotDate = snapshotWindow(snapshot.getCapturedAt()).snapshotDate();
+            activeUsersBySnapshotDate.putIfAbsent(snapshotDate, snapshot.getActiveUsers());
+        }
+
+        Integer todaySnapshotValue = activeUsersBySnapshotDate.get(today.snapshotDate());
+        Integer todayLiveValue = latestTrendValue(userGrowthSummary != null ? userGrowthSummary.trend() : null);
+        int todayValue = todaySnapshotValue != null
+                ? todaySnapshotValue
+                : todayLiveValue != null ? todayLiveValue : activeUsers;
+
+        List<Integer> values = new ArrayList<>(OVERVIEW_TREND_DAYS);
+        LocalDate startDate = today.snapshotDate().minusDays(OVERVIEW_TREND_DAYS - 1L);
+        for (int i = 0; i < OVERVIEW_TREND_DAYS - 1; i++) {
+            values.add(activeUsersBySnapshotDate.getOrDefault(startDate.plusDays(i), 0));
+        }
+        values.add(todayValue);
+
+        String source = todaySnapshotValue != null
+                ? "AdminMonitoringSnapshot"
+                : "AdminMonitoringSnapshot + User-Service live overlay";
+
+        return new TrendSeriesData(
+                "activeUsers",
+                values,
+                "최근 13일 snapshot + 오늘 live",
+                OVERVIEW_TREND_DAYS,
+                monitoringZoneId().getId(),
+                source
+        );
+    }
+
     private TrendSeriesData toTrendSeriesData(InternalTrendSeriesDto trend) {
         return new TrendSeriesData(
                 trend.metric(),
@@ -1250,6 +1288,13 @@ public class AdminService {
             values.add(0, values.get(0));
         }
         return values;
+    }
+
+    private Integer latestTrendValue(InternalTrendSeriesDto trend) {
+        if (trend == null || trend.values() == null || trend.values().isEmpty()) {
+            return null;
+        }
+        return trend.values().get(trend.values().size() - 1);
     }
 
     /* private List<KpiData> buildOverviewKpis(AdminBillingSummaryData summary, SnapshotDelta delta) {

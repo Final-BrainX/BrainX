@@ -30,9 +30,10 @@ import {
   Check,
   GripVertical,
   Inbox,
+  MoveRight,
 } from "lucide-react";
 import { cx } from "@/lib/utils";
-import { MockFolder, MockNote } from "@/lib/notes/noteTypes";
+import { MockFolder, MockNote, type SortOption, type SortDirection, sortNotes, sortFolders } from "@/lib/notes/noteTypes";
 import { formatAbsoluteDateTime, formatRelativeTime } from "@/lib/notes/formatDate";
 import { CollapseChevron } from "./CollapseChevron";
 import { HoverInfoCard } from "./HoverInfoCard";
@@ -57,12 +58,6 @@ export const FOLDER_COLORS: { label: string; value: string }[] = [
 ];
 const DEFAULT_FOLDER_COLOR = FOLDER_COLORS[0].value;
 
-/**
- * 폴더/노트 행은 펼치기·접기·드래그 시작 등으로 트리 도중에 추가/제거되고,
- * "루트로 이동" 드롭존은 드래그 중에만 마운트된다. 기본(WhileDragging·Optimized)
- * 측정 전략은 이런 동적 마운트를 즉시 따라가지 못해 새로 나타난 드롭존이
- * 충돌 판정에서 누락되는 경우가 있어, 항상 다시 측정하도록 강제한다.
- */
 const DND_MEASURING_CONFIG: MeasuringConfiguration = {
   droppable: { strategy: MeasuringStrategy.Always },
 };
@@ -74,27 +69,36 @@ interface FolderTreeItem {
   children: FolderTreeItem[];
 }
 
-function noteNewestFirst(a: MockNote, b: MockNote) {
-  const at = Math.max(a.createdAt, a.updatedAt);
-  const bt = Math.max(b.createdAt, b.updatedAt);
-  return bt - at;
+/* 폴더트리 정렬 — NotesExplorer 상단의 정렬 드롭다운(sortBy)과 동일한 기준을 공유한다(sortNotes/
+   sortFolders, lib/notes/noteTypes.ts). 형제(같은 depth) 안에서만 정렬하고, 하위 폴더도 재귀적으로
+   같은 기준을 적용한다 — "폴더 먼저, 그 아래 노트" 배치 자체는 건드리지 않는다. */
+function buildTree(
+  folders: MockFolder[],
+  notes: MockNote[],
+  parentId: string | null,
+  sortBy: SortOption,
+  favorites: Set<string>,
+  direction: SortDirection
+): FolderTreeItem[] {
+  const siblingFolders = sortFolders(folders.filter((f) => f.parentFolderId === parentId), sortBy, favorites, direction);
+  return siblingFolders.map((folder) => ({
+    folder,
+    notes: sortNotes(notes.filter((n) => n.folderId === folder.id), sortBy, favorites, direction),
+    children: buildTree(folders, notes, folder.id, sortBy, favorites, direction),
+  }));
 }
 
-function buildTree(folders: MockFolder[], notes: MockNote[], parentId: string | null): FolderTreeItem[] {
-  return folders
-    .filter((f) => f.parentFolderId === parentId)
-    .map((folder) => ({
-      folder,
-      notes: notes.filter((n) => n.folderId === folder.id).sort(noteNewestFirst),
-      children: buildTree(folders, notes, folder.id),
-    }));
-}
-
-/* 드래그 중 표시할 인디케이터 — 어느 행에 before/after/into를 어떤 유효성으로 보여줄지 */
+/* 드래그 중 표시할 인디케이터 */
 interface OverIndicator {
   targetId: string;
   position: "before" | "after" | "into";
   valid: boolean;
+}
+
+/* 선택된 항목 정보 */
+export interface SelectableItem {
+  id: string;
+  type: "note" | "folder";
 }
 
 /* ── Props ──────────────────────────────────────────── */
@@ -110,9 +114,10 @@ interface FolderTreeProps {
   onRenameFolder: (folderId: string, newName: string) => void;
   onChangeFolderColor: (folderId: string, color: string) => void;
   onToggleFolderFavorite: (folderId: string) => void;
-  onDeleteFolder: (folderId: string) => void;
-  onDeleteNote?: (noteId: string) => void;
   favorites?: Set<string>;
+  /** NotesExplorer 상단 정렬 드롭다운의 현재 값 — 폴더트리도 같은 기준으로 정렬한다. */
+  sortBy?: SortOption;
+  sortDirection?: SortDirection;
   onToggleNoteFavorite?: (noteId: string) => void;
   onRenameNote?: (noteId: string, newTitle: string) => void;
   onDragStart: (noteId: string) => void;
@@ -121,9 +126,19 @@ interface FolderTreeProps {
   onReorderNote: (noteId: string, referenceNoteId: string, position: "before" | "after") => void;
   onMoveFolderToParent: (folderId: string, targetParentId: string | null) => void;
   onReorderFolder: (folderId: string, referenceFolderId: string, position: "before" | "after") => void;
+  /* 다중 선택 */
+  selectedIds?: Set<string>;
+  onItemClick?: (item: SelectableItem, e: React.MouseEvent) => void;
+  /* 삭제 요청 — 우클릭(또는 "..." 버튼)한 시점의 선택 스냅샷(1개 이상의 id)을 그대로 넘긴다.
+     부모(NotesExplorer)가 이 스냅샷을 기준으로 확인 모달을 띄우고, 확인/취소 시 스냅샷 상태를
+     정리한다. 이후 selectedIds가 바뀌거나 초기화돼도 이미 열린 삭제 확인에는 영향이 없다. */
+  onRequestDelete?: (ids: string[]) => void;
+  /* 이동 */
+  onMoveItems?: (ids: SelectableItem[], targetFolderId: string | null) => void;
 }
 
 const EMPTY_FAVORITES = new Set<string>();
+const EMPTY_SELECTED = new Set<string>();
 
 export default function FolderTree({
   folders,
@@ -137,9 +152,9 @@ export default function FolderTree({
   onRenameFolder,
   onChangeFolderColor,
   onToggleFolderFavorite,
-  onDeleteFolder,
-  onDeleteNote,
   favorites = EMPTY_FAVORITES,
+  sortBy = "modified",
+  sortDirection = "desc",
   onToggleNoteFavorite,
   onRenameNote,
   onDragStart,
@@ -148,15 +163,22 @@ export default function FolderTree({
   onReorderNote,
   onMoveFolderToParent,
   onReorderFolder,
+  selectedIds = EMPTY_SELECTED,
+  onItemClick,
+  onRequestDelete,
+  onMoveItems,
 }: FolderTreeProps) {
-  const tree = buildTree(folders, notes, null);
+  const tree = useMemo(
+    () => buildTree(folders, notes, null, sortBy, favorites, sortDirection),
+    [folders, notes, sortBy, favorites, sortDirection]
+  );
   const folderIds = useMemo(() => new Set(folders.map((folder) => folder.id)), [folders]);
   const rootNotes = useMemo(
-    () => notes.filter((note) => !note.folderId || !folderIds.has(note.folderId)).sort(noteNewestFirst),
-    [notes, folderIds]
+    () => sortNotes(notes.filter((note) => !note.folderId || !folderIds.has(note.folderId)), sortBy, favorites, sortDirection),
+    [notes, folderIds, sortBy, favorites, sortDirection]
   );
 
-  /* ── 폴더/노트 위치 변경 DnD (별도 그립 핸들 — 기존 노트 드래그-분할과 충돌 없음) ── */
+  /* DnD */
   const [activeDrag, setActiveDrag] = useState<DragActiveData | null>(null);
   const [overIndicator, setOverIndicator] = useState<OverIndicator | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
@@ -225,24 +247,6 @@ export default function FolderTree({
       onDragCancel={handleDragCancel}
     >
       <div className="py-1">
-        {rootNotes.map((note) => (
-          <NoteRow
-            key={note.id}
-            note={note}
-            depth={0}
-            isActive={note.id === activeNoteId}
-            activeDrag={activeDrag}
-            overIndicator={overIndicator}
-            onNoteClick={onNoteClick}
-            onDragStart={onDragStart}
-            onDragEnd={onDragEnd}
-            onDeleteNote={onDeleteNote}
-            isFavorite={favorites.has(note.id)}
-            onToggleFavorite={() => onToggleNoteFavorite?.(note.id)}
-            onRenameNote={onRenameNote}
-          />
-        ))}
-
         {tree.map((item) => (
           <FolderNode
             key={item.folder.id}
@@ -259,19 +263,42 @@ export default function FolderTree({
             onRenameFolder={onRenameFolder}
             onChangeFolderColor={onChangeFolderColor}
             onToggleFolderFavorite={onToggleFolderFavorite}
-            onDeleteFolder={onDeleteFolder}
-            onDeleteNote={onDeleteNote}
+            onRequestDelete={onRequestDelete}
             favorites={favorites}
             onToggleNoteFavorite={(id) => onToggleNoteFavorite?.(id)}
             onRenameNote={onRenameNote}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
+            selectedIds={selectedIds}
+            onItemClick={onItemClick}
+            folders={folders}
+            onMoveItems={onMoveItems}
           />
         ))}
 
-        {/* 루트로 이동 드롭존 — 드래그 중에만 표시. useDroppable은 DndContext의
-            "자식" 컴포넌트 안에서 호출해야 실제로 그 컨텍스트에 등록된다 (FolderTree
-            자신의 body에서 호출하면 DndContext보다 위쪽이라 등록되지 않는다). */}
+        {rootNotes.map((note) => (
+          <NoteRow
+            key={note.id}
+            note={note}
+            depth={0}
+            isActive={note.id === activeNoteId}
+            isSelected={selectedIds.has(note.id)}
+            selectedIds={selectedIds}
+            activeDrag={activeDrag}
+            overIndicator={overIndicator}
+            onNoteClick={onNoteClick}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+            onRequestDelete={onRequestDelete}
+            isFavorite={favorites.has(note.id)}
+            onToggleFavorite={() => onToggleNoteFavorite?.(note.id)}
+            onRenameNote={onRenameNote}
+            onItemClick={onItemClick}
+            folders={folders}
+            onMoveItems={onMoveItems}
+          />
+        ))}
+
         {activeDrag && <RootDropZone />}
       </div>
 
@@ -294,8 +321,7 @@ export default function FolderTree({
   );
 }
 
-/* ── 루트로 이동 드롭존 — DndContext의 자식으로 렌더되어야 useDroppable이
-   실제로 그 컨텍스트에 등록된다 (FolderTree 자신의 body에서 호출하면 등록되지 않음) */
+/* ── 루트 드롭존 ── */
 function RootDropZone() {
   const { setNodeRef, isOver } = useDroppable({
     id: "root-zone",
@@ -316,7 +342,7 @@ function RootDropZone() {
   );
 }
 
-/* ── 드롭 인디케이터 (행 상단/하단 삽입선, 또는 전체 강조) ── */
+/* ── 드롭 인디케이터 ── */
 function DropIndicatorOverlay({ indicator }: { indicator: OverIndicator | null }) {
   if (!indicator) return null;
   const color = indicator.valid ? "rgb(var(--primary))" : "rgb(239 68 68)";
@@ -336,9 +362,7 @@ function DropIndicatorOverlay({ indicator }: { indicator: OverIndicator | null }
   );
 }
 
-/* ── 더보기("...")/우클릭 메뉴 공통 셸 ── "..." 클릭은 트리거 바로 아래(absolute)에,
-   우클릭은 클릭한 좌표(fixed, document.body portal)에 띄운다 — 항목 마크업(children)은
-   FolderMenu/NoteMenu가 그대로 공유하고, 이 셸만 두 진입점의 위치 계산을 책임진다. */
+/* ── 메뉴 셸 ── */
 function MenuShell({
   anchor,
   onClose,
@@ -402,7 +426,7 @@ function MenuShell({
   );
 }
 
-/* ── 폴더 더보기 메뉴 (하위 폴더/노트 생성, 이름변경, 색상, 즐겨찾기, 삭제) ── */
+/* ── 폴더 더보기 메뉴 ── */
 interface FolderMenuProps {
   folder: MockFolder;
   anchor?: { x: number; y: number } | null;
@@ -411,6 +435,7 @@ interface FolderMenuProps {
   onStartRename: () => void;
   onChangeColor: (color: string) => void;
   onToggleFavorite: () => void;
+  onMove?: () => void;
   onDelete: () => void;
   onClose: () => void;
 }
@@ -423,6 +448,7 @@ export function FolderMenu({
   onStartRename,
   onChangeColor,
   onToggleFavorite,
+  onMove,
   onDelete,
   onClose,
 }: FolderMenuProps) {
@@ -451,6 +477,11 @@ export function FolderMenu({
             <Star size={12} className={cx("shrink-0", folder.favorite && "fill-yellow-400 text-yellow-400")} />
             {folder.favorite ? "즐겨찾기 해제" : "즐겨찾기 추가"}
           </button>
+          {onMove && (
+            <button type="button" className={itemClass} onClick={() => { onMove(); onClose(); }}>
+              <MoveRight size={12} className="shrink-0" /> 이동
+            </button>
+          )}
           <div className="my-1 border-t border-line/30" />
           <button
             type="button"
@@ -486,18 +517,23 @@ export function FolderMenu({
   );
 }
 
-/* ── 노트 더보기 메뉴 (이름변경, 즐겨찾기, 삭제) — 폴더와 항목은 다르지만 같은 MenuShell/스타일 ── */
+/* ── 노트 더보기 메뉴 ── */
 interface NoteMenuProps {
   note: MockNote;
   isFavorite: boolean;
   anchor?: { x: number; y: number } | null;
   onStartRename: () => void;
   onToggleFavorite: () => void;
+  onMove?: () => void;
   onDelete: () => void;
   onClose: () => void;
 }
 
-export function NoteMenu({ note, isFavorite, anchor, onStartRename, onToggleFavorite, onDelete, onClose }: NoteMenuProps) {
+/* 삭제 확인은 이제 이 메뉴 안에서 window.confirm()으로 즉석 처리하지 않는다 — 호출부(NotesExplorer)가
+   단일/다중 삭제를 하나의 커스텀 ConfirmDialog로 통일해서 띄운다. 여기서 window.confirm과 커스텀
+   모달을 같이 쓰면(과거 구현) 네이티브 모달이 열려있는 동안 나머지 페이지 클릭 처리와 얽혀 "취소" 후
+   엉뚱한 클릭에서 확인창이 다시 뜨는 것처럼 보이는 문제가 있었다 — 확인 흐름을 하나로 합쳐 제거했다. */
+export function NoteMenu({ note: _note, isFavorite, anchor, onStartRename, onToggleFavorite, onMove, onDelete, onClose }: NoteMenuProps) {
   const itemClass =
     "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt";
 
@@ -510,13 +546,18 @@ export function NoteMenu({ note, isFavorite, anchor, onStartRename, onToggleFavo
         <Star size={12} className={cx("shrink-0", isFavorite && "fill-yellow-400 text-yellow-400")} />
         {isFavorite ? "즐겨찾기 해제" : "즐겨찾기 추가"}
       </button>
+      {onMove && (
+        <button type="button" className={itemClass} onClick={() => { onMove(); onClose(); }}>
+          <MoveRight size={12} className="shrink-0" /> 이동
+        </button>
+      )}
       <div className="my-1 border-t border-line/30" />
       <button
         type="button"
         className={cx(itemClass, "text-red-400 hover:text-red-300")}
         onClick={() => {
           onClose();
-          if (confirm(`"${note.title}" 노트를 삭제하시겠습니까?`)) onDelete();
+          onDelete();
         }}
       >
         <Trash2 size={12} className="shrink-0" /> 삭제
@@ -540,13 +581,16 @@ interface FolderNodeProps {
   onRenameFolder: (folderId: string, newName: string) => void;
   onChangeFolderColor: (folderId: string, color: string) => void;
   onToggleFolderFavorite: (folderId: string) => void;
-  onDeleteFolder: (folderId: string) => void;
-  onDeleteNote?: (noteId: string) => void;
+  onRequestDelete?: (ids: string[]) => void;
   favorites: Set<string>;
   onToggleNoteFavorite: (noteId: string) => void;
   onRenameNote?: (noteId: string, newTitle: string) => void;
   onDragStart: (noteId: string) => void;
   onDragEnd: () => void;
+  selectedIds: Set<string>;
+  onItemClick?: (item: SelectableItem, e: React.MouseEvent) => void;
+  folders: MockFolder[];
+  onMoveItems?: (ids: SelectableItem[], targetFolderId: string | null) => void;
 }
 
 function FolderNode({
@@ -563,13 +607,16 @@ function FolderNode({
   onRenameFolder,
   onChangeFolderColor,
   onToggleFolderFavorite,
-  onDeleteFolder,
-  onDeleteNote,
+  onRequestDelete,
   favorites,
   onToggleNoteFavorite,
   onRenameNote,
   onDragStart,
   onDragEnd,
+  selectedIds,
+  onItemClick,
+  folders,
+  onMoveItems,
 }: FolderNodeProps) {
   const [expanded, setExpanded] = useState(depth < 2);
   const [hovered, setHovered] = useState(false);
@@ -579,6 +626,7 @@ function FolderNode({
   const [newFolderName, setNewFolderName] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState(item.folder.name);
+  const [showMoveModal, setShowMoveModal] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
@@ -586,6 +634,14 @@ function FolderNode({
   const dndId = `folder:${item.folder.id}`;
   const isBeingDragged = activeDrag?.dragType === "folder" && activeDrag.id === item.folder.id;
   const indicator = overIndicator && overIndicator.targetId === item.folder.id ? overIndicator : null;
+  const isMultiSelected = selectedIds.has(item.folder.id);
+  /* 삭제 대상 스냅샷 — 우클릭(또는 "..." 버튼)한 "그 순간"의 selectedIds를 얼려서 저장한다. 이후
+     selectedIds가 바뀌거나 blur로 선택이 풀려도 이미 연 메뉴의 삭제 대상은 흔들리지 않는다. */
+  const [deleteSnapshot, setDeleteSnapshot] = useState<string[]>([item.folder.id]);
+  const captureDeleteSnapshot = useCallback(() => {
+    const isPartOfSelection = selectedIds.size > 1 && selectedIds.has(item.folder.id);
+    setDeleteSnapshot(isPartOfSelection ? [...selectedIds] : [item.folder.id]);
+  }, [selectedIds, item.folder.id]);
 
   const { attributes, listeners, setNodeRef: setDragRef } = useDraggable({
     id: dndId,
@@ -621,33 +677,54 @@ function FolderNode({
     setRenaming(false);
   }, [renameDraft, item.folder.id, item.folder.name, onRenameFolder]);
 
+  const handleRowClick = useCallback((e: React.MouseEvent) => {
+    if (renaming) return;
+    if (onItemClick) {
+      onItemClick({ id: item.folder.id, type: "folder" }, e);
+    } else {
+      const isSelected = selectedFolderId === item.folder.id;
+      onSelectFolder(isSelected ? null : item.folder.id);
+    }
+  }, [renaming, onItemClick, item.folder.id, selectedFolderId, onSelectFolder]);
+
+  const handleMoveConfirm = useCallback((targetFolderId: string | null) => {
+    setShowMoveModal(false);
+    if (onMoveItems) {
+      onMoveItems([{ id: item.folder.id, type: "folder" }], targetFolderId);
+    }
+  }, [item.folder.id, onMoveItems]);
+
   const isSelected = selectedFolderId === item.folder.id;
   const indent = depth * 14 + 6;
   const folderColor = item.folder.color ?? DEFAULT_FOLDER_COLOR;
 
   return (
     <div>
-      {/* 폴더 헤더 */}
       <div
         ref={(el) => { setDropRef(el); rowRef.current = el; }}
         className="group relative flex h-7 cursor-pointer items-center gap-1 rounded-md pr-1 transition-colors hover:bg-surface2/40"
         style={{
           paddingLeft: indent,
-          background: isSelected ? "rgb(var(--primary) / 0.1)" : undefined,
+          // 다중 선택(isMultiSelected)은 배경만으로 표시하고, 왼쪽 강조선은 즐겨찾기 색상 전용으로 남긴다
+          // — 노트 행과 동일하게 "배경=다중선택", "왼쪽선=다른 의미"로 표현을 분리한다.
+          background: isMultiSelected
+            ? "rgb(var(--primary) / 0.15)"
+            : isSelected ? "rgb(var(--primary) / 0.1)" : undefined,
           borderLeft: item.folder.favorite ? `2px solid ${folderColor}` : "2px solid transparent",
           opacity: isBeingDragged ? 0.4 : undefined,
         }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        onClick={handleRowClick}
         onContextMenu={(e) => {
           e.preventDefault();
+          captureDeleteSnapshot();
           setMenuAnchor({ x: e.clientX, y: e.clientY });
           setMenuOpen(true);
         }}
       >
         <DropIndicatorOverlay indicator={indicator} />
 
-        {/* 드래그 핸들 — hover 시에만 노출, 기존 행 클릭/선택과 분리된 별도 그립 */}
         <button
           type="button"
           ref={setDragRef}
@@ -663,7 +740,6 @@ function FolderNode({
           <GripVertical size={11} />
         </button>
 
-        {/* 접기/펼치기 — 선택 상태와 완전히 분리된 별도 클릭 영역 */}
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
@@ -693,11 +769,14 @@ function FolderNode({
             />
           </>
         ) : (
-          /* 폴더 아이콘 + 이름 — 클릭하면 선택/선택 해제 토글(펼치기 상태와는 무관) */
           <span
             onClick={(e) => {
               e.stopPropagation();
-              onSelectFolder(isSelected ? null : item.folder.id);
+              if (onItemClick) {
+                onItemClick({ id: item.folder.id, type: "folder" }, e);
+              } else {
+                onSelectFolder(isSelected ? null : item.folder.id);
+              }
             }}
             className="flex min-w-0 flex-1 items-center gap-1.5"
             title={isSelected ? "클릭하여 선택 해제" : "클릭하여 선택"}
@@ -709,7 +788,7 @@ function FolderNode({
             <span
               className={cx(
                 "flex-1 truncate text-[12px] font-medium",
-                isSelected ? "text-txt" : "text-txt2 group-hover:text-txt"
+                isSelected || isMultiSelected ? "text-txt" : "text-txt2 group-hover:text-txt"
               )}
             >
               {item.folder.name}
@@ -741,7 +820,7 @@ function FolderNode({
             </button>
             <button
               type="button"
-              onClick={() => { setMenuAnchor(null); setMenuOpen((v) => !v); }}
+              onClick={() => { captureDeleteSnapshot(); setMenuAnchor(null); setMenuOpen((v) => !v); }}
               title="더보기"
               className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-primary"
             >
@@ -757,7 +836,8 @@ function FolderNode({
                 onStartRename={() => setRenaming(true)}
                 onChangeColor={(color) => onChangeFolderColor(item.folder.id, color)}
                 onToggleFavorite={() => onToggleFolderFavorite(item.folder.id)}
-                onDelete={() => onDeleteFolder(item.folder.id)}
+                onMove={onMoveItems ? () => setShowMoveModal(true) : undefined}
+                onDelete={() => onRequestDelete?.(deleteSnapshot)}
                 onClose={() => { setMenuOpen(false); setMenuAnchor(null); }}
               />
             )}
@@ -774,7 +854,6 @@ function FolderNode({
         </HoverInfoCard>
       </div>
 
-      {/* 자식 (하위 폴더 + 노트) */}
       {expanded && (
         <div>
           {creatingSubfolder && (
@@ -795,24 +874,6 @@ function FolderNode({
             </div>
           )}
 
-          {item.notes.map((note) => (
-            <NoteRow
-              key={note.id}
-              note={note}
-              depth={depth + 1}
-              isActive={note.id === activeNoteId}
-              activeDrag={activeDrag}
-              overIndicator={overIndicator}
-              onNoteClick={onNoteClick}
-              onDragStart={onDragStart}
-              onDragEnd={onDragEnd}
-              onDeleteNote={onDeleteNote}
-              isFavorite={favorites.has(note.id)}
-              onToggleFavorite={() => onToggleNoteFavorite(note.id)}
-              onRenameNote={onRenameNote}
-            />
-          ))}
-
           {item.children.map((child) => (
             <FolderNode
               key={child.folder.id}
@@ -829,19 +890,67 @@ function FolderNode({
               onRenameFolder={onRenameFolder}
               onChangeFolderColor={onChangeFolderColor}
               onToggleFolderFavorite={onToggleFolderFavorite}
-              onDeleteFolder={onDeleteFolder}
-              onDeleteNote={onDeleteNote}
+              onRequestDelete={onRequestDelete}
               favorites={favorites}
               onToggleNoteFavorite={onToggleNoteFavorite}
               onRenameNote={onRenameNote}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
+              selectedIds={selectedIds}
+              onItemClick={onItemClick}
+              folders={folders}
+              onMoveItems={onMoveItems}
+            />
+          ))}
+
+          {item.notes.map((note) => (
+            <NoteRow
+              key={note.id}
+              note={note}
+              depth={depth + 1}
+              isActive={note.id === activeNoteId}
+              isSelected={selectedIds.has(note.id)}
+              selectedIds={selectedIds}
+              activeDrag={activeDrag}
+              overIndicator={overIndicator}
+              onNoteClick={onNoteClick}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+              onRequestDelete={onRequestDelete}
+              isFavorite={favorites.has(note.id)}
+              onToggleFavorite={() => onToggleNoteFavorite(note.id)}
+              onRenameNote={onRenameNote}
+              onItemClick={onItemClick}
+              folders={folders}
+              onMoveItems={onMoveItems}
             />
           ))}
         </div>
       )}
+
+      {showMoveModal && (
+        <MoveModalLazy
+          movingIds={[item.folder.id]}
+          movingType="folder"
+          folders={folders}
+          onConfirm={handleMoveConfirm}
+          onCancel={() => setShowMoveModal(false)}
+        />
+      )}
     </div>
   );
+}
+
+/* ── 이동 모달 (지연 import 방지를 위해 직접 인라인) ── */
+function MoveModalLazy(props: {
+  movingIds: string[];
+  movingType: "note" | "folder" | "mixed";
+  folders: MockFolder[];
+  onConfirm: (targetFolderId: string | null) => void;
+  onCancel: () => void;
+}) {
+  const MoveModal = require("./MoveModal").default as React.ComponentType<typeof props>;
+  return <MoveModal {...props} />;
 }
 
 /* ── 노트 행 ────────────────────────────────────────── */
@@ -849,28 +958,38 @@ function NoteRow({
   note,
   depth,
   isActive,
+  isSelected,
+  selectedIds,
   activeDrag,
   overIndicator,
   onNoteClick,
   onDragStart,
   onDragEnd,
-  onDeleteNote,
+  onRequestDelete,
   isFavorite,
   onToggleFavorite,
   onRenameNote,
+  onItemClick,
+  folders,
+  onMoveItems,
 }: {
   note: MockNote;
   depth: number;
   isActive: boolean;
+  isSelected: boolean;
+  selectedIds: Set<string>;
   activeDrag: DragActiveData | null;
   overIndicator: OverIndicator | null;
   onNoteClick: (id: string) => void;
   onDragStart: (id: string) => void;
   onDragEnd: () => void;
-  onDeleteNote?: (id: string) => void;
+  onRequestDelete?: (ids: string[]) => void;
   isFavorite?: boolean;
   onToggleFavorite?: () => void;
   onRenameNote?: (id: string, newTitle: string) => void;
+  onItemClick?: (item: SelectableItem, e: React.MouseEvent) => void;
+  folders: MockFolder[];
+  onMoveItems?: (ids: SelectableItem[], targetFolderId: string | null) => void;
 }) {
   const [dragging, setDragging] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -878,9 +997,16 @@ function NoteRow({
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState(note.title);
+  const [showMoveModal, setShowMoveModal] = useState(false);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
   const indent = depth * 14 + 6 + 16;
+  /* 삭제 대상 스냅샷 — 우클릭(또는 "..." 버튼)한 순간의 selectedIds를 얼려서 저장한다. */
+  const [deleteSnapshot, setDeleteSnapshot] = useState<string[]>([note.id]);
+  const captureDeleteSnapshot = useCallback(() => {
+    const isPartOfSelection = selectedIds.size > 1 && selectedIds.has(note.id);
+    setDeleteSnapshot(isPartOfSelection ? [...selectedIds] : [note.id]);
+  }, [selectedIds, note.id]);
 
   const dndId = `note:${note.id}`;
   const isBeingDragged = activeDrag?.dragType === "note" && activeDrag.id === note.id;
@@ -909,15 +1035,32 @@ function NoteRow({
     setRenaming(false);
   }, [renameDraft, note.id, note.title, onRenameNote]);
 
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    if (renaming) return;
+    if (onItemClick) {
+      onItemClick({ id: note.id, type: "note" }, e);
+    } else {
+      onNoteClick(note.id);
+    }
+  }, [renaming, onItemClick, note.id, onNoteClick]);
+
+  const handleMoveConfirm = useCallback((targetFolderId: string | null) => {
+    setShowMoveModal(false);
+    if (onMoveItems) {
+      onMoveItems([{ id: note.id, type: "note" }], targetFolderId);
+    }
+  }, [note.id, onMoveItems]);
+
   return (
     <div
       ref={(el) => { setDropRef(el); rowRef.current = el; }}
       draggable={!renaming}
-      onClick={() => { if (!renaming) onNoteClick(note.id); }}
+      onClick={handleClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onContextMenu={(e) => {
         e.preventDefault();
+        captureDeleteSnapshot();
         setMenuAnchor({ x: e.clientX, y: e.clientY });
         setMenuOpen(true);
       }}
@@ -937,14 +1080,15 @@ function NoteRow({
         dragging && "opacity-40"
       )}
       style={{
+        // 다중 선택(isSelected)은 배경만, 탭에서 열려있는 노트(isActive)는 왼쪽 강조선 + 아이콘/글자
+        // 색으로만 표시한다 — 두 상태가 같은 행에 동시에 걸려도 서로 겹쳐 헷갈리지 않도록 표현을 분리했다.
         paddingLeft: indent - 12,
-        background: isActive ? "rgb(var(--primary) / 0.12)" : undefined,
+        background: isSelected ? "rgb(var(--primary) / 0.15)" : undefined,
         opacity: isBeingDragged ? 0.4 : undefined,
       }}
     >
       <DropIndicatorOverlay indicator={indicator} />
 
-      {/* 드래그 핸들 — 위치 변경용, 기존 행 자체의 드래그(분할용)와는 별개 */}
       <button
         type="button"
         ref={setDragRef}
@@ -995,7 +1139,7 @@ function NoteRow({
         <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
-            onClick={() => { setMenuAnchor(null); setMenuOpen((v) => !v); }}
+            onClick={() => { captureDeleteSnapshot(); setMenuAnchor(null); setMenuOpen((v) => !v); }}
             title="더보기"
             className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-primary"
           >
@@ -1009,7 +1153,8 @@ function NoteRow({
               anchor={menuAnchor}
               onStartRename={() => setRenaming(true)}
               onToggleFavorite={() => onToggleFavorite?.()}
-              onDelete={() => onDeleteNote?.(note.id)}
+              onMove={onMoveItems ? () => setShowMoveModal(true) : undefined}
+              onDelete={() => onRequestDelete?.(deleteSnapshot)}
               onClose={() => { setMenuOpen(false); setMenuAnchor(null); }}
             />
           )}
@@ -1023,6 +1168,16 @@ function NoteRow({
         <p className="text-txt3">생성일</p>
         <p className="text-txt2">{formatAbsoluteDateTime(note.createdAt)}</p>
       </HoverInfoCard>
+
+      {showMoveModal && (
+        <MoveModalLazy
+          movingIds={[note.id]}
+          movingType="note"
+          folders={folders}
+          onConfirm={handleMoveConfirm}
+          onCancel={() => setShowMoveModal(false)}
+        />
+      )}
     </div>
   );
 }

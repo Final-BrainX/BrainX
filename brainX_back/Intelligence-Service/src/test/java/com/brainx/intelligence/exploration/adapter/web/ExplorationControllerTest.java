@@ -120,6 +120,52 @@ class ExplorationControllerTest {
     }
 
     @Test
+    void internalSemanticSearchUsesServiceTokenAndRequestUserId() throws Exception {
+        when(semanticSearchUseCase.semanticSearch(any(SemanticSearchCommand.class)))
+            .thenReturn(new SemanticSearchResponse(List.of(), 7, false));
+
+        mockMvc.perform(post("/internal/v1/intelligence/semantic-search")
+                .header("X-Service-Token", "local-service-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "userId": "user-from-mcp",
+                      "scope": "USER",
+                      "query": "fastapi notes",
+                      "limit": 10
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true))
+            .andExpect(jsonPath("$.data.tokenEstimate").value(7))
+            .andExpect(jsonPath("$.data.charged").value(false));
+
+        verify(semanticSearchUseCase).semanticSearch(argThat(command ->
+            command.userId().equals("user-from-mcp")
+                && command.scope() == SearchScope.USER
+                && command.documentGroupId() == null
+                && command.query().equals("fastapi notes")
+                && command.limit().equals(10)
+        ));
+    }
+
+    @Test
+    void internalSemanticSearchRequiresServiceToken() throws Exception {
+        mockMvc.perform(post("/internal/v1/intelligence/semantic-search")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "userId": "user-from-mcp",
+                      "scope": "USER",
+                      "query": "fastapi notes"
+                    }
+                    """))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.success").value(false))
+            .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
     void semanticSearchRejectsUserScopeWithDocumentGroup() throws Exception {
         mockMvc.perform(post("/api/v1/intelligence/semantic-search")
                 .with(user("user-1"))

@@ -13,6 +13,11 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    consumer:
+      group-id: commerce-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
   datasource:
     url: ${DB_URL:jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${COMMERCE_DB_NAME:brainx_commerce}}
     username: ${POSTGRES_USER:postgres}
@@ -23,6 +28,11 @@ spring:
       mode: always
       schema-locations:
         - classpath:db/migration/V20260701_01__repair_billing_cycle_columns.sql
+        - classpath:db/migration/V20260702_01__add_plan_token_limit.sql
+        - classpath:db/migration/V20260702_02__update_plan_pricing_and_token_limits.sql
+        - classpath:db/migration/V20260702_03__switch_plan_limits_to_credits.sql
+        - classpath:db/migration/V20260702_04__rescale_credits_to_100_per_won.sql
+        - classpath:db/migration/V20260703_01__widen_token_usage_cost_precision.sql
   jpa:
     hibernate:
       ddl-auto: ${JPA_DDL_AUTO:update}
@@ -40,6 +50,10 @@ brainx:
     outbox:
       enabled: ${BRAINX_EVENTS_OUTBOX_ENABLED:false}
       relay-delay-ms: ${BRAINX_EVENTS_OUTBOX_RELAY_DELAY_MS:2000}
+    consumer:
+      enabled: ${BRAINX_EVENTS_CONSUMER_ENABLED:false}
+      group-id: ${BRAINX_EVENTS_CONSUMER_GROUP_ID:commerce-service}
+      topic: ${BRAINX_EVENTS_TOPIC_TOKEN_USAGE_RECORDED_REQUESTED:brainx.knowledge.intelligence.token-usage-recorded-requested.v1}
 
 toss:
   client-key: ${TOSS_CLIENT_KEY:your_toss_client_key}
@@ -52,6 +66,9 @@ logging:
     com.brainx: DEBUG
 
 management:
+  metrics:
+    tags:
+      application: ${spring.application.name}
   endpoint:
     health:
       probes:
@@ -64,4 +81,4 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus

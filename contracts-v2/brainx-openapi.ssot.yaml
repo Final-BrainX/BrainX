@@ -349,7 +349,7 @@ paths:
       - ConsentRecorded
       x-internal-sync-calls: []
       x-async-boundary: false
-      description: 회원 생성과 JWT 발급은 동기 처리. 기본 플랜/기본 워크스페이스/웰컴 메일은 이벤트 기반 후처리.
+      description: 회원 생성과 JWT 발급은 동기 처리. 기본 플랜/기본 워크스페이스(documentGroup)/웰컴 메일은 이벤트 기반 후처리.
       parameters:
       - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -1828,7 +1828,242 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
-  /api/v1/workspace/sync:
+  /api/v1/workspaces:
+    get:
+      operationId: listWorkspaces
+      summary: 내 워크스페이스 목록 조회
+      tags:
+      - Knowledge Workspace
+      x-producer-service: knowledge-workspace
+      x-visibility: public
+      x-consumers:
+      - id: web.home
+        type: frontend
+        description: 홈의 워크스페이스 전환기와 최근 워크스페이스 목록
+      - id: web.note-editor
+        type: frontend
+        description: 노트 편집기의 워크스페이스 선택 UI
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      description: 인증된 사용자가 소유한 Workspace(documentGroup) 목록을 조회한다.
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/WorkspaceListData'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+    post:
+      operationId: createWorkspace
+      summary: 워크스페이스 생성
+      tags:
+      - Knowledge Workspace
+      x-producer-service: knowledge-workspace
+      x-visibility: public
+      x-consumers:
+      - id: web.home
+        type: frontend
+        description: 새 워크스페이스 생성 다이얼로그
+      - id: web.note-editor
+        type: frontend
+        description: 편집기 내 워크스페이스 생성 UI
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      description: 사용자의 새 Workspace(documentGroup)를 생성한다. 생성 직후 해당 Workspace가 선택 상태가 된다.
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceCreateRequest'
+      responses:
+        '201':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/WorkspaceDetailData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: 충돌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+  /api/v1/workspaces/{documentGroupId}:
+    get:
+      operationId: getWorkspace
+      summary: 워크스페이스 상세 조회
+      tags:
+      - Knowledge Workspace
+      x-producer-service: knowledge-workspace
+      x-visibility: public
+      x-consumers:
+      - id: web.home
+        type: frontend
+        description: 워크스페이스 설정 화면
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: documentGroupId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/WorkspaceDetailData'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+    patch:
+      operationId: patchWorkspace
+      summary: 워크스페이스 메타데이터 수정
+      tags:
+      - Knowledge Workspace
+      x-producer-service: knowledge-workspace
+      x-visibility: public
+      x-consumers:
+      - id: web.home
+        type: frontend
+        description: 워크스페이스 이름/설명 수정 UI
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      description: 1차 범위에서는 Workspace 이름 변경만 지원한다.
+      parameters:
+      - name: documentGroupId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspacePatchRequest'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/WorkspaceDetailData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+  /api/v1/workspaces/{documentGroupId}/sync:
     get:
       operationId: syncWorkspace
       summary: 워크스페이스 동기화
@@ -1839,14 +2074,19 @@ paths:
       x-consumers:
       - id: web.home
         type: frontend
-        description: 홈, 워크스페이스 동기화, 최근 활동 및 검색 UI
+        description: 홈의 현재 선택 Workspace(documentGroup) 데이터 동기화
       - id: web.note-editor
         type: frontend
-        description: 마크다운/WYSIWYG 노트 편집기
+        description: 현재 편집 중인 Workspace(documentGroup) 데이터 동기화
       x-produces-events: []
       x-internal-sync-calls: []
       x-async-boundary: false
       parameters:
+      - name: documentGroupId
+        in: path
+        required: true
+        schema:
+          type: string
       - $ref: '#/components/parameters/Cursor'
       - name: includeDeleted
         in: query
@@ -1906,7 +2146,7 @@ paths:
       security:
       - bearerAuth: []
       - guestSessionAuth: []
-  /api/v1/workspace/me/stats:
+  /api/v1/workspaces/me/stats:
     get:
       operationId: getMyWorkspaceStats
       summary: 내 노트 통계 조회
@@ -1924,7 +2164,7 @@ paths:
       x-produces-events: []
       x-internal-sync-calls: []
       x-async-boundary: false
-      description: 인증된 사용자 본인의 노트 개수, 저장 용량, 최근 활동을 조회한다.
+      description: 인증된 사용자 본인의 전체 Workspace(documentGroup) 기준 노트 개수, 워크스페이스 개수, 최근 활동을 조회한다.
       responses:
         '200':
           description: 성공
@@ -2374,7 +2614,8 @@ paths:
         dirty set에서 제거된다. 같은 트랜잭션에서 guest가 만든 PostgreSQL 폴더(폴더 생성은
         actor 제약이 없어 guest도 만들 수 있다)의 소유자도 USER로 함께 옮긴다(folderId는
         그대로 유지되므로 draft.folderId/Note.folderId 참조가 끊기지 않는다) — 그 결과 guest
-        때의 폴더 구조와 노트-폴더 배치가 회원가입 직후에도 그대로 보인다.
+        때의 폴더 구조와 노트-폴더 배치가 회원가입 직후에도 그대로 보인다. guest draft는
+        claim 시 사용자의 default Workspace(documentGroup)에 저장된다.
       responses:
         '200':
           description: 성공
@@ -5818,10 +6059,11 @@ paths:
       operationId: listMcpTools
       summary: MCP 도구 목록 조회
       tags:
-      - Content Ingestion & Publishing
-      x-producer-service: content-ingestion-publishing
+      - MCP Agent Gateway
+      x-producer-service: mcp-service
       x-implementation-status: not-implemented
       x-visibility: public
+      description: REST compatibility catalog endpoint. Codex v1 uses the `/mcp` Streamable HTTP transport tool catalog instead.
       x-consumers:
       - id: external-agent
         type: external-client
@@ -5886,10 +6128,11 @@ paths:
       operationId: callMcpTool
       summary: MCP 도구 호출
       tags:
-      - Content Ingestion & Publishing
-      x-producer-service: content-ingestion-publishing
+      - MCP Agent Gateway
+      x-producer-service: mcp-service
       x-implementation-status: not-implemented
       x-visibility: public
+      description: REST compatibility tool-call endpoint. Codex v1 calls tools through the `/mcp` Streamable HTTP transport instead.
       x-consumers:
       - id: external-agent
         type: external-client
@@ -8197,27 +8440,12 @@ paths:
       x-internal-sync-calls: []
       x-async-boundary: false
       parameters:
-      - name: from
-        in: query
-        required: true
-        schema:
-          type: string
-          format: date
-      - name: to
-        in: query
-        required: true
-        schema:
-          type: string
-          format: date
-      - name: groupBy
+      - name: month
         in: query
         required: false
+        description: yyyy-MM, 생략 시 이번 달
         schema:
           type: string
-          enum:
-          - DAILY
-          - WEEKLY
-          - MONTHLY
       responses:
         '200':
           description: 성공
@@ -9487,7 +9715,7 @@ paths:
         reason: signup and active user summary
       x-produces-events: []
       x-async-boundary: false
-      x-implementation-note: KPI cards are rendered from Admin-Service authoritative aggregates. KPI deltas compare the latest live values with the most recent persisted daily monitoring snapshot, and service uptime is derived from recent persisted health snapshots instead of a frontend placeholder. A Spring scheduler captures the daily snapshot at 23:59 Asia/Seoul. Before that cutoff, the admin web app must keep overview data refreshed from live reads instead of relying on the persisted snapshot list. If Commerce-Service billing reads fail, Admin-Service may respond with zeroed billing aggregates so the admin shell can still render.
+      x-implementation-note: KPI cards are rendered from Admin-Service authoritative aggregates. KPI deltas compare the latest live values with the most recent persisted daily monitoring snapshot, and service uptime is derived from recent persisted health snapshots instead of a frontend placeholder. A Spring scheduler captures the daily snapshot at 23:59 Asia/Seoul. Before that cutoff, the admin web app must keep overview data refreshed from live reads instead of relying on the persisted snapshot list. `activeUserTrend` must be rendered as the previous persisted daily snapshots plus a current-day live overlay from User-Service, and if a same-day snapshot already exists it must win over the live overlay. If Commerce-Service billing reads fail, Admin-Service may respond with zeroed billing aggregates so the admin shell can still render.
       responses:
         '200':
           description: Success
@@ -10610,6 +10838,74 @@ paths:
       security:
       - bearerAuth:
         - ROLE_ADMIN
+  /internal/v1/intelligence/semantic-search:
+    post:
+      operationId: semanticSearchInternal
+      summary: '[Internal] Semantic search for service callers'
+      tags:
+      - Internal Service APIs
+      x-producer-service: knowledge-intelligence
+      x-visibility: internal
+      x-consumers:
+      - id: internal.mcp-service
+        type: internal-service
+        description: Mcp-Service note search tool calls semantic search with the API client's user context.
+      x-produces-events:
+      - SemanticSearchPerformed
+      - TokenUsageRecordedRequested
+      x-internal-sync-calls:
+      - targetService: commerce-operations
+        operationId: checkEntitlementsInternal
+        reason: capability/quota must be decided synchronously before semantic search.
+        required: true
+      x-async-boundary: false
+      description: Service-token protected semantic search endpoint for internal callers that must provide the target userId explicitly.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InternalSemanticSearchRequest'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/SemanticSearchData'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - serviceTokenAuth: []
   /internal/v1/entitlements/check:
     post:
       operationId: checkEntitlementsInternal
@@ -10702,6 +10998,9 @@ paths:
       - id: internal.content-ingestion-publishing
         type: internal-service
         description: 콘텐츠 수집 작업 워커 동기 호출자
+      - id: internal.mcp-service
+        type: internal-service
+        description: Mcp-Service create-note tool writes through the authoritative Workspace command API.
       x-produces-events:
       - NoteCreated
       x-internal-sync-calls: []
@@ -12389,9 +12688,10 @@ components:
       in: header
       name: X-Provider-Signature
     serviceTokenAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: service-jwt
+      type: apiKey
+      in: header
+      name: X-Service-Token
+      description: Shared internal service token used by Gateway and backend services for `/internal/v1/**` calls.
   responses:
     UnauthorizedError:
       description: 인증 필요
@@ -13193,9 +13493,82 @@ components:
       - ticketId
       - status
       additionalProperties: false
+    WorkspaceCreateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+      required:
+      - name
+      additionalProperties: false
+    WorkspacePatchRequest:
+      type: object
+      properties:
+        name:
+          type: string
+      required:
+      - name
+      additionalProperties: false
+    WorkspaceSummaryData:
+      type: object
+      properties:
+        documentGroupId:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        isDefault:
+          type: boolean
+        noteCount:
+          type: integer
+        folderCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+      - documentGroupId
+      - name
+      - isDefault
+      - noteCount
+      - folderCount
+      - createdAt
+      - updatedAt
+      additionalProperties: false
+    WorkspaceListData:
+      type: object
+      properties:
+        workspaces:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkspaceSummaryData'
+      required:
+      - workspaces
+      additionalProperties: false
+    WorkspaceDetailData:
+      allOf:
+      - $ref: '#/components/schemas/WorkspaceSummaryData'
+      - type: object
+        properties:
+          storageBytes:
+            type: integer
+            format: int64
+        required:
+        - storageBytes
+        additionalProperties: false
     WorkspaceSyncData:
       type: object
       properties:
+        documentGroupId:
+          type: string
         cursor:
           type: string
         notes:
@@ -13229,6 +13602,7 @@ components:
             type: object
             additionalProperties: true
       required:
+      - documentGroupId
       - cursor
       - notes
       - folders
@@ -13240,6 +13614,8 @@ components:
     NoteCreateRequest:
       type: object
       properties:
+        documentGroupId:
+          type: string
         title:
           type: string
         markdown:
@@ -13253,12 +13629,15 @@ components:
           items:
             type: string
       required:
+      - documentGroupId
       - title
       additionalProperties: false
     NoteCreatedData:
       type: object
       properties:
         noteId:
+          type: string
+        documentGroupId:
           type: string
         title:
           type: string
@@ -13272,6 +13651,7 @@ components:
           format: date-time
       required:
       - noteId
+      - documentGroupId
       - title
       - version
       - createdAt
@@ -13280,6 +13660,8 @@ components:
       type: object
       properties:
         noteId:
+          type: string
+        documentGroupId:
           type: string
         title:
           type: string
@@ -13322,6 +13704,7 @@ components:
           $ref: '#/components/schemas/NoteTypography'
       required:
       - noteId
+      - documentGroupId
       - title
       - markdown
       - version
@@ -13402,6 +13785,10 @@ components:
     NoteDraftSaveRequest:
       type: object
       properties:
+        documentGroupId:
+          type: string
+          nullable: true
+          description: 로그인 사용자는 대상 Workspace(documentGroup)를 보낸다. guest draft는 생략 가능하며 claim 시 사용자의 default Workspace로 귀속된다.
         title:
           type: string
           description: Redis draft에 함께 저장할 노트 제목. 없으면 빈 문자열로 저장된다.
@@ -13429,6 +13816,8 @@ components:
       properties:
         noteId:
           type: string
+        documentGroupId:
+          type: string
         actorType:
           type: string
           enum:
@@ -13446,6 +13835,7 @@ components:
           - DRAFT_SAVED
       required:
       - noteId
+      - documentGroupId
       - actorType
       - savedAt
       - expiresAt
@@ -13455,6 +13845,8 @@ components:
       type: object
       properties:
         noteId:
+          type: string
+        documentGroupId:
           type: string
         actorType:
           type: string
@@ -13482,6 +13874,7 @@ components:
           format: date-time
       required:
       - noteId
+      - documentGroupId
       - actorType
       - title
       - markdown
@@ -13530,6 +13923,9 @@ components:
         noteId:
           type: string
           description: PostgreSQL에 저장된 회원 노트 ID. sourceNoteId와 같을 수 있다.
+        documentGroupId:
+          type: string
+          description: claim 결과 이 노트가 저장된 Workspace(documentGroup). guest draft는 사용자의 default Workspace로 귀속된다.
         sourceNoteId:
           type: string
           description: guest Redis draft의 원래 noteId.
@@ -13539,6 +13935,7 @@ components:
           type: integer
       required:
       - noteId
+      - documentGroupId
       - sourceNoteId
       - title
       - version
@@ -13559,12 +13956,17 @@ components:
     NoteMetadataPatchRequest:
       type: object
       properties:
+        documentGroupId:
+          type: string
+          nullable: true
+          description: 대상 Workspace(documentGroup) 변경 시 사용한다. note를 다른 Workspace로 이동할 수 있는 1차 계약 필드다.
         title:
           type: string
           nullable: true
         folderId:
           type: string
           nullable: true
+          description: 같은 Workspace 내 폴더 이동 또는 Workspace 이동 직후 루트 배치를 표현한다. Folder의 Workspace 간 이동은 2차 범위다.
         tags:
           type: array
           items:
@@ -13586,6 +13988,8 @@ components:
       properties:
         noteId:
           type: string
+        documentGroupId:
+          type: string
         title:
           type: string
         folderId:
@@ -13605,6 +14009,7 @@ components:
           description: 같은 부모 폴더 안에서의 정렬 순서. 값이 작을수록 위에 표시된다.
       required:
       - noteId
+      - documentGroupId
       - version
       additionalProperties: false
     DeleteNoteData:
@@ -13696,18 +14101,23 @@ components:
     FolderCreateRequest:
       type: object
       properties:
+        documentGroupId:
+          type: string
         name:
           type: string
         parentFolderId:
           type: string
           nullable: true
       required:
+      - documentGroupId
       - name
       additionalProperties: false
     FolderData:
       type: object
       properties:
         folderId:
+          type: string
+        documentGroupId:
           type: string
         name:
           type: string
@@ -13725,17 +14135,21 @@ components:
             순서가 지정되지 않은 것으로 간주하고 기본 정렬(이름 오름차순)을 따른다.
       required:
       - folderId
+      - documentGroupId
       - name
       additionalProperties: false
     FolderTreeData:
       type: object
       properties:
+        documentGroupId:
+          type: string
         folders:
           type: array
           items:
             type: object
             additionalProperties: true
       required:
+      - documentGroupId
       - folders
       additionalProperties: false
     FolderPatchRequest:
@@ -14099,6 +14513,8 @@ components:
     ShareLinkCreateRequest:
       type: object
       properties:
+        documentGroupId:
+          type: string
         noteId:
           type: string
         permission:
@@ -14110,6 +14526,7 @@ components:
           type: string
           format: date-time
       required:
+      - documentGroupId
       - noteId
       - permission
       - expiresAt
@@ -14118,6 +14535,8 @@ components:
       type: object
       properties:
         shareId:
+          type: string
+        documentGroupId:
           type: string
         url:
           type: string
@@ -14135,6 +14554,7 @@ components:
           nullable: true
       required:
       - shareId
+      - documentGroupId
       - permission
       - expiresAt
       additionalProperties: false
@@ -14144,6 +14564,8 @@ components:
         shareId:
           type: string
         noteId:
+          type: string
+        documentGroupId:
           type: string
         title:
           type: string
@@ -14168,6 +14590,7 @@ components:
       required:
       - shareId
       - noteId
+      - documentGroupId
       - title
       - markdown
       - author
@@ -14603,6 +15026,7 @@ components:
           type: string
         scopes:
           type: array
+          description: MCP API key에 부여할 권한 목록. Codex 노트 도구 v1은 whoami, notes:read, ai:search, notes:write를 사용한다.
           items:
             type: string
         expiresAt:
@@ -14643,6 +15067,7 @@ components:
           type: string
         scopes:
           type: array
+          description: MCP API key에 실제로 부여된 권한 목록.
           items:
             type: string
         expiresAt:
@@ -14675,6 +15100,7 @@ components:
           type: string
         scopes:
           type: array
+          description: 인증된 MCP API key에 부여된 권한 목록.
           items:
             type: string
       required:
@@ -14754,6 +15180,36 @@ components:
           items:
             type: string
       required:
+      - query
+      additionalProperties: false
+    InternalSemanticSearchRequest:
+      type: object
+      properties:
+        userId:
+          type: string
+        scope:
+          type: string
+          enum:
+          - DOCUMENT_GROUP
+          - USER
+          default: DOCUMENT_GROUP
+          description: Search scope. DOCUMENT_GROUP searches within documentGroupId (default group if omitted). USER searches all note chunks owned by the user and must not include documentGroupId.
+        documentGroupId:
+          type: string
+          description: RAG/검색 격리를 위한 논리 문서 그룹 경계. 생략하면 Knowledge Intelligence가 default로 처리한다.
+        query:
+          type: string
+        filters:
+          type: object
+          additionalProperties: true
+        limit:
+          type: integer
+        hybridWithClientKeywordIds:
+          type: array
+          items:
+            type: string
+      required:
+      - userId
       - query
       additionalProperties: false
     SemanticSearchData:
@@ -15645,17 +16101,60 @@ components:
     TokenUsageData:
       type: object
       properties:
-        usage:
+        planName:
+          type: string
+          nullable: true
+        monthlyCreditLimit:
+          type: integer
+          nullable: true
+          description: >
+            월 크레딧 한도. null이면 무제한. 1크레딧 = Intelligence-Service가 계산한
+            estimatedCost(USD)를 고정 환율로 환산한 원화 상당 원가 — 모델별 토큰 단가가
+            달라 토큰 개수는 실제 원가를 대표하지 못하므로 크레딧을 과금/한도 단위로 쓴다.
+        usedCredits:
+          type: integer
+        usagePercent:
+          type: number
+        resetDate:
+          type: string
+          format: date
+        byFeature:
           type: array
           items:
-            type: object
-            additionalProperties: true
-        total:
-          type: object
-          additionalProperties: true
+            $ref: '#/components/schemas/TokenUsageFeatureUsage'
+        recentDays:
+          type: array
+          items:
+            $ref: '#/components/schemas/TokenUsageDailyUsage'
       required:
-      - usage
-      - total
+      - usedCredits
+      - usagePercent
+      - resetDate
+      - byFeature
+      - recentDays
+      additionalProperties: false
+    TokenUsageFeatureUsage:
+      type: object
+      properties:
+        feature:
+          type: string
+        credits:
+          type: integer
+      required:
+      - feature
+      - credits
+      additionalProperties: false
+    TokenUsageDailyUsage:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        credits:
+          type: integer
+      required:
+      - date
+      - credits
       additionalProperties: false
     KnowledgeDashboardData:
       type: object
@@ -16298,7 +16797,7 @@ components:
           $ref: '#/components/schemas/AdminTrendSeriesData'
         activeUserTrend:
           $ref: '#/components/schemas/AdminTrendSeriesData'
-          description: 관리자 모니터링 overview의 활성 사용자 추이 시계열
+          description: 관리자 모니터링 overview의 활성 사용자 추이 시계열. 전일 값은 persisted monitoring snapshot, 오늘 값은 User-Service live overlay를 우선 사용하되 당일 snapshot이 있으면 persisted 값을 사용한다.
       required:
       - kpis
       - services
@@ -16970,8 +17469,10 @@ components:
       additionalProperties: false
     WorkspaceUserStatsData:
       type: object
-      description: Authenticated user workspace statistics returned by `/api/v1/workspace/me/stats`.
+      description: Authenticated user workspace statistics returned by `/api/v1/workspaces/me/stats`.
       properties:
+        workspaceCount:
+          type: integer
         noteCount:
           type: integer
         storageBytes:
@@ -16982,6 +17483,7 @@ components:
           items:
             $ref: '#/components/schemas/InternalUserActivityDto'
       required:
+      - workspaceCount
       - noteCount
       - storageBytes
       - activities
