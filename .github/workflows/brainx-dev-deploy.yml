@@ -329,20 +329,59 @@ jobs:
               --output text
           )"
 
-          set +e
-          aws ssm wait command-executed \
-            --command-id "$COMMAND_ID" \
-            --instance-id "$AWS_DEV_INSTANCE_ID"
-          WAIT_STATUS=$?
-          set -e
+          MAX_ATTEMPTS=240
+          SLEEP_SECONDS=15
+          FINAL_STATUS=""
 
+          for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+            set +e
+            CURRENT_STATUS="$(
+              aws ssm get-command-invocation \
+                --command-id "$COMMAND_ID" \
+                --instance-id "$AWS_DEV_INSTANCE_ID" \
+                --query 'Status' \
+                --output text 2>/dev/null
+            )"
+            STATUS_CODE=$?
+            set -e
+
+            if [ "$STATUS_CODE" -ne 0 ] || [ -z "$CURRENT_STATUS" ] || [ "$CURRENT_STATUS" = "None" ]; then
+              echo "Waiting for SSM command to become visible... ($attempt/$MAX_ATTEMPTS)"
+            else
+              echo "SSM command status: $CURRENT_STATUS ($attempt/$MAX_ATTEMPTS)"
+              case "$CURRENT_STATUS" in
+                Success|Cancelled|TimedOut|Failed|Cancelling)
+                  FINAL_STATUS="$CURRENT_STATUS"
+                  break
+                  ;;
+              esac
+            fi
+
+            sleep "$SLEEP_SECONDS"
+          done
+
+          if [ -z "$FINAL_STATUS" ]; then
+            echo "SSM command did not reach a terminal state within $((MAX_ATTEMPTS * SLEEP_SECONDS)) seconds." >&2
+            exit 1
+          fi
+
+          set +e
           aws ssm get-command-invocation \
             --command-id "$COMMAND_ID" \
             --instance-id "$AWS_DEV_INSTANCE_ID" \
             --query '{Status:Status,StandardOutputContent:StandardOutputContent,StandardErrorContent:StandardErrorContent}' \
             --output text
+          INVOCATION_STATUS=$?
+          set -e
 
-          exit "$WAIT_STATUS"
+          if [ "$INVOCATION_STATUS" -ne 0 ]; then
+            echo "Failed to fetch final SSM command output." >&2
+            exit 1
+          fi
+
+          if [ "$FINAL_STATUS" != "Success" ]; then
+            exit 1
+          fi
 
       - name: Verify public endpoints
         shell: bash

@@ -181,6 +181,7 @@ Workflow: `.github/workflows/brainx-dev-deploy.yml`
   - moving: `dev-latest`
 - Docker build cache uses Docker Buildx GitHub Actions cache with one scope per service. The first build for a service can miss, and later builds reuse cache layers across GitHub-hosted runners.
 - Deploy uses SSM `AWS-RunShellScript`; no SSH key or port 22 is required.
+- GitHub waits on SSM by polling the command status until it reaches a terminal state, so longer remote redeploys no longer trip the default AWS CLI waiter timeout.
 - Remote deploy reads SSM parameters in one batch, skips repeated database bootstrap after the first successful run for the current RDS target, and only skips image pulls when the deployment is not already rebuilding the affected stack.
 - Remote deploy prints SSM stdout/stderr, `docker compose ps`, and endpoint checks. GitHub endpoint verification is limited to the changed service categories.
 - For deploy overlap or endpoint verification failures, use [`troubleshooting.md`](troubleshooting.md).
