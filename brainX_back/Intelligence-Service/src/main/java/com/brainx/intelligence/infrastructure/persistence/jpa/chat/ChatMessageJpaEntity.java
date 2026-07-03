@@ -6,6 +6,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import com.brainx.intelligence.chat.domain.ChatCitation;
 import com.brainx.intelligence.chat.domain.ChatMessage;
 import com.brainx.intelligence.chat.domain.ChatRole;
@@ -41,6 +44,7 @@ public class ChatMessageJpaEntity {
     private ChatRole role;
 
     @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "content", nullable = false)
     private String content;
 
@@ -48,21 +52,25 @@ public class ChatMessageJpaEntity {
     private String modelId;
 
     @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "note_scope", nullable = false)
     @Convert(converter = JsonMapAttributeConverter.class)
     private Map<String, Object> noteScope = Map.of();
 
     @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "client_context", nullable = false)
     @Convert(converter = JsonMapAttributeConverter.class)
     private Map<String, Object> clientContext = Map.of();
 
     @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "citations", nullable = false)
     @Convert(converter = JsonListMapAttributeConverter.class)
     private List<Map<String, Object>> citations = List.of();
 
     @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "token_usage")
     @Convert(converter = JsonMapAttributeConverter.class)
     private Map<String, Object> tokenUsage;

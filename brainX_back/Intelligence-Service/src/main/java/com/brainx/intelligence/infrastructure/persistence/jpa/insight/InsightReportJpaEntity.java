@@ -4,6 +4,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import com.brainx.intelligence.insight.domain.InsightRecommendation;
 import com.brainx.intelligence.insight.domain.InsightReport;
 import com.brainx.intelligence.insight.domain.InsightReportStatus;
@@ -45,6 +48,7 @@ public class InsightReportJpaEntity {
     private InsightReportStatus status;
 
     @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "scope_json", nullable = false)
     private String scopeJson;
 
@@ -52,14 +56,17 @@ public class InsightReportJpaEntity {
     private boolean includeLearningRecommendations;
 
     @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "summary")
     private String summary;
 
     @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "knowledge_gaps_json", nullable = false)
     private String knowledgeGapsJson;
 
     @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "recommendations_json", nullable = false)
     private String recommendationsJson;
 
