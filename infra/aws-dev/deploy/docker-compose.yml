@@ -293,8 +293,8 @@ services:
       DB_URL: jdbc:postgresql://${RDS_HOST}:${RDS_PORT}/brainx_intelligence
       DB_USERNAME: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
-      JPA_DDL_AUTO: update
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      JPA_DDL_AUTO: validate
       JWT_SECRET: ${JWT_SECRET}
       SERVICE_TOKEN: ${SERVICE_TOKEN}
       SPRING_AI_MODEL_CHAT: openai

@@ -87,7 +87,7 @@ Windows PowerShell 기준:
 
 배포 환경에서 Workspace 이벤트를 소비해 note projection을 만들려면 `BRAINX_EVENTS_CONSUMER_ENABLED=true`, `KAFKA_BOOTSTRAP_SERVERS`, `SPRING_KAFKA_BOOTSTRAP_SERVERS`, `BRAINX_WORKSPACE_BASE_URL`, `BRAINX_WORKSPACE_SERVICE_TOKEN`이 필요합니다. Workspace internal snapshot API는 `X-Service-Token` 헤더를 사용하므로 `BRAINX_WORKSPACE_SERVICE_TOKEN`은 Workspace-Service의 `SERVICE_TOKEN`과 같아야 합니다.
 
-운영 DB는 기본 `ddl-auto=validate`이므로 chat thread archive/delete 기능 배포 전 `intelligence_chat_threads.archived_at`, `intelligence_chat_threads.deleted_at` nullable `timestamp with time zone` 컬럼을 별도 migration으로 추가해야 합니다. 기준 DDL은 `docs/technical/intelligence-operational-db-ddl.md`를 따릅니다.
+운영 DB schema는 Flyway가 `src/main/resources/db/migration`의 migration으로 적용하고, Hibernate는 기본 `ddl-auto=validate`로 entity/schema 불일치만 검증합니다. 로컬 H2 기반 `local`, `test`, `dev-ui` profile은 기존처럼 `create-drop`을 사용하며 Flyway를 끕니다. 운영 DDL 기준과 수동 점검 절차는 `docs/technical/intelligence-operational-db-ddl.md`를 따릅니다.
 
 Swagger UI는 `http://localhost:8086/swagger-ui.html`, 생성된 OpenAPI JSON은 `http://localhost:8086/v3/api-docs`, health check는 `http://localhost:8086/actuator/health`에서 확인합니다. `local` profile에서는 Swagger 테스트 편의를 위해 `/api/v1/**` 인증을 요구하지 않습니다.
 

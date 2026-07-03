@@ -91,11 +91,11 @@ Voyage embedding seed:
 | `voyage-4-lite` | `voyage` | `0.000020` | null | null | `USD` |
 | `voyage-context-3` | `voyage` | `0.000180` | null | null | `USD` |
 
-이 seed는 local/dev H2 실행을 위한 것이며 운영 DB migration이나 운영 catalog seed를 대체하지 않는다. RAG CLI의 실제 provider 호출 모델은 `OPENAI_CHAT_MODEL`, `VOYAGE_EMBEDDING_MODEL`, `brainx.dev.sample-rag.chat-model` 같은 runtime 설정이 결정하고, DB catalog는 usage record의 cost estimate와 모델 메타데이터 조회에 사용한다.
+local/dev H2 실행은 `LocalAiModelSeedData`가 채우고, 운영 PostgreSQL catalog는 Flyway repeatable migration `R__seed_ai_model_catalog.sql`이 채운다. RAG CLI의 실제 provider 호출 모델은 `OPENAI_CHAT_MODEL`, `VOYAGE_EMBEDDING_MODEL`, `brainx.dev.sample-rag.chat-model` 같은 runtime 설정이 결정하고, DB catalog는 usage record의 cost estimate와 모델 메타데이터 조회에 사용한다.
 
 ## 운영 DB Migration
 
-이 repository에는 Flyway/Liquibase migration이 없다. 기본 profile은 `spring.jpa.hibernate.ddl-auto=validate`이므로 운영 DB에는 schema 변경을 별도로 적용해야 한다.
+운영 DB schema는 Flyway migration으로 적용한다. 기본 profile은 `spring.jpa.hibernate.ddl-auto=validate`이므로 entity와 migration이 불일치하면 service startup validation에서 실패한다.
 
 `ai_models`에 필요한 추가 컬럼:
 
