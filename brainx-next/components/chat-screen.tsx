@@ -11,6 +11,7 @@ import {
   listChatThreads,
   sendChatMessageStream,
   updateChatThread,
+  type ChatRouteEvent,
   type ChatThreadData,
   type ChatThreadDetailData,
   type ChatThreadListData,
@@ -42,12 +43,15 @@ type ChatCitation = {
   sourceFilename?: string;
 };
 
+type ChatRoute = "NOTE_QA" | "WORKSPACE_SEARCH" | "COMPOSE" | "NOTE_ACTION" | "OUT_OF_SCOPE";
+
 type ChatMessageView = {
   id: string;
   role: "ai" | "user";
   text: string;
   modelId?: string;
   createdAt?: string;
+  route?: ChatRoute;
   streaming?: boolean;
   error?: boolean;
   citations?: ChatCitation[];
@@ -251,6 +255,32 @@ function stringValue(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+function chatRouteFrom(value: unknown): ChatRoute | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toUpperCase();
+  return normalized === "NOTE_QA" ||
+    normalized === "WORKSPACE_SEARCH" ||
+    normalized === "COMPOSE" ||
+    normalized === "NOTE_ACTION" ||
+    normalized === "OUT_OF_SCOPE"
+    ? normalized
+    : undefined;
+}
+
+function chatRouteFromEvent(event: ChatRouteEvent): ChatRoute | undefined {
+  return chatRouteFrom(event.route);
+}
+
+function isOutOfScopeFixedAnswer(text: string) {
+  return text.trim().startsWith("BrainX 본 채팅은 내 노트 검색, 노트 기반 질문, 글 작성, 노트 적용 초안만 처리합니다.");
+}
+
+function canSaveAiMessageDraft(message: ChatMessageView) {
+  if (message.role !== "ai" || message.streaming || message.error || !message.text.trim()) return false;
+  if (isOutOfScopeFixedAnswer(message.text)) return false;
+  return message.route === "COMPOSE" || message.route === "NOTE_ACTION";
+}
+
 function numberValue(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
@@ -275,6 +305,7 @@ function citationsFrom(value: unknown): ChatCitation[] {
 
 function messagesFromThread(detail: ChatThreadDetailData): ChatMessageView[] {
   return detail.messages.map((message, index) => {
+    const record = message as Record<string, unknown>;
     const role = stringValue(message.role).toUpperCase() === "ASSISTANT" ? "ai" : "user";
     return {
       id: stringValue(message.messageId) || `${role}-${index}`,
@@ -282,6 +313,7 @@ function messagesFromThread(detail: ChatThreadDetailData): ChatMessageView[] {
       text: stringValue(message.content),
       modelId: stringValue(message.modelId),
       createdAt: stringValue(message.createdAt),
+      route: chatRouteFrom(record.route ?? record.chatRoute),
       citations: citationsFrom(message.citations)
     };
   });
@@ -531,10 +563,24 @@ export function ChatScreen() {
     clearActiveThread();
   }
 
-  async function refreshActiveThread(threadId: string) {
+  async function refreshActiveThread(
+    threadId: string,
+    routeOverride?: { messageId?: string; route?: ChatRoute }
+  ) {
     const detail = await getChatThread(threadId);
     setActiveThread(detail.thread);
-    setMessages(messagesFromThread(detail));
+    let nextMessages = messagesFromThread(detail);
+    if (routeOverride?.route) {
+      let applied = false;
+      nextMessages = nextMessages.map((message) => {
+        if (message.role !== "ai") return message;
+        if (routeOverride.messageId && message.id !== routeOverride.messageId) return message;
+        if (!routeOverride.messageId && applied) return message;
+        applied = true;
+        return { ...message, route: routeOverride.route };
+      });
+    }
+    setMessages(nextMessages);
   }
 
   async function setThreadArchived(thread: ChatThreadListItem, archived: boolean) {
@@ -606,6 +652,8 @@ export function ChatScreen() {
     ]);
 
     let streamError: unknown = null;
+    let streamRoute: ChatRoute | undefined;
+    let streamAssistantMessageId: string | undefined;
 
     try {
       let thread = activeThread;
@@ -637,12 +685,25 @@ export function ChatScreen() {
           modelId: model.id
         },
         {
+          onRoute: (event) => {
+            const route = chatRouteFromEvent(event);
+            if (!route) return;
+            streamRoute = route;
+            setMessages((current) => current.map((message) => (
+              message.id === assistantId
+                ? { ...message, route }
+                : message
+            )));
+          },
           onDelta: (text) => {
             setMessages((current) => current.map((message) => (
               message.id === assistantId
                 ? { ...message, text: message.text + text, streaming: true }
                 : message
             )));
+          },
+          onDone: (data) => {
+            streamAssistantMessageId = stringValue(data?.messageId);
           },
           onError: (error) => {
             streamError = error;
@@ -665,7 +726,10 @@ export function ChatScreen() {
         return;
       }
 
-      await refreshActiveThread(thread.threadId);
+      await refreshActiveThread(thread.threadId, {
+        messageId: streamAssistantMessageId,
+        route: streamRoute
+      });
       await loadThreadPage(true, "active");
     } catch (error) {
       setMessages((current) => current.map((message) => (
@@ -954,7 +1018,7 @@ export function ChatScreen() {
                 const saveStatus = saveState?.status ?? "idle";
                 const isSavingDraft = saveStatus === "saving";
                 const isSavedDraft = saveStatus === "saved" && !!saveState?.noteId;
-                const canSaveDraft = message.role === "ai" && !message.streaming && !message.error && !!message.text.trim();
+                const canSaveDraft = canSaveAiMessageDraft(message);
 
                 return (
                 <div key={message.id} className={cx("flex gap-3", message.role === "user" ? "flex-row-reverse" : "")}>

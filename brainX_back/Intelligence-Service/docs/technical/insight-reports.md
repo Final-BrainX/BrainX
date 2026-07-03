@@ -65,4 +65,4 @@ JPA entity는 `intelligence_insight_reports` table을 사용한다.
 - `created_at`
 - `completed_at`
 
-이 repository에는 Flyway/Liquibase migration이 없다. 기본 profile은 `ddl-auto=validate`이므로 운영 DB에는 위 table DDL migration을 별도로 적용해야 한다.
+운영 DB schema는 Flyway migration으로 적용한다. 기본 profile은 `ddl-auto=validate`이므로 위 table DDL과 entity가 불일치하면 service startup validation에서 실패한다.

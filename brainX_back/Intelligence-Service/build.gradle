@@ -57,6 +57,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
     implementation 'org.springframework.ai:spring-ai-starter-model-openai'
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-postgresql'
     implementation 'io.qdrant:client:1.13.0'
     implementation 'io.grpc:grpc-protobuf:1.65.1'
     implementation 'io.grpc:grpc-stub:1.65.1'

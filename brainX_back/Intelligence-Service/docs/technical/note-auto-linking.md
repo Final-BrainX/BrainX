@@ -18,7 +18,7 @@
 - trashed/deleted/removed projection은 markdown을 clear한다.
 - sample RAG ingest도 sample markdown을 projection에 저장한다.
 
-운영 DB는 `ddl-auto=validate`이므로 `intelligence_note_projections.markdown` CLOB/TEXT 컬럼 migration이 별도로 필요하다. local/test H2는 `create-drop`으로 자동 생성한다.
+운영 DB의 `intelligence_note_projections.markdown` CLOB/TEXT 컬럼은 Flyway migration으로 적용한다. local/test H2는 `create-drop`으로 자동 생성한다.
 
 ## 전략
 

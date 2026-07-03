@@ -49,7 +49,7 @@ class SettingsJpaAdapterTest {
         entityManager.flush();
         entityManager.clear();
 
-        // ai_models는 db/seed 스크립트로 기본 카탈로그가 채워진 상태로 기동되므로,
+        // ai_models는 runtime별 seed가 기본 카탈로그를 채울 수 있으므로,
         // 전체 개수가 아니라 방금 저장한 모델이 포함되어 있는지로 검증한다.
         var models = settingsJpaAdapter.findAll();
 

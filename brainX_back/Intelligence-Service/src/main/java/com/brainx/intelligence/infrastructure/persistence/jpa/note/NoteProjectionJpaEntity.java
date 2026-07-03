@@ -3,6 +3,9 @@ package com.brainx.intelligence.infrastructure.persistence.jpa.note;
 import java.time.Instant;
 import java.util.List;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import com.brainx.intelligence.infrastructure.events.note.NoteProjection;
 import com.brainx.intelligence.infrastructure.events.note.NoteSearchIndexStatus;
 import com.brainx.intelligence.infrastructure.persistence.jpa.JsonStringListAttributeConverter;
@@ -40,6 +43,7 @@ public class NoteProjectionJpaEntity {
     private String folderId;
 
     @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Convert(converter = JsonStringListAttributeConverter.class)
     @Column(name = "tags", nullable = false)
     private List<String> tags;
@@ -51,6 +55,7 @@ public class NoteProjectionJpaEntity {
     private String markdownHash;
 
     @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "markdown")
     private String markdown;
 

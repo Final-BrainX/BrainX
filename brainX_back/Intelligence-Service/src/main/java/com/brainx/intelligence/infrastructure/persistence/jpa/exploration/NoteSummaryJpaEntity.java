@@ -1,5 +1,8 @@
 package com.brainx.intelligence.infrastructure.persistence.jpa.exploration;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import com.brainx.intelligence.exploration.domain.NoteSummary;
 import com.brainx.intelligence.exploration.domain.SummarySource;
 
@@ -26,6 +29,7 @@ public class NoteSummaryJpaEntity {
     private String noteId;
 
     @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "summary", nullable = false)
     private String summary;
 

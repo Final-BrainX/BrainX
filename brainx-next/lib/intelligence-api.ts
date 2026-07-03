@@ -45,6 +45,12 @@ export type ChatMessageDoneEvent = {
   messageId: string;
 };
 
+export type ChatRouteEvent = {
+  route?: string;
+  reason?: string;
+  routerModel?: string;
+};
+
 export type ChatThreadListStatus = "active" | "archived";
 
 export type IntelligenceRequestOptions = {
@@ -55,6 +61,7 @@ export type IntelligenceRequestOptions = {
 export type IntelligenceStreamHandlers<TDone> = IntelligenceRequestOptions & {
   onDelta?: (text: string) => void;
   onDone?: (data: TDone) => void;
+  onRoute?: (data: ChatRouteEvent) => void;
   onError?: (error: unknown) => void;
 };
 
@@ -149,6 +156,8 @@ async function readSseStream<TDone>(
       if (frame.event === "delta") {
         const text = typeof parsed === "object" && parsed && "text" in parsed ? String(parsed.text ?? "") : frame.data;
         handlers.onDelta?.(text);
+      } else if (frame.event === "route") {
+        handlers.onRoute?.(routeEventFrom(parsed));
       } else if (frame.event === "done") {
         donePayload = parsed as TDone;
         handlers.onDone?.(donePayload);
@@ -161,7 +170,9 @@ async function readSseStream<TDone>(
   const tail = buffer.trim();
   if (tail) {
     const frame = parseSseFrame(tail);
-    if (frame.event === "done") {
+    if (frame.event === "route") {
+      handlers.onRoute?.(routeEventFrom(parseJson(frame.data)));
+    } else if (frame.event === "done") {
       donePayload = parseJson(frame.data) as TDone;
       handlers.onDone?.(donePayload);
     }
@@ -183,6 +194,16 @@ function parseSseFrame(raw: string): SseFrame {
   }
 
   return { event, data: data.join("\n") };
+}
+
+function routeEventFrom(value: unknown): ChatRouteEvent {
+  if (!value || typeof value !== "object") return {};
+  const record = value as Record<string, unknown>;
+  return {
+    route: typeof record.route === "string" ? record.route : undefined,
+    reason: typeof record.reason === "string" ? record.reason : undefined,
+    routerModel: typeof record.routerModel === "string" ? record.routerModel : undefined
+  };
 }
 
 function parseJson(value: string): unknown {

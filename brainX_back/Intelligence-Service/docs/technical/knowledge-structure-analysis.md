@@ -75,4 +75,4 @@ JPA entity는 `intelligence_cluster_jobs` table을 사용한다.
 
 `scope_json`에는 public scope 외에 `_sourceSnapshot` 내부 키가 들어갈 수 있다. 이 값은 latest stale 판단용이며 public response와 event payload에서는 제거한다.
 
-이 repository에는 Flyway/Liquibase migration이 없다. 기본 profile은 `ddl-auto=validate`이므로 운영 DB에는 위 table DDL migration을 별도로 적용해야 한다.
+운영 DB schema는 Flyway migration으로 적용한다. 기본 profile은 `ddl-auto=validate`이므로 위 table DDL과 entity가 불일치하면 service startup validation에서 실패한다.

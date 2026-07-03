@@ -191,7 +191,7 @@ function normalizeClusterId(value: string): ClusterId {
 function normalizeSummary(summary: string | null | undefined, title: string) {
   const text = summary?.trim();
   if (text) return text;
-  return `${title} note summary has not been generated yet.`;
+  return `${title}은 아직 처리되지 않았습니다. AI 기능이 제한됩니다.`;
 }
 
 function normalizeDate(value: string | null | undefined) {

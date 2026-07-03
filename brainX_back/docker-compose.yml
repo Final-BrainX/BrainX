@@ -297,8 +297,8 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${INTELLIGENCE_DB_NAME:-intelligence_service}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-1234}
-      SPRING_JPA_HIBERNATE_DDL_AUTO: ${JPA_DDL_AUTO:-update}
-      JPA_DDL_AUTO: ${JPA_DDL_AUTO:-update}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      JPA_DDL_AUTO: validate
       JWT_SECRET: ${JWT_SECRET:-replace_with_at_least_32_byte_secret}
       SERVICE_TOKEN: ${SERVICE_TOKEN:-local-service-token}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}

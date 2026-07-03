@@ -4,6 +4,9 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import com.brainx.intelligence.infrastructure.persistence.jpa.JsonMapAttributeConverter;
 import com.brainx.intelligence.settings.domain.AssistanceStyle;
 import com.brainx.intelligence.settings.domain.ConversationTone;
@@ -26,6 +29,7 @@ public class StyleProfileJpaEntity {
     private String userId;
 
     @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "style", nullable = false)
     @Convert(converter = JsonMapAttributeConverter.class)
     private Map<String, Object> style = Map.of();
