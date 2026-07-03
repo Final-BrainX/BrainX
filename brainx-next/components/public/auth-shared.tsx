@@ -7,6 +7,7 @@ import { getOAuthAuthorization, stashOAuthReturnTo, type OAuthProvider } from "@
 import { useBrainX } from "@/components/brainx-provider";
 import { Icon, ThemeToggle } from "@/components/brainx-ui";
 import { HeroConstellation } from "@/components/public/landing-screen";
+import { BrandLogo } from "@/components/brand-logo";
 
 const OAUTH_LINK_INTENT_KEY = "brainx_oauth_link_intent_v1";
 
@@ -188,12 +189,9 @@ export function AuthShell({ children }: { children: ReactNode }) {
         <button
           type="button"
           onClick={() => router.push("/")}
-          className="relative z-10 flex w-fit items-center gap-2.5"
+          className="relative z-10 flex w-fit items-center gap-2.5 mb-8"
         >
-          <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-primary via-accent to-cyan shadow-glow">
-            <Icon name="brain" size={20} className="text-white" />
-          </div>
-          <span className="text-[22px] font-bold tracking-tight font-display">BrainX</span>
+          <BrandLogo size={40} showWordmark />
         </button>
         <div className="relative z-10 max-w-sm">
           <h2 className="mb-3 text-[32px] font-bold leading-tight tracking-tight">내 지식의 우주를<br />탐험하는 AI 두뇌</h2>

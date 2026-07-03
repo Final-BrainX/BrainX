@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CLUSTERS, SAMPLE_MD, noteById } from "@/lib/brainx-data";
 
 import { Avatar, Badge, Btn, Icon, ThemeToggle } from "@/components/brainx-ui";
+import { BrandLogo } from "@/components/brand-logo";
 
 import { useBrainX } from "@/components/brainx-provider";
 
@@ -33,10 +34,7 @@ export function ShareScreen({ noteId }: { noteId?: string } = {}) {
     <div data-route className="h-full overflow-y-auto scroll">
       <header className="sticky top-0 z-10 flex h-16 items-center border-b border-line/40 bg-bg/60 px-6 backdrop-blur-xl">
         <button type="button" onClick={() => router.push("/")} className="flex items-center gap-2.5">
-          <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-primary to-accent">
-            <Icon name="brain" size={17} className="text-white" />
-          </div>
-          <span className="font-display font-bold">BrainX</span>
+          <BrandLogo size={32} showWordmark />
         </button>
         <div className="flex-1" />
         <Badge color="234 179 8" dot className="mr-3">

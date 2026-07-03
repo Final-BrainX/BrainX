@@ -327,7 +327,7 @@ if [ "${DEPLOY_CONFIG_CHANGED:-false}" = "true" ]; then
   else
     echo "Config-only deployment; skipping image pull."
   fi
-  docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" up -d --remove-orphans
+  docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" up -d --remove-orphans --force-recreate
 else
   docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" pull $services
   docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" up -d --no-deps $services

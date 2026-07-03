@@ -72,6 +72,9 @@ brainx:
       consumer-group-id: ${BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID:intelligence-service}
 
 management:
+  metrics:
+    tags:
+      application: ${spring.application.name}
   endpoint:
     health:
       probes:
@@ -84,7 +87,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
 
 logging:
   level:

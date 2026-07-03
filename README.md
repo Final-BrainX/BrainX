@@ -75,7 +75,7 @@ BrainX/
 - `next.config.mjs`에서 Turbopack root를 `brainx-next` 폴더로 고정해, 루트에 다른 lockfile이 있어도 개발 서버가 잘못된 워크스페이스 루트를 잡지 않도록 했습니다.
 - 관리자 콘솔 mock 기준으로 관리자 계정 이메일 입력, 미확인 문의 수 배지, 답변 완료 문의의 답변 입력 숨김, 환불 시 무료 플랜 전환, 로그인 기기 국가만 표시, 구독 다음 결제일의 월간/연간 표기를 반영했습니다.
 - 관리자 생성 계정의 이메일은 로그인 후 프로필 이메일 칸까지 그대로 이어지도록 맞췄고, Billing 화면과 Admin 화면에서는 구독 시작일과 다음 결제일을 주기별(월간 30일, 연간 365일)로 표시합니다.
-- 관리자 모니터링 화면에는 검은색 `status-line` 업데이트 문구, 최근 14일 활성 사용자/매출 그래프, Excel 호환 리포트 다운로드가 추가되었습니다.
+- 관리자 모니터링 화면에는 검은색 `status-line` 업데이트 문구, 최근 14일 활성 사용자/매출 그래프, Excel 호환 리포트 다운로드가 추가되었습니다. 활성 사용자 추이는 전일까지는 `admin_monitoring_snapshots` persisted 이력을 사용하고, 오늘 23:59 Asia/Seoul snapshot이 아직 없으면 오늘 칸만 `User-Service` live 값으로 overlay합니다.
 - 관리자 모니터링 우측 레일에는 관리자 목록 아래 게임 채팅형 메시지함이 있으며, 전체 발송/선택 발송과 unread `SMS` 건수, `읽음` 모달을 함께 지원합니다.
 - 환불은 관리자 사유를 함께 전달하고, 환불 안내 메일 발송과 Commerce 구독의 `free` 전환을 기준으로 사용자 화면이 주기적으로 최신 플랜을 다시 읽어오도록 맞췄습니다.
 - Commerce 환불은 `REFUNDED` 상태를 DB 체크 제약에 포함하도록 보정했고, 결제사에서 이미 취소된 결제라면 로컬 원장과 구독 상태를 `환불 완료 + free 전환`으로 재동기화하도록 처리했습니다.
@@ -548,7 +548,7 @@ overview의 실데이터 차트는 `Commerce-Service`의 `/internal/v1/billing/r
 `/api/v1/admin/monitoring/snapshots`는 과거 날짜에 대해서는 persisted row만 내려주고, 오늘 날짜의 persisted row가 아직 없으면 live KPI/active user/Kafka lag를 합성한 `persisted=false` current-day overlay row를 맨 앞에 함께 내려줍니다. `brainx-admin-next` 모니터링 화면은 이 목록과 overview를 주기적으로 다시 읽고, `새로고침` 버튼도 실제 API reload를 수행해야 합니다.
 운영 로그 기반으로 MSA 개선률을 비교할 때는 [`brainX_back/scripts/calc_msa_efficiency.py`](brainX_back/scripts/calc_msa_efficiency.py)를 사용합니다. baseline/current 폴더에 `Admin-Service`의 `GET /api/v1/admin/monitoring/health` JSON과 Gateway access log를 넣고 `--json` 또는 일반 출력으로 실행하면 `latency reduction`, `fallback interference reduction`, `availability change`를 함께 계산합니다.
 Gateway health proxy(`/internal/v1/health/*`)는 downstream actuator가 직접 `503`을 돌려줘도 circuit breaker fallback으로 흡수하도록 `statusCodes: 503`을 명시합니다. 또한 Gateway outbound DNS resolver는 `brainx.gateway.httpclient.dns.*` 설정으로 query timeout, negative TTL, resolve query count를 짧게 제한해 이름 해석 단계 블로킹을 줄입니다.
-관리자 모니터링 화면은 상단 선형 차트를 활성 사용자 추이로, 하단 막대 차트를 매출 분석으로 분리해 overview의 `activeUserTrend`와 `revenueTrend`를 각각 실데이터 그대로 사용합니다.
+관리자 모니터링 화면은 상단 선형 차트를 활성 사용자 추이로, 하단 막대 차트를 매출 분석으로 분리해 overview의 `activeUserTrend`와 `revenueTrend`를 각각 실데이터 그대로 사용합니다. `activeUserTrend`는 최근 13일 persisted monitoring snapshot에 오늘 live overlay를 합성하며, 당일 snapshot이 이미 있으면 live 대신 persisted 값을 사용합니다.
 overview summary는 결제/사용자 지표 외에 `Workspace-Service`의 `/internal/v1/workspace/monitoring/summary`를 통해 전체 노트 수, 총 저장량, 오늘 생성된 노트 수를 함께 내려줍니다. 관리자 모니터링의 Workspace 원장 카드와 일부 실시간 로그는 이 내부 API의 최근 활동 목록을 사용합니다.
 
 | 화면 | Method | Path | 소유 데이터/연동 |

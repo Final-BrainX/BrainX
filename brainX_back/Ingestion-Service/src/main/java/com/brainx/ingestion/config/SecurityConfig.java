@@ -37,7 +37,7 @@ public class SecurityConfig {
             )
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/actuator/health").permitAll()
+                .requestMatchers("/actuator/health", "/actuator/prometheus").permitAll()
                 .requestMatchers("/v1/publish-jobs/**").permitAll()
                 // TEMP: 로그인 없이 가져오기 기능 테스트용. 실제 로그인 연동 완료 후 제거할 것.
                 .requestMatchers("/api/v1/imports/notion/**").permitAll()

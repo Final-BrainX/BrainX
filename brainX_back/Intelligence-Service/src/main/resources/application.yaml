@@ -198,6 +198,9 @@ brainx:
         model-id: ${BRAINX_DEV_NOTE_AUTO_LINK_MODEL_ID:${OPENAI_CHAT_MODEL:gpt-5.4-mini}}
 
 management:
+  metrics:
+    tags:
+      application: ${spring.application.name}
   endpoint:
     health:
       probes:
@@ -210,4 +213,4 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
