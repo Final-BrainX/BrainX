@@ -201,3 +201,5 @@ Path mapping:
 | `infra/aws-dev/**` or workflow file | deploy config refresh |
 
 For first deployment after adding Mcp-Service, run Terraform apply first so the `brainx-dev-mcp-service` ECR repository exists, then run the workflow manually with `deploy_all=true` so every ECR image exists before partial deployments start.
+
+For first deployment after adding Discovery-Service or any other new backend service, run Terraform apply first so the matching `brainx-dev-<service>` ECR repository and GitHub Actions ECR policy exist before the workflow tries to push the image. If the repo is missing or the policy is stale, the build step will fail with a `403 Forbidden` push error.

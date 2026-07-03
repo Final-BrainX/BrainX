@@ -98,6 +98,8 @@ aws ssm put-parameter --name /brainx/dev/SEED_ADMIN_NAME --type SecureString --v
 
 `deploy_remote.sh` also writes the shared non-secret runtime defaults into `/opt/brainx/env/runtime.env` on every CI/CD deploy so the compose file can consume the same values automatically: `ADMIN_DB_NAME`, `GATEWAY_SERVICE_URL`, `USER_SERVICE_URL`, `COMMERCE_SERVICE_URL`, `WORKSPACE_SERVICE_URL`, `INGESTION_SERVICE_URL`, `INTELLIGENCE_SERVICE_URL`, `MCP_SERVICE_URL`, `EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE`, `MAIL_HOST`, and `MAIL_PORT`.
 
+For Eureka-backed service lookup, keep the service-id casing aligned with Spring registration names. In AWS dev that means `User-Service`, `Commerce-Service`, `Workspace-Service`, `Admin-Service`, and `Gateway-Service` stay capitalized, while `ingestion-service`, `intelligence-service`, and `mcp-service` stay lowercase because those services register with lowercase `spring.application.name` values.
+
 For Kafka lag monitoring, the same runtime env now also carries `KAFKA_BOOTSTRAP_SERVERS` and `BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID` so `admin-service` can read the broker address and consumer group from deployment-time values instead of falling back to `localhost:9092`.
 
 Mcp-Service는 `deploy_remote.sh`가 `brainx_mcp` logical database를 만들고, Docker Compose가 `JWT_SECRET`과 RDS 접속 정보를 주입한다. 첫 배포 전에는 Terraform apply로 `brainx-dev-mcp-service` ECR repository를 만든다.

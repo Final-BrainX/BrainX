@@ -132,7 +132,7 @@ spring:
                     fallbackUri: forward:/fallback/workspace
 
             - id: internal-ingestion-health
-              uri: lb://Ingestion-Service
+              uri: lb://ingestion-service
               predicates:
                 - Path=/internal/v1/health/ingestion
               filters:
@@ -220,7 +220,7 @@ spring:
                     fallbackUri: forward:/fallback/workspace
 
             - id: ingestion-service
-              uri: lb://Ingestion-Service
+              uri: lb://ingestion-service
               predicates:
                 - Path=/api/v1/imports/**,/api/v1/exports,/api/v1/exports/**,/v1/publish-jobs,/v1/publish-jobs/**,/api/v1/extension/**,/api/v1/assets/**
               filters:
