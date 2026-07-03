@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
-import { motion, useInView } from "framer-motion";
+import { motion, useInView, type Variants } from "framer-motion";
 
 import { useRouter } from "next/navigation";
 
@@ -303,19 +303,21 @@ function useSingleTyping(text: string, start: boolean, typingSpeed = 15) {
   return { displayed, isDone: frameIndex === frames.length - 1 };
 }
 
-const sectionVariants = {
+const smoothEase = [0.22, 1, 0.36, 1] as const;
+
+const sectionVariants: Variants = {
   hidden: {},
   visible: { transition: { staggerChildren: 0.22, delayChildren: 1.2 } }
 };
 
-const itemVariants = {
+const itemVariants: Variants = {
   hidden: { opacity: 0, y: 40 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.85, ease: [0.22, 1, 0.36, 1] } }
+  visible: { opacity: 1, y: 0, transition: { duration: 0.85, ease: smoothEase } }
 };
 
-const singleItemVariants = {
+const singleItemVariants: Variants = {
   hidden: { opacity: 0, y: 40 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.85, ease: [0.22, 1, 0.36, 1], delay: 1.2 } }
+  visible: { opacity: 1, y: 0, transition: { duration: 0.85, ease: smoothEase, delay: 1.2 } }
 };
 
 
