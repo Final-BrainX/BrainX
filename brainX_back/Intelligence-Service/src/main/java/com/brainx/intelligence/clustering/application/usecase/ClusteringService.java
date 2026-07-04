@@ -35,6 +35,7 @@ import com.brainx.intelligence.clustering.domain.ClusteringConflictException;
 import com.brainx.intelligence.clustering.domain.ClusteringForbiddenException;
 import com.brainx.intelligence.clustering.domain.ClusteringNotFoundException;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
+import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -70,6 +71,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
     private final ClusteringEventPort clusteringEventPort;
     private final ClusteringProperties properties;
     private final ObjectMapper objectMapper;
+    private final StylePromptCompiler stylePromptCompiler;
     private final Clock clock;
 
     @Autowired
@@ -82,7 +84,8 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
         AiUsageRecorder aiUsageRecorder,
         ClusteringEventPort clusteringEventPort,
         ClusteringProperties properties,
-        ObjectMapper objectMapper
+        ObjectMapper objectMapper,
+        StylePromptCompiler stylePromptCompiler
     ) {
         this(
             clusterJobStore,
@@ -94,6 +97,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
             clusteringEventPort,
             properties,
             objectMapper,
+            stylePromptCompiler,
             Clock.systemUTC()
         );
     }
@@ -108,6 +112,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
         ClusteringEventPort clusteringEventPort,
         ClusteringProperties properties,
         ObjectMapper objectMapper,
+        StylePromptCompiler stylePromptCompiler,
         Clock clock
     ) {
         this.clusterJobStore = clusterJobStore;
@@ -119,6 +124,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
         this.clusteringEventPort = clusteringEventPort;
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.stylePromptCompiler = stylePromptCompiler;
         this.clock = clock;
     }
 
@@ -143,7 +149,10 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
         }
 
         String modelId = resolveModelId(userId);
-        String systemPrompt = systemPrompt(maxClusters);
+        String systemPrompt = StylePromptCompiler.appendToSystemPrompt(
+            systemPrompt(maxClusters),
+            stylePromptCompiler.writingStyleInstructions(userId)
+        );
         String userPrompt = userPrompt(notes, maxClusters);
         int tokenEstimate = estimateTokens(systemPrompt + "\n" + userPrompt);
         var entitlement = entitlementPort.checkEntitlement(new EntitlementRequest(

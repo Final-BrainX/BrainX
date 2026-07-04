@@ -22,7 +22,6 @@ import com.brainx.intelligence.settings.domain.AiPricingPolicy;
 import com.brainx.intelligence.settings.domain.AiModel;
 import com.brainx.intelligence.settings.domain.AiModelAvailabilityPolicy;
 import com.brainx.intelligence.settings.domain.AiModelSettings;
-import com.brainx.intelligence.settings.domain.AssistanceStyle;
 import com.brainx.intelligence.settings.domain.ConversationTone;
 import com.brainx.intelligence.settings.domain.SettingsValidation;
 import com.brainx.intelligence.settings.domain.StyleProfile;
@@ -113,7 +112,6 @@ public class AiSettingsService implements
         return new GetStyleProfileUseCase.StyleProfileResult(
             styleProfile.conversationToneValues(),
             styleProfile.writingStyleValues(),
-            styleProfile.assistanceStyleValues(),
             styleProfile.detectedFromNotesAt()
         );
     }
@@ -125,14 +123,12 @@ public class AiSettingsService implements
             userId,
             new ConversationTone(command.conversationTone()),
             new WritingStyle(command.writingStyle()),
-            new AssistanceStyle(command.assistanceStyle()),
             null
         ));
 
         return new PutStyleProfileUseCase.StyleProfileResult(
             savedProfile.conversationToneValues(),
             savedProfile.writingStyleValues(),
-            savedProfile.assistanceStyleValues(),
             savedProfile.detectedFromNotesAt()
         );
     }

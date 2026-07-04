@@ -10,7 +10,6 @@ public record StyleProfile(
     String userId,
     ConversationTone conversationTone,
     WritingStyle writingStyle,
-    AssistanceStyle assistanceStyle,
     Instant detectedFromNotesAt
 ) {
 
@@ -18,11 +17,10 @@ public record StyleProfile(
         userId = SettingsValidation.requireText(userId, "userId");
         conversationTone = conversationTone == null ? ConversationTone.empty() : conversationTone;
         writingStyle = writingStyle == null ? WritingStyle.empty() : writingStyle;
-        assistanceStyle = assistanceStyle == null ? AssistanceStyle.empty() : assistanceStyle;
     }
 
     public static StyleProfile empty(String userId) {
-        return new StyleProfile(userId, ConversationTone.empty(), WritingStyle.empty(), AssistanceStyle.empty(), null);
+        return new StyleProfile(userId, ConversationTone.empty(), WritingStyle.empty(), null);
     }
 
     public Map<String, Object> conversationToneValues() {
@@ -31,9 +29,5 @@ public record StyleProfile(
 
     public Map<String, Object> writingStyleValues() {
         return writingStyle.values();
-    }
-
-    public Map<String, Object> assistanceStyleValues() {
-        return assistanceStyle.values();
     }
 }

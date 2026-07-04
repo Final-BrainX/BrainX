@@ -37,6 +37,7 @@ class FlywayPostgresMigrationTest {
         assertThat(indexExists("idx_note_projection_index_retry")).isTrue();
         assertThat(aiModelCount()).isGreaterThanOrEqualTo(6);
         assertThat(migrationApplied("V20260703_01__baseline_and_repair_intelligence_schema.sql")).isTrue();
+        assertThat(migrationApplied("V20260704_01__remove_assistance_style_from_style_profiles.sql")).isTrue();
         assertThat(migrationApplied("R__seed_ai_model_catalog.sql")).isTrue();
     }
 
@@ -67,6 +68,11 @@ class FlywayPostgresMigrationTest {
         assertThat(singleString("select document_group_id from intelligence_note_projections where projection_id = 'legacy-user::default::legacy-note'"))
             .isEqualTo("default");
         assertThat(migrationApplied("V20260703_01__baseline_and_repair_intelligence_schema.sql")).isTrue();
+        assertThat(migrationApplied("V20260704_01__remove_assistance_style_from_style_profiles.sql")).isTrue();
+        assertThat(columnType("user_style_profiles", "style")).isEqualTo("text");
+        assertThat(singleString("select style from user_style_profiles where user_id = 'legacy-style-user'"))
+            .contains("conversationTone", "writingStyle")
+            .doesNotContain("assistanceStyle");
     }
 
     private static String[] applicationArgs() {
@@ -219,6 +225,24 @@ class FlywayPostgresMigrationTest {
                   lo_from_bytea(0, convert_to('{"source":"legacy"}', 'UTF8')),
                   lo_from_bytea(0, convert_to('[]', 'UTF8')),
                   lo_from_bytea(0, convert_to('{"totalTokens":1}', 'UTF8')),
+                  now()
+                )
+                """);
+            statement.execute("""
+                create table user_style_profiles (
+                  user_id varchar(100) primary key,
+                  style oid not null,
+                  detected_from_notes_at timestamp(6) with time zone
+                )
+                """);
+            statement.execute("""
+                insert into user_style_profiles (
+                  user_id,
+                  style,
+                  detected_from_notes_at
+                ) values (
+                  'legacy-style-user',
+                  lo_from_bytea(0, convert_to('{"conversationTone":{"directness":"high"},"writingStyle":{"formality":"business"},"assistanceStyle":{"clarificationPolicy":"only_when_blocking"}}', 'UTF8')),
                   now()
                 )
                 """);

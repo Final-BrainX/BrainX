@@ -35,8 +35,13 @@ import com.brainx.intelligence.connection.domain.ConnectionNotFoundException;
 import com.brainx.intelligence.connection.domain.ConnectionProviderUnavailableException;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
+import com.brainx.intelligence.settings.application.port.outbound.StyleProfilePort;
+import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.settings.domain.AiModel;
 import com.brainx.intelligence.settings.domain.AiModelSettings;
+import com.brainx.intelligence.settings.domain.ConversationTone;
+import com.brainx.intelligence.settings.domain.StyleProfile;
+import com.brainx.intelligence.settings.domain.WritingStyle;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatChunk;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -62,6 +67,8 @@ class ConnectionServiceTest {
     private final FakeAiChatPort aiChatPort = new FakeAiChatPort();
     private final FakeTokenUsagePort tokenUsagePort = new FakeTokenUsagePort();
     private final AiTokenUsageCostEstimator usageCostEstimator = new AiTokenUsageCostEstimator(new FakeAiModelCatalogPort());
+    private final FakeStyleProfilePort styleProfilePort = new FakeStyleProfilePort();
+    private final StylePromptCompiler stylePromptCompiler = new StylePromptCompiler(styleProfilePort);
     private final ConnectionService service = new ConnectionService(
         noteSourcePort,
         entitlementPort,
@@ -71,6 +78,7 @@ class ConnectionServiceTest {
         aiModelSettingsPort,
         aiChatPort,
         new AiUsageRecorder(tokenUsagePort, usageCostEstimator),
+        stylePromptCompiler,
         new ObjectMapper()
     );
 
@@ -108,6 +116,12 @@ class ConnectionServiceTest {
     @Test
     void createBridgeConceptsUsesDefaultGroupTitlesTagsAndPublishesUsageEvents() {
         aiModelSettingsPort.settings = Optional.of(new AiModelSettings("user-1", "gpt-user", Map.of()));
+        styleProfilePort.profile = new StyleProfile(
+            "user-1",
+            new ConversationTone(Map.of("warmth", "warm", "directness", "high")),
+            new WritingStyle(Map.of("formality", "business")),
+            null
+        );
         noteSourcePort.bridgeSources = List.of(
             new ConnectionBridgeSourceNote("user-1", "default", "note-1", "Java", List.of("backend")),
             new ConnectionBridgeSourceNote("user-1", "default", "note-2", "Database", List.of("sql", "storage"))
@@ -133,7 +147,11 @@ class ConnectionServiceTest {
         assertThat(entitlementPort.lastRequest.requestedTokenEstimate()).isPositive();
         assertThat(aiChatPort.lastRequest.modelId()).isEqualTo("gpt-user");
         String systemPrompt = aiChatPort.lastRequest.messages().getFirst().content();
-        assertThat(systemPrompt).contains("including both required wiki links exactly as [[title]]");
+        assertThat(systemPrompt)
+            .contains("including both required wiki links exactly as [[title]]")
+            .contains("User conversation tone profile")
+            .contains("- directness: high")
+            .doesNotContain("User writing style profile");
         String prompt = aiChatPort.lastRequest.messages().get(1).content();
         assertThat(prompt).contains("Java", "backend", "Database", "sql", "[[Java]]", "[[Database]]");
         assertThat(prompt).doesNotContain("markdown body");
@@ -560,6 +578,23 @@ class ConnectionServiceTest {
         @Override
         public boolean existsByModelId(String modelId) {
             return false;
+        }
+    }
+
+    private static final class FakeStyleProfilePort implements StyleProfilePort {
+
+        private StyleProfile profile;
+
+        @Override
+        public StyleProfile save(StyleProfile styleProfile) {
+            profile = styleProfile;
+            return styleProfile;
+        }
+
+        @Override
+        public Optional<StyleProfile> findStyleProfileByUserId(String userId) {
+            return Optional.ofNullable(profile)
+                .filter(item -> item.userId().equals(userId));
         }
     }
 }

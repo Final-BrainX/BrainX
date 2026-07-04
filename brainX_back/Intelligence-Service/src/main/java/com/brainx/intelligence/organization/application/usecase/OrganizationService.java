@@ -23,6 +23,7 @@ import com.brainx.intelligence.organization.domain.OrganizationForbiddenExceptio
 import com.brainx.intelligence.organization.domain.OrganizationNotFoundException;
 import com.brainx.intelligence.organization.domain.OrganizationProviderUnavailableException;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
+import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -55,6 +56,7 @@ public class OrganizationService implements CreateFolderOrganizationProposalUseC
     private final AiUsageRecorder aiUsageRecorder;
     private final OrganizationEventPort organizationEventPort;
     private final OrganizationProperties properties;
+    private final StylePromptCompiler stylePromptCompiler;
     private final ObjectMapper objectMapper;
 
     public OrganizationService(
@@ -65,6 +67,7 @@ public class OrganizationService implements CreateFolderOrganizationProposalUseC
         AiUsageRecorder aiUsageRecorder,
         OrganizationEventPort organizationEventPort,
         OrganizationProperties properties,
+        StylePromptCompiler stylePromptCompiler,
         ObjectMapper objectMapper
     ) {
         this.noteSourcePort = noteSourcePort;
@@ -74,6 +77,7 @@ public class OrganizationService implements CreateFolderOrganizationProposalUseC
         this.aiUsageRecorder = aiUsageRecorder;
         this.organizationEventPort = organizationEventPort;
         this.properties = properties;
+        this.stylePromptCompiler = stylePromptCompiler;
         this.objectMapper = objectMapper;
     }
 
@@ -94,7 +98,10 @@ public class OrganizationService implements CreateFolderOrganizationProposalUseC
         String modelId = resolveModelId(userId);
         int maxProposedFolders = properties.getMaxProposedFolders();
         int maxProposedMoves = properties.getMaxProposedMoves();
-        String systemPrompt = systemPrompt(maxProposedFolders, maxProposedMoves);
+        String systemPrompt = StylePromptCompiler.appendToSystemPrompt(
+            systemPrompt(maxProposedFolders, maxProposedMoves),
+            stylePromptCompiler.conversationToneInstructions(userId)
+        );
         String userPrompt = userPrompt(notes, scope, maxProposedFolders, maxProposedMoves);
         int tokenEstimate = estimateTokens(systemPrompt + "\n" + userPrompt);
         var entitlement = entitlementPort.checkEntitlement(new EntitlementRequest(

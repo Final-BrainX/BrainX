@@ -38,6 +38,7 @@ import com.brainx.intelligence.autolink.domain.NoteAutoLinkStrategy;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteChunkRetrievalPort;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteChunkRetrievalPort.NoteChunkSearchQuery;
 import com.brainx.intelligence.exploration.domain.NoteChunkSearchResult;
+import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -144,6 +145,7 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
     private final MarkdownAnchorLocator anchorLocator = new MarkdownAnchorLocator();
     private final ObjectMapper objectMapper;
     private final ObjectProvider<AutoLinkUsageCapturePort> usageCapturePortProvider;
+    private final StylePromptCompiler stylePromptCompiler;
 
     public NoteAutoLinkService(
         NoteAutoLinkProperties properties,
@@ -152,7 +154,8 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
         AiChatPort aiChatPort,
         AiUsageRecorder aiUsageRecorder,
         ObjectMapper objectMapper,
-        ObjectProvider<AutoLinkUsageCapturePort> usageCapturePortProvider
+        ObjectProvider<AutoLinkUsageCapturePort> usageCapturePortProvider,
+        StylePromptCompiler stylePromptCompiler
     ) {
         this.properties = properties;
         this.noteSourcePort = noteSourcePort;
@@ -161,6 +164,7 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
         this.aiUsageRecorder = aiUsageRecorder;
         this.objectMapper = objectMapper;
         this.usageCapturePortProvider = usageCapturePortProvider;
+        this.stylePromptCompiler = stylePromptCompiler;
     }
 
     @Override
@@ -409,10 +413,14 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
         String userPrompt
     ) {
         try {
+            String effectiveSystemPrompt = StylePromptCompiler.appendToSystemPrompt(
+                systemPrompt,
+                linkReasonFeature(featureId) ? stylePromptCompiler.conversationToneInstructions(userId) : ""
+            );
             AiChatResponse response = aiChatPort.generate(new AiChatRequest(
                 modelId,
                 List.of(
-                    new AiChatMessage(AiRole.SYSTEM, systemPrompt),
+                    new AiChatMessage(AiRole.SYSTEM, effectiveSystemPrompt),
                     new AiChatMessage(AiRole.USER, userPrompt)
                 )
             ));
@@ -424,6 +432,10 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
             }
             throw exception;
         }
+    }
+
+    private static boolean linkReasonFeature(String featureId) {
+        return VECTOR_FEATURE_ID.equals(featureId) || LLM_ONLY_FEATURE_ID.equals(featureId);
     }
 
     private void recordChatUsage(String userId, String featureId, String modelId, AiTokenUsage tokenUsage) {

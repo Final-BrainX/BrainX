@@ -2,6 +2,8 @@
 
 BrainX Knowledge Intelligence 영역의 Spring Boot 서비스입니다. 시맨틱 검색, RAG 채팅, AI 제안, 클러스터링, 인사이트 리포트, 모델 설정, 문체 프로필 API를 담당합니다.
 
+문체 프로필은 `conversationTone`과 `writingStyle` 두 축으로 저장됩니다. `conversationTone`은 대화형 답변과 사용자-facing 추천 이유에, `writingStyle`은 초안/수정/리포트처럼 실제 생성 결과물의 LLM prompt에 적용됩니다.
+
 ## 기술 스택
 
 - Java 21
