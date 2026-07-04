@@ -111,9 +111,10 @@ class OrganizationServiceTest {
         assertThat(noteSource.lastAllLimit).isEqualTo(50);
         assertThat(chatPort.lastRequest.modelId()).isEqualTo("gpt-user");
         assertThat(chatPort.lastRequest.messages().getFirst().content())
-            .contains("User conversation tone profile")
-            .contains("- directness: high")
-            .doesNotContain("User writing style profile");
+            .contains("Mandatory user style instructions")
+            .contains("every final user-facing conversational sentence")
+            .contains("Keep the directness level: high")
+            .doesNotContain("every final generated or edited user-facing text segment");
         assertThat(chatPort.lastRequest.messages().get(1).content())
             .contains("sanitized Spring excerpt")
             .doesNotContain("markdown");

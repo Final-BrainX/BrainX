@@ -115,9 +115,10 @@ class ClusteringServiceTest {
         assertThat(job.clusters().getFirst().noteIds()).containsExactly("note-1", "note-2");
         assertThat(chatPort.lastRequest.modelId()).isEqualTo("gpt-user");
         assertThat(chatPort.lastRequest.messages().getFirst().content())
-            .contains("User writing style profile")
-            .contains("- formality: business")
-            .doesNotContain("User conversation tone profile");
+            .contains("Mandatory user style instructions")
+            .contains("every final generated or edited user-facing text segment")
+            .contains("Use this formality/tone: business")
+            .doesNotContain("every final user-facing conversational sentence");
         assertThat(chatPort.lastRequest.messages().get(1).content()).contains("Spring Boot service");
         assertThat(entitlementPort.lastRequest.capability()).isEqualTo("AI_CLUSTERING");
         assertThat(tokenUsagePort.records).hasSize(1);

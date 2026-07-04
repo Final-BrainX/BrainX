@@ -196,6 +196,13 @@ brainx:
       context-before: ${BRAINX_DEV_INLINE_ASSIST_CONTEXT_BEFORE:}
       context-after: ${BRAINX_DEV_INLINE_ASSIST_CONTEXT_AFTER:}
       language: ${BRAINX_DEV_INLINE_ASSIST_LANGUAGE:ko}
+    style-profile-quality:
+      enabled: ${BRAINX_DEV_STYLE_PROFILE_QUALITY_ENABLED:false}
+      command: ${BRAINX_DEV_STYLE_PROFILE_QUALITY_COMMAND:run}
+      user-id: ${BRAINX_DEV_STYLE_PROFILE_QUALITY_USER_ID:sample-style-user}
+      note-id: ${BRAINX_DEV_STYLE_PROFILE_QUALITY_NOTE_ID:sample-style-note}
+      model-id: ${BRAINX_DEV_STYLE_PROFILE_QUALITY_MODEL_ID:${OPENAI_CHAT_MODEL:gpt-5.4-mini}}
+      judge-model-id: ${BRAINX_DEV_STYLE_PROFILE_QUALITY_JUDGE_MODEL_ID:${OPENAI_CHAT_MODEL:gpt-5.4-mini}}
     connection-quality:
       enabled: ${BRAINX_DEV_CONNECTION_QUALITY_ENABLED:false}
       command: ${BRAINX_DEV_CONNECTION_QUALITY_COMMAND:run}

@@ -49,12 +49,141 @@ import type { ThemeMode } from "@/components/brainx-provider";
 import type { LanguageCode } from "@/lib/i18n";
 import { useGuideStore } from "@/lib/use-guide-store";
 import { formatCreditCount, formatResetDate, formatTokenPercent, iconForFeature } from "@/lib/token-usage";
+import {
+  getStyleProfile,
+  IntelligenceAuthRequiredError,
+  putStyleProfile,
+  type StyleProfileData,
+  type StyleProfilePutRequest
+} from "@/lib/intelligence-api";
 
-type TabId = "profile" | "general" | "notifications" | "apiKeys" | "import" | "usage" | "stats" | "support" | "upgrade";
+type TabId = "profile" | "general" | "style" | "notifications" | "apiKeys" | "import" | "usage" | "stats" | "support" | "upgrade";
 type SocialProvider = "google" | "kakao" | "naver";
+type StyleProfileMap = Record<string, unknown>;
+type StyleProfileBase = {
+  conversationTone: StyleProfileMap;
+  writingStyle: StyleProfileMap;
+};
 
 const OAUTH_LINK_INTENT_KEY = "brainx_oauth_link_intent_v1";
 const PROVIDERS: SocialProvider[] = ["google", "kakao", "naver"];
+const CONVERSATION_TONE_KEYS = ["speechLevel", "warmth", "directness", "verbosity", "emoji"] as const;
+const WRITING_STYLE_SCALAR_KEYS = ["speechLevel", "defaultAudience", "defaultPurpose", "formality", "informationDensity", "sentenceLength"] as const;
+type ConversationToneKey = (typeof CONVERSATION_TONE_KEYS)[number];
+type WritingStyleScalarKey = (typeof WRITING_STYLE_SCALAR_KEYS)[number];
+type StylePresetOption = { value: string; label: string };
+type StyleDraft = {
+  conversationTone: Record<ConversationToneKey, string>;
+  writingStyle: Record<WritingStyleScalarKey, string> & { avoid: string };
+};
+
+const EMPTY_STYLE_BASE: StyleProfileBase = { conversationTone: {}, writingStyle: {} };
+
+const CONVERSATION_TONE_FIELDS: {
+  key: ConversationToneKey;
+  title: string;
+  desc: string;
+  options: StylePresetOption[];
+}[] = [
+  {
+    key: "speechLevel",
+    title: "말투",
+    desc: "AI가 사용자에게 답할 때 쓰는 기본 높임말 수준입니다.",
+    options: [
+      { value: "haeyo", label: "해요체" },
+      { value: "formal", label: "격식체" },
+      { value: "banmal", label: "반말" }
+    ]
+  },
+  {
+    key: "warmth",
+    title: "따뜻함",
+    desc: "대화 응답의 온도감과 친근함을 조정합니다.",
+    options: [
+      { value: "neutral", label: "중립" },
+      { value: "warm", label: "따뜻함" },
+      { value: "low", label: "건조함" }
+    ]
+  },
+  {
+    key: "directness",
+    title: "직접성",
+    desc: "추천 이유와 답변을 얼마나 바로 말할지 정합니다.",
+    options: [
+      { value: "balanced", label: "균형" },
+      { value: "high", label: "직접적" },
+      { value: "low", label: "완곡함" }
+    ]
+  },
+  {
+    key: "verbosity",
+    title: "답변 길이",
+    desc: "대화형 설명의 기본 분량을 정합니다.",
+    options: [
+      { value: "balanced", label: "균형" },
+      { value: "concise", label: "간결" },
+      { value: "detailed", label: "자세히" }
+    ]
+  },
+  {
+    key: "emoji",
+    title: "이모지",
+    desc: "사용자-facing 문장에 이모지를 얼마나 허용할지 정합니다.",
+    options: [
+      { value: "off", label: "사용 안 함" },
+      { value: "light", label: "가볍게" },
+      { value: "expressive", label: "풍부하게" }
+    ]
+  }
+];
+
+const WRITING_STYLE_PRESET_FIELDS: {
+  key: WritingStyleScalarKey;
+  title: string;
+  desc: string;
+  options: StylePresetOption[];
+}[] = [
+  {
+    key: "speechLevel",
+    title: "결과물 말투",
+    desc: "초안, 수정, 리포트 결과물에 적용할 말투를 자유롭게 적습니다.",
+    options: [
+      { value: "haeyo", label: "해요체" },
+      { value: "formal", label: "합니다체" },
+      { value: "friendly-polite", label: "친근한 존댓말" }
+    ]
+  },
+  {
+    key: "formality",
+    title: "격식",
+    desc: "초안, 재작성, 리포트 결과물의 기본 격식입니다.",
+    options: [
+      { value: "business", label: "업무형" },
+      { value: "casual", label: "캐주얼" },
+      { value: "academic", label: "학술형" }
+    ]
+  },
+  {
+    key: "informationDensity",
+    title: "정보 밀도",
+    desc: "결과물에 담기는 정보량과 압축 정도를 정합니다.",
+    options: [
+      { value: "balanced", label: "균형" },
+      { value: "light", label: "가볍게" },
+      { value: "dense", label: "밀도 높게" }
+    ]
+  },
+  {
+    key: "sentenceLength",
+    title: "문장 길이",
+    desc: "결과물 문장의 기본 호흡을 정합니다.",
+    options: [
+      { value: "short", label: "짧게" },
+      { value: "medium", label: "보통" },
+      { value: "long", label: "길게" }
+    ]
+  }
+];
 
 const NAV_GROUPS: { label: string; items: { id: TabId; label: string; icon: IconName }[] }[] = [
   {
@@ -62,6 +191,7 @@ const NAV_GROUPS: { label: string; items: { id: TabId; label: string; icon: Icon
     items: [
       { id: "profile", label: "프로필", icon: "user" },
       { id: "general", label: "일반", icon: "settings" },
+      { id: "style", label: "문체", icon: "sparkle" },
       { id: "notifications", label: "알림", icon: "bell" },
       { id: "apiKeys", label: "API Keys", icon: "shield" }
     ]
@@ -85,6 +215,7 @@ const NAV_GROUPS: { label: string; items: { id: TabId; label: string; icon: Icon
 const MOBILE_TABS: { id: TabId; label: string }[] = [
   { id: "profile", label: "프로필" },
   { id: "general", label: "일반" },
+  { id: "style", label: "문체" },
   { id: "notifications", label: "알림" },
   { id: "apiKeys", label: "API Keys" },
   { id: "import", label: "가져오기" },
@@ -218,6 +349,118 @@ function planBadgeLabel(subscription: CommerceSubscription | null) {
 
   const name = subscription.plan.name.trim();
   return name === "무료" ? "Free" : name || "Free";
+}
+
+function emptyStyleDraft(): StyleDraft {
+  return {
+    conversationTone: {
+      speechLevel: "",
+      warmth: "",
+      directness: "",
+      verbosity: "",
+      emoji: ""
+    },
+    writingStyle: {
+      speechLevel: "",
+      defaultAudience: "",
+      defaultPurpose: "",
+      formality: "",
+      informationDensity: "",
+      sentenceLength: "",
+      avoid: ""
+    }
+  };
+}
+
+function styleBaseFromProfile(profile: StyleProfileData | null): StyleProfileBase {
+  return {
+    conversationTone: profile?.conversationTone ?? {},
+    writingStyle: profile?.writingStyle ?? {}
+  };
+}
+
+function scalarStyleValue(value: unknown) {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
+}
+
+function normalizePresetStyleValue(value: unknown, options: StylePresetOption[]) {
+  const text = scalarStyleValue(value).trim();
+  if (!text || options.length === 0) return text;
+  const normalized = text.toLocaleLowerCase();
+  const selectedOption = options.find(
+    (option) => normalized === option.value.toLocaleLowerCase() || normalized === option.label.toLocaleLowerCase()
+  );
+  return selectedOption?.label ?? text;
+}
+
+function conversationToneOptions(key: ConversationToneKey) {
+  return CONVERSATION_TONE_FIELDS.find((field) => field.key === key)?.options ?? [];
+}
+
+function writingStyleOptions(key: WritingStyleScalarKey) {
+  return WRITING_STYLE_PRESET_FIELDS.find((field) => field.key === key)?.options ?? [];
+}
+
+function avoidTextValue(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.map(scalarStyleValue).filter(Boolean).join("\n");
+  }
+  return scalarStyleValue(value);
+}
+
+function draftFromStyleProfile(profile: StyleProfileData | null): StyleDraft {
+  const draft = emptyStyleDraft();
+  const conversationTone = profile?.conversationTone ?? {};
+  const writingStyle = profile?.writingStyle ?? {};
+
+  for (const key of CONVERSATION_TONE_KEYS) {
+    draft.conversationTone[key] = normalizePresetStyleValue(conversationTone[key], conversationToneOptions(key));
+  }
+  for (const key of WRITING_STYLE_SCALAR_KEYS) {
+    draft.writingStyle[key] = normalizePresetStyleValue(writingStyle[key], writingStyleOptions(key));
+  }
+  draft.writingStyle.avoid = avoidTextValue(writingStyle.avoid);
+
+  return draft;
+}
+
+function splitAvoidItems(value: string) {
+  return value
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function applyManagedStyleValue(target: StyleProfileMap, key: string, value: string) {
+  const nextValue = value.trim();
+  if (nextValue) {
+    target[key] = nextValue;
+  } else {
+    delete target[key];
+  }
+}
+
+function stylePayloadFromDraft(base: StyleProfileBase, draft: StyleDraft): StyleProfilePutRequest {
+  const conversationTone: StyleProfileMap = { ...base.conversationTone };
+  const writingStyle: StyleProfileMap = { ...base.writingStyle };
+
+  for (const key of CONVERSATION_TONE_KEYS) {
+    applyManagedStyleValue(conversationTone, key, normalizePresetStyleValue(draft.conversationTone[key], conversationToneOptions(key)));
+  }
+  for (const key of WRITING_STYLE_SCALAR_KEYS) {
+    applyManagedStyleValue(writingStyle, key, normalizePresetStyleValue(draft.writingStyle[key], writingStyleOptions(key)));
+  }
+
+  const avoidItems = splitAvoidItems(draft.writingStyle.avoid);
+  if (avoidItems.length) {
+    writingStyle.avoid = avoidItems;
+  } else {
+    delete writingStyle.avoid;
+  }
+
+  return { conversationTone, writingStyle };
 }
 
 function ModalButton({
@@ -738,7 +981,12 @@ export function AccountSettingsModal({
           </button>
 
           <div className="border-b border-[#e5e0d8] px-4 py-3 md:hidden">
-            <select value={tab} onChange={(event) => setTab(event.target.value as TabId)} className="h-9 w-full rounded-[7px] border border-[#ded8cf] bg-white px-3 text-[13px]">
+            <select
+              value={tab}
+              aria-label="설정 탭 선택"
+              onChange={(event) => setTab(event.target.value as TabId)}
+              className="h-9 w-full rounded-[7px] border border-[#ded8cf] bg-white px-3 text-[13px]"
+            >
               {MOBILE_TABS.map((item) => (
                 <option key={item.id} value={item.id}>{item.label}</option>
               ))}
@@ -786,6 +1034,7 @@ export function AccountSettingsModal({
                   onConsentChange={saveConsent}
                 />
               ) : null}
+              {tab === "style" ? <StyleProfilePanel /> : null}
               {tab === "notifications" ? <NotificationsPanel /> : null}
               {tab === "apiKeys" ? <McpApiKeysPanel variant="modal" /> : null}
               {tab === "import" ? <ImportScreen /> : null}
@@ -1095,6 +1344,321 @@ function SegmentedControl<T extends string>({
         </button>
       ))}
     </div>
+  );
+}
+
+function StyleProfilePanel() {
+  const router = useRouter();
+  const { pushToast } = useBrainX();
+  const [baseProfile, setBaseProfile] = useState<StyleProfileBase>(EMPTY_STYLE_BASE);
+  const [draft, setDraft] = useState<StyleDraft>(() => emptyStyleDraft());
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setLoadError(null);
+    getStyleProfile()
+      .then((profile) => {
+        if (!active) return;
+        setBaseProfile(styleBaseFromProfile(profile));
+        setDraft(draftFromStyleProfile(profile));
+        setLoadError(null);
+      })
+      .catch((error) => {
+        if (!active) return;
+        const message = error instanceof Error ? error.message : "문체 설정을 불러오지 못했습니다.";
+        setLoadError(message);
+        pushToast(message, "err");
+        if (error instanceof IntelligenceAuthRequiredError) router.replace("/login");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [pushToast, router, reloadNonce]);
+
+  const updateConversationTone = (key: ConversationToneKey, value: string) => {
+    setDraft((current) => ({
+      ...current,
+      conversationTone: { ...current.conversationTone, [key]: value }
+    }));
+  };
+
+  const updateWritingStyle = (key: WritingStyleScalarKey | "avoid", value: string) => {
+    setDraft((current) => ({
+      ...current,
+      writingStyle: { ...current.writingStyle, [key]: value }
+    }));
+  };
+
+  const saveStyleProfile = async () => {
+    if (loadError) return;
+    setSaving(true);
+    try {
+      const saved = await putStyleProfile(stylePayloadFromDraft(baseProfile, draft));
+      setBaseProfile(styleBaseFromProfile(saved));
+      setDraft(draftFromStyleProfile(saved));
+      pushToast("문체 설정이 저장되었습니다.", "ok");
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : "문체 설정 저장에 실패했습니다.", "err");
+      if (error instanceof IntelligenceAuthRequiredError) router.replace("/login");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <header className="mb-8">
+        <h1 className="text-[24px] font-bold tracking-[-0.01em] text-[#2f2d2a]">문체</h1>
+        <p className="mt-3 text-[13px] leading-5 text-[#6d6861]">AI 대화와 생성 결과물에 적용할 기본 문체를 설정하세요.</p>
+      </header>
+
+      {loading ? (
+        <div className="rounded-[12px] border border-[#e5e0d8] px-5 py-10 text-center text-[13px] text-[#8c877f]">문체 설정을 불러오는 중입니다.</div>
+      ) : loadError ? (
+        <div className="rounded-[12px] border border-[#e5e0d8] px-5 py-8 text-center">
+          <p className="text-[13px] font-semibold text-[#3d3934]">문체 설정을 불러오지 못했습니다.</p>
+          <p className="mt-2 break-words text-[12px] leading-5 text-[#6d6861]">{loadError}</p>
+          <div className="mt-5 flex justify-center">
+            <ModalButton onClick={() => setReloadNonce((current) => current + 1)}>
+              <Icon name="refresh" size={13} />
+              다시 시도
+            </ModalButton>
+          </div>
+        </div>
+      ) : (
+        <>
+          <section className="mb-7 rounded-[12px] border border-[#e5e0d8]">
+            <div className="px-4 pt-4">
+              <SectionLabel>대화 톤</SectionLabel>
+            </div>
+            {CONVERSATION_TONE_FIELDS.map((field) => (
+              <StyleFieldRow key={field.key} title={field.title} desc={field.desc}>
+                <StylePresetInput
+                  label={field.title}
+                  value={draft.conversationTone[field.key]}
+                  options={field.options}
+                  disabled={saving}
+                  onChange={(value) => updateConversationTone(field.key, value)}
+                />
+              </StyleFieldRow>
+            ))}
+          </section>
+
+          <section className="mb-7 rounded-[12px] border border-[#e5e0d8]">
+            <div className="px-4 pt-4">
+              <SectionLabel>작성 스타일</SectionLabel>
+            </div>
+            <StyleFieldRow title="대상 독자" desc="생성 결과물이 기본으로 상정할 독자입니다.">
+              <StyleTextInput
+                label="대상 독자"
+                value={draft.writingStyle.defaultAudience}
+                placeholder="예: general_professional"
+                disabled={saving}
+                onChange={(value) => updateWritingStyle("defaultAudience", value)}
+              />
+            </StyleFieldRow>
+            <StyleFieldRow title="작성 목적" desc="초안과 리포트가 우선할 기본 목적입니다.">
+              <StyleTextInput
+                label="작성 목적"
+                value={draft.writingStyle.defaultPurpose}
+                placeholder="예: explain"
+                disabled={saving}
+                onChange={(value) => updateWritingStyle("defaultPurpose", value)}
+              />
+            </StyleFieldRow>
+            {WRITING_STYLE_PRESET_FIELDS.map((field) => (
+              <StyleFieldRow key={field.key} title={field.title} desc={field.desc}>
+                <StylePresetInput
+                  label={field.title}
+                  value={draft.writingStyle[field.key]}
+                  options={field.options}
+                  disabled={saving}
+                  onChange={(value) => updateWritingStyle(field.key, value)}
+                />
+              </StyleFieldRow>
+            ))}
+            <StyleFieldRow title="피할 표현" desc="쉼표나 줄바꿈으로 구분하면 저장 시 목록으로 정리됩니다.">
+              <StyleTextarea
+                label="피할 표현"
+                value={draft.writingStyle.avoid}
+                placeholder="예: 과장 표현, 불필요한 감탄"
+                disabled={saving}
+                onChange={(value) => updateWritingStyle("avoid", value)}
+              />
+            </StyleFieldRow>
+          </section>
+
+          <div className="flex justify-end">
+            <ModalButton primary onClick={saveStyleProfile} disabled={saving || Boolean(loadError)}>
+              <Icon name="check" size={13} />
+              {saving ? "저장 중" : "문체 저장"}
+            </ModalButton>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+function StyleFieldRow({
+  title,
+  desc,
+  children
+}: {
+  title: string;
+  desc: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex min-h-[65px] flex-col gap-3 border-b border-[#e8e3db] px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-5">
+      <div className="min-w-0">
+        <div className="text-[13px] font-semibold text-[#36332f]">{title}</div>
+        <div className="mt-1 text-[12px] leading-5 text-[#6d6861]">{desc}</div>
+      </div>
+      <div className="w-full sm:w-[244px] sm:shrink-0">{children}</div>
+    </div>
+  );
+}
+
+function StylePresetInput({
+  label,
+  value,
+  options,
+  disabled,
+  onChange
+}: {
+  label: string;
+  value: string;
+  options: StylePresetOption[];
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const placeholder = options.length > 0
+    ? `${options.map((option) => option.label).join(", ")} 등 직접 입력`
+    : "직접 입력";
+  const customValue = "__custom__";
+  const normalizedValue = value.trim().toLocaleLowerCase();
+  const selectedOption = options.find(
+    (option) => normalizedValue === option.value.toLocaleLowerCase() || normalizedValue === option.label.toLocaleLowerCase()
+  );
+  const hasCustomText = Boolean(value.trim()) && !selectedOption;
+  const [customOpen, setCustomOpen] = useState(hasCustomText);
+  const showCustomInput = customOpen || hasCustomText;
+  const selectValue = showCustomInput ? customValue : selectedOption?.value ?? "";
+
+  useEffect(() => {
+    if (hasCustomText) {
+      setCustomOpen(true);
+    }
+  }, [hasCustomText]);
+
+  return (
+    <div className="w-full space-y-2">
+      <label className="block w-full">
+        <span className="sr-only">{label}</span>
+        <select
+          value={selectValue}
+          disabled={disabled}
+          aria-label={label}
+          onChange={(event) => {
+            const nextValue = event.target.value;
+            if (nextValue === customValue) {
+              setCustomOpen(true);
+              return;
+            }
+            const nextOption = options.find((option) => option.value === nextValue);
+            setCustomOpen(false);
+            onChange(nextOption?.label ?? "");
+          }}
+          className="h-8 w-full rounded-[7px] border border-[#ded8cf] bg-white px-2.5 text-[12px] text-[#36332f] outline-none placeholder:text-[#aaa39a] focus:border-[#6c55f6] focus-visible:ring-2 focus-visible:ring-[#6c55f6]/20 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <option value="" disabled>선택 또는 직접 입력</option>
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+          <option value={customValue}>직접 입력</option>
+        </select>
+      </label>
+      {showCustomInput ? (
+        <label className="block w-full">
+          <span className="sr-only">{label} 직접 입력</span>
+          <input
+            value={value}
+            disabled={disabled}
+            aria-label={`${label} 직접 입력`}
+            placeholder={placeholder}
+            onChange={(event) => onChange(event.target.value)}
+            className="h-8 w-full rounded-[7px] border border-[#ded8cf] bg-white px-2.5 text-[12px] text-[#36332f] outline-none placeholder:text-[#aaa39a] focus:border-[#6c55f6] focus-visible:ring-2 focus-visible:ring-[#6c55f6]/20 disabled:cursor-not-allowed disabled:opacity-60"
+          />
+        </label>
+      ) : null}
+    </div>
+  );
+}
+
+function StyleTextInput({
+  label,
+  value,
+  placeholder,
+  disabled,
+  onChange
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block w-full">
+      <span className="sr-only">{label}</span>
+      <input
+        value={value}
+        disabled={disabled}
+        aria-label={label}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-8 w-full rounded-[7px] border border-[#ded8cf] bg-white px-2.5 text-[12px] text-[#36332f] outline-none placeholder:text-[#aaa39a] focus:border-[#6c55f6] focus-visible:ring-2 focus-visible:ring-[#6c55f6]/20 disabled:cursor-not-allowed disabled:opacity-60"
+      />
+    </label>
+  );
+}
+
+function StyleTextarea({
+  label,
+  value,
+  placeholder,
+  disabled,
+  onChange
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block w-full">
+      <span className="sr-only">{label}</span>
+      <textarea
+        value={value}
+        disabled={disabled}
+        aria-label={label}
+        placeholder={placeholder}
+        rows={3}
+        onChange={(event) => onChange(event.target.value)}
+        className="min-h-[78px] w-full resize-y rounded-[7px] border border-[#ded8cf] bg-white px-2.5 py-2 text-[12px] leading-5 text-[#36332f] outline-none placeholder:text-[#aaa39a] focus:border-[#6c55f6] focus-visible:ring-2 focus-visible:ring-[#6c55f6]/20 disabled:cursor-not-allowed disabled:opacity-60"
+      />
+    </label>
   );
 }
 
