@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { cx } from "@/lib/utils";
+import { pickFile } from "@/lib/desktop-files";
 
 import { useBrainX } from "@/components/brainx-provider";
 
@@ -14,13 +15,14 @@ import {
   getImportJobStatus,
   importNotionPage,
   listNotionPages,
-  NOTION_OAUTH_MESSAGE_TYPE,
   readNotionIntegration,
   startNotionOAuth,
   uploadAndImportFile,
   type NotionIntegration,
   type NotionPage
 } from "@/lib/ingestion-api";
+import { addPopupResultListener, openBrainxPopup } from "@/lib/desktop-bridge";
+import { NOTION_OAUTH_MESSAGE_TYPE } from "@/lib/ingestion-api";
 
 type ImportedNote = {
   id: string;
@@ -60,11 +62,8 @@ export function ImportScreen() {
   }, []);
 
   useEffect(() => {
-    function handleOAuthMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin) return;
-      if (event.data?.type !== NOTION_OAUTH_MESSAGE_TYPE) return;
-
-      if (!event.data.success) {
+    return addPopupResultListener<{ success?: boolean }>(NOTION_OAUTH_MESSAGE_TYPE, (data) => {
+      if (!data.success) {
         pushToast("Notion 연결에 실패했습니다.", "err");
         return;
       }
@@ -73,10 +72,7 @@ export function ImportScreen() {
       setNotionIntegration(integration);
       pushToast("Notion 워크스페이스에 연결됐어요", "ok");
       if (integration) void loadNotionPages(integration.integrationAccountId);
-    }
-
-    window.addEventListener("message", handleOAuthMessage);
-    return () => window.removeEventListener("message", handleOAuthMessage);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -136,12 +132,10 @@ export function ImportScreen() {
     startImport(files[0]);
   };
 
-  const openFilePicker = (accept = ".zip,.csv,.pdf,.txt,.md,.html,.docx,.epub") => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = accept;
-    input.onchange = (event) => handleFiles((event.target as HTMLInputElement).files);
-    input.click();
+  const openFilePicker = async (accept = ".zip,.csv,.pdf,.txt,.md,.html,.docx,.epub") => {
+    const file = await pickFile({ accept, title: "Import File" });
+    if (!file) return;
+    startImport(file);
   };
 
   const loadNotionPages = async (integrationAccountId: string) => {
@@ -161,11 +155,16 @@ export function ImportScreen() {
     setNotionConnecting(true);
     try {
       const { authorizationUrl } = await startNotionOAuth();
-      const popup = window.open(
-        authorizationUrl,
-        "brainx-notion-oauth",
-        "width=480,height=720,noopener=no,noreferrer=no"
-      );
+      const popup = await openBrainxPopup({
+        url: authorizationUrl,
+        channel: NOTION_OAUTH_MESSAGE_TYPE,
+        name: "brainx-notion-oauth",
+        width: 480,
+        height: 720,
+        minWidth: 420,
+        minHeight: 640,
+        features: "width=480,height=720,noopener=no,noreferrer=no",
+      });
       if (!popup) {
         pushToast("팝업이 차단되었습니다. 팝업 차단을 해제한 뒤 다시 시도해 주세요.", "err");
       }

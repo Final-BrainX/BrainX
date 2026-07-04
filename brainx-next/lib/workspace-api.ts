@@ -1,6 +1,17 @@
 "use client";
-
 import { clearAuthSession, isDevAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { getBrainxDesktopConfig, isElectronDesktop } from "@/lib/desktop-bridge";
+import {
+  createDesktopVaultFolder,
+  createDesktopVaultNote,
+  deleteDesktopVaultFolder,
+  deleteDesktopVaultNote,
+  getDesktopVaultSnapshot,
+  getDesktopVaultWorkspaceStats,
+  patchDesktopVaultFolder,
+  saveDesktopVaultNoteContent,
+  saveDesktopVaultNoteMetadata,
+} from "@/lib/desktop-vault";
 import type { MockFolder, MockNote, NoteTypography } from "@/lib/notes/noteTypes";
 
 const WORKSPACE_API_BASE_URL = process.env.NEXT_PUBLIC_WORKSPACE_API_BASE_URL ?? "http://localhost:8082";
@@ -151,6 +162,41 @@ export type WorkspaceUserStatsData = {
   activities: WorkspaceUserActivityData[];
 };
 
+async function shouldUseDesktopVault() {
+  if (!isElectronDesktop()) return false;
+  const config = await getBrainxDesktopConfig();
+  return Boolean(config?.activeVault);
+}
+
+async function getDesktopVaultListData(): Promise<NoteListData> {
+  const snapshot = await getDesktopVaultSnapshot();
+  return {
+    notes: (snapshot?.notes ?? []).map((note) => ({
+      noteId: note.noteId,
+      title: note.title,
+      markdown: note.markdown,
+      folderId: note.folderId,
+      tags: note.tags,
+      version: note.version,
+      createdAt: note.createdAt,
+      updatedAt: note.updatedAt,
+      typography: note.typography ?? null,
+    })),
+    totalCount: snapshot?.notes.length ?? 0,
+  };
+}
+
+async function getDesktopVaultFolderData(): Promise<FolderTreeData> {
+  const snapshot = await getDesktopVaultSnapshot();
+  return {
+    folders: (snapshot?.folders ?? []).map((folder) => ({
+      folderId: folder.folderId,
+      name: folder.name,
+      parentFolderId: folder.parentFolderId,
+    })),
+  };
+}
+
 function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
   return response.message ?? response.error?.message ?? fallback;
 }
@@ -209,22 +255,64 @@ async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function getNote(noteId: string) {
+  if (await shouldUseDesktopVault()) {
+    const snapshot = await getDesktopVaultSnapshot();
+    const note = snapshot?.notes.find((item) => item.noteId === noteId);
+    if (!note) {
+      throw new Error("로컬 vault에서 노트를 찾을 수 없습니다.");
+    }
+    const folder = snapshot?.folders.find((item) => item.folderId === note.folderId) ?? null;
+    return {
+      noteId: note.noteId,
+      title: note.title,
+      markdown: note.markdown,
+      folder: folder ? { folderId: folder.folderId, name: folder.name } : null,
+      tags: note.tags,
+      version: note.version,
+      createdAt: note.createdAt,
+      updatedAt: note.updatedAt,
+      typography: note.typography ?? null,
+    };
+  }
   return authedRequest<NoteDetail>(`/api/v1/notes/${noteId}`);
 }
 
 export async function listNotes() {
+  if (await shouldUseDesktopVault()) {
+    return getDesktopVaultListData();
+  }
   return authedRequest<NoteListData>("/api/v1/notes");
 }
 
 export async function listFolders() {
+  if (await shouldUseDesktopVault()) {
+    return getDesktopVaultFolderData();
+  }
   return authedRequest<FolderTreeData>("/api/v1/folders/tree");
 }
 
 export async function getMyWorkspaceStats() {
+  if (await shouldUseDesktopVault()) {
+    return (
+      (await getDesktopVaultWorkspaceStats()) ?? {
+        noteCount: 0,
+        storageBytes: 0,
+        activities: [],
+      }
+    );
+  }
   return authedRequest<WorkspaceUserStatsData>("/api/v1/workspace/me/stats");
 }
 
 export async function createWorkspaceFolder(name: string, parentFolderId: string | null) {
+  if (await shouldUseDesktopVault()) {
+    const created = await createDesktopVaultFolder(name, parentFolderId);
+    return {
+      folderId: created.folderId,
+      name: created.name,
+      parentFolderId: created.parentFolderId,
+    };
+  }
   return authedRequest<WorkspaceFolderItem>("/api/v1/folders", {
     method: "POST",
     body: JSON.stringify({ name, parentFolderId }),
@@ -235,6 +323,18 @@ export async function patchWorkspaceFolder(
   folderId: string,
   patch: { name?: string; parentFolderId?: string | null }
 ) {
+  if (await shouldUseDesktopVault()) {
+    const updated = await patchDesktopVaultFolder({
+      folderId,
+      name: patch.name,
+      parentFolderId: patch.parentFolderId,
+    });
+    return {
+      folderId: updated.folderId,
+      name: updated.name,
+      parentFolderId: updated.parentFolderId,
+    };
+  }
   return authedRequest<WorkspaceFolderItem>(`/api/v1/folders/${folderId}`, {
     method: "PATCH",
     body: JSON.stringify(patch),
@@ -244,12 +344,25 @@ export async function patchWorkspaceFolder(
 /** 하위 폴더/노트를 전부 cascade로 삭제한다(더 이상 부모로 승격하지 않음 — orphan 방지).
     mode: "trash"(휴지통, 기본) | "permanent"(완전삭제) — 노트 삭제와 동일한 정책. */
 export async function deleteWorkspaceFolder(folderId: string, mode: "trash" | "permanent" = "trash") {
+  if (await shouldUseDesktopVault()) {
+    return deleteDesktopVaultFolder(folderId);
+  }
   return authedRequest<DeleteFolderResult>(`/api/v1/folders/${folderId}?mode=${mode}`, {
     method: "DELETE",
   });
 }
 
 export async function createWorkspaceNoteFromPayload(payload: WorkspaceNoteCreatePayload) {
+  if (await shouldUseDesktopVault()) {
+    const created = await createDesktopVaultNote(payload);
+    return {
+      noteId: created.noteId,
+      title: created.title,
+      folderId: created.folderId,
+      version: created.version,
+      createdAt: created.createdAt,
+    };
+  }
   return authedRequest<NoteCreated>("/api/v1/notes", {
     method: "POST",
     body: JSON.stringify({
@@ -278,6 +391,9 @@ export async function createWorkspaceNoteLink(sourceNoteId: string, request: Wor
 }
 
 export async function updateWorkspaceNoteContent(note: MockNote) {
+  if (await shouldUseDesktopVault()) {
+    return saveDesktopVaultNoteContent(note.id, note.content, note.version ?? 1);
+  }
   return authedRequest<NoteSaveResult>(`/api/v1/notes/${note.id}/content`, {
     method: "PUT",
     body: JSON.stringify({
@@ -289,6 +405,15 @@ export async function updateWorkspaceNoteContent(note: MockNote) {
 }
 
 export async function updateWorkspaceNoteMetadata(note: MockNote) {
+  if (await shouldUseDesktopVault()) {
+    return saveDesktopVaultNoteMetadata({
+      noteId: note.id,
+      title: note.title,
+      folderId: note.folderId ?? null,
+      tags: note.tags,
+      typography: note.typography ?? null,
+    });
+  }
   return authedRequest<NoteMetadataResult>(`/api/v1/notes/${note.id}/metadata`, {
     method: "PATCH",
     body: JSON.stringify({
@@ -301,6 +426,14 @@ export async function updateWorkspaceNoteMetadata(note: MockNote) {
 }
 
 export async function issueWorkspaceNoteDraftId() {
+  if (await shouldUseDesktopVault()) {
+    return {
+      noteId: `vault_note_draft_${globalThis.crypto.randomUUID()}`,
+      actorType: "USER" as const,
+      issuedAt: new Date().toISOString(),
+      status: "DRAFT_ID_ISSUED" as const,
+    };
+  }
   return authedRequest<NoteDraftIdResult>("/api/v1/notes/draft-ids", {
     method: "POST",
     body: JSON.stringify({})
@@ -308,6 +441,15 @@ export async function issueWorkspaceNoteDraftId() {
 }
 
 export async function saveWorkspaceNoteDraft(note: MockNote) {
+  if (await shouldUseDesktopVault()) {
+    return {
+      noteId: note.id,
+      actorType: "USER" as const,
+      savedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      status: "DRAFT_SAVED" as const,
+    };
+  }
   return authedRequest<NoteDraftSaveResult>(`/api/v1/notes/${note.id}/draft`, {
     method: "PUT",
     body: JSON.stringify({
@@ -321,16 +463,25 @@ export async function saveWorkspaceNoteDraft(note: MockNote) {
 }
 
 export async function getWorkspaceNoteDraft(noteId: string) {
+  if (await shouldUseDesktopVault()) {
+    return null;
+  }
   return authedRequest<NoteDraftData | null>(`/api/v1/notes/${noteId}/draft`);
 }
 
 export async function listWorkspaceNoteDrafts() {
+  if (await shouldUseDesktopVault()) {
+    return { drafts: [] };
+  }
   return authedRequest<NoteDraftListData>("/api/v1/notes/drafts/list");
 }
 
 /** mode: "trash"(휴지통 이동, 기본) | "permanent"(완전삭제). Guest actor는 Postgres에 노트를
     가질 수 없어 서버가 Redis draft만 지우고 성공으로 응답한다(CurrentActor 정책, 403 아님). */
 export async function deleteWorkspaceNote(noteId: string, mode: "trash" | "permanent" = "trash") {
+  if (await shouldUseDesktopVault()) {
+    return deleteDesktopVaultNote(noteId);
+  }
   return authedRequest<DeleteNoteResult>(`/api/v1/notes/${noteId}?mode=${mode}`, {
     method: "DELETE",
   });

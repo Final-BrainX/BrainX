@@ -215,11 +215,28 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${INTELLIGENCE_DB_NAME:-intelligence_service}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-1234}
-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      JPA_DDL_AUTO: validate
+      JWT_SECRET: ${JWT_SECRET:-replace_with_at_least_32_byte_secret}
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-local-service-token}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-5.4-mini}
+      OPENAI_WEB_SEARCH_MODEL: ${OPENAI_WEB_SEARCH_MODEL:-gpt-5.5}
+      BRAINX_EXTERNAL_SEARCH_PROVIDER: ${BRAINX_EXTERNAL_SEARCH_PROVIDER:-openai}
+      BRAINX_AI_EMBEDDING_PROVIDER: ${BRAINX_AI_EMBEDDING_PROVIDER:-voyage}
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+      VOYAGE_EMBEDDING_MODEL: ${VOYAGE_EMBEDDING_MODEL:-voyage-4-lite}
+      VOYAGE_EMBEDDING_DIMENSIONS: ${VOYAGE_EMBEDDING_DIMENSIONS:-1024}
+      QDRANT_HOST: qdrant
+      QDRANT_GRPC_PORT: "6334"
+      QDRANT_COLLECTION: brainx_note_search
+      BRAINX_VECTOR_QDRANT_ENABLED: "true"
       BRAINX_WORKSPACE_BASE_URL: http://workspace-service:8082
-      BRAINX_VECTOR_QDRANT_ENABLED: "false"
-      BRAINX_EVENTS_PRODUCER_ENABLED: "false"
-      BRAINX_EVENTS_CONSUMER_ENABLED: "false"
+      BRAINX_WORKSPACE_SERVICE_TOKEN: ${SERVICE_TOKEN:-local-service-token}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      BRAINX_EVENTS_CONSUMER_ENABLED: "true"
+      BRAINX_EVENTS_PRODUCER_ENABLED: "true"
       EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: intelligence-service
     ports:
@@ -227,7 +244,15 @@ services:
     depends_on:
       discovery-service:
         condition: service_healthy
+      postgres-service-databases:
+        condition: service_completed_successfully
       postgres:
+        condition: service_healthy
+      workspace-service:
+        condition: service_started
+      qdrant:
+        condition: service_started
+      kafka:
         condition: service_healthy
     healthcheck:
       test:
@@ -284,52 +309,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
-
-  intelligence-service:
-    profiles:
-      - apps
-    build:
-      context: ./Intelligence-Service
-    container_name: brainx-intelligence-service
-    restart: unless-stopped
-    environment:
-      SERVER_PORT: "8086"
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${INTELLIGENCE_DB_NAME:-intelligence_service}
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-1234}
-      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
-      JPA_DDL_AUTO: validate
-      JWT_SECRET: ${JWT_SECRET:-replace_with_at_least_32_byte_secret}
-      SERVICE_TOKEN: ${SERVICE_TOKEN:-local-service-token}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-5.4-mini}
-      OPENAI_WEB_SEARCH_MODEL: ${OPENAI_WEB_SEARCH_MODEL:-gpt-5.5}
-      BRAINX_EXTERNAL_SEARCH_PROVIDER: ${BRAINX_EXTERNAL_SEARCH_PROVIDER:-openai}
-      BRAINX_AI_EMBEDDING_PROVIDER: ${BRAINX_AI_EMBEDDING_PROVIDER:-voyage}
-      VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
-      VOYAGE_EMBEDDING_MODEL: ${VOYAGE_EMBEDDING_MODEL:-voyage-4-lite}
-      VOYAGE_EMBEDDING_DIMENSIONS: ${VOYAGE_EMBEDDING_DIMENSIONS:-1024}
-      QDRANT_HOST: qdrant
-      QDRANT_GRPC_PORT: "6334"
-      QDRANT_COLLECTION: brainx_note_search
-      BRAINX_VECTOR_QDRANT_ENABLED: "true"
-      BRAINX_WORKSPACE_BASE_URL: http://workspace-service:8082
-      BRAINX_WORKSPACE_SERVICE_TOKEN: ${SERVICE_TOKEN:-local-service-token}
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      BRAINX_EVENTS_CONSUMER_ENABLED: "true"
-      BRAINX_EVENTS_PRODUCER_ENABLED: "true"
-    ports:
-      - "8086:8086"
-    depends_on:
-      postgres-service-databases:
-        condition: service_completed_successfully
-      qdrant:
-        condition: service_started
-      kafka:
-        condition: service_started
-      workspace-service:
-        condition: service_started
 
   mcp-service:
     profiles:
