@@ -36,7 +36,7 @@ import { HtmlBlock } from "./HtmlBlockNode";
 import { blockWidthPercent, type BlockWidthMode } from "./BlockControls";
 import { FontSize, FontFamily, FONT_SIZE_PRESETS, FONT_FAMILY_PRESETS } from "./fontExtensions";
 import { WikiLink, WikiLinkLiveEdit } from "./WikiLinkNode";
-import { DragHandle } from "./DragHandleExtension";
+import { DragHandle, startBlockDrag } from "./DragHandleExtension";
 import { WikiLinkSuggestion } from "./WikiLinkSuggestion";
 import { WikiLinkAutocomplete } from "./WikiLinkAutocomplete";
 import { InNoteSearch } from "./InNoteSearch";
@@ -2064,14 +2064,40 @@ class BrainXTableView extends TableView {
       const coords = ev.posAtCoords({ left: rect.left + 4, top: rect.top + 4 });
       if (!coords) return;
       const $pos = ev.state.doc.resolve(coords.pos);
+      let tablePos: number | null = null;
       for (let d = $pos.depth; d >= 0; d--) {
-        if ($pos.node(d).type.name === "table") {
-          const tablePos = $pos.before(d);
-          ev.dispatch(ev.state.tr.setSelection(NodeSelection.create(ev.state.doc, tablePos)));
-          ev.focus();
-          break;
-        }
+        if ($pos.node(d).type.name === "table") { tablePos = $pos.before(d); break; }
       }
+      if (tablePos == null) return;
+      const resolvedTablePos = tablePos;
+
+      // 단순 클릭(=표 전체 선택)과 hold&drop(=표 이동)을 같은 그립에서 구분한다 — 노트탐색기
+      // 드래그(dnd-kit activationConstraint distance:4)와 동일한 기준으로, 눌린 채 4px 넘게
+      // 움직이면 그때 DragHandleExtension의 블록 드래그로 전환하고, 움직임 없이 떼면 기존
+      // "표 전체 선택" 동작을 그대로 수행한다.
+      const startX = event.clientX;
+      const startY = event.clientY;
+      let dragStarted = false;
+      const cleanup = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      const onMove = (e: MouseEvent) => {
+        if (dragStarted) return;
+        if (Math.hypot(e.clientX - startX, e.clientY - startY) > 4) {
+          dragStarted = true;
+          cleanup();
+          startBlockDrag(resolvedTablePos);
+        }
+      };
+      const onUp = () => {
+        cleanup();
+        if (dragStarted) return;
+        ev.dispatch(ev.state.tr.setSelection(NodeSelection.create(ev.state.doc, resolvedTablePos)));
+        ev.focus();
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
     });
     this.dom.style.position = "relative";
     this.dom.appendChild(this.gripHandle);
@@ -2213,6 +2239,28 @@ const BrainXTableCell = TableCell.extend({
 const BrainXTableHeader = TableHeader.extend({
   addAttributes() {
     return { ...this.parent?.(), ...cellDisplayAttributes() };
+  },
+});
+
+/** 표 바로 다음 블록의 맨 앞(커서 오프셋 0)에서 Backspace를 누르면, 기본 joinBackward가
+    표 마지막 셀 안으로 커서를 병합해버리는 대신 표 전체를 삭제한다. 조건에 맞지 않으면
+    false를 반환해 기본 Backspace 체인(코드블록 처리 등)으로 그대로 넘어간다. */
+const TableBackspaceFix = Extension.create({
+  name: "tableBackspaceFix",
+  addKeyboardShortcuts() {
+    return {
+      Backspace: () => {
+        const { state } = this.editor;
+        const { $from, empty } = state.selection;
+        if (!empty || $from.parentOffset !== 0) return false;
+        const before = $from.before($from.depth);
+        if (before <= 0) return false;
+        const nodeBefore = state.doc.resolve(before).nodeBefore;
+        if (!nodeBefore || nodeBefore.type.name !== "table") return false;
+        const tablePos = before - nodeBefore.nodeSize;
+        return this.editor.chain().focus().deleteRange({ from: tablePos, to: before }).run();
+      },
+    };
   },
 });
 
@@ -2433,6 +2481,7 @@ const NOTE_EDITOR_EXTENSIONS = [
   TableRow,
   BrainXTableHeader,
   BrainXTableCell,
+  TableBackspaceFix,
   WikiLink,
   WikiLinkLiveEdit,
   WikiLinkSuggestion,
@@ -2474,6 +2523,10 @@ export interface NoteEditorHandle {
   /** 우측 목차(RightSidebar) 클릭 → 해당 heading으로 스크롤. index는 parseHeadings가 매긴
       문서 순서(0-based, heading id "h-{index}")와 동일한 기준이라 그대로 재사용할 수 있다. */
   scrollToHeading: (index: number) => void;
+  /** 본문 텍스트/이미지/표가 아직 없는 빈 여백(EditorPanel.tsx의 패딩 wrapper)에서 우클릭했을 때
+      호출된다 — 그 좌표로 커서 이동이 가능하면 이동 후, 안 되면(문서 범위 밖) 현재 selection
+      기준으로 같은 본문 컨텍스트 메뉴를 띄운다. */
+  openContextMenu: (x: number, y: number) => void;
 }
 
 /* ── 커스텀 버블 메뉴 ──────────────────────────────────────────────────
@@ -3059,7 +3112,20 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       target.classList.add("brainx-heading-flash");
       window.setTimeout(() => target.classList.remove("brainx-heading-flash"), 900);
     },
-  }), [editor, note.id, onContentChange, startInlineDraftSession]);
+    openContextMenu: (x, y) => {
+      if (!editor || mode !== "edit") return;
+      onActivate();
+      const coords = editor.view.posAtCoords({ left: x, top: y });
+      if (coords) {
+        // 빈 여백이라도 문서 범위 안(예: 마지막 문단 아래 빈 공간)이면 그 위치로 커서를 옮긴다.
+        const $pos = editor.state.doc.resolve(coords.pos);
+        const selection = TextSelection.near($pos);
+        editor.view.dispatch(editor.state.tr.setSelection(selection));
+      }
+      // coords가 없으면(문서 완전히 바깥) 현재 selection을 그대로 두고 메뉴만 띄운다.
+      setContextMenu({ x, y, inTable: false, inImage: false });
+    },
+  }), [editor, mode, note.id, onActivate, onContentChange, startInlineDraftSession]);
 
   const requestInlineContinue = useCallback(async () => {
     if (!editor) return;

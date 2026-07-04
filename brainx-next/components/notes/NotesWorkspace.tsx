@@ -16,12 +16,14 @@ import {
   deleteWorkspaceFolder,
   deleteWorkspaceNote,
   getNote,
+  getWorkspaceFavorites,
   getWorkspaceNoteDraft,
   issueWorkspaceNoteDraftId,
   listFolders,
   listNotes,
   listWorkspaceNoteDrafts,
   patchWorkspaceFolder,
+  putFavorite,
   saveWorkspaceNoteDraft,
   updateWorkspaceNoteContent,
   updateWorkspaceNoteMetadata,
@@ -959,7 +961,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
      (위키링크로 생성한 경우) 로그인 사용자에 한해 백엔드 노트 id가 확정되는 즉시 그 노트에서
      새로 만든 노트로의 NoteLink를 만들어 마인드맵 edge에 반영한다(게스트는 그래프가 매 렌더마다
      draft markdown의 [[..]]을 다시 파싱해 edge를 만들므로 별도 처리가 필요 없다). */
-  const createNote = useCallback((folderId: string | undefined, paneId: string, title?: string, linkFromNoteId?: string) => {
+  const createNote = useCallback((folderId: string | undefined, paneId: string, title?: string, linkFromNoteId?: string, favorite?: boolean) => {
     /* 게스트 노트 생성 제한 */
     if (isGuest && notes.length >= 10) {
       pushToast("체험 모드에서는 노트를 최대 10개까지 생성할 수 있습니다.", "err");
@@ -985,6 +987,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }
     const newNote = makeBlankNote(folderId);
     newNote.title = noteTitle;
+    if (favorite) newNote.favorite = true;
     const localNoteId = newNote.id;
     const newTabId = uid();
     setNotes((prev) => [newNote, ...prev]);
@@ -1036,6 +1039,13 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
               createIfMissing: false,
             }).catch(() => {});
           }
+
+          // 즐겨찾기 영역에서 직접 만든 루트 노트는 자동 즐겨찾기 — draft id가 확정된 뒤에야
+          // 실제 noteId를 알 수 있으므로 여기서 호출한다(로컬 favorite:true는 이미 makeBlankNote
+          // 직후 반영해 화면엔 처음부터 별이 보인다).
+          if (favorite) {
+            void putFavorite("NOTE", draft.noteId, true).catch(() => {});
+          }
         })
         .catch((error) => {
           setLoadError(error instanceof Error ? error.message : "새 노트 임시저장 ID를 발급받지 못했습니다.");
@@ -1045,9 +1055,11 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     return newNote.id;
   }, [isGuest, notes, checkNoteDuplicate, pushToast, onActiveNoteChange]);
 
-  /* 사이드바 "+ 새 노트" 버튼 → 현재 선택된 폴더 안에, 활성 패널의 새 탭으로 생성 */
-  const handleNewNote = useCallback((folderId?: string) => {
-    createNote(folderId, primaryPaneId);
+  /* 사이드바 "+ 새 노트" 버튼 → 현재 선택된 폴더 안에, 활성 패널의 새 탭으로 생성.
+     favorite=true는 즐겨찾기 영역의 루트 생성 버튼에서만 쓴다(정책: 즐겨찾기 영역에서 직접
+     만든 루트 노트/폴더는 자동 즐겨찾기, 즐겨찾기 폴더 안의 하위 항목은 자동 즐겨찾기하지 않음). */
+  const handleNewNote = useCallback((folderId?: string, favorite?: boolean) => {
+    createNote(folderId, primaryPaneId, undefined, undefined, favorite);
   }, [createNote, primaryPaneId]);
 
   /* "새 파일 생성하기" / Ctrl+N — 항상 새 탭으로 추가한다. 탭이 0개(Welcome 상태)인 패널이면
@@ -1157,7 +1169,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
      달리 폴더는 actor 제약이 없어 guest도 만들 수 있고, 그래서 게스트 폴더가 회원가입 후에도
      승계되려면(claim 시 workspaceService.reassignGuestFolders) 처음부터 Postgres에 있어야
      한다. 실패하면 토스트만 띄우고 로컬 상태는 그대로 둔다(화면에서만 사라지는 일 방지). */
-  const handleCreateFolder = useCallback((parentFolderId: string | null, name: string) => {
+  const handleCreateFolder = useCallback((parentFolderId: string | null, name: string, favorite?: boolean) => {
     /* 게스트 폴더 생성 제한 */
     if (isGuest && folders.length >= 10) {
       pushToast("체험 모드에서는 폴더를 최대 10개까지 생성할 수 있습니다.", "err");
@@ -1169,12 +1181,14 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       return;
     }
     if (USE_MOCK_NOTES) {
-      setFolders((prev) => [...prev, { id: `folder-${uid()}`, name, parentFolderId }]);
+      setFolders((prev) => [...prev, { id: `folder-${uid()}`, name, parentFolderId, favorite: favorite || undefined }]);
       return;
     }
     void createWorkspaceFolder(name, parentFolderId)
       .then((created) => {
-        setFolders((prev) => [...prev, workspaceFolderToMock(created)]);
+        setFolders((prev) => [...prev, { ...workspaceFolderToMock(created), favorite: favorite || undefined }]);
+        // 즐겨찾기 영역에서 직접 만든 루트 폴더는 자동 즐겨찾기.
+        if (favorite) void putFavorite("FOLDER", created.folderId, true).catch(() => {});
       })
       .catch((error) => {
         pushToast(error instanceof Error ? error.message : "폴더를 만들지 못했습니다.", "err");
@@ -1206,11 +1220,34 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setFolders((prev) => prev.map((f) => (f.id === folderId ? { ...f, color } : f)));
   }, []);
 
+  /* 즐겨찾기 설정/해제 — 낙관적으로 먼저 반영하고, 백엔드 PUT이 실패하면 원래 값으로 되돌리며
+     토스트로 알린다. USE_MOCK_NOTES(순수 로컬 데모, 백엔드 없음) 모드는 다른 폴더/노트 CRUD와
+     동일하게 로컬 상태만 바꾸고 네트워크 호출 자체를 건너뛴다. */
   const handleToggleFolderFavorite = useCallback((folderId: string) => {
+    const current = folders.find((f) => f.id === folderId)?.favorite ?? false;
+    const next = !current;
     setFolders((prev) =>
-      prev.map((f) => (f.id === folderId ? { ...f, favorite: !f.favorite } : f))
+      prev.map((f) => (f.id === folderId ? { ...f, favorite: next } : f))
     );
-  }, []);
+    if (USE_MOCK_NOTES) return;
+    void putFavorite("FOLDER", folderId, next).catch((error) => {
+      setFolders((prev) => prev.map((f) => (f.id === folderId ? { ...f, favorite: current } : f)));
+      pushToast(error instanceof Error ? error.message : "즐겨찾기를 저장하지 못했습니다.", "err");
+    });
+  }, [folders, pushToast]);
+
+  const handleToggleNoteFavorite = useCallback((noteId: string) => {
+    const current = notes.find((n) => n.id === noteId)?.favorite ?? false;
+    const next = !current;
+    setNotes((prev) =>
+      prev.map((n) => (n.id === noteId ? { ...n, favorite: next } : n))
+    );
+    if (USE_MOCK_NOTES) return;
+    void putFavorite("NOTE", noteId, next).catch((error) => {
+      setNotes((prev) => prev.map((n) => (n.id === noteId ? { ...n, favorite: current } : n)));
+      pushToast(error instanceof Error ? error.message : "즐겨찾기를 저장하지 못했습니다.", "err");
+    });
+  }, [notes, pushToast]);
 
   /* 노트 삭제(들) — 같은 노트가 여러 패널에 중복으로 열려 있을 수 있으므로(의도된 기능) 모든
      패널을 훑어 해당 노트를 가리키는 탭을 전부 제거한다. 탭 제거로 0개가 된 패널은: 분할의
@@ -1450,8 +1487,10 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const handleEditorHandleChange = useCallback((paneId: string, tabId: string, handle: NoteEditorHandle | null) => {
     const key = `${paneId}:${tabId}`;
     if (handle) {
+      if (editorHandlesRef.current[key] === handle) return;
       editorHandlesRef.current[key] = handle;
     } else {
+      if (!(key in editorHandlesRef.current)) return;
       delete editorHandlesRef.current[key];
     }
     setEditorHandleRevision((current) => current + 1);
@@ -1605,6 +1644,20 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
           const nextFolders = folderData.folders.map(workspaceFolderToMock);
           setNotes(nextNotes);
           setFolders(nextFolders);
+
+          // 즐겨찾기 초기 상태 — 노트/폴더 목록 자체의 로딩을 막지 않도록 별도로, 비차단으로
+          // 가져온다. 실패해도 노트/폴더 목록은 이미 정상 로드됐으므로 조용히 무시한다.
+          void getWorkspaceFavorites()
+            .then(({ noteIds, folderIds }) => {
+              if (!active) return;
+              if (noteIds.size > 0) {
+                setNotes((prev) => prev.map((n) => (noteIds.has(n.id) ? { ...n, favorite: true } : n)));
+              }
+              if (folderIds.size > 0) {
+                setFolders((prev) => prev.map((f) => (folderIds.has(f.id) ? { ...f, favorite: true } : f)));
+              }
+            })
+            .catch(() => {});
 
           // state.activeId는 이 effect가 마운트 시점에 캡처한 값이라(아래 deps: []), 그 사이
           // 세션 복원(useEffect, 위쪽) 등으로 실제 트리의 paneId가 바뀌어도 갱신되지 않는다. 이
@@ -2085,6 +2138,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
             onRenameFolder={handleRenameFolder}
             onChangeFolderColor={handleChangeFolderColor}
             onToggleFolderFavorite={handleToggleFolderFavorite}
+            onToggleNoteFavorite={handleToggleNoteFavorite}
             onDeleteFolder={handleDeleteFolder}
             onDeleteNote={handleDeleteNote}
             onRenameNote={handleRenameNoteFromExplorer}

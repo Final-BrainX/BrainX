@@ -1027,29 +1027,38 @@ html.light .aurora b {
    올리면(또는 이미 선택된 상태면) 보이고, 클릭하면 표 전체가 NodeSelection으로 선택된다. */
 .tiptap-note-content .ProseMirror .note-table-grip {
   position: absolute;
-  top: -9px;
-  left: -9px;
-  width: 16px;
-  height: 16px;
+  top: -11px;
+  left: -11px;
+  width: 20px;
+  height: 20px;
   display: grid;
   place-items: center;
-  border-radius: 4px;
-  border: 1px solid rgb(var(--border) / 0.6);
+  border-radius: 5px;
+  border: 1.5px solid rgb(var(--border) / 0.8);
   background: rgb(var(--surface));
-  color: rgb(var(--txt3));
+  color: rgb(var(--txt2));
   opacity: 0;
-  cursor: pointer;
+  transform: scale(0.9);
+  cursor: grab;
   z-index: 5;
   padding: 0;
-  transition: opacity 0.12s, color 0.12s, border-color 0.12s;
+  box-shadow: 0 2px 6px -1px rgba(2, 6, 23, 0.25);
+  transition: opacity 0.12s, color 0.12s, border-color 0.12s, background-color 0.12s, transform 0.12s, box-shadow 0.12s;
 }
 .tiptap-note-content .ProseMirror .tableWrapper:hover .note-table-grip,
 .tiptap-note-content .ProseMirror table.note-table[data-node-selected="true"] ~ .note-table-grip {
   opacity: 1;
+  transform: scale(1);
 }
 .tiptap-note-content .ProseMirror .note-table-grip:hover {
-  color: rgb(var(--primary));
-  border-color: rgb(var(--primary) / 0.6);
+  color: #ffffff;
+  background: rgb(var(--primary));
+  border-color: rgb(var(--primary));
+  box-shadow: 0 4px 10px -2px rgb(var(--primary) / 0.5);
+}
+.tiptap-note-content .ProseMirror .note-table-grip:active {
+  cursor: grabbing;
+  transform: scale(0.96);
 }
 
 .tiptap-note-content .ProseMirror table.note-table .column-resize-handle {

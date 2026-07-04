@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useRef, useEffect, useCallback, type DragEvent } from "react";
-import { Search, Star, ChevronDown, FileText, Folder, FolderPlus, Check, Clock, MoreHorizontal, Upload, Trash2, MoveRight, ArrowUp, ArrowDown, GripVertical } from "lucide-react";
+import { Search, Star, ChevronDown, FileText, FilePlus, Folder, FolderPlus, Check, Clock, MoreHorizontal, Upload, Trash2, MoveRight, ArrowUp, ArrowDown, GripVertical } from "lucide-react";
 import {
   DndContext,
   useDraggable,
@@ -152,7 +152,7 @@ function FavNoteRow({
       >
         <GripVertical size={11} />
       </button>
-      <FileText size={11} className="shrink-0" style={{ color: "#f59e0b" }} />
+      <FileText size={11} className="shrink-0 text-txt3" />
       {renaming ? (
         <input
           ref={renameInputRef}
@@ -168,6 +168,9 @@ function FavNoteRow({
         />
       ) : (
         <span className="flex-1 truncate">{note.title}</span>
+      )}
+      {!renaming && (
+        <Star size={10} className="mr-0.5 shrink-0 fill-yellow-400 text-yellow-400" />
       )}
 
       {!renaming && (
@@ -275,7 +278,7 @@ function SearchNoteRow({
         setMenuOpen(true);
       }}
       className={cx(
-        "group relative flex h-7 cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 text-[12px] transition-colors",
+        "group relative flex h-7 cursor-pointer select-none items-center gap-1 rounded-md px-1.5 text-[12px] transition-colors",
         isActive ? "font-medium text-txt" : "text-txt2 hover:text-txt"
       )}
       style={{ background: isSelected ? "rgb(var(--primary) / 0.15)" : undefined }}
@@ -301,7 +304,7 @@ function SearchNoteRow({
         <span className="flex-1 truncate">{note.title}</span>
       )}
       {isFavorite && !renaming && (
-        <Star size={10} className="shrink-0 fill-yellow-400 text-yellow-400" />
+        <Star size={10} className="mr-0.5 shrink-0 fill-yellow-400 text-yellow-400" />
       )}
 
       {!renaming && (
@@ -394,7 +397,7 @@ function FavChildNoteRow({
         setMenuOpen(true);
       }}
       className={cx(
-        "group relative flex h-7 cursor-pointer select-none items-center gap-1.5 rounded-md pr-1.5 text-[12px] transition-colors",
+        "group relative flex h-7 cursor-pointer select-none items-center gap-1 rounded-md pr-1.5 text-[12px] transition-colors",
         isActive ? "font-medium text-txt" : "text-txt2 hover:text-txt"
       )}
       style={{ paddingLeft: depth * 14 + 6, background: isSelected ? "rgb(var(--primary) / 0.15)" : undefined }}
@@ -419,12 +422,19 @@ function FavChildNoteRow({
       ) : (
         <span className="flex-1 truncate">{note.title}</span>
       )}
-      {isFavorite && !renaming && (
-        <Star size={10} className="shrink-0 fill-yellow-400 text-yellow-400" />
-      )}
-
       {!renaming && (
-        <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div className="relative flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={() => onToggleFavorite(note.id)}
+            title={isFavorite ? "즐겨찾기 해제" : "즐겨찾기 추가"}
+            className={cx(
+              "grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-yellow-400",
+              !hovered && !menuOpen && !isFavorite && "opacity-0 group-hover:opacity-100"
+            )}
+          >
+            <Star size={11} className={cx("shrink-0", isFavorite && "fill-yellow-400 text-yellow-400")} />
+          </button>
           <button
             type="button"
             onClick={() => { setMenuAnchor(null); setMenuOpen((v) => !v); }}
@@ -493,8 +503,8 @@ function FavFolderTreeNode({
   onNoteClick: (id: string) => void;
   onToggleFavorite: (id: string) => void;
   onToggleNoteFavorite: (id: string) => void;
-  onCreateFolder: (parentFolderId: string | null, name: string) => void;
-  onCreateNote: (folderId?: string) => void;
+  onCreateFolder: (parentFolderId: string | null, name: string, favorite?: boolean) => void;
+  onCreateNote: (folderId?: string, favorite?: boolean) => void;
   onRenameFolder: (folderId: string, newName: string) => void;
   onChangeFolderColor: (folderId: string, color: string) => void;
   onDeleteFolder: (folderId: string) => void;
@@ -511,11 +521,31 @@ function FavFolderTreeNode({
   const [renameDraft, setRenameDraft] = useState(folder.name);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
+  /* 즐겨찾기 폴더 안에서 만드는 하위 폴더 — 정책: 자동 즐겨찾기하지 않는다(일반 트리와 동일한
+     "새 폴더" 인라인 입력 패턴, 하드코딩된 이름으로 즉시 생성하던 이전 동작을 대체). */
+  const [creatingSubfolder, setCreatingSubfolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const newFolderInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (creatingSubfolder) newFolderInputRef.current?.focus();
+  }, [creatingSubfolder]);
+
+  const commitCreateSubfolder = useCallback(() => {
+    const name = newFolderName.trim();
+    if (name) onCreateFolder(folder.id, name);
+    setNewFolderName("");
+    setCreatingSubfolder(false);
+  }, [newFolderName, folder.id, onCreateFolder]);
 
   const isSelected = selectedFolderId === folder.id;
   const isMultiSelected = selectedIds.has(folder.id);
   const childFolders = folders.filter((f) => f.parentFolderId === folder.id);
-  const childNotes = notes.filter((n) => n.folderId === folder.id);
+  // 즐겨찾기 폴더 안에서는 그중 별도로 즐겨찾기한 노트를 먼저 보여준다 — 나머지 순서는
+  // 그대로 유지되는 안정 정렬(favorite 여부만 앞으로 당김).
+  const childNotes = [...notes.filter((n) => n.folderId === folder.id)].sort(
+    (a, b) => Number(favorites.has(b.id)) - Number(favorites.has(a.id))
+  );
 
   useEffect(() => {
     if (renaming) {
@@ -577,17 +607,39 @@ function FavFolderTreeNode({
         ) : (
           <span className="flex-1 truncate">{folder.name}</span>
         )}
-
-        {!renaming && (
-          <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+        {/* 아이콘 순서: 노트 생성 → 폴더 생성 → 즐겨찾기 → 더보기(...) — 일반 트리와 동일하게
+            통일한다. 즐겨찾기 아이콘은 이미 즐겨찾기된 상태면 hover와 무관하게 항상 보인다. */}
+        {(hovered || menuOpen) && !renaming && (
+          <div className="relative flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => { onCreateNote(folder.id); setExpanded(true); }}
+              title="이 폴더에 노트 생성"
+              className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-primary/15 hover:text-primary"
+            >
+              <FilePlus size={11} />
+            </button>
+            <button
+              type="button"
+              onClick={() => { setCreatingSubfolder(true); setExpanded(true); }}
+              title="새 폴더 생성"
+              className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-txt2"
+            >
+              <FolderPlus size={11} />
+            </button>
+            <button
+              type="button"
+              onClick={() => onToggleFavorite(folder.id)}
+              title={folder.favorite ? "즐겨찾기 해제" : "즐겨찾기 추가"}
+              className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-yellow-400"
+            >
+              <Star size={11} className={cx("shrink-0", folder.favorite && "fill-yellow-400 text-yellow-400")} />
+            </button>
             <button
               type="button"
               onClick={() => { setMenuAnchor(null); setMenuOpen((v) => !v); }}
               title="더보기"
-              className={cx(
-                "grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-primary",
-                !hovered && !menuOpen && "opacity-0 group-hover:opacity-100"
-              )}
+              className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-primary"
             >
               <MoreHorizontal size={11} />
             </button>
@@ -596,8 +648,8 @@ function FavFolderTreeNode({
               <FolderMenu
                 folder={folder}
                 anchor={menuAnchor}
-                onCreateSubfolder={() => onCreateFolder(folder.id, "새 폴더")}
-                onCreateNote={() => onCreateNote(folder.id)}
+                onCreateSubfolder={() => { setCreatingSubfolder(true); setExpanded(true); }}
+                onCreateNote={() => { onCreateNote(folder.id); setExpanded(true); }}
                 onStartRename={() => setRenaming(true)}
                 onChangeColor={(color) => onChangeFolderColor(folder.id, color)}
                 onToggleFavorite={() => onToggleFavorite(folder.id)}
@@ -607,6 +659,9 @@ function FavFolderTreeNode({
               />
             )}
           </div>
+        )}
+        {!(hovered || menuOpen) && folder.favorite && !renaming && (
+          <Star size={11} className="mr-0.5 shrink-0 fill-yellow-400 text-yellow-400" />
         )}
 
         <HoverInfoCard anchorRef={rowRef} hovered={hovered && !renaming && !menuOpen}>
@@ -619,8 +674,25 @@ function FavFolderTreeNode({
         </HoverInfoCard>
       </div>
 
-      {expanded && (childFolders.length > 0 || childNotes.length > 0) && (
+      {expanded && (childFolders.length > 0 || childNotes.length > 0 || creatingSubfolder) && (
         <div>
+          {creatingSubfolder && (
+            <div className="flex h-7 items-center gap-1.5" style={{ paddingLeft: (depth + 1) * 14 + 20 }}>
+              <Folder size={13} className="shrink-0 text-yellow-400/60" />
+              <input
+                ref={newFolderInputRef}
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitCreateSubfolder();
+                  if (e.key === "Escape") { setCreatingSubfolder(false); setNewFolderName(""); }
+                }}
+                onBlur={commitCreateSubfolder}
+                placeholder="폴더 이름..."
+                className="flex-1 rounded border border-primary/40 bg-surface px-1.5 py-0.5 text-[12px] text-txt outline-none"
+              />
+            </div>
+          )}
           {childFolders.map((cf) => (
             <FavFolderTreeNode
               key={cf.id}
@@ -787,11 +859,12 @@ interface Props {
   selectedFolderId: string | null;
   onSelectFolder: (folderId: string | null) => void;
   onNoteClick: (noteId: string) => void;
-  onCreateFolder: (parentFolderId: string | null, name: string) => void;
-  onCreateNote: (folderId?: string) => void;
+  onCreateFolder: (parentFolderId: string | null, name: string, favorite?: boolean) => void;
+  onCreateNote: (folderId?: string, favorite?: boolean) => void;
   onRenameFolder: (folderId: string, newName: string) => void;
   onChangeFolderColor: (folderId: string, color: string) => void;
   onToggleFolderFavorite: (folderId: string) => void;
+  onToggleNoteFavorite: (noteId: string) => void;
   onDeleteFolder: (folderId: string) => void;
   onDeleteNote: (noteId: string) => void;
   onDeleteMultiple?: (noteIds: string[], folderIds: string[]) => void;
@@ -820,6 +893,7 @@ export default function NotesExplorer({
   onRenameFolder,
   onChangeFolderColor,
   onToggleFolderFavorite,
+  onToggleNoteFavorite,
   onDeleteFolder,
   onDeleteNote,
   onDeleteMultiple,
@@ -845,9 +919,10 @@ export default function NotesExplorer({
     setSortByRaw(next);
     setSortDirection(DEFAULT_SORT_DIRECTION[next]);
   };
-  const [favorites, setFavorites] = useState<Set<string>>(
-    () => new Set(["spring", "brainx-arch", "rag-flow"])
-  );
+  // 즐겨찾기 여부는 이제 notes[].favorite(백엔드 PUT /api/v1/favorites/NOTE/{id}로 저장됨)에서
+  // 파생한다 — 이 컴포넌트가 자체적으로 들고 있던 하드코딩 시드 상태는 새로고침하면 항상
+  // 초기값으로 되돌아가는 문제가 있었다.
+  const favorites = useMemo(() => new Set(notes.filter((n) => n.favorite).map((n) => n.id)), [notes]);
   const [favExpanded, setFavExpanded] = useState(true);
   /* 즐겨찾기 영역 전용 수동 순서 — null이면 아직 커스텀하지 않은 상태라 현재 sortBy를 따르고,
      사용자가 즐겨찾기 안에서 한 번이라도 드래그로 순서를 바꾸면 그 뒤로는 이 배열을 따른다.
@@ -1014,21 +1089,13 @@ export default function NotesExplorer({
   /* 다중(또는 단일) 삭제 확인 — pendingDeleteIds 스냅샷만 사용하고 live selectedIds는 다시 읽지 않는다.
      실제 삭제 API 호출은 선택한 "최상위" 노트/폴더 id만 넘긴다 — handleDeleteFolder가 하위 폴더/노트를
      자체적으로 cascade 삭제하므로, 여기서 미리 전개한 하위 id까지 같이 넘기면 같은 노트/폴더를 두 번
-     지우려는 중복 API 호출이 생긴다. pendingDeleteExpanded(전개된 집합)는 확인창 문구와, API 호출이
-     없는 로컬 즐겨찾기 정리에만 사용한다. */
+     지우려는 중복 API 호출이 생긴다. pendingDeleteExpanded(전개된 집합)는 확인창 문구에만 쓰인다 —
+     favorites는 이제 notes[].favorite에서 파생되므로, 노트가 notes에서 지워지면 즐겨찾기 표시도
+     자동으로 함께 사라진다(별도 정리 불필요). */
   const confirmDelete = useCallback(() => {
     if (!pendingDeleteIds) return;
     const noteIds = pendingDeleteIds.filter((id) => notes.some((n) => n.id === id));
     const folderIds = pendingDeleteIds.filter((id) => folders.some((f) => f.id === id));
-    const expandedNoteIds = pendingDeleteExpanded.noteIds;
-    if (expandedNoteIds.length > 0) {
-      setFavorites((prev) => {
-        if (!expandedNoteIds.some((id) => prev.has(id))) return prev;
-        const next = new Set(prev);
-        expandedNoteIds.forEach((id) => next.delete(id));
-        return next;
-      });
-    }
     if (onDeleteMultiple) {
       onDeleteMultiple(noteIds, folderIds);
     } else {
@@ -1096,6 +1163,22 @@ export default function NotesExplorer({
     if (creatingRootFolder) rootFolderInputRef.current?.focus();
   }, [creatingRootFolder]);
 
+  /* 즐겨찾기 영역 루트에서 직접 만드는 폴더 — 정책: 여기서 만든 루트 폴더는 자동 즐겨찾기. */
+  const [creatingFavRootFolder, setCreatingFavRootFolder] = useState(false);
+  const [favRootFolderName, setFavRootFolderName] = useState("");
+  const favRootFolderInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (creatingFavRootFolder) favRootFolderInputRef.current?.focus();
+  }, [creatingFavRootFolder]);
+
+  const commitFavRootFolder = useCallback(() => {
+    const name = favRootFolderName.trim();
+    if (name) onCreateFolder(null, name, true);
+    setFavRootFolderName("");
+    setCreatingFavRootFolder(false);
+  }, [favRootFolderName, onCreateFolder]);
+
   const commitRootFolder = useCallback(() => {
     const name = rootFolderName.trim();
     if (name) onCreateFolder(null, name);
@@ -1146,13 +1229,7 @@ export default function NotesExplorer({
 
   const isSearching = search.trim().length > 0;
 
-  const toggleFavorite = (id: string) => {
-    setFavorites((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
+  const toggleFavorite = onToggleNoteFavorite;
 
   const favNotes = useMemo(() => {
     const favSet = filtered.filter((n) => favorites.has(n.id) && !isNoteCoveredByFavoritedFolder(n));
@@ -1188,15 +1265,19 @@ export default function NotesExplorer({
 
   const handleFavDragEnd = useCallback(
     (event: DragEndEvent) => {
-      const resolved = resolveFavDrop(event);
-      if (resolved) {
-        setFavoriteOrder((prev) => {
-          const base = prev ?? favNotes.map((n) => n.id);
-          return reorderIdInArray(base, resolved.activeId, resolved.overId, resolved.position);
-        });
+      // FolderTree.handleDragEnd와 동일한 이유 — 커밋 중 예외가 나도 드래그 상태는 항상 reset.
+      try {
+        const resolved = resolveFavDrop(event);
+        if (resolved) {
+          setFavoriteOrder((prev) => {
+            const base = prev ?? favNotes.map((n) => n.id);
+            return reorderIdInArray(base, resolved.activeId, resolved.overId, resolved.position);
+          });
+        }
+      } finally {
+        setActiveFavDragId(null);
+        setFavOverIndicator(null);
       }
-      setActiveFavDragId(null);
-      setFavOverIndicator(null);
     },
     [resolveFavDrop, favNotes]
   );
@@ -1205,6 +1286,27 @@ export default function NotesExplorer({
     setActiveFavDragId(null);
     setFavOverIndicator(null);
   }, []);
+
+  /* 방어적 안전망: FolderTree와 동일하게, dnd-kit onDragEnd/onDragCancel이 누락되는 경우에도
+     즐겨찾기 섹션 드래그 상태가 영구히 남지 않도록 pointerup/pointercancel/blur에서 정리한다. */
+  useEffect(() => {
+    if (!activeFavDragId) return;
+    const clear = () => {
+      setActiveFavDragId(null);
+      setFavOverIndicator(null);
+    };
+    const onVisibility = () => { if (document.hidden) clear(); };
+    window.addEventListener("pointerup", clear);
+    window.addEventListener("pointercancel", clear);
+    window.addEventListener("blur", clear);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pointerup", clear);
+      window.removeEventListener("pointercancel", clear);
+      window.removeEventListener("blur", clear);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [activeFavDragId]);
 
   const searchResults = useMemo(
     () => sortNotes(filtered, sortBy, favorites, sortDirection),
@@ -1398,17 +1500,57 @@ export default function NotesExplorer({
           </div>
         ) : (
           <>
-            {(favNotes.length > 0 || favFolders.length > 0) && (
-              <div className="mb-1 px-2">
-                <button
-                  onClick={() => setFavExpanded((v) => !v)}
-                  className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-surface2/40"
-                >
-                  <CollapseChevron expanded={favExpanded} size={11} />
-                  <Star size={11} className="shrink-0 fill-yellow-400 text-yellow-400" />
-                  <span className="flex-1 text-[13px] font-bold text-txt">즐겨찾기</span>
-                  <span className="text-[10px] text-txt3">{favNotes.length + favFolders.length}</span>
-                </button>
+            {(favNotes.length > 0 || favFolders.length > 0 || creatingFavRootFolder) && (
+              <div className="group/favhead mb-1 px-2">
+                <div className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-surface2/40">
+                  <button
+                    type="button"
+                    onClick={() => setFavExpanded((v) => !v)}
+                    className="flex flex-1 items-center gap-1.5 overflow-hidden text-left"
+                  >
+                    <CollapseChevron expanded={favExpanded} size={11} />
+                    <Star size={11} className="shrink-0 fill-yellow-400 text-yellow-400" />
+                    <span className="flex-1 truncate text-[13px] font-bold text-txt">즐겨찾기</span>
+                    <span className="shrink-0 text-[10px] text-txt3">{favNotes.length + favFolders.length}</span>
+                  </button>
+                  {/* 즐겨찾기 영역 루트에서 직접 생성 — 여기서 만들면 자동 즐겨찾기(정책). */}
+                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/favhead:opacity-100">
+                    <button
+                      type="button"
+                      onClick={() => { onCreateNote(undefined, true); setFavExpanded(true); }}
+                      title="즐겨찾기 루트에 새 노트 생성"
+                      className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-primary/15 hover:text-primary"
+                    >
+                      <FilePlus size={11} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setCreatingFavRootFolder(true); setFavExpanded(true); }}
+                      title="즐겨찾기 루트에 새 폴더 생성"
+                      className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-txt2"
+                    >
+                      <FolderPlus size={11} />
+                    </button>
+                  </div>
+                </div>
+
+                {creatingFavRootFolder && (
+                  <div className="flex h-7 items-center gap-1.5 pl-6">
+                    <Folder size={13} className="shrink-0 text-yellow-400/60" />
+                    <input
+                      ref={favRootFolderInputRef}
+                      value={favRootFolderName}
+                      onChange={(e) => setFavRootFolderName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitFavRootFolder();
+                        if (e.key === "Escape") { setCreatingFavRootFolder(false); setFavRootFolderName(""); }
+                      }}
+                      onBlur={commitFavRootFolder}
+                      placeholder="폴더 이름..."
+                      className="flex-1 rounded border border-primary/40 bg-surface px-1.5 py-0.5 text-[12px] text-txt outline-none"
+                    />
+                  </div>
+                )}
 
                 {favExpanded && (
                   <div className="mt-0.5 pl-3">

@@ -145,16 +145,13 @@ export default function EditorPanel({
 
   const setNoteEditorRef = useCallback((handle: NoteEditorHandle | null) => {
     editorRef.current = handle;
-    if (onEditorHandleChange && activeTab.kind === "note" && note && isActive) {
-      onEditorHandleChange(node.id, activeTabId, handle);
-    }
-  }, [activeTab.kind, activeTabId, isActive, node.id, note?.id, onEditorHandleChange]);
+  }, []);
 
   useEffect(() => {
     if (!onEditorHandleChange || activeTab.kind !== "note" || !note || !isActive) return;
     onEditorHandleChange(node.id, activeTabId, editorRef.current);
     return () => onEditorHandleChange(node.id, activeTabId, null);
-  }, [activeTab.kind, activeTabId, isActive, mode, node.id, note?.id, onEditorHandleChange]);
+  }, [activeTab.kind, activeTabId, isActive, node.id, note?.id, onEditorHandleChange]);
 
   /* titleDragGuard 해제 안전망 — 제목 input 자신의 onMouseUp은 stopPropagation 되어 있어
      (아래 input 참고) 드래그가 input 경계를 벗어나 다른 곳에서 끝나도 가드를 반드시 꺼야
@@ -332,10 +329,12 @@ export default function EditorPanel({
         contextOpen={contextOpen}
       />
 
-      {/* 탭 바와 노트 제목 사이 공간 — Ctrl+F를 누르면 InNoteSearch(NoteEditor.tsx)가 이 자리에
-          포털로 우측 정렬 검색창을 그린다. 노트가 없거나 검색이 닫혀 있으면 빈 채로 높이도
-          차지하지 않는다(내용 없는 flex row는 자연히 0 높이). */}
-      {note && <div ref={setSearchAnchorEl} className="flex justify-end px-3 pt-1.5" />}
+      {/* Ctrl+F 검색창 앵커 — 탭 바와 스크롤 영역 사이에서 자체 크기는 0(패딩/높이 없음)이라
+          탭과 노트 사이에 별도 공간을 만들지 않는다. InNoteSearch가 이 안에 절대 위치로 검색창을
+          그리므로(이 앵커가 position:relative 기준점), 검색창은 노트 영역 상단에 겹쳐서
+          오른쪽 정렬로 뜨고 — 스크롤 영역(scrollContainerRef) 바깥에 있어 스크롤해도 같은
+          위치에 고정된다. */}
+      {note && <div ref={setSearchAnchorEl} className="relative z-30" />}
 
       {/* ── 콘텐츠 — 탭이 가리키는 노트를 찾을 수 없을 때(삭제된 노트 등)는 복구용으로
           Welcome 화면과 동일한 컴포넌트를 보여준다. 탭이 0개인 진짜 Welcome 상태는
@@ -371,6 +370,14 @@ export default function EditorPanel({
               editorRef.current?.focusEnd();
             }
           }}
+          onContextMenu={(e) => {
+            // 텍스트/이미지/표 위의 우클릭은 NoteEditor.tsx의 onContextMenu가 stopPropagation으로
+            // 이미 처리해 여기까지 오지 않는다 — 여기 닿는다는 건 아직 글이 없는 빈 여백이라는 뜻.
+            if (isEdit && e.target === e.currentTarget && !titleDragGuard.active) {
+              e.preventDefault();
+              editorRef.current?.openContextMenu(e.clientX, e.clientY);
+            }
+          }}
         >
           {/* Obsidian처럼 본문을 패널 중앙의 적당한 폭으로 제한한다 — 텍스트 자체의 정렬은 그대로
               좌측 정렬(.ProseMirror 기본값)이고, 이 wrapper의 좌우 여백만 중앙 정렬된다. 분할
@@ -391,6 +398,12 @@ export default function EditorPanel({
                 !titleDragGuard.active
               ) {
                 editorRef.current?.focusEnd();
+              }
+            }}
+            onContextMenu={(e) => {
+              if (isEdit && e.target === e.currentTarget && !titleDragGuard.active) {
+                e.preventDefault();
+                editorRef.current?.openContextMenu(e.clientX, e.clientY);
               }
             }}
           >
@@ -521,6 +534,13 @@ export default function EditorPanel({
           ref={overlayRef}
           className="absolute inset-0 z-10"
           style={{ top: 36 }}
+          onClick={() => {
+            // 방어적 안전망: 실제 HTML5 드래그 중이라면 이 오버레이 위에서 'click'이 발생하지
+            // 않는다(드래그는 dragover/drop만 발생, click은 억제됨) — 그런데도 click이 여기 닿았다는
+            // 건 dragPayload가 실제 드래그 없이 남아있는 상태(dragend/drop을 놓친 경우)라는 뜻이다.
+            // 오버레이가 본문 클릭/타이핑을 계속 가로채지 않도록 즉시 정리한다.
+            onTabDragEnd();
+          }}
           onDragOver={(e) => {
             if (dragPayload.kind === "tab" && !canSplitWorkspace) {
               e.dataTransfer.dropEffect = "none";

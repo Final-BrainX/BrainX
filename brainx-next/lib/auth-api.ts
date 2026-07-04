@@ -103,6 +103,11 @@ const WORKSPACE_API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
   "";
 const DEV_AUTH_BYPASS = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true";
+// 이 값은 X-User-Id 헤더 전송(NEXT_PUBLIC_ENABLE_DEV_USER, lib/dev-user.ts)과는 별개의 스위치
+// (NEXT_PUBLIC_DEV_AUTH_BYPASS)로만 게이팅된다 — DEV_AUTH_BYPASS는 완전히 가짜 로그인 세션 객체를
+// 만드는 기능이라, 그 세션의 표시용 userId 라벨로만 이 값을 재사용한다. ENABLE_DEV_USER가 꺼져
+// 있어도(진짜 게스트 요청에 X-User-Id를 안 붙이는 것과 무관하게) DEV_AUTH_BYPASS가 켜져 있으면
+// 이 라벨은 그대로 쓴다.
 const DEV_AUTH_USER_ID = process.env.NEXT_PUBLIC_WORKSPACE_DEV_USER_ID?.trim() || "dev-test-user";
 export const DEMO_AUTH_SESSION: AuthSession = {
   accessToken: "demo-access-token",

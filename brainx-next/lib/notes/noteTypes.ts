@@ -142,6 +142,8 @@ export interface MockNote {
   persisted?: boolean;
   /** 선택 사항 — 설정하지 않은 노트는 기존 기본 스타일을 그대로 사용한다 */
   typography?: NoteTypography;
+  /** 즐겨찾기 여부 — MockFolder.favorite와 동일한 개념(PUT /api/v1/favorites/NOTE/{noteId}). */
+  favorite?: boolean;
 }
 
 /** 일반 노트 탭 — 패널에 열린 탭은 항상 실제 노트를 가리킨다. 열린 노트가 하나도 없는 패널은

@@ -147,14 +147,16 @@ export function InNoteSearch({ editor, anchorEl }: { editor: Editor; anchorEl?: 
 
   if (!open) return null;
 
-  // anchorEl(탭 바와 제목 사이에 EditorPanel이 마련해 둔 자리)이 있으면 그 자리에 포털로
-  // 꽂아 넣는다 — 그 레이아웃이 없는 곳(editor-lab 등)에서는 기존처럼 본문 위 우상단
-  // 플로팅으로 대체한다.
+  // anchorEl(탭 바와 스크롤 영역 사이에 EditorPanel이 마련해 둔, 크기 0의 기준점)이 있으면
+  // 그 안에 포털로 꽂아 넣되 절대 위치로 우측 정렬한다 — 앵커 자체가 레이아웃 공간을 차지하지
+  // 않으므로(스크롤 영역 바깥) 검색창이 노트 영역 상단에 겹쳐 보이고, 스크롤해도 앵커 위치
+  // 기준으로 고정된 채 유지된다. 그 레이아웃이 없는 곳(editor-lab 등)에서는 기존처럼 본문 위
+  // 우상단 플로팅으로 대체한다.
   const content = (
     <div
       className={cx(
         "flex items-center gap-1 rounded-lg border border-line/60 px-2 py-1.5 text-[12px] shadow-lg",
-        !anchorEl && "absolute right-3 top-3 z-30"
+        "absolute right-3 top-1.5 z-30"
       )}
       style={{ background: "rgb(var(--surface))", boxShadow: "0 8px 20px -4px rgba(2,6,23,0.35)" }}
     >

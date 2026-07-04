@@ -12,11 +12,11 @@ import {
   saveDesktopVaultNoteContent,
   saveDesktopVaultNoteMetadata,
 } from "@/lib/desktop-vault";
+import { DEV_USER_ID as WORKSPACE_DEV_USER_ID } from "@/lib/dev-user";
 import type { MockFolder, MockNote, NoteTypography } from "@/lib/notes/noteTypes";
 
 const WORKSPACE_API_BASE_URL = process.env.NEXT_PUBLIC_WORKSPACE_API_BASE_URL ?? "http://localhost:8082";
 export const USE_MOCK_NOTES = process.env.NEXT_PUBLIC_NOTES_USE_MOCK !== "false";
-const WORKSPACE_DEV_USER_ID = process.env.NEXT_PUBLIC_WORKSPACE_DEV_USER_ID?.trim();
 
 export type NoteDetail = {
   noteId: string;
@@ -217,6 +217,20 @@ export class WorkspaceApiError extends Error {
   }
 }
 
+/** 이 브라우저 세션이 백엔드에 "실제 사용자"로 식별되는지 — 실제 로그인 세션(JWT)뿐 아니라,
+    로컬 개발용 `NEXT_PUBLIC_WORKSPACE_DEV_USER_ID`(X-User-Id 헤더로 강제 로그인 흉내)가 설정된
+    경우도 포함한다. 이 값이 true인 동안 authedRequest는 Workspace-Service에 항상 어떤 형태로든
+    "식별된 사용자" 헤더를 실어 보내므로(Authorization 또는 X-User-Id), Workspace-Service는 그
+    요청을 GUEST(Redis draft)가 아니라 USER(Postgres)로 처리한다. 프론트의 게스트/로그인 분기
+    (그래프, 노트 목록 로딩 등)도 이 판정과 반드시 일치해야 한다 — 안 그러면 로컬에서만 "실제로는
+    dev-test-user로 저장됐는데 프론트는 게스트 draft 경로를 읽어서 새로고침하면 사라지는" 불일치가
+    생긴다(배포 환경은 이 env var 자체가 없어서 문제가 드러나지 않았다). */
+export function hasWorkspaceUserIdentity(): boolean {
+  const session = readAuthSession();
+  const useAuthenticatedSession = Boolean(session?.accessToken) && !isDevAuthSession(session);
+  return useAuthenticatedSession || Boolean(WORKSPACE_DEV_USER_ID);
+}
+
 async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const session = readAuthSession();
   const useAuthenticatedSession = Boolean(session?.accessToken) && !isDevAuthSession(session);
@@ -289,6 +303,59 @@ export async function listFolders() {
     return getDesktopVaultFolderData();
   }
   return authedRequest<FolderTreeData>("/api/v1/folders/tree");
+}
+
+export type FavoriteTargetType = "NOTE" | "FOLDER";
+export type FavoriteData = { targetType: FavoriteTargetType; targetId: string; enabled: boolean };
+
+/** 워크스페이스 sync 응답(WorkspaceSyncData.favorites)의 항목 형태는 SSOT에서
+    `additionalProperties: true`로만 열려 있고 고정 스키마가 없다 — PUT 응답(FavoriteData)과
+    같은 필드(targetType/targetId/enabled)를 쓴다고 가정하되, 다른 필드명(noteId/folderId 등)을
+    쓰는 백엔드 구현도 방어적으로 함께 인식한다. 모르는 모양이면 조용히 무시하고 건너뛴다(그래프/
+    노트 목록처럼 필수 데이터가 아니라 있으면 좋은 부가 정보라 실패해도 UI 전체를 막지 않는다). */
+function parseFavoriteSyncItem(item: unknown): { targetType: FavoriteTargetType; targetId: string; enabled: boolean } | null {
+  if (!item || typeof item !== "object") return null;
+  const record = item as Record<string, unknown>;
+  const enabled = typeof record.enabled === "boolean" ? record.enabled : true;
+  const targetType = record.targetType === "NOTE" || record.targetType === "FOLDER" ? record.targetType : null;
+  const targetId = typeof record.targetId === "string" ? record.targetId
+    : typeof record.noteId === "string" ? record.noteId
+    : typeof record.folderId === "string" ? record.folderId
+    : null;
+  const inferredType: FavoriteTargetType | null = targetType
+    ?? (typeof record.noteId === "string" ? "NOTE" : typeof record.folderId === "string" ? "FOLDER" : null);
+  if (!inferredType || !targetId) return null;
+  return { targetType: inferredType, targetId, enabled };
+}
+
+const DEFAULT_DOCUMENT_GROUP_ID = "default";
+
+/** 노트/폴더 즐겨찾기 초기 상태 조회 — 노트/폴더 단건 조회에는 즐겨찾기 여부가 없어(SSOT에
+    isFavorite류 필드 없음) 워크스페이스 sync 응답의 favorites 배열이 유일한 조회 경로다. 데스크톱
+    vault 모드는 Workspace-Service 자체를 안 쓰므로 빈 값을 돌려준다. */
+export async function getWorkspaceFavorites(documentGroupId: string = DEFAULT_DOCUMENT_GROUP_ID): Promise<{ noteIds: Set<string>; folderIds: Set<string> }> {
+  const empty = { noteIds: new Set<string>(), folderIds: new Set<string>() };
+  if (await shouldUseDesktopVault()) return empty;
+  const data = await authedRequest<{ favorites?: unknown[] }>(`/api/v1/workspaces/${documentGroupId}/sync`);
+  const noteIds = new Set<string>();
+  const folderIds = new Set<string>();
+  for (const raw of data.favorites ?? []) {
+    const parsed = parseFavoriteSyncItem(raw);
+    if (!parsed || !parsed.enabled) continue;
+    (parsed.targetType === "NOTE" ? noteIds : folderIds).add(parsed.targetId);
+  }
+  return { noteIds, folderIds };
+}
+
+/** 노트/폴더 즐겨찾기 설정/해제 — 게스트(guestSessionAuth)/로그인(bearerAuth) 둘 다 계약상
+    허용된다. 데스크톱 vault 모드는 Workspace-Service를 쓰지 않으므로 호출 자체를 건너뛰고
+    낙관적으로 성공한 것처럼 반환한다(로컬 vault에는 즐겨찾기 저장소가 아직 없음). */
+export async function putFavorite(targetType: FavoriteTargetType, targetId: string, enabled: boolean): Promise<FavoriteData> {
+  if (await shouldUseDesktopVault()) return { targetType, targetId, enabled };
+  return authedRequest<FavoriteData>(`/api/v1/favorites/${targetType}/${targetId}`, {
+    method: "PUT",
+    body: JSON.stringify({ enabled }),
+  });
 }
 
 export async function getMyWorkspaceStats() {
