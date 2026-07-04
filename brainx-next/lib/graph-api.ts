@@ -93,16 +93,17 @@ export function graphToBrainXNotes(graph: GraphData): BrainXNote[] {
   }
 
   return graph.nodes.map((node) => {
+    const title = node.title?.trim() || "Untitled";
     const cluster = normalizeClusterId(node.clusterId ?? node.folderId ?? node.noteId);
     const createdAt = normalizeDate(node.createdAt);
     const updatedAt = normalizeDate(node.updatedAt);
     return {
       id: node.noteId,
-      title: node.title || "Untitled",
+      title,
       markdown: "",
       folderId: cluster,
       cluster,
-      summary: normalizeSummary(node.summary, node.title),
+      summary: normalizeSummary(node.summary),
       tags: node.tags ?? [],
       links: Array.from(linksByNoteId.get(node.noteId) ?? []),
       searchIndexStatus: "UNKNOWN",
@@ -125,13 +126,14 @@ export function graphToBrainXNotes(graph: GraphData): BrainXNote[] {
 export function draftsToBrainXNotes(drafts: NoteDraftData[]): BrainXNote[] {
   return drafts.map((draft) => {
     const fallbackCluster = CLUSTERS[0].id;
+    const title = draft.title?.trim() || "제목 없음";
     return {
       id: draft.noteId,
-      title: draft.title?.trim() || "제목 없음",
+      title,
       markdown: draft.markdown ?? "",
       folderId: fallbackCluster,
       cluster: fallbackCluster,
-      summary: normalizeSummary(null, draft.title ?? "제목 없음"),
+      summary: normalizeSummary(null),
       tags: [],
       links: [],
       searchIndexStatus: "UNKNOWN",
@@ -188,10 +190,10 @@ function normalizeClusterId(value: string): ClusterId {
   return ids[Math.abs(hash) % ids.length];
 }
 
-function normalizeSummary(summary: string | null | undefined, title: string) {
+function normalizeSummary(summary: string | null | undefined) {
   const text = summary?.trim();
   if (text) return text;
-  return `${title}은 아직 처리되지 않았습니다. AI 기능이 제한됩니다.`;
+  return "";
 }
 
 function normalizeDate(value: string | null | undefined) {
