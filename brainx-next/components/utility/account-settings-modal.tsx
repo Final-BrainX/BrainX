@@ -44,6 +44,9 @@ import {
 import { getMyWorkspaceStats, type WorkspaceUserStatsData } from "@/lib/workspace-api";
 import { createSupportTicket, getMySupportTicket, getMySupportTickets, type SupportTicket, type SupportTicketDetail, type SupportTicketPayload } from "@/lib/support-api";
 import { getRecentDailySeries, summarizeWorkspaceNotes } from "@/lib/workspace-note-stats";
+import { getBrainxDesktopConfig, isElectronDesktop, type BrainxDesktopVaultSyncMode, type BrainxDesktopVaultSyncPolicy } from "@/lib/desktop-bridge";
+import { getDesktopVaultSyncPolicy, requestDesktopVaultManualSync, setDesktopVaultSyncPolicy } from "@/lib/desktop-vault";
+import { addPopupResultListener, openBrainxPopup } from "@/lib/desktop-bridge";
 import { cx } from "@/lib/utils";
 import type { ThemeMode } from "@/components/brainx-provider";
 import type { LanguageCode } from "@/lib/i18n";
@@ -1265,6 +1268,112 @@ function ConsentButton({
   );
 }
 
+function DesktopVaultSyncSection() {
+  const { pushToast } = useBrainX();
+  const [supported, setSupported] = useState(false);
+  const [vaultName, setVaultName] = useState<string | null>(null);
+  const [syncPolicy, setSyncPolicy] = useState<BrainxDesktopVaultSyncPolicy | null>(null);
+  const [savingMode, setSavingMode] = useState<BrainxDesktopVaultSyncMode | null>(null);
+  const [manualSyncing, setManualSyncing] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (!isElectronDesktop()) return;
+
+    Promise.all([getBrainxDesktopConfig(), getDesktopVaultSyncPolicy()])
+      .then(([config, policy]) => {
+        if (!active || !config?.activeVault) return;
+        setSupported(true);
+        setVaultName(config.activeVault.name);
+        setSyncPolicy(policy);
+      })
+      .catch(() => {
+        if (!active) return;
+        setSupported(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!supported || !syncPolicy) {
+    return null;
+  }
+
+  const updateMode = async (mode: BrainxDesktopVaultSyncMode) => {
+    if (savingMode || mode === syncPolicy.mode) return;
+    setSavingMode(mode);
+    try {
+      const next = await setDesktopVaultSyncPolicy({ mode });
+      setSyncPolicy(next);
+      pushToast(mode === "local-only" ? "로컬 전용 모드로 전환했어요." : "수동 클라우드 동기화 모드로 전환했어요.", "ok");
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : "동기화 모드를 저장하지 못했습니다.", "err");
+    } finally {
+      setSavingMode(null);
+    }
+  };
+
+  const runManualSync = async () => {
+    if (manualSyncing) return;
+    setManualSyncing(true);
+    try {
+      const job = await requestDesktopVaultManualSync();
+      pushToast(job.message, job.status === "QUEUED" ? "ok" : "info");
+      const policy = await getDesktopVaultSyncPolicy();
+      setSyncPolicy(policy);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : "수동 동기화를 시작하지 못했습니다.", "err");
+    } finally {
+      setManualSyncing(false);
+    }
+  };
+
+  return (
+    <section className="mt-5 rounded-[12px] border border-[#e5e0d8] px-4 py-4">
+      <div className="mb-3">
+        <h2 className="text-[14px] font-bold text-[#2f2d2a]">Desktop Vault Sync</h2>
+        <p className="mt-1 text-[12px] leading-5 text-[#6d6861]">
+          현재 vault는 <strong>{vaultName}</strong> 기준으로 동작합니다. 로컬 전용과 수동 동기화를 분리해 둘 수 있습니다.
+        </p>
+      </div>
+
+      <div className="mb-3 flex flex-wrap gap-2">
+        <ModalButton
+          primary={syncPolicy.mode === "local-only"}
+          disabled={savingMode !== null}
+          onClick={() => void updateMode("local-only")}
+        >
+          Local Only
+        </ModalButton>
+        <ModalButton
+          primary={syncPolicy.mode === "manual-cloud"}
+          disabled={savingMode !== null}
+          onClick={() => void updateMode("manual-cloud")}
+        >
+          Manual Cloud Sync
+        </ModalButton>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[10px] bg-[#fbfaf8] px-3 py-3">
+        <div>
+          <div className="text-[12px] font-semibold text-[#36332f]">현재 모드: {syncPolicy.mode === "local-only" ? "로컬 전용" : "수동 클라우드 동기화"}</div>
+          <div className="mt-1 text-[11px] text-[#8c877f]">
+            마지막 동기화: {syncPolicy.lastSyncedAt ? new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(syncPolicy.lastSyncedAt)) : "아직 없음"}
+          </div>
+        </div>
+        <ModalButton
+          onClick={() => void runManualSync()}
+          disabled={manualSyncing || syncPolicy.mode !== "manual-cloud"}
+        >
+          {manualSyncing ? "요청 중" : "수동 Sync 실행"}
+        </ModalButton>
+      </div>
+    </section>
+  );
+}
+
 function GeneralSettingsPanel({
   language,
   theme,
@@ -1315,6 +1424,7 @@ function GeneralSettingsPanel({
           action={<ConsentButton checked={consents.behaviorAnalyticsOptional} disabled={savingConsent === "behaviorAnalyticsOptional"} onChange={(value) => onConsentChange("behaviorAnalyticsOptional", value)} />}
         />
       </section>
+      <DesktopVaultSyncSection />
     </>
   );
 }
@@ -1847,21 +1957,27 @@ function StatsPanel() {
   useEffect(() => {
     let active = true;
     setLoading(true);
+    const loadStats = () => {
+      setLoading(true);
+      getMyWorkspaceStats()
+        .then((stats) => {
+          if (active) setWorkspaceStats(stats);
+        })
+        .catch((error) => {
+          if (active) setWorkspaceStats(null);
+          pushToast(error instanceof Error ? error.message : "노트 통계를 불러오지 못했습니다.", "err");
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    };
 
-    getMyWorkspaceStats()
-      .then((stats) => {
-        if (active) setWorkspaceStats(stats);
-      })
-      .catch((error) => {
-        if (active) setWorkspaceStats(null);
-        pushToast(error instanceof Error ? error.message : "노트 통계를 불러오지 못했습니다.", "err");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+    loadStats();
+    window.addEventListener("brainx:notes-refresh", loadStats);
 
     return () => {
       active = false;
+      window.removeEventListener("brainx:notes-refresh", loadStats);
     };
   }, [pushToast]);
 
@@ -2209,8 +2325,18 @@ function UpgradePanel({
       }
     }
 
-    window.addEventListener("message", handlePaymentMessage);
-    return () => window.removeEventListener("message", handlePaymentMessage);
+    return addPopupResultListener<{ success?: boolean; message?: string }>(
+      PAYMENT_RESULT_MESSAGE_TYPE,
+      (data) => {
+        setPendingPlanId(null);
+        if (data.success) {
+          pushToast(data.message ?? "결제가 완료되었습니다.", "ok");
+          void refresh();
+        } else {
+          pushToast(data.message ?? "결제가 취소되었습니다.", "err");
+        }
+      }
+    );
   }, [pushToast, refresh]);
 
   const startUpgrade = async (plan: CommercePlan) => {
@@ -2218,10 +2344,15 @@ function UpgradePanel({
     setPendingPlanId(plan.planId);
     const billingCycle = billing === "yearly" ? "YEARLY" : "MONTHLY";
 
-    const popup = window.open(
-      `/billing/checkout?planId=${encodeURIComponent(plan.planId)}&billingCycle=${billingCycle}`,
-      "brainx-payment"
-    );
+    const popup = await openBrainxPopup({
+      url: `/billing/checkout?planId=${encodeURIComponent(plan.planId)}&billingCycle=${billingCycle}`,
+      channel: PAYMENT_RESULT_MESSAGE_TYPE,
+      name: "brainx-payment",
+      width: 1200,
+      height: 860,
+      minWidth: 960,
+      minHeight: 640,
+    });
     if (!popup) {
       pushToast("팝업이 차단되었습니다. 팝업 차단을 해제한 뒤 다시 시도해 주세요.", "err");
       setPendingPlanId(null);

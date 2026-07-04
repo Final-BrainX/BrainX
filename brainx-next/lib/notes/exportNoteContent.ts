@@ -2,6 +2,7 @@
 
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
+import { saveFile, saveTextFile } from "@/lib/desktop-files";
 import { fetchImageViaProxy, getAssetFileUrl } from "@/lib/ingestion-api";
 
 /**
@@ -91,16 +92,8 @@ export function htmlToMarkdown(html: string): string {
   return lines.join("\n\n").trim();
 }
 
-export function downloadTextFile(fileName: string, content: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+export async function downloadTextFile(fileName: string, content: string, mimeType: string) {
+  await saveTextFile(fileName, content, mimeType, true);
 }
 
 /** ImageBlock의 영구 저장 HTML(getHTML())은 자산 참조 이미지(data-asset-id)일 때 <img>를
@@ -335,7 +328,13 @@ export async function downloadPdfFile(title: string, html: string, fileName: str
       heightLeft -= pageHeight;
     }
 
-    doc.save(fileName);
+    const pdfBytes = new Uint8Array(doc.output("arraybuffer"));
+    await saveFile({
+      fileName,
+      mimeType: "application/pdf",
+      data: pdfBytes,
+      preferVaultExport: true,
+    });
   } finally {
     container.remove();
   }

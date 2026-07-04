@@ -1,3 +1,14 @@
+x-desktop-popup-bridge:
+  description: Browser popup callbacks may use window.postMessage, while Electron desktop clients may deliver the same callback payload through preload/IPC renderer events.
+x-desktop-file-session-bridge:
+  description: Electron desktop clients may back renderer auth/session persistence and file open-save flows with preload IPC bridges while Web clients continue to use browser storage and download behavior.
+x-desktop-bundled-renderer:
+  description: Packaged Electron desktop clients may serve a bundled local Next standalone renderer from unpacked app resources and fall back to the remote web deployment only as a desktop runtime fallback.
+x-desktop-local-vault:
+  description: Electron desktop clients may persist local vault metadata in app user-data storage, normalize user-selected vault folders into notes/assets/exports plus .brainx workspace descriptors, store local vault note and folder indexes separately from future cloud sync policy, and keep import-export plus graph-home statistics bound to the active vault.
+x-desktop-manual-sync:
+  description: Electron desktop clients may expose preload IPC helpers for vault sync mode selection and manual sync job requests while remote workspace synchronization remains a separate follow-up worker implementation.
+
 openapi: 3.0.3
 info:
   title: BrainX API SSOT
@@ -24,7 +35,16 @@ info:
 
     - operation 단위 소비자 메타데이터는 x-consumers로 표현한다.
 
-    - operation 단위 이벤트 결합은 x-produces-events로 표현하고 AsyncAPI SSOT를 참조한다.'
+    - operation 단위 이벤트 결합은 x-produces-events로 표현하고 AsyncAPI SSOT를 참조한다.
+
+    - 2026-07 기준 공식 클라이언트 표면은 Next.js web app과 Electron desktop shell을 함께 고려한다.'
+  x-client-apps:
+  - id: web.next
+    type: frontend
+    description: Next.js App Router 기반 주력 웹 클라이언트
+  - id: desktop.electron
+    type: desktop
+    description: brainx-next를 재사용하는 Electron 기반 PC 앱 셸
 servers:
 - url: https://brainx.p-e.kr
   description: AWS dev API 게이트웨이. 로컬 개발은 Gateway-Service 기본 포트 8088을 사용한다.

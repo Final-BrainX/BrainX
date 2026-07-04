@@ -84,6 +84,7 @@ User
 ```text
 BrainX/
 ├─ brainx-next/           # 현재 주력 Next.js 프론트엔드 프로토타입
+├─ brainx-electron/       # Electron 기반 PC 앱 셸 (brainx-next 재사용)
 ├─ brainX_front/          # 이전 Vite/React 프론트엔드 실험 코드
 ├─ brainX_back/           # Spring Boot MSA 백엔드 워크스페이스
 │  ├─ User-Service/       # 인증/사용자 서비스 (포트 8080)
@@ -103,6 +104,7 @@ BrainX/
 ### 로컬 Kafka
 
 `brainX_back/docker-compose.yml`에는 로컬 Kafka broker가 들어 있습니다. 호스트에서는 `localhost:9092`, 컨테이너 내부에서는 `kafka:9092`로 접근합니다. 1차 Kafka 범위에서는 기존 동기 흐름을 그대로 유지하고, 이벤트 발행은 서비스 플래그로 켜는 방식입니다. `BRAINX_EVENTS_OUTBOX_ENABLED=true`이면 Workspace-Service와 Commerce-Service가 outbox row를 Kafka로 흘리고, `BRAINX_EVENTS_PRODUCER_ENABLED=true`이면 Ingestion-Service가 `IntegrationConnected`, `ImportJobCompleted`, `ImportJobFailed`를 발행합니다. `BRAINX_EVENTS_CONSUMER_ENABLED=true`이면 Intelligence-Service가 workspace note 이벤트, `CaptureReceived`, note link 이벤트, folder 이벤트, `UserDeletionRequested`를 소비합니다. 작업 요약은 [`brainX_back/KAFKA_IMPLEMENTATION_SUMMARY.md`](brainX_back/KAFKA_IMPLEMENTATION_SUMMARY.md)에 둡니다. `ImportJobRequested`는 앞으로의 async worker 흐름에서 다룹니다.
+`brainX_back/docker-compose.yml`의 `Intelligence-Service`는 env_file, Eureka, Kafka, Qdrant, and workspace-token settings를 한 서비스 블록으로 합쳐 두었습니다.
 `Admin-Service`가 Docker Compose로 뜰 때 관리자 모니터링의 Kafka lag는 `KAFKA_BOOTSTRAP_SERVERS=kafka:9092`, `BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID=intelligence-service` 기준으로 읽습니다. 배포 compose에서도 같은 값을 `admin-service` 환경변수로 주입하며, 호스트에서 직접 `Admin-Service`를 실행할 때만 `localhost:9092` 기본값을 사용합니다.
 
 ## Frontend: brainx-next
@@ -117,6 +119,26 @@ BrainX/
 - 환불은 관리자 사유를 함께 전달하고, 환불 안내 메일 발송과 Commerce 구독의 `free` 전환을 기준으로 사용자 화면이 주기적으로 최신 플랜을 다시 읽어오도록 맞췄습니다.
 - Commerce 환불은 `REFUNDED` 상태를 DB 체크 제약에 포함하도록 보정했고, 결제사에서 이미 취소된 결제라면 로컬 원장과 구독 상태를 `환불 완료 + free 전환`으로 재동기화하도록 처리했습니다.
 - `/notes` 우측 인라인 AI는 질문 모드와 작성 모드를 지원하며, 작성 요청은 Intelligence Service의 `DRAFT` inline assist action으로 현재 편집기 커서에 스트리밍 삽입됩니다.
+
+## Desktop App: brainx-electron
+
+`brainx-electron`은 `brainx-next`를 재사용하는 BrainX의 데스크톱 셸입니다. 1차 목표는 웹앱을 다시 만드는 것이 아니라, 현재 배포/개발 중인 Next.js 앱을 Electron 창 안에서 안정적으로 실행하고 브라우저 전용 흐름을 데스크톱 친화적으로 감싸는 것입니다.
+
+- main process: 앱 창 생성, 팝업 창 정책, 외부 링크 위임, 보안 기본 정책
+- preload: renderer에 노출할 최소 bridge (`openExternal`, 런타임 설정 조회)
+- renderer: 별도 UI를 중복 구현하지 않고 기존 `brainx-next`를 그대로 사용
+- 개발 모드: `brainx-next` dev server(`localhost:3000`)에 연결
+- 패키징 모드: 기본적으로 `https://brainx.p-e.kr/` 배포본을 로드하고, 추후 Next standalone 내장으로 확장
+- active vault가 있으면 import는 vault `notes/`·`assets/`에 직접 기록하고 export는 vault `exports/`에 저장
+- Home, Graph, 노트 통계는 active vault snapshot 기준으로 읽고 sync mode는 `local-only` / `manual-cloud`로 분리
+
+Electron으로 우선 감싸야 하는 핵심 웹 흐름은 아래와 같습니다.
+
+- Notion OAuth 팝업
+- Toss 결제 팝업
+- 노트 새 창 열기
+- 외부 링크/파일 다운로드
+- 로컬 세션 및 향후 OS 연동 기능
 - `/notes` 성능 최적화는 저위험 변경을 우선 적용합니다. 내보내기 유틸은 클릭 시점에 지연 로드하고, Mermaid 자동 preview 전환과 본문 저장 동기화는 변경이 실제 발생한 경우에만 후속 렌더링이 이어지도록 유지합니다.
 - `/notes` 초기 탐색기 렌더링은 저장된 워크스페이스 스냅샷을 먼저 복원한 뒤 서버/Redis 최신값으로 동기화해, 빈 탐색기 상태가 먼저 보였다가 다시 채워지는 깜빡임을 줄입니다.
 
@@ -834,3 +856,32 @@ npx --yes http-server . -p 18081 -a 127.0.0.1
 ## North Star
 
 BrainX는 사용자가 정리 노동에 시간을 쓰는 도구가 아니라, 기록한 생각이 자동으로 연결되고 다시 발견되는 도구입니다. 모든 기능은 사용자가 더 많이 관리하게 만드는 방향이 아니라, 더 잘 생각하게 만드는 방향으로 설계합니다.
+## 2026-07 Desktop Popup Bridge Update
+
+- `brainx-next/lib/desktop-bridge.ts` routes popup callbacks through browser `postMessage` on Web and preload/IPC custom events on Electron.
+- Notion OAuth callback (`app/notion-callback/page.tsx`), Toss checkout popup (`app/billing/checkout/*`), and note new-window open flows now share the same desktop-aware popup branch.
+
+## 2026-07 Desktop File And Session Bridge Update
+
+- `brainx-electron` now exposes native file open/save dialogs and desktop-backed renderer storage for Electron.
+- `brainx-next` auth/session persistence now prefers the desktop storage bridge on Electron while keeping browser localStorage/sessionStorage fallback on Web.
+- Import file selection and note export download flows now use native dialogs on Electron and browser file flows on Web.
+
+## 2026-07 Desktop Phase 1 Installable App Update
+
+- `brainx-electron` phase 1 now targets an installable desktop shell that each user can run on their own PC before the full local-first vault phase.
+- packaged Electron builds now prefer a bundled local Next standalone renderer and fall back to the remote deployment only when the local renderer is unavailable.
+- the Electron shell now includes a single-instance lock, custom protocol deep-link scaffold, basic desktop menu, and renderer load fallback screen for desktop stability.
+- packaged Windows builds now bootstrap the bundled standalone renderer from unpacked app resources and spawn it with an Electron-compatible Node runtime path instead of relying on the installer executable as a generic fork target.
+
+## 2026-07 Desktop Phase 2 Local Vault Foundation
+
+- `brainx-electron` now persists recent vault metadata under the desktop app user-data path and exposes vault discovery/creation IPC bridges to the renderer.
+- each selected vault is normalized into a local workspace structure with `notes/`, `assets/`, `exports/`, and `.brainx/workspace.json` so the app can evolve toward an Obsidian-style local-first runtime.
+- phase 2 is still a foundation step: local vault selection exists, but note CRUD and sync are not yet redirected to the vault storage layer.
+
+## 2026-07 Desktop Phase 2 Local Vault Runtime
+
+- `/notes` on Electron now gates first-run entry behind vault selection so users choose or create a local vault before the workspace mounts.
+- the Electron desktop bridge now persists vault note and folder metadata in `.brainx/index.json` and stores note bodies as markdown files under `notes/`.
+- vault assets can now be written into the local `assets/` directory and the workspace descriptor keeps an explicit sync policy boundary for future cloud/manual sync work.

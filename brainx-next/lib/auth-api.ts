@@ -1,5 +1,14 @@
 ﻿"use client";
 
+import {
+  getLocalStoredValue,
+  getSessionStoredValue,
+  removeLocalStoredValue,
+  removeSessionStoredValue,
+  setLocalStoredValue,
+  setSessionStoredValue,
+} from "@/lib/client-storage";
+
 export type EmailVerificationPurpose = "SIGNUP" | "PASSWORD_CHANGE";
 export type OAuthProvider = "kakao" | "google" | "apple" | "naver";
 
@@ -193,10 +202,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 function stashPendingNoteClaim(mapping: ClaimedNoteIdMapping[]) {
   if (typeof window === "undefined") return;
   if (mapping.length === 0) {
-    window.sessionStorage.removeItem(PENDING_NOTE_CLAIM_KEY);
+    removeSessionStoredValue(PENDING_NOTE_CLAIM_KEY);
     return;
   }
-  window.sessionStorage.setItem(PENDING_NOTE_CLAIM_KEY, JSON.stringify(mapping));
+  setSessionStoredValue(PENDING_NOTE_CLAIM_KEY, JSON.stringify(mapping));
 }
 
 /** 저장된 매핑을 읽기만 한다(소비하지 않음) — 로그인/온보딩 화면이 redirect 대상 URL의
@@ -204,7 +213,7 @@ function stashPendingNoteClaim(mapping: ClaimedNoteIdMapping[]) {
 export function peekPendingNoteClaim(): ClaimedNoteIdMapping[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.sessionStorage.getItem(PENDING_NOTE_CLAIM_KEY);
+    const raw = getSessionStoredValue(PENDING_NOTE_CLAIM_KEY);
     return raw ? (JSON.parse(raw) as ClaimedNoteIdMapping[]) : [];
   } catch {
     return [];
@@ -216,7 +225,7 @@ export function peekPendingNoteClaim(): ClaimedNoteIdMapping[] {
 export function consumePendingNoteClaim(): ClaimedNoteIdMapping[] {
   const mapping = peekPendingNoteClaim();
   if (typeof window !== "undefined") {
-    window.sessionStorage.removeItem(PENDING_NOTE_CLAIM_KEY);
+    removeSessionStoredValue(PENDING_NOTE_CLAIM_KEY);
   }
   return mapping;
 }
@@ -254,16 +263,16 @@ export function buildAuthPath(path: string, returnTo?: string | null): string {
 export function stashOAuthReturnTo(returnTo: string) {
   if (typeof window === "undefined") return;
   if (!returnTo || returnTo === "/home") {
-    window.sessionStorage.removeItem(OAUTH_RETURN_TO_KEY);
+    removeSessionStoredValue(OAUTH_RETURN_TO_KEY);
     return;
   }
-  window.sessionStorage.setItem(OAUTH_RETURN_TO_KEY, returnTo);
+  setSessionStoredValue(OAUTH_RETURN_TO_KEY, returnTo);
 }
 
 export function consumeOAuthReturnTo(): string {
   if (typeof window === "undefined") return "/home";
-  const value = window.sessionStorage.getItem(OAUTH_RETURN_TO_KEY);
-  window.sessionStorage.removeItem(OAUTH_RETURN_TO_KEY);
+  const value = getSessionStoredValue(OAUTH_RETURN_TO_KEY);
+  removeSessionStoredValue(OAUTH_RETURN_TO_KEY);
   return value && value.startsWith("/") && !value.startsWith("//") ? value : "/home";
 }
 
@@ -326,9 +335,9 @@ export function saveAuthSession(session: Partial<AuthSession>) {
     onboardingToken: session.onboardingToken ?? null,
     next: session.next ?? null
   };
-  window.localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(normalized));
+  setLocalStoredValue(AUTH_SESSION_KEY, JSON.stringify(normalized));
   if (normalized.provider === "google" || normalized.provider === "kakao" || normalized.provider === "naver") {
-    window.localStorage.setItem(LAST_SOCIAL_LOGIN_KEY, normalized.provider);
+    setLocalStoredValue(LAST_SOCIAL_LOGIN_KEY, normalized.provider);
   }
   window.dispatchEvent(new Event("brainx-auth-session-changed"));
 }
@@ -340,7 +349,7 @@ export function isDevAuthSession(session: AuthSession | null | undefined) {
 export function readAuthSession() {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(AUTH_SESSION_KEY);
+    const raw = getLocalStoredValue(AUTH_SESSION_KEY);
     return raw ? (JSON.parse(raw) as AuthSession) : DEV_AUTH_BYPASS ? DEV_AUTH_SESSION : null;
   } catch {
     return DEV_AUTH_BYPASS ? DEV_AUTH_SESSION : null;
@@ -357,8 +366,8 @@ export function ensureDevAuthSession() {
 
 export function clearAuthSession() {
   if (typeof window === "undefined") return;
-  window.localStorage.removeItem(AUTH_SESSION_KEY);
-  window.localStorage.removeItem(WORKSPACE_SESSION_KEY);
+  removeLocalStoredValue(AUTH_SESSION_KEY);
+  removeLocalStoredValue(WORKSPACE_SESSION_KEY);
   window.dispatchEvent(new Event("brainx-auth-session-changed"));
   // localStorage는 지워도 NotesWorkspace가 같은 탭에서 리마운트 없이 계속 떠 있으면(예: /notes를
   // 벗어나지 않고 로그아웃) 메모리에 남은 이전 계정의 notes/탭 상태는 그대로다 — claim 이후와
@@ -368,7 +377,7 @@ export function clearAuthSession() {
 
 export function readRecentSocialLoginProvider() {
   if (typeof window === "undefined") return null;
-  const value = window.localStorage.getItem(LAST_SOCIAL_LOGIN_KEY);
+  const value = getLocalStoredValue(LAST_SOCIAL_LOGIN_KEY);
   return value === "google" || value === "kakao" || value === "naver" ? value : null;
 }
 
