@@ -9,6 +9,7 @@
 - 이 문서는 public OpenAPI/AsyncAPI 계약이나 런타임 설정을 바꾸지 않는다.
 - baseline DDL은 현재 `src/main/java/com/brainx/intelligence/infrastructure/persistence/jpa`의 JPA entity를 기준으로 한다.
 - `@Lob` 또는 JSON converter 필드는 운영 PostgreSQL에서 다루기 쉬운 `text`로 둔다. 환경별 Hibernate validation 결과가 다르면 운영 DB에 적용하기 전에 staging에서 `ddl-auto=validate`로 확인한다.
+- 기존 운영 DB에 Hibernate legacy `oid` LOB 컬럼이 남아 있으면 migration에서 `lo_get(oid)`로 UTF-8 text를 복구하고, 복구 실패 시 nullable/text JSON 기본값으로 보정한 뒤 `text` 컬럼으로 고정한다.
 - `Instant` 필드는 PostgreSQL `timestamp(6) with time zone`으로 둔다.
 - Qdrant vector collection schema는 `brainx.vector.qdrant.*` 설정과 vector store 초기화가 담당하므로 이 RDB DDL에 포함하지 않는다.
 
