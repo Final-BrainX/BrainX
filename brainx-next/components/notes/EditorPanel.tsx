@@ -111,6 +111,9 @@ export default function EditorPanel({
   const overlayRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<NoteEditorHandle | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  /* 탭 바와 제목 사이에 Ctrl+F 검색창이 포털로 꽂혀 들어갈 자리 — DOM 노드가 실제로 만들어진
+     뒤에야 NoteEditor에 넘길 수 있어 state로 들고 있는다(ref는 그 시점을 알려주지 않는다). */
+  const [searchAnchorEl, setSearchAnchorEl] = useState<HTMLDivElement | null>(null);
 
   const scrollToHeading = useCallback((text: string) => {
     const container = scrollContainerRef.current;
@@ -329,6 +332,11 @@ export default function EditorPanel({
         contextOpen={contextOpen}
       />
 
+      {/* 탭 바와 노트 제목 사이 공간 — Ctrl+F를 누르면 InNoteSearch(NoteEditor.tsx)가 이 자리에
+          포털로 우측 정렬 검색창을 그린다. 노트가 없거나 검색이 닫혀 있으면 빈 채로 높이도
+          차지하지 않는다(내용 없는 flex row는 자연히 0 높이). */}
+      {note && <div ref={setSearchAnchorEl} className="flex justify-end px-3 pt-1.5" />}
+
       {/* ── 콘텐츠 — 탭이 가리키는 노트를 찾을 수 없을 때(삭제된 노트 등)는 복구용으로
           Welcome 화면과 동일한 컴포넌트를 보여준다. 탭이 0개인 진짜 Welcome 상태는
           NotesWorkspace 최상위에서 처리하므로 여기서는 일어나지 않는다. */}
@@ -493,6 +501,7 @@ export default function EditorPanel({
               onContentChange={onContentChange}
               onAiAction={onAiAction}
               allTags={Array.from(new Set(allNotes.flatMap((n) => n.tags ?? [])))}
+              searchAnchorEl={searchAnchorEl}
             />
           </div>
         </div>

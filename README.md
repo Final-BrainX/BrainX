@@ -168,7 +168,9 @@ BrainX/
 
 ### Frontend API Boundary
 
-프론트는 `NEXT_PUBLIC_API_BASE_URL`을 통해 API 서버와 연결합니다. 값이 비어 있으면 같은 origin 기준으로 요청합니다.
+프론트는 기본적으로 `NEXT_PUBLIC_API_BASE_URL`을 통해 public API gateway와 연결합니다. 값이 비어 있으면 같은 origin 기준으로 요청합니다. 로컬 개발 기본값 `API_SERVER_URL=http://localhost:8088`은 `Gateway-Service`를 가리킵니다.
+
+현재 `lib/workspace-api.ts`, `lib/graph-api.ts`는 별도 `NEXT_PUBLIC_WORKSPACE_API_BASE_URL`도 읽습니다. 이 값은 로컬에서 `Workspace-Service`를 직접 붙일 때만 사용하며 기본값은 `http://localhost:8082`입니다. 따라서 `brainx-next/.env.example` 기준값처럼 `8082`가 맞고, `8088`은 workspace direct URL이 아니라 gateway URL입니다.
 
 현재 구현된 API 클라이언트 파일:
 
@@ -456,7 +458,7 @@ Docker Compose로 앱을 실행할 때는 앱 컨테이너에만 `POSTGRES_HOST=
 | Neo4j Bolt | 백엔드 서비스 접속 URI | `bolt://localhost:7687` |
 
 기본 로컬 계정은 `.env`의 `NEO4J_USERNAME`, `NEO4J_PASSWORD`로 관리합니다. Docker Compose 내부에서 Workspace-Service는 `bolt://neo4j:7687`로 접속하고, 로컬 IDE 실행 시에는 `bolt://localhost:7687`을 사용합니다.
-Workspace-Service는 노트 저장 시 본문 `[[...]]` 위키링크와 TipTap `data-wiki-link` span을 authoritative `workspace_note_links` 원장으로 정규화하고, Neo4j는 그 원장을 projection/read model로 반영합니다. `workspace_note_links.link_type`는 MANUAL/WIKI를 구분하는 필수 컬럼이며, 레거시 운영 DB는 `Workspace-Service/src/main/resources/db/migration/V20260702_01__repair_workspace_note_links_link_type.sql`가 기존 행을 백필한 뒤 Hibernate `NOT NULL` 스키마 업데이트가 지나가도록 맞췄습니다. 타깃 노트가 나중에 생성되거나 제목이 바뀌는 경우에도 기존 노트들을 다시 스캔해 wiki-link 관계를 재물질화합니다. `/api/v1/graph/sync`는 기존 노트 전체를 다시 스캔해 위키링크 원장을 백필한 뒤 Neo4j `LINKED` 관계를 재구성합니다.
+Workspace-Service는 노트 저장 시 본문 `[[...]]` 위키링크와 TipTap `data-wiki-link` span을 authoritative `workspace_note_links` 원장으로 정규화하고, Neo4j는 그 원장을 projection/read model로 반영합니다. `workspace_note_links.link_type`는 MANUAL/WIKI를 구분하는 필수 컬럼이며, 레거시 운영 DB는 `Workspace-Service/src/main/resources/db/migration/V20260702_01__repair_workspace_note_links_link_type.sql`가 기존 행을 백필한 뒤 Hibernate `NOT NULL` 스키마 업데이트가 지나가도록 맞췄습니다. 기본 앱 설정은 `SPRING_SQL_INIT_MODE=always`를 유지하지만, `brainX_back/docker-compose.yml`의 로컬 fresh DB 프로필은 `workspace-service`에 `SPRING_SQL_INIT_MODE=never`를 주입해 빈 DB에서 repair SQL이 선행 실행되어 부팅이 막히지 않게 합니다. 타깃 노트가 나중에 생성되거나 제목이 바뀌는 경우에도 기존 노트들을 다시 스캔해 wiki-link 관계를 재물질화합니다. `/api/v1/graph/sync`는 기존 노트 전체를 다시 스캔해 위키링크 원장을 백필한 뒤 Neo4j `LINKED` 관계를 재구성합니다.
 
 DB 접속 계정과 비밀번호는 루트 `.env`의 `POSTGRES_USER`, `POSTGRES_PASSWORD`를 모든 서비스가 공통으로 사용합니다. 각 서비스는 자기 `application.yml`에서 `.env`의 DB host/port와 서비스별 DB name을 조합해 JDBC URL을 만듭니다.
 
@@ -621,7 +623,7 @@ cd C:\Edu\Final\brainX_back\Commerce-Service
 관리자 프로필 사진은 로컬 저장소 값을 공통 상태로 올려, 오른쪽 프로필 레일에서 바꾸면 왼쪽 사이드바와 모니터링 레일 관리자 목록의 현재 로그인 관리자 아바타도 즉시 같이 바뀝니다.
 관리자 로그인 세션은 브라우저 `localStorage`와 same-site 쿠키에 함께 저장해 `admin.brainx.p-e.kr -> admin-frontend -> admin-service` 프록시 체인에서도 후속 `/api/v1/admin/**` 요청이 안정적으로 같은 액세스 토큰을 전달하도록 유지합니다.
 Admin-Service의 관리자 첫 화면 read model은 Commerce-Service billing read 실패를 그대로 화면 500으로 전파하지 않도록 완화했습니다. 구독/결제 내부 API가 일시적으로 깨지면 사용자 목록은 `free` fallback plan과 빈 결제/구독 목록, 0원 KPI로라도 렌더링해 운영자가 먼저 진입하고 장애를 확인할 수 있게 유지합니다. 다만 근본 원인은 Commerce-Service 운영 DB `commerce_subscriptions.billing_cycle`, `commerce_checkout_sessions.billing_cycle` 같은 원장 스키마를 엔티티와 맞추는 것입니다.
-Commerce-Service는 EC2에서 수동으로 넣었던 `commerce_subscriptions.billing_cycle`, `commerce_checkout_sessions.billing_cycle`, `commerce_checkout_sessions_status_check` 보정을 `src/main/resources/db/migration/V20260701_01__repair_billing_cycle_columns.sql`로 추적합니다. Spring SQL init가 이 migration SQL을 JPA schema update보다 먼저 적용해 오래된 운영 DB도 같은 스키마 보정을 따라가게 했습니다.
+Commerce-Service는 EC2에서 수동으로 넣었던 `commerce_subscriptions.billing_cycle`, `commerce_checkout_sessions.billing_cycle`, `commerce_checkout_sessions_status_check` 보정을 `src/main/resources/db/migration/V20260701_01__repair_billing_cycle_columns.sql`로 추적합니다. Spring SQL init가 이 migration SQL들을 JPA schema update보다 먼저 적용해 오래된 운영 DB도 같은 스키마 보정을 따라가게 했습니다. 기본 앱 설정은 `SPRING_SQL_INIT_MODE=always`를 유지하지만, `brainX_back/docker-compose.yml`의 로컬 fresh DB 프로필은 `commerce-service`에 `SPRING_SQL_INIT_MODE=never`를 주입해 빈 DB에서 repair SQL이 선행 실행되어 부팅이 막히지 않게 합니다.
 모니터링 대시보드의 Kafka 큐 대기 Lag는 추정값이 아니라 Kafka consumer group의 현재 lag를 읽어오며, 일별 스냅샷에도 함께 저장해서 목록과 상세가 같은 상태를 보게 했습니다.
 Kafka lag 카드의 live 값은 별도 `/api/v1/admin/monitoring/kafka-lag`로 읽어 UI를 가볍게 유지하고, 브로커 연결 실패는 `연결 실패`, committed offset이 없으면 `미집계`, 실제 lag가 0일 때만 `정상`으로 보여 줍니다. 운영 알람 기준은 `1,000 msgs` 이상 경고, `5,000 msgs` 이상 심각으로 두었습니다.
 모니터링 서비스 체크에는 `Intelligence-Service`와 `Mcp-Service`도 포함해 AI/MCP 응답과 지연을 실제 health probe 기준으로 보여 줍니다.

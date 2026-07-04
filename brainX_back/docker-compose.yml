@@ -135,6 +135,7 @@ services:
       POSTGRES_HOST: postgres
       REDIS_HOST: redis
       NEO4J_URI: bolt://neo4j:7687
+      SPRING_SQL_INIT_MODE: never
       EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: workspace-service
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -189,6 +190,7 @@ services:
     environment:
       SERVER_PORT: "8084"
       POSTGRES_HOST: postgres
+      SPRING_SQL_INIT_MODE: never
       EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: commerce-service
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -252,6 +254,9 @@ services:
       context: ./Intelligence-Service
     container_name: brainx-intelligence-service
     restart: unless-stopped
+    env_file:
+      - ./.env
+      - ./env/intelligence-service.env
     environment:
       SERVER_PORT: "8086"
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${INTELLIGENCE_DB_NAME:-intelligence_service}
@@ -279,17 +284,33 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       BRAINX_EVENTS_CONSUMER_ENABLED: "true"
       BRAINX_EVENTS_PRODUCER_ENABLED: "true"
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
+      EUREKA_INSTANCE_HOSTNAME: intelligence-service
     ports:
       - "8086:8086"
     depends_on:
+      discovery-service:
+        condition: service_healthy
       postgres-service-databases:
         condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
       qdrant:
         condition: service_started
       kafka:
         condition: service_started
       workspace-service:
         condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://localhost:8086/actuator/health | grep -q UP",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   mcp-service:
     profiles:

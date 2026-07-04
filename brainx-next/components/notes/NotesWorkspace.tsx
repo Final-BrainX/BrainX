@@ -12,6 +12,7 @@ import {
   WorkspaceApiError,
   createWorkspaceFolder,
   createWorkspaceNote,
+  createWorkspaceNoteLink,
   deleteWorkspaceFolder,
   deleteWorkspaceNote,
   getNote,
@@ -954,8 +955,11 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   }, [paneTabs, closePaneOrClearTabs]);
 
   /* 새 노트 생성 (선택된 폴더 또는 지정된 폴더 안에 생성), 지정한 패널의 새 탭으로 연다.
-     title을 주면(위키링크에서 생성하는 경우) 그 제목으로 바로 생성한다. */
-  const createNote = useCallback((folderId: string | undefined, paneId: string, title?: string) => {
+     title을 주면(위키링크에서 생성하는 경우) 그 제목으로 바로 생성한다. linkFromNoteId를 주면
+     (위키링크로 생성한 경우) 로그인 사용자에 한해 백엔드 노트 id가 확정되는 즉시 그 노트에서
+     새로 만든 노트로의 NoteLink를 만들어 마인드맵 edge에 반영한다(게스트는 그래프가 매 렌더마다
+     draft markdown의 [[..]]을 다시 파싱해 edge를 만들므로 별도 처리가 필요 없다). */
+  const createNote = useCallback((folderId: string | undefined, paneId: string, title?: string, linkFromNoteId?: string) => {
     /* 게스트 노트 생성 제한 */
     if (isGuest && notes.length >= 10) {
       pushToast("체험 모드에서는 노트를 최대 10개까지 생성할 수 있습니다.", "err");
@@ -1021,6 +1025,17 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
           draftDirtyNoteIdsRef.current.add(draft.noteId);
           prevActiveNoteIdRef.current = draft.noteId;
           onActiveNoteChange?.(draft.noteId);
+
+          // 소스 노트가 아직 로컬(미확정) id면 그 노트 자체가 생성 중이라는 뜻 — 드문 케이스라
+          // 범위 밖으로 두고 조용히 스킵한다(전체 저장 시 위키링크 재동기화 파이프라인은 이번
+          // 작업 범위 밖).
+          if (linkFromNoteId && linkFromNoteId.startsWith("note_")) {
+            void createWorkspaceNoteLink(linkFromNoteId, {
+              targetNoteId: draft.noteId,
+              targetTitle: noteTitle,
+              createIfMissing: false,
+            }).catch(() => {});
+          }
         })
         .catch((error) => {
           setLoadError(error instanceof Error ? error.message : "새 노트 임시저장 ID를 발급받지 못했습니다.");
@@ -1958,10 +1973,15 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         if (found) handleNoteClick(found.id);
       },
       onCreate: (title) => {
-        createNote(undefined, primaryPaneId, title);
+        // 위키링크 자동완성이 방금 삽입한 [[title]]은 400ms 디바운스 타이머로만 동기화가
+        // 예약된 상태다 — createNote가 탭을 새 노트로 즉시 전환하면 그 타이머가 flush 없이
+        // clear되어 원본 노트에 방금 넣은 링크가 유실된다(되돌아오면 예전 텍스트가 보이는 원인).
+        // 탭을 전환하기 전에 현재 활성 에디터의 대기 중인 저장을 먼저 흘려보낸다.
+        activeEditorHandle?.flushPendingSave();
+        createNote(undefined, primaryPaneId, title, activeNoteId ?? undefined);
       },
     }),
-    [wikiLinkNoteRefs, wikiLinkFolderRefs, handleNoteClick, createNote, primaryPaneId]
+    [wikiLinkNoteRefs, wikiLinkFolderRefs, handleNoteClick, createNote, primaryPaneId, activeEditorHandle, activeNoteId]
   );
 
   // 노트/탭/패널 데이터 초기화가 끝나기 전에는 워크스페이스 전체를 로딩 상태로 대체한다 —

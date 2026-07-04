@@ -25,7 +25,7 @@ spring:
     driver-class-name: ${DB_DRIVER:org.postgresql.Driver}
   sql:
     init:
-      mode: always
+      mode: ${SPRING_SQL_INIT_MODE:always}
       schema-locations:
         - classpath:db/migration/V20260701_01__repair_billing_cycle_columns.sql
         - classpath:db/migration/V20260702_01__add_plan_token_limit.sql

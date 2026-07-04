@@ -18,7 +18,8 @@ import Color from "@tiptap/extension-color";
 import Highlight from "@tiptap/extension-highlight";
 import { Check, Link2, Highlighter, Loader2, Sparkles, Wand2, RotateCcw, Search, FileText, ExternalLink, X, AlertTriangle } from "lucide-react";
 import { Table, TableRow, TableHeader, TableCell, TableView } from "@tiptap/extension-table";
-import { TaskList, TaskItem } from "@tiptap/extension-list";
+import { TaskList } from "@tiptap/extension-list";
+import { ListItemTabFix, TaskItemTabFix } from "./ListTabFix";
 import type { Fragment, Mark, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { cx } from "@/lib/utils";
 import { MockNote } from "@/lib/notes/noteTypes";
@@ -38,6 +39,7 @@ import { WikiLink, WikiLinkLiveEdit } from "./WikiLinkNode";
 import { DragHandle } from "./DragHandleExtension";
 import { WikiLinkSuggestion } from "./WikiLinkSuggestion";
 import { WikiLinkAutocomplete } from "./WikiLinkAutocomplete";
+import { InNoteSearch } from "./InNoteSearch";
 import { useWikiLinkContext } from "./WikiLinkContext";
 import { SlashCommandKey, SlashCommandSuggestion } from "./SlashCommand";
 import { SlashCommandMenu } from "./SlashCommandMenu";
@@ -2217,6 +2219,10 @@ const BrainXTableHeader = TableHeader.extend({
 const NOTE_EDITOR_EXTENSIONS = [
   StarterKit.configure({
     codeBlock: false,
+    // 기본 ListItem의 Tab은 표준 sinkListItem을 그대로 쓴다 — 중첩 하위 목록을 이미 갖고 있는
+    // 항목에서 Tab을 누르면 그 하위 목록까지 통째로 한 단계 더 밀려 들어가는 버그가 있어
+    // (ListTabFix.ts 상단 주석 참고) ListItemTabFix로 교체한다.
+    listItem: false,
     // 기본 Heading은 "#"+공백을 지워버리는 input rule을 쓴다(라이브 프리뷰와 상충) — 아래
     // MarkdownHeading(이 "#"를 실제 텍스트로 유지)으로 대체한다.
     heading: false,
@@ -2233,6 +2239,7 @@ const NOTE_EDITOR_EXTENSIONS = [
     // 표/이미지 등 다른 블록 뒤의 기존 동작은 그대로 둔다.
     trailingNode: { notAfter: ["heading"] },
   }),
+  ListItemTabFix,
   MarkdownHeading.configure({ levels: [...SUPPORTED_HEADING_LEVELS] }),
   HeadingLevelSync,
   InlineContinueDraftExtension,
@@ -2432,7 +2439,7 @@ const NOTE_EDITOR_EXTENSIONS = [
   TagNode,
   TagSuggestion,
   TaskList,
-  TaskItem.configure({ nested: true }),
+  TaskItemTabFix.configure({ nested: true }),
   TaskListMarkdownBridge,
   ToggleNode,
   SlashCommandSuggestion,
@@ -2771,13 +2778,17 @@ interface NoteEditorProps {
   onActivate: () => void;
   onContentChange: (noteId: string, newContentHtml: string) => void;
   onAiAction: (type: AiActionType, text: string) => void;
+  /** 탭 바와 제목 사이 공간에 렌더링할 DOM 노드(EditorPanel이 만들어 전달) — Ctrl+F 검색창을
+      본문 위 플로팅이 아니라 그 자리에 우측 정렬로 꽂아 넣기 위해 InNoteSearch가 포털로 쓴다.
+      없으면(예: editor-lab처럼 이 레이아웃이 없는 곳) InNoteSearch가 기존 플로팅 위치로 대체한다. */
+  searchAnchorEl?: HTMLElement | null;
 }
 
 /** TipTap 에디터 코어 — Bubble Toolbar, 색상/형광펜, 코드블록을 포함한 노트 본문 편집 영역.
     읽기/편집 모드는 노트(탭) 단위로 부모(EditorPanel)가 관리하며, 이 컴포넌트는 mode prop을
     그대로 따르기만 한다(모드를 직접 설정하지 않음 — 그래야 탭별 모드가 서로 덮어쓰지 않는다). */
 const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEditor(
-  { note, mode, allTags, onActivate, onContentChange, onAiAction },
+  { note, mode, allTags, onActivate, onContentChange, onAiAction, searchAnchorEl },
   ref
 ) {
   const contentSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2838,10 +2849,34 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
         const files = Array.from(event.clipboardData?.files ?? []).filter((f) =>
           f.type.startsWith("image/")
         );
-        if (files.length === 0) return false;
-        event.preventDefault();
-        files.forEach((file) => insertImageBlockFromFile(view, file));
-        return true;
+        if (files.length > 0) {
+          event.preventDefault();
+          files.forEach((file) => insertImageBlockFromFile(view, file));
+          return true;
+        }
+        // 붙여넣은 클립보드 내용 "전체"가 fenced code block(```lang ... ```) 하나로만 이루어진
+        // 경우만 좁게 가로챈다 — 이 노트 에디터에는 일반 마크다운 텍스트를 파싱하는 paste 파서가
+        // 아예 없어서(여러 문단이 섞인 붙여넣기까지 처리하려면 별도의 마크다운 paste 파서가
+        // 필요하고, 그건 기존 처리와 충돌 위험이 커 이번 범위에서 보류했다), 그 대신 "코드
+        // 에디터에서 코드 블록 하나를 복사해 그대로 붙여넣는" 가장 흔한 경우만 안전하게 처리한다.
+        // HTML 클립보드가 함께 있으면(리치 텍스트 붙여넣기) 기존 처리에 맡긴다.
+        if (!event.clipboardData?.getData("text/html")) {
+          const text = event.clipboardData?.getData("text/plain") ?? "";
+          const fenceMatch = /^```([a-zA-Z0-9_+-]*)\r?\n([\s\S]*?)\r?\n```$/.exec(text.trim());
+          if (fenceMatch) {
+            event.preventDefault();
+            const language = fenceMatch[1] ? fenceMatch[1].toLowerCase() : null;
+            const code = fenceMatch[2].replace(/\r\n/g, "\n");
+            const codeBlockType = view.state.schema.nodes.codeBlock;
+            const node = codeBlockType.create(
+              { language, preview: false },
+              code ? view.state.schema.text(code) : undefined
+            );
+            view.dispatch(view.state.tr.replaceSelectionWith(node));
+            return true;
+          }
+        }
+        return false;
       },
       // 표 테두리/래퍼 영역(셀 내부가 아닌 곳) 클릭 → 표 전체를 NodeSelection으로 선택한다.
       // handleClickOn은 클릭 좌표가 속한 모든 조상 노드에 대해 안쪽→바깥쪽 순서로 호출되므로,
@@ -2891,18 +2926,21 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
           openPositions.push(pos);
         }
       });
-      if (openPositions.length === 0) return;
-      let tr = ed.state.tr;
-      for (const pos of openPositions) {
-        const node = tr.doc.nodeAt(pos);
-        if (node) tr = tr.setNodeMarkup(pos, undefined, { ...node.attrs, preview: true });
+      if (openPositions.length > 0) {
+        let tr = ed.state.tr;
+        for (const pos of openPositions) {
+          const node = tr.doc.nodeAt(pos);
+          if (node) tr = tr.setNodeMarkup(pos, undefined, { ...node.attrs, preview: true });
+        }
+        ed.view.dispatch(tr);
       }
-      ed.view.dispatch(tr);
-      // blur가 "다른 노트 클릭"으로 일어난 경우, 곧바로 note.id가 바뀌면서 아래 [note.id, editor]
+      // blur가 "다른 노트/탭 클릭"으로 일어난 경우, 곧바로 note.id가 바뀌면서 아래 [note.id, editor]
       // effect가 contentSyncTimerRef를 그냥 clearTimeout만 하고(flush 없이) 새 노트 내용으로
-      // 덮어쓴다 — 그 사이 400ms 디바운스가 아직 안 끌렸으면 방금 되돌린 preview:true가 notes
-      // state에 저장되지 못한 채 사라져, 그 노트를 다시 열면 코드 편집 상태로 보이는 문제가
-      // 있었다. 이 보정만큼은 디바운스를 기다리지 않고 즉시 저장한다.
+      // 덮어쓴다 — 그 사이 400ms 디바운스가 아직 안 끌렸으면 방금 편집한 내용(위 mermaid
+      // preview 보정뿐 아니라, 붙여넣은 이미지처럼 blur 직전에 반영된 다른 변경도 마찬가지)이
+      // notes state에 저장되지 못한 채 사라진다(재현: 이미지를 붙여넣고 곧장 다른 노트를
+      // 클릭하면 이미지가 사라짐). 그래서 mermaid 보정 여부와 무관하게 blur 시점에는 항상
+      // 디바운스를 기다리지 않고 즉시 저장한다.
       if (contentSyncTimerRef.current) {
         clearTimeout(contentSyncTimerRef.current);
         contentSyncTimerRef.current = null;
@@ -3387,6 +3425,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
         onActivate();
         const coords = editor.view.posAtCoords({ left: event.clientX, top: event.clientY });
         let clickedInTable = false;
+        let clickedImagePos: number | null = null;
         if (coords) {
           const $clicked = editor.state.doc.resolve(coords.pos);
           for (let depth = $clicked.depth; depth >= 0; depth -= 1) {
@@ -3395,11 +3434,20 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
               break;
             }
           }
+          // 이미지는 atom 블록이라 depth로 "들어가지" 않는다 — 우클릭 좌표가 정확히 그 이미지의
+          // 앞/뒤 경계에 해당하는지를 nodeBefore/nodeAfter로 확인한다.
+          if ($clicked.nodeAfter?.type.name === "imageBlock") {
+            clickedImagePos = coords.pos;
+          } else if ($clicked.nodeBefore?.type.name === "imageBlock") {
+            clickedImagePos = coords.pos - $clicked.nodeBefore.nodeSize;
+          }
           const currentSelection = editor.state.selection;
           const keepCellRange = currentSelection instanceof CellSelection
             && coords.pos >= currentSelection.from
             && coords.pos <= currentSelection.to;
-          if (!keepCellRange) {
+          if (clickedImagePos != null) {
+            editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, clickedImagePos)));
+          } else if (!keepCellRange) {
             const selection = TextSelection.near($clicked);
             editor.view.dispatch(editor.state.tr.setSelection(selection));
           }
@@ -3408,6 +3456,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
           x: event.clientX,
           y: event.clientY,
           inTable: clickedInTable,
+          inImage: clickedImagePos != null,
         });
       }}
     >
@@ -3437,6 +3486,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       {editor && <TableToolbar editor={editor} />}
       {editor && <WikiLinkAutocomplete editor={editor} />}
       {editor && <TagAutocomplete editor={editor} allTags={allTags} />}
+      {editor && <InNoteSearch editor={editor} anchorEl={searchAnchorEl} />}
       {editor && (
         <SlashCommandMenu editor={editor} onPickImage={() => fileInputRef.current?.click()} />
       )}

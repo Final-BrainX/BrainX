@@ -19,6 +19,7 @@ import {
 import {
   Folder,
   FolderOpen,
+  FolderPlus,
   FileText,
   Plus,
   FilePlus,
@@ -89,7 +90,7 @@ function buildTree(
 }
 
 /* 드래그 중 표시할 인디케이터 */
-interface OverIndicator {
+export interface OverIndicator {
   targetId: string;
   position: "before" | "after" | "into";
   valid: boolean;
@@ -202,9 +203,9 @@ export default function FolderTree({
       if (!overData) return null;
       const activeRect = event.active.rect.current.translated;
       if (!activeRect) return null;
-      return resolveDrop(folders, active, overData, activeRect, over.rect);
+      return resolveDrop(folders, active, overData, activeRect, over.rect, notes);
     },
-    [folders]
+    [folders, notes]
   );
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
@@ -343,7 +344,7 @@ function RootDropZone() {
 }
 
 /* ── 드롭 인디케이터 ── */
-function DropIndicatorOverlay({ indicator }: { indicator: OverIndicator | null }) {
+export function DropIndicatorOverlay({ indicator }: { indicator: OverIndicator | null }) {
   if (!indicator) return null;
   const color = indicator.valid ? "rgb(var(--primary))" : "rgb(239 68 68)";
   if (indicator.position === "into") {
@@ -730,6 +731,7 @@ function FolderNode({
           ref={setDragRef}
           {...listeners}
           {...attributes}
+          draggable={false}
           onClick={(e) => e.stopPropagation()}
           title="드래그하여 위치 변경"
           className={cx(
@@ -804,19 +806,19 @@ function FolderNode({
           <div className="relative flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
-              onClick={() => { setCreatingSubfolder(true); setExpanded(true); }}
-              title="새 폴더 생성"
-              className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-primary"
+              onClick={() => { onCreateNote(item.folder.id); setExpanded(true); }}
+              title="이 폴더에 노트 생성"
+              className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-primary/15 hover:text-primary"
             >
-              <Plus size={11} />
+              <FilePlus size={11} />
             </button>
             <button
               type="button"
-              onClick={() => { onCreateNote(item.folder.id); setExpanded(true); }}
-              title="이 폴더에 노트 생성"
-              className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-primary"
+              onClick={() => { setCreatingSubfolder(true); setExpanded(true); }}
+              title="새 폴더 생성"
+              className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-txt2"
             >
-              <FilePlus size={11} />
+              <FolderPlus size={11} />
             </button>
             <button
               type="button"
@@ -855,7 +857,12 @@ function FolderNode({
       </div>
 
       {expanded && (
-        <div>
+        <div className="relative" style={{ background: "rgb(var(--surface2) / 0.10)" }}>
+          <span
+            aria-hidden
+            className="pointer-events-none absolute bottom-0 top-0"
+            style={{ left: indent + 11, width: 1, background: "rgb(var(--line) / 0.35)" }}
+          />
           {creatingSubfolder && (
             <div className="flex h-7 items-center gap-1.5" style={{ paddingLeft: indent + 20 }}>
               <Folder size={13} className="shrink-0 text-yellow-400/60" />
@@ -1094,6 +1101,7 @@ function NoteRow({
         ref={setDragRef}
         {...listeners}
         {...attributes}
+        draggable={false}
         onClick={(e) => e.stopPropagation()}
         title="드래그하여 위치 변경"
         className={cx(

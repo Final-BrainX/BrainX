@@ -1148,6 +1148,15 @@ html.light .tiptap-note-content .ProseMirror table.note-table :is(td, th) {
   display: none;
 }
 
+/* 노트 패널 내부 검색(Ctrl+F, InNoteSearch.tsx) 매치 하이라이트 */
+.in-note-search-match {
+  background: rgb(250 204 21 / 0.35);
+  border-radius: 2px;
+}
+.in-note-search-match-active {
+  background: rgb(var(--primary) / 0.45);
+}
+
 /* 커서가 위치한 줄 → 마크다운 소스 표시 (Obsidian Live Preview)
    blockquote는 소스 표시를 위해 스타일을 초기화한다.            */
 

@@ -163,9 +163,16 @@ export function resolveDrop(
   active: DragActiveData,
   over: DropTargetData,
   activeRect: { top: number; height: number },
-  overRect: { top: number; height: number } | null
+  overRect: { top: number; height: number } | null,
+  notes: MockNote[] = []
 ): ResolvedDrop | null {
   if (over.dropType === "root") {
+    // 이미 루트에 있는 항목을 루트 드롭존에 다시 놓는 것은 실제 변경이 없어야 한다 — 안 그러면
+    // moveNoteToFolder/moveFolderToParent가 그대로 실행돼 목록 맨 끝으로 재배치되는 부작용이 있다.
+    const alreadyAtRoot = active.dragType === "note"
+      ? (notes.find((n) => n.id === active.id)?.folderId ?? null) === null
+      : (folders.find((f) => f.id === active.id)?.parentFolderId ?? null) === null;
+    if (alreadyAtRoot) return null;
     return {
       valid: true,
       indicatorTargetId: "root",
@@ -180,6 +187,11 @@ export function resolveDrop(
 
   if (active.dragType === "note") {
     if (over.dropType === "folder") {
+      // 노트가 이미 그 폴더 안에 있다면(같은 폴더 위로 다시 드롭) 실제 변경이 없어야 한다 —
+      // 안 그러면 moveNoteToFolder가 그대로 실행돼 그 폴더의 맨 끝으로 재배치되는, 사용자가
+      // 의도하지 않은 부작용이 생긴다.
+      const currentFolderId = notes.find((n) => n.id === active.id)?.folderId ?? null;
+      if (currentFolderId === over.id) return null;
       return {
         valid: true,
         indicatorTargetId: over.id,
@@ -187,21 +199,19 @@ export function resolveDrop(
         commit: (h) => h.moveNoteToFolder(active.id, over.id),
       };
     }
-    // note over note → 같은 레벨 형제로 재배치
-    if (over.id === active.id) return null;
-    const position = computeDropPosition(activeRect, overRect, false);
-    const orderPos = position === "into" ? "after" : position;
-    return {
-      valid: true,
-      indicatorTargetId: over.id,
-      position,
-      commit: (h) => h.reorderNote(active.id, over.id, orderPos),
-    };
+    // note over note: 재배치를 지원하지 않는다 — 선택 가능한 모든 정렬 기준(modified/created/
+    // title)이 결정적이라 배열의 수동 순서를 무시하므로, 재배치를 커밋해도 다음 렌더에서 바로
+    // 되돌아가 "가짜로 움직였다가 제자리로" 보이는 버그(반투명 유령 상태 포함)만 유발했다.
+    // 폴더로 옮기는 것은 note-over-folder(위 분기)와 루트 드롭존으로 여전히 가능하다.
+    return null;
   }
 
   // 폴더를 드래그 중
+  const draggedFolder = folders.find((f) => f.id === active.id);
   if (over.dropType === "note") {
-    // 폴더는 노트 "안"으로 들어갈 수 없음 → 그 노트와 같은 부모 폴더로 이동
+    // 폴더는 노트 "안"으로 들어갈 수 없음 → 그 노트와 같은 부모 폴더로 이동. 이미 그 부모
+    // 아래에 있다면(형제 노트 위로 드롭) 실제 변경이 없어야 한다.
+    if ((draggedFolder?.parentFolderId ?? null) === (over.folderId ?? null)) return null;
     return {
       valid: true,
       indicatorTargetId: over.id,
@@ -213,6 +223,9 @@ export function resolveDrop(
   if (over.id === active.id) return null;
   const position = computeDropPosition(activeRect, overRect, true);
   const targetParent = position === "into" ? over.id : over.parentFolderId;
+  // "into"(그 폴더 안으로) 판정인데 이미 그 폴더 바로 아래에 있다면 실제 변경이 없어야 한다 —
+  // 안 그러면 moveFolderToParent가 그대로 실행돼 형제 목록의 맨 끝으로 재배치되는 부작용이 있다.
+  if (position === "into" && draggedFolder?.parentFolderId === over.id) return null;
   const valid = canFolderMoveUnder(folders, active.id, targetParent);
   return {
     valid,
