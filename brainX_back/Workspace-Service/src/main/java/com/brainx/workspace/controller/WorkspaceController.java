@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
@@ -227,6 +228,11 @@ public class WorkspaceController {
         return ApiResponse.success(workspaceService.saveGraphLayout(currentUser.userId(), layoutId, request));
     }
 
+    @GetMapping("/api/v1/notes/{noteId}/share-links")
+    public ApiResponse<List<ShareLinkData>> listShareLinks(@PathVariable String noteId) {
+        return ApiResponse.success(workspaceService.listShareLinks(currentUser.userId(), noteId));
+    }
+
     @PostMapping("/api/v1/share-links")
     public ResponseEntity<ApiResponse<ShareLinkData>> createShareLink(@Valid @RequestBody ShareLinkCreateRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -236,6 +242,16 @@ public class WorkspaceController {
     @GetMapping("/api/v1/share-links/{shareId}")
     public ApiResponse<PublicSharedNoteData> getPublicSharedNote(@PathVariable String shareId) {
         return ApiResponse.success(workspaceService.publicShare(shareId));
+    }
+
+    @GetMapping("/api/v1/share-links/by-note/{noteId}")
+    public ApiResponse<ShareLinkData> getPublicShareLinkForNote(@PathVariable String noteId) {
+        return ApiResponse.success(workspaceService.publicShareLinkForNote(noteId));
+    }
+
+    @GetMapping("/api/v1/share-links/{shareId}/linked-note/{noteId}")
+    public ApiResponse<PublicSharedNoteData> getLinkedNote(@PathVariable String shareId, @PathVariable String noteId) {
+        return ApiResponse.success(workspaceService.linkedNoteContent(shareId, noteId));
     }
 
     @PatchMapping("/api/v1/share-links/{shareId}")

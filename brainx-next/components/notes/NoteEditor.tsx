@@ -30,6 +30,7 @@ import { QuickSwatchRow, MoreColorPopover, TEXT_COLOR_QUICK, HIGHLIGHT_SWATCHES 
 import { ImageBlock, insertImageBlockFromFile } from "./ImageBlockNode";
 import { ColumnList, Column, splitBlockIntoColumns } from "./ColumnBlockNode";
 import { PdfBlock } from "./PdfBlockNode";
+import { PptBlock } from "./PptBlockNode";
 import { HtmlBlock } from "./HtmlBlockNode";
 import { blockWidthPercent, type BlockWidthMode } from "./BlockControls";
 import { FontSize, FontFamily, FONT_SIZE_PRESETS, FONT_FAMILY_PRESETS } from "./fontExtensions";
@@ -2368,6 +2369,7 @@ const NOTE_EDITOR_EXTENSIONS = [
   }),
   ImageBlock,
   PdfBlock,
+  PptBlock,
   HtmlBlock,
   ColumnList,
   Column,

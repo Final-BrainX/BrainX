@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl *)",
+      "Read(//proc/1/**)",
+      "Bash(docker exec *)",
+      "Bash(npx tsc *)",
+      "Bash(./gradlew clean *)"
+    ]
+  }
+}

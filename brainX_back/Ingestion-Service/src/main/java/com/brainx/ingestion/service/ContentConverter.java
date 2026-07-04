@@ -33,7 +33,7 @@ import java.util.Set;
 @Component
 public class ContentConverter {
 
-    public enum EmbedKind { NONE, PDF, IMAGE, HTML }
+    public enum EmbedKind { NONE, PDF, IMAGE, HTML, PPTX }
 
     private static final Set<String> IMAGE_EXTENSIONS =
             Set.of("png", "jpg", "jpeg", "gif", "webp", "bmp", "svg");
@@ -64,6 +64,7 @@ public class ContentConverter {
     }
 
     public EmbedKind embedKindOf(String fileName, String contentType) {
+        if (isPptx(fileName, contentType)) return EmbedKind.PPTX;
         if (isPdf(fileName, contentType)) return EmbedKind.PDF;
         if (isImage(fileName, contentType)) return EmbedKind.IMAGE;
         if (isHtml(fileName, contentType)) return EmbedKind.HTML;
@@ -75,6 +76,7 @@ public class ContentConverter {
             case PDF -> "application/pdf";
             case HTML -> "text/html";
             case IMAGE -> imageContentType(extensionOf(fileName));
+            case PPTX -> "application/vnd.openxmlformats-officedocument.presentationml.presentation";
             case NONE -> "application/octet-stream";
         };
     }
@@ -149,6 +151,11 @@ public class ContentConverter {
     public boolean isZip(String fileName, String contentType) {
         return extensionOf(fileName).equals("zip")
                 || (contentType != null && contentType.contains("zip"));
+    }
+
+    public boolean isPptx(String fileName, String contentType) {
+        return extensionOf(fileName).equals("pptx")
+                || (contentType != null && contentType.contains("presentationml"));
     }
 
     public boolean isPdf(String fileName, String contentType) {
