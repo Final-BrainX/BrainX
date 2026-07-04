@@ -1,23 +1,10 @@
 import type { Metadata } from "next";
 import Script from "next/script";
-import { JetBrains_Mono, Space_Grotesk } from "next/font/google";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import "./globals.css";
 import { BrainXProvider } from "@/components/brainx-provider";
 import { ToastStack } from "@/components/brainx-ui";
 import { TutorialProvider } from "@/components/tutorial-provider";
-
-const display = Space_Grotesk({
-  subsets: ["latin"],
-  variable: "--font-display",
-  display: "swap"
-});
-
-const mono = JetBrains_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
-  display: "swap"
-});
 
 export const metadata: Metadata = {
   title: "BrainX",
@@ -29,11 +16,17 @@ export const metadata: Metadata = {
 
 const themeScript = `(() => {
   try {
-    const preference = localStorage.getItem('brainx_theme_v1') || 'light';
+    const readStoredValue = (area, key) => {
+      if (window.brainxDesktop?.getStoredValue) {
+        return window.brainxDesktop.getStoredValue(area, key);
+      }
+      return area === 'local' ? localStorage.getItem(key) : sessionStorage.getItem(key);
+    };
+    const preference = readStoredValue('local', 'brainx_theme_v1') || 'light';
     const theme = preference === 'system'
       ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
       : preference;
-    const language = localStorage.getItem('brainx_language_v1') || 'ko';
+    const language = readStoredValue('local', 'brainx_language_v1') || 'ko';
     document.documentElement.classList.toggle('light', theme === 'light');
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.style.colorScheme = theme;
@@ -46,8 +39,13 @@ export default function RootLayout({
 }: Readonly<{
   children: ReactNode;
 }>) {
+  const fontVariables = {
+    "--font-display": "\"Segoe UI\", \"Pretendard\", \"Apple SD Gothic Neo\", sans-serif",
+    "--font-mono": "\"Cascadia Code\", \"JetBrains Mono\", \"D2Coding\", ui-monospace, monospace",
+  } as CSSProperties;
+
   return (
-    <html lang="ko" suppressHydrationWarning className={`${display.variable} ${mono.variable}`}>
+    <html lang="ko" suppressHydrationWarning style={fontVariables}>
       <body suppressHydrationWarning className="min-h-screen overflow-x-hidden bg-bg text-txt antialiased text-[14px]">
         <Script id="brainx-theme-init" strategy="beforeInteractive">
           {themeScript}

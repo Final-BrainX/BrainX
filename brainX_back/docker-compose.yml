@@ -135,7 +135,6 @@ services:
       POSTGRES_HOST: postgres
       REDIS_HOST: redis
       NEO4J_URI: bolt://neo4j:7687
-      SPRING_SQL_INIT_MODE: never
       EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: workspace-service
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -190,7 +189,6 @@ services:
     environment:
       SERVER_PORT: "8084"
       POSTGRES_HOST: postgres
-      SPRING_SQL_INIT_MODE: never
       EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: commerce-service
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -201,51 +199,6 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-
-  admin-service:
-    profiles:
-      - apps
-    build:
-      context: ./Admin-Service
-    container_name: brainx-admin-service
-    restart: unless-stopped
-    env_file:
-      - ./.env
-      - ./env/admin-service.env
-    environment:
-      SERVER_PORT: "8085"
-      POSTGRES_HOST: postgres
-      ADMIN_DB_NAME: ${ADMIN_DB_NAME:-brainx_admin}
-      GATEWAY_SERVICE_URL: http://Gateway-Service
-      USER_SERVICE_URL: http://User-Service
-      COMMERCE_SERVICE_URL: http://Commerce-Service
-      WORKSPACE_SERVICE_URL: http://Workspace-Service
-      INGESTION_SERVICE_URL: http://Ingestion-Service
-      INTELLIGENCE_SERVICE_URL: http://Intelligence-Service
-      MCP_SERVICE_URL: http://Mcp-Service
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID: intelligence-service
-      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
-      EUREKA_INSTANCE_HOSTNAME: admin-service
-    ports:
-      - "8085:8085"
-    depends_on:
-      discovery-service:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      gateway-service:
-        condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "wget -qO- http://localhost:8085/actuator/health | grep -q UP",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
 
   intelligence-service:
     profiles:
@@ -295,17 +248,62 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
+      workspace-service:
+        condition: service_started
       qdrant:
         condition: service_started
       kafka:
-        condition: service_started
-      workspace-service:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test:
         [
           "CMD-SHELL",
           "wget -qO- http://localhost:8086/actuator/health | grep -q UP",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  admin-service:
+    profiles:
+      - apps
+    build:
+      context: ./Admin-Service
+    container_name: brainx-admin-service
+    restart: unless-stopped
+    env_file:
+      - ./.env
+      - ./env/admin-service.env
+    environment:
+      SERVER_PORT: "8085"
+      POSTGRES_HOST: postgres
+      ADMIN_DB_NAME: ${ADMIN_DB_NAME:-brainx_admin}
+      GATEWAY_SERVICE_URL: http://Gateway-Service
+      USER_SERVICE_URL: http://User-Service
+      COMMERCE_SERVICE_URL: http://Commerce-Service
+      WORKSPACE_SERVICE_URL: http://Workspace-Service
+      INGESTION_SERVICE_URL: http://Ingestion-Service
+      INTELLIGENCE_SERVICE_URL: http://Intelligence-Service
+      MCP_SERVICE_URL: http://Mcp-Service
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID: intelligence-service
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
+      EUREKA_INSTANCE_HOSTNAME: admin-service
+    ports:
+      - "8085:8085"
+    depends_on:
+      discovery-service:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      gateway-service:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://localhost:8085/actuator/health | grep -q UP",
         ]
       interval: 10s
       timeout: 5s
@@ -371,7 +369,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: ["sh", "/docker-entrypoint-initdb.d/01-create-service-databases.sh"]
+    command:
+      ["sh", "/docker-entrypoint-initdb.d/01-create-service-databases.sh"]
 
   postgres:
     image: postgres:16-alpine

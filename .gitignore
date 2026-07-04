@@ -43,6 +43,7 @@ out/
 # Production build
 build/
 dist/
+brainx-electron/release/
 
 # Environment variables
 .env

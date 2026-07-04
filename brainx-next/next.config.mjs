@@ -6,10 +6,12 @@ const apiServerUrl = process.env.API_SERVER_URL ?? "http://localhost:8088";
 const userApiBaseUrl = process.env.USER_SERVICE_URL ?? "http://localhost:8080";
 const mcpApiBaseUrl = process.env.MCP_SERVICE_URL ?? "http://localhost:8087";
 const intelligenceApiBaseUrl = process.env.INTELLIGENCE_API_BASE_URL ?? "http://localhost:8086";
+const isStandaloneBuild = process.env.BRAINX_NEXT_OUTPUT_MODE === "standalone";
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  output: isStandaloneBuild ? "standalone" : undefined,
   turbopack: {
     root: projectDir,
   },

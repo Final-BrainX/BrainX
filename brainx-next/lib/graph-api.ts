@@ -2,6 +2,8 @@
 
 import { clearAuthSession, isDevAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
 import { CLUSTERS, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
+import { getBrainxDesktopConfig, isElectronDesktop } from "@/lib/desktop-bridge";
+import { getDesktopVaultSnapshot } from "@/lib/desktop-vault";
 import { extractWikiLinkTargets, resolveWikiLinkByTitle } from "@/lib/wiki-links";
 import type { NoteDraftData } from "@/lib/workspace-api";
 
@@ -78,7 +80,67 @@ async function workspaceRequest<T>(path: string, init?: RequestInit): Promise<T>
   return payload.data as T;
 }
 
+async function shouldUseDesktopVaultGraph() {
+  if (!isElectronDesktop()) return false;
+  const config = await getBrainxDesktopConfig();
+  return Boolean(config?.activeVault);
+}
+
+async function getDesktopVaultGraph(): Promise<GraphData> {
+  const snapshot = await getDesktopVaultSnapshot();
+  const notes = snapshot?.notes ?? [];
+  const noteRefs = notes.map((note) => ({
+    id: note.noteId,
+    title: note.title,
+    markdown: note.markdown,
+  }));
+
+  const edges: GraphEdgeData[] = [];
+  const seen = new Set<string>();
+
+  for (const note of notes) {
+    for (const target of extractWikiLinkTargets(note.markdown)) {
+      const resolved = resolveWikiLinkByTitle(noteRefs, target);
+      if (!resolved || resolved.id === note.noteId) continue;
+      const pairKey = [note.noteId, resolved.id].sort().join("::");
+      if (seen.has(pairKey)) continue;
+      seen.add(pairKey);
+      edges.push({
+        id: `vault_edge_${pairKey}`,
+        source: note.noteId,
+        target: resolved.id,
+        type: "REFERENCE",
+        weight: 1,
+      });
+    }
+  }
+
+  return {
+    nodes: notes.map((note) => ({
+      id: note.noteId,
+      noteId: note.noteId,
+      title: note.title,
+      summary: note.markdown.slice(0, 160),
+      folderId: note.folderId,
+      tags: note.tags,
+      createdAt: note.createdAt,
+      updatedAt: note.updatedAt,
+      lastViewedAt: note.updatedAt,
+    })),
+    edges,
+    summaries: {
+      mode: "desktop-vault",
+      assetCount: snapshot?.assets.length ?? 0,
+      folderCount: snapshot?.folders.length ?? 0,
+    },
+    lastViewedAt: notes[0]?.updatedAt ?? null,
+  };
+}
+
 export async function getGraph() {
+  if (await shouldUseDesktopVaultGraph()) {
+    return getDesktopVaultGraph();
+  }
   return workspaceRequest<GraphData>("/api/v1/graph");
 }
 
