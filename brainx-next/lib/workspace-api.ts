@@ -376,3 +376,78 @@ export function workspaceFolderToMock(folder: WorkspaceFolderItem): MockFolder {
     parentFolderId: folder.parentFolderId
   };
 }
+
+// ─── 공유 링크 ───────────────────────────────────────────────────────────────
+
+export type ShareLinkData = {
+  shareId: string;
+  url: string;
+  permission: "READ" | "EDIT";
+  expiresAt: string;
+  revoked: boolean;
+};
+
+export type PublicSharedNoteData = {
+  shareId: string;
+  noteId: string;
+  title: string;
+  markdown: string;
+  author: { nickname: string };
+  permission: string;
+  expiresAt: string;
+  linkedShares: Record<string, string>; // title or noteId → share URL
+};
+
+export async function listShareLinks(noteId: string): Promise<ShareLinkData[]> {
+  return authedRequest<ShareLinkData[]>(`/api/v1/notes/${encodeURIComponent(noteId)}/share-links`);
+}
+
+export async function createShareLink(
+  noteId: string,
+  permission: "READ" | "EDIT",
+  expiresAt: string
+): Promise<ShareLinkData> {
+  return authedRequest<ShareLinkData>("/api/v1/share-links", {
+    method: "POST",
+    body: JSON.stringify({ noteId, permission, expiresAt }),
+  });
+}
+
+export async function revokeShareLink(shareId: string): Promise<ShareLinkData> {
+  return authedRequest<ShareLinkData>(`/api/v1/share-links/${encodeURIComponent(shareId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ revoked: true, expiresAt: null }),
+  });
+}
+
+export async function getPublicShareLinkForNote(noteId: string): Promise<ShareLinkData | null> {
+  const response = await fetch(`${WORKSPACE_API_BASE_URL}/api/v1/share-links/by-note/${encodeURIComponent(noteId)}`);
+  if (!response.ok) return null;
+  const payload = (await response.json().catch(() => null)) as { success: boolean; data?: ShareLinkData } | null;
+  return payload?.success && payload.data ? payload.data : null;
+}
+
+export async function getLinkedNote(shareId: string, noteId: string): Promise<PublicSharedNoteData> {
+  const response = await fetch(
+    `${WORKSPACE_API_BASE_URL}/api/v1/share-links/${encodeURIComponent(shareId)}/linked-note/${encodeURIComponent(noteId)}`
+  );
+  const payload = (await response.json().catch(() => null)) as { success: boolean; data?: PublicSharedNoteData; error?: { code?: string; message?: string } } | null;
+  if (response.status === 410 || payload?.error?.code === "SHARE_LINK_EXPIRED") throw new Error("GONE");
+  if (response.status === 404 || !payload?.success || !payload.data) throw new Error("NOT_FOUND");
+  return payload.data;
+}
+
+export async function getPublicSharedNote(shareId: string): Promise<PublicSharedNoteData> {
+  const response = await fetch(`${WORKSPACE_API_BASE_URL}/api/v1/share-links/${encodeURIComponent(shareId)}`);
+  const payload = (await response.json().catch(() => null)) as { success: boolean; data?: PublicSharedNoteData; error?: { code?: string; message?: string } } | null;
+  if (response.status === 410 || payload?.error?.code === "SHARE_LINK_EXPIRED") {
+    throw new Error("GONE");
+  }
+  if (response.status === 404 || payload?.error?.code === "SHARE_LINK_NOT_FOUND") {
+    throw new Error("NOT_FOUND");
+  }
+  if (!payload?.success || !payload.data) {
+    throw new Error(payload?.error?.message ?? "공유 링크를 불러올 수 없습니다.");
+  }
+  return payload.data;
+}

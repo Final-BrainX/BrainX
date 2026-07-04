@@ -124,7 +124,9 @@ public class JwtAuthenticationGlobalFilter implements GlobalFilter, Ordered {
                 || pathMatcher.match("/api/v1/tags/**", path)
                 || pathMatcher.match("/api/v1/favorites/**", path)
                 || pathMatcher.match("/api/v1/graph", path)
-                || pathMatcher.match("/api/v1/graph/**", path);
+                || pathMatcher.match("/api/v1/graph/**", path)
+                || pathMatcher.match("/api/v1/share-links", path)
+                || pathMatcher.match("/api/v1/share-links/**", path);
     }
 
     private Mono<Void> authenticateGuest(ServerWebExchange exchange, GatewayFilterChain chain, ServerHttpRequest request) {
