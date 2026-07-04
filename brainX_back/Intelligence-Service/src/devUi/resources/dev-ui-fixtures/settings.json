@@ -15,9 +15,6 @@
     "writingStyle": {
       "formality": "business",
       "sentenceLength": "short"
-    },
-    "assistanceStyle": {
-      "clarificationPolicy": "only_when_blocking"
     }
   }
 }

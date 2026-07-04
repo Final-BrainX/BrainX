@@ -15,6 +15,7 @@ import com.brainx.intelligence.assist.application.port.outbound.AssistEventPort.
 import com.brainx.intelligence.assist.domain.AiSuggestionDecision;
 import com.brainx.intelligence.assist.domain.InlineAssistAction;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
+import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -42,6 +43,7 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
     private final AiChatPort aiChatPort;
     private final AiUsageRecorder aiUsageRecorder;
     private final AssistEventPort assistEventPort;
+    private final StylePromptCompiler stylePromptCompiler;
 
     public AssistService(
         AssistProperties properties,
@@ -49,7 +51,8 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
         EntitlementPort entitlementPort,
         AiChatPort aiChatPort,
         AiUsageRecorder aiUsageRecorder,
-        AssistEventPort assistEventPort
+        AssistEventPort assistEventPort,
+        StylePromptCompiler stylePromptCompiler
     ) {
         this.properties = properties;
         this.aiModelSettingsPort = aiModelSettingsPort;
@@ -57,6 +60,7 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
         this.aiChatPort = aiChatPort;
         this.aiUsageRecorder = aiUsageRecorder;
         this.assistEventPort = assistEventPort;
+        this.stylePromptCompiler = stylePromptCompiler;
     }
 
     @Override
@@ -73,7 +77,10 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
         validateInput(action, selectedText, contextBefore, contextAfter, draftPrompt);
 
         String modelId = resolveModelId(userId);
-        String systemPrompt = systemPrompt();
+        String systemPrompt = StylePromptCompiler.appendToSystemPrompt(
+            systemPrompt(),
+            stylePromptCompiler.writingStyleInstructions(userId)
+        );
         String userPrompt = userPrompt(action, language, selectedText, contextBefore, contextAfter, draftPrompt, targetLength);
         int tokenEstimate = estimateTokens(systemPrompt + "\n" + userPrompt);
         var entitlement = entitlementPort.checkEntitlement(new EntitlementRequest(

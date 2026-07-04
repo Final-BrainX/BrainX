@@ -48,6 +48,10 @@ create table if not exists user_style_profiles (
   detected_from_notes_at timestamp(6) with time zone
 );
 
+-- user_style_profiles.style JSON shape:
+-- {"conversationTone": {...}, "writingStyle": {...}}
+-- Legacy assistanceStyle keys are removed by Flyway migration.
+
 create table if not exists event_consumption_records (
   event_id varchar(160) primary key,
   event_type varchar(120) not null,
