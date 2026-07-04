@@ -1430,6 +1430,18 @@ function insertMarkdownContent(editor: Editor, range: RewriteRange, text: string
     .run();
 }
 
+function insertInlineContinueContent(editor: Editor, range: RewriteRange, text: string) {
+  editor
+    .chain()
+    .focus()
+    .insertContentAt({ from: range.from, to: range.to }, markdownToEditorInsertionHtml(text))
+    .command(({ tr }) => {
+      tr.setMeta(InlineContinueDraftKey, { type: "clear" } satisfies InlineContinueDraftMeta);
+      return true;
+    })
+    .run();
+}
+
 function messageFromUnknown(error: unknown) {
   return error instanceof Error ? error.message : "AI 요청에 실패했습니다.";
 }
@@ -1458,81 +1470,95 @@ function continueSuggestionId(draft: ContinueSuggestionState | null | undefined)
 
 const CONTINUE_TRIGGER_IDLE_MS = 600;
 const CONTINUE_TRIGGER_SAFE_WIDTH = 124;
-const CONTINUE_DRAFT_SAFE_WIDTH = 420;
 
-/* "이어쓰기" 제안 UI는 본문 흐름 안에 직접 꽂지 않고 editor shell 위에 띄운다. 트리거 버튼은
-   idle 상태에서만 작게 보이고, 결과 위젯은 커서 라인 아래 여백 쪽에 둬 현재 줄을 덮지 않게 한다. */
-function InlineContinueFloatingWidget({
-  draft,
-  anchor,
-  onAccept,
-  onCancel,
-}: {
-  draft: ContinueSuggestionState;
-  anchor: { left: number; top: number };
-  onAccept: () => void;
-  onCancel: () => void;
-}) {
+const INLINE_CONTINUE_ACCEPT_EVENT = "brainx:inline-continue-accept";
+const INLINE_CONTINUE_CANCEL_EVENT = "brainx:inline-continue-cancel";
+
+function inlineContinueWidgetKey(draft: ContinueSuggestionState) {
+  let textHash = 0;
+  for (let i = 0; i < draft.text.length; i += 1) {
+    textHash = (textHash * 31 + draft.text.charCodeAt(i)) | 0;
+  }
+  return `inline-continue-${draft.requestId}-${draft.status}-${draft.insertPos}-${draft.text.length}-${textHash}`;
+}
+
+function dispatchInlineContinueWidgetEvent(view: EditorView, eventName: string) {
+  view.dom.dispatchEvent(new CustomEvent(eventName, { bubbles: true }));
+}
+
+function createInlineContinueDraftWidget(draft: ContinueSuggestionState, view: EditorView) {
   const isLoading = draft.status === "loading";
   const isError = draft.status === "error";
+  const canAccept = draft.status === "ready" && draft.text.trim().length > 0;
   const bodyText = isError
-    ? "앞 문맥이 조금 더 필요합니다."
+    ? draft.message
     : draft.text.trim()
       ? draft.text
       : "이어 쓰는 중...";
 
-  const stop = (event: React.MouseEvent<HTMLButtonElement>, action: () => void) => {
+  const wrapper = document.createElement("span");
+  wrapper.className = [
+    "inline-continue-preview",
+    isError ? "inline-continue-preview--error" : "",
+    isLoading ? "inline-continue-preview--loading" : "",
+  ].filter(Boolean).join(" ");
+  wrapper.setAttribute("contenteditable", "false");
+  wrapper.setAttribute("data-inline-continue-preview", "true");
+
+  const badge = document.createElement("span");
+  badge.className = "inline-continue-preview__badge";
+  badge.textContent = "AI";
+  wrapper.appendChild(badge);
+
+  const text = document.createElement("span");
+  text.className = "inline-continue-preview__text";
+  text.textContent = bodyText;
+  wrapper.appendChild(text);
+
+  if (isLoading) {
+    const spinner = document.createElement("span");
+    spinner.className = "inline-continue-preview__spinner";
+    spinner.setAttribute("aria-hidden", "true");
+    wrapper.appendChild(spinner);
+  }
+
+  const controls = document.createElement("span");
+  controls.className = "inline-continue-preview__controls";
+
+  const stop = (event: Event) => {
     event.preventDefault();
     event.stopPropagation();
-    action();
   };
 
-  return (
-    <div className="absolute z-40 max-w-[min(420px,calc(100%-16px))]" style={{ left: anchor.left, top: anchor.top }} data-inline-continue-widget="true">
-      <div
-        className={cx(
-          "flex w-fit max-w-full items-start gap-1.5 rounded-md border px-2 py-1 text-[12px] leading-relaxed shadow-sm",
-          isError
-            ? "border-red-400/40 bg-red-500/10 text-red-300"
-            : "border-primary/30 bg-primary/10 text-txt"
-        )}
-      >
-        <span className="inline-flex shrink-0 items-center gap-1 rounded bg-primary/15 px-1 text-[10px] font-semibold text-primary">
-          <Sparkles size={10} />
-          AI
-        </span>
-        <span
-          className={cx(
-            "max-h-28 min-w-0 overflow-y-auto break-words border-b border-dashed pr-1",
-            isError ? "border-red-400/50" : "border-primary/50"
-          )}
-        >
-          {bodyText}
-        </span>
-        {isLoading ? <Loader2 size={12} className="shrink-0 animate-spin text-primary" /> : null}
-        {draft.status === "ready" ? (
-          <button
-            type="button"
-            title="이어쓰기 수락"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={(event) => stop(event, onAccept)}
-            className="grid h-5 w-5 shrink-0 place-items-center rounded bg-primary text-white transition-colors hover:brightness-110"
-          >
-            <Check size={12} />
-          </button>
-        ) : null}
-        <button
-          type="button"
-          title={isLoading ? "이어쓰기 중단" : "이어쓰기 취소"}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={(event) => stop(event, onCancel)}
-          className="grid h-5 w-5 shrink-0 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-txt"
-        >
-          <X size={12} />
-        </button>
-      </div>
-    </div>
-  );
+  const accept = document.createElement("button");
+  accept.type = "button";
+  accept.className = "inline-continue-preview__button inline-continue-preview__button--accept";
+  accept.textContent = "\u2713";
+  accept.title = "이어쓰기 적용";
+  accept.setAttribute("aria-label", "이어쓰기 적용");
+  accept.disabled = !canAccept;
+  accept.addEventListener("mousedown", stop);
+  accept.addEventListener("click", (event) => {
+    stop(event);
+    if (canAccept) dispatchInlineContinueWidgetEvent(view, INLINE_CONTINUE_ACCEPT_EVENT);
+  });
+  controls.appendChild(accept);
+
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "inline-continue-preview__button inline-continue-preview__button--cancel";
+  cancel.textContent = "\u00d7";
+  cancel.title = isLoading ? "이어쓰기 중단" : "이어쓰기 취소";
+  cancel.setAttribute("aria-label", isLoading ? "이어쓰기 중단" : "이어쓰기 취소");
+  cancel.addEventListener("mousedown", stop);
+  cancel.addEventListener("click", (event) => {
+    stop(event);
+    dispatchInlineContinueWidgetEvent(view, INLINE_CONTINUE_CANCEL_EVENT);
+  });
+  controls.appendChild(cancel);
+
+  wrapper.appendChild(controls);
+  return wrapper;
 }
 
 const InlineContinueDraftExtension = Extension.create({
@@ -1559,6 +1585,28 @@ const InlineContinueDraftExtension = Extension.create({
               ...previous,
               insertPos: Math.min(mapped.pos, tr.doc.content.size),
             };
+          },
+        },
+        props: {
+          decorations(state) {
+            const draft = InlineContinueDraftKey.getState(state);
+            if (!draft) return DecorationSet.empty;
+            const insertPos = Math.min(draft.insertPos, state.doc.content.size);
+            return DecorationSet.create(state.doc, [
+              Decoration.widget(
+                insertPos,
+                (view) => createInlineContinueDraftWidget(draft, view),
+                {
+                  key: inlineContinueWidgetKey(draft),
+                  side: 1,
+                  ignoreSelection: true,
+                  stopEvent: (event) => {
+                    const target = event.target;
+                    return target instanceof Element && Boolean(target.closest("[data-inline-continue-preview='true']"));
+                  },
+                }
+              ),
+            ]);
           },
         },
       }),
@@ -2752,7 +2800,6 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
   }, [note.id, note.content]);
   const [cursorAiAnchor, setCursorAiAnchor] = useState<{ left: number; top: number } | null>(null);
   const [continueDraftView, setContinueDraftView] = useState<ContinueSuggestionState | null>(null);
-  const [continueDraftAnchor, setContinueDraftAnchor] = useState<{ left: number; top: number } | null>(null);
   const wikiCtx = useWikiLinkContext();
 
   /* 내부 노트 링크(LinkPopover에서 만든 brainx-note://<id> href) 클릭 처리 — 읽기 모드는
@@ -3087,9 +3134,8 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
     if (!draft || draft.status !== "ready") return;
 
     suppressInlineContinueAutoRejectRef.current = true;
-    clearInlineContinueDraft(editor);
     const insertPos = Math.min(draft.insertPos, editor.state.doc.content.size);
-    insertMarkdownContent(editor, { from: insertPos, to: insertPos }, draft.text);
+    insertInlineContinueContent(editor, { from: insertPos, to: insertPos }, draft.text);
     decideAiSuggestion(draft.suggestionId, { decision: "ACCEPTED" }).catch((error) => {
       console.warn("Failed to record accepted AI suggestion.", error);
     });
@@ -3109,6 +3155,26 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       });
     }
   }, [editor]);
+
+  useEffect(() => {
+    if (!editor) return;
+
+    const handleAccept = (event: Event) => {
+      event.preventDefault();
+      acceptInlineContinue();
+    };
+    const handleCancel = (event: Event) => {
+      event.preventDefault();
+      cancelInlineContinue();
+    };
+
+    editor.view.dom.addEventListener(INLINE_CONTINUE_ACCEPT_EVENT, handleAccept);
+    editor.view.dom.addEventListener(INLINE_CONTINUE_CANCEL_EVENT, handleCancel);
+    return () => {
+      editor.view.dom.removeEventListener(INLINE_CONTINUE_ACCEPT_EVENT, handleAccept);
+      editor.view.dom.removeEventListener(INLINE_CONTINUE_CANCEL_EVENT, handleCancel);
+    };
+  }, [acceptInlineContinue, cancelInlineContinue, editor]);
 
   useEffect(() => {
     if (!editor) return;
@@ -3158,26 +3224,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       setCursorAiAnchor(null);
     };
 
-    const updateContinueDraftAnchor = () => {
-      const draft = getInlineContinueDraft(editor);
-      const shellRectForDraft = editorShellRef.current?.getBoundingClientRect();
-      if (draft && shellRectForDraft) {
-        const pos = Math.min(draft.insertPos, editor.state.doc.content.size);
-        const draftCoords = safeCoordsAtPos(editor.view, pos, 1);
-        const left = Math.max(
-          8,
-          Math.min(draftCoords.left - shellRectForDraft.left, shellRectForDraft.width - CONTINUE_DRAFT_SAFE_WIDTH)
-        );
-        const top = Math.max(8, draftCoords.bottom - shellRectForDraft.top + 10);
-        setContinueDraftAnchor({ left, top });
-      } else {
-        setContinueDraftAnchor(null);
-      }
-    };
-
     const updateCursorAiAnchor = () => {
-      updateContinueDraftAnchor();
-
       const editorHasFocus = editor.view.dom.contains(document.activeElement);
       const slashCommandOpen = SlashCommandKey.getState(editor.state)?.active ?? false;
       if (!editor.isEditable || !editorHasFocus || contextMenu || slashCommandOpen || getInlineContinueDraft(editor)) {
@@ -3386,14 +3433,6 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
         >
           <CursorContinueButton onRequest={requestInlineContinue} />
         </div>
-      ) : null}
-      {editor && continueDraftView && continueDraftAnchor ? (
-        <InlineContinueFloatingWidget
-          draft={continueDraftView}
-          anchor={continueDraftAnchor}
-          onAccept={acceptInlineContinue}
-          onCancel={cancelInlineContinue}
-        />
       ) : null}
       {editor && <TableToolbar editor={editor} />}
       {editor && <WikiLinkAutocomplete editor={editor} />}

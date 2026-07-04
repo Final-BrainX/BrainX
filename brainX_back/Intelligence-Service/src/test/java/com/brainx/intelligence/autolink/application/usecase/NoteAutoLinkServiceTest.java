@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
@@ -20,8 +21,13 @@ import com.brainx.intelligence.autolink.domain.NoteAutoLinkStrategy;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteChunkRetrievalPort;
 import com.brainx.intelligence.exploration.domain.NoteChunkSearchResult;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
+import com.brainx.intelligence.settings.application.port.outbound.StyleProfilePort;
+import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.settings.domain.AiModel;
+import com.brainx.intelligence.settings.domain.ConversationTone;
+import com.brainx.intelligence.settings.domain.StyleProfile;
 import com.brainx.intelligence.settings.domain.VendorTokenCost;
+import com.brainx.intelligence.settings.domain.WritingStyle;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
@@ -84,6 +90,10 @@ class NoteAutoLinkServiceTest {
         assertThat(chunkRetrieval.queries).isEmpty();
         assertThat(strategy.suggestions()).hasSize(1);
         assertThat(strategy.suggestions().getFirst().anchor().matchedText()).isEqualTo("Knowledge Graphs");
+        assertThat(aiChatPort.requests.getFirst().messages().getFirst().content())
+            .contains("User conversation tone profile")
+            .contains("- directness: high")
+            .doesNotContain("User writing style profile");
         assertThat(strategy.filteredInvalidAnchorCount()).isEqualTo(1);
         assertThat(strategy.filteredQualityCount()).isZero();
         assertThat(strategy.usageRecords()).hasSize(2);
@@ -393,6 +403,11 @@ class NoteAutoLinkServiceTest {
         assertThat(strategy.filteredWeakRelationCount()).isZero();
         assertThat(strategy.usageRecords()).extracting("featureId")
             .contains("note-auto-link-relation-verifier-chat");
+        assertThat(aiChatPort.requests.getFirst().messages().getFirst().content())
+            .contains("User conversation tone profile");
+        assertThat(aiChatPort.requests.get(1).messages().getFirst().content())
+            .doesNotContain("User conversation tone profile")
+            .doesNotContain("User writing style profile");
         assertThat(strategy.usageSummary().inputTokens()).isEqualTo(30);
     }
 
@@ -454,7 +469,8 @@ class NoteAutoLinkServiceTest {
             aiChatPort,
             new AiUsageRecorder(usageCapture, usageCostEstimator),
             new ObjectMapper().findAndRegisterModules(),
-            beanFactory.getBeanProvider(AutoLinkUsageCapturePort.class)
+            beanFactory.getBeanProvider(AutoLinkUsageCapturePort.class),
+            new StylePromptCompiler(new FakeStyleProfilePort())
         );
     }
 
@@ -601,6 +617,26 @@ class NoteAutoLinkServiceTest {
         @Override
         public boolean existsByModelId(String modelId) {
             return MODEL.modelId().equals(modelId);
+        }
+    }
+
+    private static final class FakeStyleProfilePort implements StyleProfilePort {
+
+        private final StyleProfile profile = new StyleProfile(
+            "user-1",
+            new ConversationTone(Map.of("directness", "high")),
+            new WritingStyle(Map.of("formality", "business")),
+            null
+        );
+
+        @Override
+        public StyleProfile save(StyleProfile styleProfile) {
+            return styleProfile;
+        }
+
+        @Override
+        public Optional<StyleProfile> findStyleProfileByUserId(String userId) {
+            return profile.userId().equals(userId) ? Optional.of(profile) : Optional.empty();
         }
     }
 }

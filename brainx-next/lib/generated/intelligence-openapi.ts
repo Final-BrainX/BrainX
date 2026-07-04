@@ -700,9 +700,6 @@ export interface components {
             writingStyle: {
                 [key: string]: unknown;
             };
-            assistanceStyle: {
-                [key: string]: unknown;
-            };
             /** Format: date-time */
             detectedFromNotesAt?: string | null;
         };
@@ -711,9 +708,6 @@ export interface components {
                 [key: string]: unknown;
             };
             writingStyle?: {
-                [key: string]: unknown;
-            };
-            assistanceStyle?: {
                 [key: string]: unknown;
             };
         };

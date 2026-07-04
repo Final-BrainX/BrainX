@@ -27,8 +27,13 @@ import com.brainx.intelligence.clustering.domain.ClusteringForbiddenException;
 import com.brainx.intelligence.clustering.domain.ClusteringNotFoundException;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
+import com.brainx.intelligence.settings.application.port.outbound.StyleProfilePort;
+import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.settings.domain.AiModel;
 import com.brainx.intelligence.settings.domain.AiModelSettings;
+import com.brainx.intelligence.settings.domain.ConversationTone;
+import com.brainx.intelligence.settings.domain.StyleProfile;
+import com.brainx.intelligence.settings.domain.WritingStyle;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatChunk;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -57,6 +62,8 @@ class ClusteringServiceTest {
     private final FakeTokenUsagePort tokenUsagePort = new FakeTokenUsagePort();
     private final FakeClusteringEventPort eventPort = new FakeClusteringEventPort();
     private final ClusteringProperties properties = new ClusteringProperties();
+    private final FakeStyleProfilePort styleProfilePort = new FakeStyleProfilePort();
+    private final StylePromptCompiler stylePromptCompiler = new StylePromptCompiler(styleProfilePort);
     private final ClusteringService service = new ClusteringService(
         store,
         noteSource,
@@ -67,12 +74,19 @@ class ClusteringServiceTest {
         eventPort,
         properties,
         new ObjectMapper(),
+        stylePromptCompiler,
         Clock.fixed(Instant.parse("2026-06-26T00:00:00Z"), ZoneOffset.UTC)
     );
 
     @Test
     void requestClusterJobDefaultsDocumentGroupAndStoresCompletedJob() {
         settingsPort.settings = Optional.of(new AiModelSettings("user-1", "gpt-user", Map.of()));
+        styleProfilePort.profile = new StyleProfile(
+            "user-1",
+            new ConversationTone(Map.of("directness", "high")),
+            new WritingStyle(Map.of("formality", "business", "informationDensity", "dense")),
+            null
+        );
         noteSource.notes = List.of(
             note("note-1", "Java", List.of("backend"), List.of("Spring"), "Spring Boot service"),
             note("note-2", "Database", List.of("sql"), List.of("Transaction"), "PostgreSQL transaction")
@@ -100,6 +114,10 @@ class ClusteringServiceTest {
         assertThat(job.clusters()).hasSize(1);
         assertThat(job.clusters().getFirst().noteIds()).containsExactly("note-1", "note-2");
         assertThat(chatPort.lastRequest.modelId()).isEqualTo("gpt-user");
+        assertThat(chatPort.lastRequest.messages().getFirst().content())
+            .contains("User writing style profile")
+            .contains("- formality: business")
+            .doesNotContain("User conversation tone profile");
         assertThat(chatPort.lastRequest.messages().get(1).content()).contains("Spring Boot service");
         assertThat(entitlementPort.lastRequest.capability()).isEqualTo("AI_CLUSTERING");
         assertThat(tokenUsagePort.records).hasSize(1);
@@ -417,6 +435,23 @@ class ClusteringServiceTest {
         @Override
         public void clusterJobCompleted(ClusterJobCompletedEvent event) {
             completedEvents.add(event);
+        }
+    }
+
+    private static class FakeStyleProfilePort implements StyleProfilePort {
+
+        private StyleProfile profile;
+
+        @Override
+        public StyleProfile save(StyleProfile styleProfile) {
+            profile = styleProfile;
+            return styleProfile;
+        }
+
+        @Override
+        public Optional<StyleProfile> findStyleProfileByUserId(String userId) {
+            return Optional.ofNullable(profile)
+                .filter(item -> item.userId().equals(userId));
         }
     }
 
