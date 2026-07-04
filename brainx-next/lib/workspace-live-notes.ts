@@ -30,14 +30,15 @@ export async function loadWorkspaceBrainXNotes(): Promise<BrainXNote[]> {
 
 function workspaceItemToBrainXNote(note: WorkspaceNoteItem, links: Set<string> | undefined): BrainXNote {
   const markdown = note.markdown ?? "";
+  const title = note.title?.trim() || "Untitled";
   const cluster = normalizeClusterId(note.folderId ?? note.noteId);
   return {
     id: note.noteId,
-    title: note.title || "Untitled",
+    title,
     markdown,
     folderId: cluster,
     cluster,
-    summary: summarize(markdown, note.title),
+    summary: summarize(markdown),
     tags: note.tags ?? [],
     links: Array.from(links ?? []),
     searchIndexStatus: "UNKNOWN",
@@ -61,10 +62,10 @@ function normalizeClusterId(value: string): ClusterId {
   return clusterIds[Math.abs(hash) % clusterIds.length];
 }
 
-function summarize(markdown: string, title: string) {
-  const text = stripMarkdown(markdown);
+function summarize(markdown: string) {
+  const text = stripMarkdown(markdown).trim();
   if (text) return text.slice(0, 140);
-  return `${title}은 아직 처리되지 않았습니다. AI 기능이 제한됩니다.`;
+  return "";
 }
 
 function normalizeDate(value: string | null | undefined) {
