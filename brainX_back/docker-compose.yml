@@ -167,7 +167,7 @@ services:
       EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: ingestion-service
     ports:
-      - "8083:8083"
+      - "127.0.0.1:8083:8083"
     depends_on:
       discovery-service:
         condition: service_healthy
@@ -199,46 +199,6 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-
-  intelligence-service:
-    profiles:
-      - apps
-    build:
-      context: ./Intelligence-Service
-    container_name: brainx-intelligence-service
-    restart: unless-stopped
-    env_file:
-      - ./.env
-      - ./env/intelligence-service.env
-    environment:
-      SERVER_PORT: "8086"
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${INTELLIGENCE_DB_NAME:-intelligence_service}
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-1234}
-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
-      BRAINX_WORKSPACE_BASE_URL: http://workspace-service:8082
-      BRAINX_VECTOR_QDRANT_ENABLED: "false"
-      BRAINX_EVENTS_PRODUCER_ENABLED: "false"
-      BRAINX_EVENTS_CONSUMER_ENABLED: "false"
-      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
-      EUREKA_INSTANCE_HOSTNAME: intelligence-service
-    ports:
-      - "8086:8086"
-    depends_on:
-      discovery-service:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "wget -qO- http://localhost:8086/actuator/health | grep -q UP",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
 
   admin-service:
     profiles:

@@ -32,7 +32,8 @@ const FILE_TYPES = [
   { id: "pdf", label: "PDF", desc: "PDF 문서에서 콘텐츠 추출하기", icon: "pdf" as const, accept: ".pdf" },
   { id: "text", label: "Text & Markdown", desc: "일반 텍스트 및 형식 있는 메모 가져오기", icon: "doc" as const, accept: ".txt,.md" },
   { id: "html", label: "HTML", desc: "웹 페이지 및 구조화된 콘텐츠 가져오기", icon: "html" as const, accept: ".html,.htm" },
-  { id: "word", label: "Word", desc: "Word 문서를 BrainX로 가져오기", icon: "doc" as const, accept: ".docx" }
+  { id: "word", label: "Word", desc: "Word 문서를 BrainX로 가져오기", icon: "doc" as const, accept: ".docx" },
+  { id: "pptx", label: "PowerPoint", desc: "PPT 슬라이드를 BrainX로 가져오기", icon: "doc" as const, accept: ".pptx" }
 ] as const;
 
 export function ImportScreen() {
@@ -136,7 +137,7 @@ export function ImportScreen() {
     startImport(files[0]);
   };
 
-  const openFilePicker = (accept = ".zip,.csv,.pdf,.txt,.md,.html,.docx,.epub") => {
+  const openFilePicker = (accept = ".zip,.csv,.pdf,.txt,.md,.html,.docx,.epub,.pptx") => {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = accept;
