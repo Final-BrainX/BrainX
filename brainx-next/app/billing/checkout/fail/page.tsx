@@ -14,7 +14,7 @@ function CheckoutFailContent() {
     const tossMessage = searchParams.get("message");
     const finalMessage = tossMessage ?? (code ? `결제에 실패했습니다. (${code})` : "결제가 취소되었습니다.");
     setMessage(finalMessage);
-    notifyOpenerAndClosePayment(false, finalMessage);
+    void notifyOpenerAndClosePayment(false, finalMessage);
   }, [searchParams]);
 
   return (

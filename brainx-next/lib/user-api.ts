@@ -1,5 +1,6 @@
 "use client";
 
+import { getLocalStoredValue } from "@/lib/client-storage";
 import { clearAuthSession, isDevAuthSession, readAuthSession, saveAuthSession, type ApiResponse } from "@/lib/auth-api";
 import type { ThemeMode } from "@/components/brainx-provider";
 import type { LanguageCode } from "@/lib/i18n";
@@ -67,12 +68,12 @@ function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
 
 function readStoredLanguage(): LanguageCode {
   if (typeof window === "undefined") return "ko";
-  return window.localStorage.getItem(LANGUAGE_KEY) === "en" ? "en" : "ko";
+  return getLocalStoredValue(LANGUAGE_KEY) === "en" ? "en" : "ko";
 }
 
 function readStoredTheme(): ThemeMode {
   if (typeof window === "undefined") return "system";
-  const stored = window.localStorage.getItem(THEME_KEY);
+  const stored = getLocalStoredValue(THEME_KEY);
   return stored === "dark" || stored === "light" || stored === "system" ? stored : "system";
 }
 

@@ -19,6 +19,7 @@ import {
   seedNotes,
   updateNoteDerived
 } from "@/lib/brainx-data";
+import { getLocalStoredValue, setLocalStoredValue } from "@/lib/client-storage";
 import { ensureDevAuthSession, readAuthSession } from "@/lib/auth-api";
 import { translate, type I18nKey, type LanguageCode } from "@/lib/i18n";
 import { USE_MOCK_NOTES } from "@/lib/workspace-api";
@@ -65,7 +66,7 @@ const BrainXContext = createContext<BrainXContextValue | null>(null);
 function readJson<T>(key: string, fallback: T) {
   if (typeof window === "undefined") return fallback;
   try {
-    const raw = window.localStorage.getItem(key);
+    const raw = getLocalStoredValue(key);
     if (!raw) return fallback;
     return JSON.parse(raw) as T;
   } catch {
@@ -74,18 +75,18 @@ function readJson<T>(key: string, fallback: T) {
 }
 
 function writeJson(key: string, value: unknown) {
-  window.localStorage.setItem(key, JSON.stringify(value));
+  setLocalStoredValue(key, JSON.stringify(value));
 }
 
 function readTheme(): ThemeMode {
   if (typeof window === "undefined") return "light";
-  const stored = window.localStorage.getItem(THEME_KEY);
+  const stored = getLocalStoredValue(THEME_KEY);
   return stored === "dark" || stored === "light" || stored === "system" ? stored : "light";
 }
 
 function readLanguage(): LanguageCode {
   if (typeof window === "undefined") return "ko";
-  return window.localStorage.getItem(LANGUAGE_KEY) === "en" ? "en" : "ko";
+  return getLocalStoredValue(LANGUAGE_KEY) === "en" ? "en" : "ko";
 }
 
 function getSystemTheme(): EffectiveTheme {
@@ -95,7 +96,7 @@ function getSystemTheme(): EffectiveTheme {
 
 function readSidebarCollapsed() {
   if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(SIDEBAR_KEY) === "true";
+  return getLocalStoredValue(SIDEBAR_KEY) === "true";
 }
 
 function readNotes(): BrainXNote[] {
@@ -190,7 +191,7 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
 
     try {
       applyTheme();
-      window.localStorage.setItem(THEME_KEY, theme);
+      setLocalStoredValue(THEME_KEY, theme);
     } catch {
       // ignore storage issues
     }
@@ -205,7 +206,7 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
     if (!hydrated) return;
     try {
       document.documentElement.lang = language;
-      window.localStorage.setItem(LANGUAGE_KEY, language);
+      setLocalStoredValue(LANGUAGE_KEY, language);
     } catch {
       // ignore storage issues
     }
@@ -214,7 +215,7 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!hydrated) return;
     try {
-      window.localStorage.setItem(SIDEBAR_KEY, String(sidebarCollapsed));
+      setLocalStoredValue(SIDEBAR_KEY, String(sidebarCollapsed));
     } catch {
       // ignore storage issues
     }

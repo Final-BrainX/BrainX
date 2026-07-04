@@ -1,6 +1,16 @@
 "use client";
 
+import {
+  getLocalStoredValue,
+  getSessionStoredValue,
+  removeLocalStoredValue,
+  removeSessionStoredValue,
+  setLocalStoredValue,
+  setSessionStoredValue,
+} from "@/lib/client-storage";
 import { clearAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { getBrainxDesktopConfig, isElectronDesktop } from "@/lib/desktop-bridge";
+import { createDesktopVaultNote, writeDesktopVaultAsset } from "@/lib/desktop-vault";
 
 const INGESTION_API_BASE_URL = process.env.NEXT_PUBLIC_INGESTION_API_BASE_URL ?? "http://localhost:8083";
 
@@ -78,8 +88,94 @@ export type ImportJobData = {
   conflicts: unknown[];
 };
 
+type LocalImportResult = {
+  noteId?: string;
+  title?: string;
+};
+
 function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
   return response.message ?? response.error?.message ?? fallback;
+}
+
+async function shouldUseDesktopVaultImport() {
+  if (!isElectronDesktop()) return false;
+  const config = await getBrainxDesktopConfig();
+  return Boolean(config?.activeVault);
+}
+
+function fileNameWithoutExtension(fileName: string) {
+  return fileName.replace(/\.[^.]+$/, "") || fileName;
+}
+
+function inferFileMimeType(file: File) {
+  return file.type || "application/octet-stream";
+}
+
+function toBase64FromArrayBuffer(buffer: ArrayBuffer) {
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  for (let index = 0; index < bytes.byteLength; index += 1) {
+    binary += String.fromCharCode(bytes[index]);
+  }
+  return window.btoa(binary);
+}
+
+function isTextLikeFile(file: File) {
+  const name = file.name.toLowerCase();
+  return (
+    file.type.startsWith("text/") ||
+    name.endsWith(".md") ||
+    name.endsWith(".markdown") ||
+    name.endsWith(".txt") ||
+    name.endsWith(".html") ||
+    name.endsWith(".htm")
+  );
+}
+
+async function importDesktopVaultFile(file: File, targetFolderId?: string): Promise<ImportJobData> {
+  if (isZipFile(file)) {
+    throw new Error("ZIP import into a local vault is not wired yet. Please extract it first and import the files directly.");
+  }
+
+  let createdNotes: LocalImportResult[] = [];
+  if (isTextLikeFile(file)) {
+    const note = await createDesktopVaultNote({
+      title: fileNameWithoutExtension(file.name),
+      markdown: await file.text(),
+      folderId: targetFolderId ?? null,
+      tags: [],
+    });
+    createdNotes = [{ noteId: note.noteId, title: note.title }];
+  } else {
+    const dataBase64 = toBase64FromArrayBuffer(await file.arrayBuffer());
+    const asset = await writeDesktopVaultAsset({
+      fileName: file.name,
+      mimeType: inferFileMimeType(file),
+      dataBase64,
+    });
+    const note = await createDesktopVaultNote({
+      title: fileNameWithoutExtension(file.name),
+      folderId: targetFolderId ?? null,
+      markdown: [
+        `# ${fileNameWithoutExtension(file.name)}`,
+        "",
+        `- Imported asset: ${asset.fileName}`,
+        `- Vault path: assets/${asset.relativePath}`,
+        `- MIME type: ${asset.mimeType}`,
+        `- Size: ${asset.size} bytes`,
+      ].join("\n"),
+      tags: ["imported-asset"],
+    });
+    createdNotes = [{ noteId: note.noteId, title: note.title }];
+  }
+
+  return {
+    importJobId: `desktop_import_${globalThis.crypto.randomUUID()}`,
+    status: "COMPLETED",
+    createdNotes,
+    failedFiles: [],
+    conflicts: [],
+  };
 }
 
 async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
@@ -139,7 +235,7 @@ async function sha256Hex(file: File): Promise<string> {
 export function readNotionIntegration(): NotionIntegration | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(NOTION_INTEGRATION_KEY);
+    const raw = getLocalStoredValue(NOTION_INTEGRATION_KEY);
     return raw ? (JSON.parse(raw) as NotionIntegration) : null;
   } catch {
     return null;
@@ -149,12 +245,12 @@ export function readNotionIntegration(): NotionIntegration | null {
 export function saveNotionIntegration(integrationAccountId: string) {
   if (typeof window === "undefined") return;
   const integration: NotionIntegration = { integrationAccountId, connectedAt: new Date().toISOString() };
-  window.localStorage.setItem(NOTION_INTEGRATION_KEY, JSON.stringify(integration));
+  setLocalStoredValue(NOTION_INTEGRATION_KEY, JSON.stringify(integration));
 }
 
 export function clearNotionIntegration() {
   if (typeof window === "undefined") return;
-  window.localStorage.removeItem(NOTION_INTEGRATION_KEY);
+  removeLocalStoredValue(NOTION_INTEGRATION_KEY);
 }
 
 export async function startNotionOAuth() {
@@ -163,15 +259,15 @@ export async function startNotionOAuth() {
     body: JSON.stringify({})
   });
   if (typeof window !== "undefined") {
-    window.sessionStorage.setItem(NOTION_OAUTH_STATE_KEY, data.state);
+    setSessionStoredValue(NOTION_OAUTH_STATE_KEY, data.state);
   }
   return data;
 }
 
 export function consumeNotionOAuthState() {
   if (typeof window === "undefined") return null;
-  const state = window.sessionStorage.getItem(NOTION_OAUTH_STATE_KEY);
-  window.sessionStorage.removeItem(NOTION_OAUTH_STATE_KEY);
+  const state = getSessionStoredValue(NOTION_OAUTH_STATE_KEY);
+  removeSessionStoredValue(NOTION_OAUTH_STATE_KEY);
   return state;
 }
 
@@ -255,6 +351,9 @@ async function importFileJob(uploadedAssetId: string, targetFolderId?: string) {
 
 /** 파일(ZIP 포함)을 업로드하고 가져오기 작업을 생성한 뒤 완료될 때까지 폴링한다. */
 export async function uploadAndImportFile(file: File, targetFolderId?: string) {
+  if (await shouldUseDesktopVaultImport()) {
+    return importDesktopVaultFile(file, targetFolderId);
+  }
   const session = await createAssetUploadSession(file, targetFolderId);
   await authedUpload(`/api/v1/assets/upload-sessions/${session.uploadSessionId}/binary`, file);
   const checksum = await sha256Hex(file);
@@ -301,6 +400,14 @@ async function getExportJobStatus(exportJobId: string) {
 
 /** 내보내기 작업을 요청하고 완료(또는 실패)될 때까지 폴링한다. */
 export async function exportNote(noteId: string, format: ExportFormat) {
+  if (await shouldUseDesktopVaultImport()) {
+    return {
+      exportJobId: `desktop_export_${globalThis.crypto.randomUUID()}`,
+      status: "COMPLETED" as const,
+      downloadUrl: null,
+      error: null,
+    };
+  }
   const accepted = await requestExportJob(noteId, format);
   let status = accepted.status;
   let job: ExportJobData = accepted;

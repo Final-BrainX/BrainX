@@ -1900,9 +1900,9 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         activeEditorHandle?.getHTML() ||
         (rawContent.trim().startsWith("<") ? rawContent : markdownToHtml(rawContent));
       if (format === "TXT") {
-        downloadTextFile(`${fileName}.txt`, htmlToPlainText(html), "text/plain;charset=utf-8");
+        await downloadTextFile(`${fileName}.txt`, htmlToPlainText(html), "text/plain;charset=utf-8");
       } else if (format === "MD") {
-        downloadTextFile(`${fileName}.md`, htmlToMarkdown(html), "text/markdown;charset=utf-8");
+        await downloadTextFile(`${fileName}.md`, htmlToMarkdown(html), "text/markdown;charset=utf-8");
       } else {
         await downloadPdfFile(activeNote.title, html, `${fileName}.pdf`);
       }
