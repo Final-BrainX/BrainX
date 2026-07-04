@@ -16361,9 +16361,6 @@ components:
         writingStyle:
           type: object
           additionalProperties: true
-        assistanceStyle:
-          type: object
-          additionalProperties: true
         detectedFromNotesAt:
           type: string
           format: date-time
@@ -16371,7 +16368,6 @@ components:
       required:
       - conversationTone
       - writingStyle
-      - assistanceStyle
       additionalProperties: false
     StyleProfilePutRequest:
       type: object
@@ -16380,9 +16376,6 @@ components:
           type: object
           additionalProperties: true
         writingStyle:
-          type: object
-          additionalProperties: true
-        assistanceStyle:
           type: object
           additionalProperties: true
       additionalProperties: false

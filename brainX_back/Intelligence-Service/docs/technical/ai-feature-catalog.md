@@ -123,3 +123,24 @@ OpenAI chat은 Spring AI `ChatClient`를 통해 호출한다. OpenAI audio/image
 - `docs/technical/vectorstore-embedding-model.md`
 - `docs/technical/external-search.md`
 - `docs/technical/ai-model-pricing-and-usage.md`
+
+## StyleProfile Prompt Mapping
+
+`StyleProfile`은 `conversationTone`과 `writingStyle` 두 축만 사용한다. `assistanceStyle`은 적용 범위가 불명확하고 실제 prompt 적용 없이 가정만 남기는 YAGNI 부채라 제거했다.
+
+| 기능/흐름 | 적용 축 | 적용 위치 | 비고 |
+| --- | --- | --- | --- |
+| RAG chat `NOTE_QA` | `conversationTone` | 답변 system prompt | 사용자에게 설명하는 대화 응답이다. |
+| RAG chat `WORKSPACE_SEARCH` | `conversationTone` | 답변 system prompt | workspace 검색 결과를 설명하는 대화 응답이다. |
+| RAG chat `COMPOSE` | `writingStyle` | draft system prompt | 사용자가 저장하거나 복사할 생성 결과물이다. |
+| RAG chat `NOTE_ACTION` | `writingStyle` | note action draft system prompt | 실제 mutation 없이 적용 가능한 초안을 만든다. |
+| Inline assist 전체 | `writingStyle` | inline assist system prompt | summarize, rewrite, continue, translate, draft 모두 결과물 문체를 조정한다. |
+| AI link suggestions | `conversationTone` | LLM link reason 생성 prompt | 사용자가 보는 추천 이유에만 적용한다. 내부 relation verifier에는 적용하지 않는다. |
+| Bridge concepts | `conversationTone` | bridge reason 생성 prompt | 추천 개념과 이유가 사용자-facing 설명이다. |
+| Folder organization proposals | `conversationTone` | proposed folder/move reason 생성 prompt | 정리 제안의 이유 설명에 적용한다. |
+| AI clustering | `writingStyle` | cluster summary/report 생성 prompt | cluster title, summary, keyword 결과물 문체를 조정한다. |
+| Insight reports | `writingStyle` | report 생성 prompt | summary, gap, recommendation 결과물 문체를 조정한다. |
+| Chat router | 적용 안 함 | 없음 | 내부 라우팅 판단이며 사용자-facing 결과물이 아니다. |
+| Chat title generation | 적용 안 함 | 없음 | 짧은 thread title 생성은 별도 고정 정책을 따른다. |
+| Semantic search / note index status / model settings / saved result 조회 | 적용 안 함 | 없음 | LLM 생성형 응답이 아니거나 저장된 상태 조회다. |
+| External search dev runner | 적용 안 함 | 없음 | 개발 확인용 실행 흐름이다. |

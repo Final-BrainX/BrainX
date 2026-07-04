@@ -26,6 +26,7 @@ import com.brainx.intelligence.insight.domain.InsightNotFoundException;
 import com.brainx.intelligence.insight.domain.InsightRecommendation;
 import com.brainx.intelligence.insight.domain.InsightReport;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
+import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -59,6 +60,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
     private final InsightEventPort insightEventPort;
     private final InsightProperties properties;
     private final ObjectMapper objectMapper;
+    private final StylePromptCompiler stylePromptCompiler;
     private final Clock clock;
 
     @Autowired
@@ -71,7 +73,8 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
         AiUsageRecorder aiUsageRecorder,
         InsightEventPort insightEventPort,
         InsightProperties properties,
-        ObjectMapper objectMapper
+        ObjectMapper objectMapper,
+        StylePromptCompiler stylePromptCompiler
     ) {
         this(
             insightReportStore,
@@ -83,6 +86,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
             insightEventPort,
             properties,
             objectMapper,
+            stylePromptCompiler,
             Clock.systemUTC()
         );
     }
@@ -97,6 +101,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
         InsightEventPort insightEventPort,
         InsightProperties properties,
         ObjectMapper objectMapper,
+        StylePromptCompiler stylePromptCompiler,
         Clock clock
     ) {
         this.insightReportStore = insightReportStore;
@@ -108,6 +113,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
         this.insightEventPort = insightEventPort;
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.stylePromptCompiler = stylePromptCompiler;
         this.clock = clock;
     }
 
@@ -132,7 +138,10 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
 
         String modelId = resolveModelId(userId);
         int maxRecommendations = Math.min(properties.getMaxRecommendations(), HARD_MAX_RECOMMENDATIONS);
-        String systemPrompt = systemPrompt(includeLearningRecommendations, maxRecommendations);
+        String systemPrompt = StylePromptCompiler.appendToSystemPrompt(
+            systemPrompt(includeLearningRecommendations, maxRecommendations),
+            stylePromptCompiler.writingStyleInstructions(userId)
+        );
         String userPrompt = userPrompt(notes, includeLearningRecommendations, maxRecommendations);
         int tokenEstimate = estimateTokens(systemPrompt + "\n" + userPrompt);
         var entitlement = entitlementPort.checkEntitlement(new EntitlementRequest(
