@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { WikiLinkContext, resolveWikiLinkTitle, type WikiLinkContextValue } from "./WikiLinkContext";
-import { AlertCircle, Check, ChevronLeft, Download, LoaderCircle, MoreHorizontal, PanelRightClose, PanelRight, RotateCcw, Save, Upload } from "lucide-react";
+import { AlertCircle, Check, ChevronLeft, Download, Link2, LoaderCircle, MoreHorizontal, PanelRightClose, PanelRight, RotateCcw, Save, Upload } from "lucide-react";
 import { cx } from "@/lib/utils";
 import { MockFolder, MockNote, PaneNode, PaneTabsState, Tab, NotesWorkspaceSession, DragPayload } from "@/lib/notes/noteTypes";
 import type { EditMode, AiActionType, NoteEditorHandle } from "./NoteEditor";
@@ -46,6 +46,7 @@ import NotesExplorer from "./NotesExplorer";
 import RightSidebar, { type PendingAiRequest } from "./RightSidebar";
 import { moveNoteIntoFolder, reorderNoteRelativeTo, moveFolderUnder, reorderFolderRelativeTo } from "@/lib/notes/folderDnd";
 import { exportNote, uploadAndImportFile, type ExportFormat } from "@/lib/ingestion-api";
+import { ShareLinkModal } from "./ShareLinkModal";
 import { markdownToHtml } from "./NoteEditor";
 import { useBrainX } from "@/components/brainx-provider";
 import { consumePendingNoteClaim, readAuthSession } from "@/lib/auth-api";
@@ -379,10 +380,11 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
 
   const { pushToast } = useBrainX();
 
-  // 툴바 "···" 메뉴 — 지금은 "내보내기" 항목 하나뿐이지만, 새 메뉴 항목이 늘어날 자리.
+  // 툴바 "···" 메뉴
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [exportSubmenuOpen, setExportSubmenuOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -2044,6 +2046,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   );
 
   return (
+    <>
     <WikiLinkContext.Provider value={wikiLinkValue}>
     <SplitThemeContext.Provider value={AUTO_THEME}>
         <div className="flex h-full overflow-hidden">
@@ -2131,16 +2134,29 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
                   }}
                 >
                   {!exportSubmenuOpen ? (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => setExportSubmenuOpen(true)}
-                      disabled={!activeNote}
-                      className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[12px] text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt disabled:cursor-not-allowed disabled:text-txt3/50"
-                    >
-                      <Upload size={13} />
-                      <span>내보내기</span>
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => { setMoreMenuOpen(false); setShareModalOpen(true); }}
+                        disabled={!activeNote}
+                        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[12px] text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt disabled:cursor-not-allowed disabled:text-txt3/50"
+                      >
+                        <Link2 size={13} />
+                        <span>공유하기</span>
+                      </button>
+                      <div className="my-1 border-t border-line/30" />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => setExportSubmenuOpen(true)}
+                        disabled={!activeNote}
+                        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[12px] text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt disabled:cursor-not-allowed disabled:text-txt3/50"
+                      >
+                        <Upload size={13} />
+                        <span>내보내기</span>
+                      </button>
+                    </>
                   ) : (
                     <div>
                       <button
@@ -2257,5 +2273,9 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       </div>
     </SplitThemeContext.Provider>
     </WikiLinkContext.Provider>
+    {shareModalOpen && activeNote && (
+      <ShareLinkModal note={activeNote} onClose={() => setShareModalOpen(false)} />
+    )}
+    </>
   );
 }

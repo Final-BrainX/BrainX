@@ -2,6 +2,8 @@
 
 BrainX Knowledge Intelligence 영역의 Spring Boot 서비스입니다. 시맨틱 검색, RAG 채팅, AI 제안, 클러스터링, 인사이트 리포트, 모델 설정, 문체 프로필 API를 담당합니다.
 
+문체 프로필은 `conversationTone`과 `writingStyle` 두 축으로 저장됩니다. `conversationTone`은 대화형 답변과 사용자-facing 추천 이유에, `writingStyle`은 초안/수정/리포트처럼 실제 생성 결과물의 LLM prompt에 적용됩니다.
+
 ## 기술 스택
 
 - Java 21
@@ -88,6 +90,7 @@ Windows PowerShell 기준:
 배포 환경에서 Workspace 이벤트를 소비해 note projection을 만들려면 `BRAINX_EVENTS_CONSUMER_ENABLED=true`, `KAFKA_BOOTSTRAP_SERVERS`, `SPRING_KAFKA_BOOTSTRAP_SERVERS`, `BRAINX_WORKSPACE_BASE_URL`, `BRAINX_WORKSPACE_SERVICE_TOKEN`이 필요합니다. Workspace internal snapshot API는 `X-Service-Token` 헤더를 사용하므로 `BRAINX_WORKSPACE_SERVICE_TOKEN`은 Workspace-Service의 `SERVICE_TOKEN`과 같아야 합니다.
 
 운영 DB schema는 Flyway가 `src/main/resources/db/migration`의 migration으로 적용하고, Hibernate는 기본 `ddl-auto=validate`로 entity/schema 불일치만 검증합니다. 로컬 H2 기반 `local`, `test`, `dev-ui` profile은 기존처럼 `create-drop`을 사용하며 Flyway를 끕니다. 운영 DDL 기준과 수동 점검 절차는 `docs/technical/intelligence-operational-db-ddl.md`를 따릅니다.
+운영 PostgreSQL에서 `@Lob`/JSON converter 컬럼은 Hibernate legacy `oid`가 아니라 `text`로 유지합니다. 기존 DB에 `oid` drift가 남아 있으면 Flyway repair migration이 large object를 `text`로 복구한 뒤 `ddl-auto=validate`를 통과해야 합니다.
 
 Swagger UI는 `http://localhost:8086/swagger-ui.html`, 생성된 OpenAPI JSON은 `http://localhost:8086/v3/api-docs`, health check는 `http://localhost:8086/actuator/health`에서 확인합니다. `local` profile에서는 Swagger 테스트 편의를 위해 `/api/v1/**` 인증을 요구하지 않습니다.
 

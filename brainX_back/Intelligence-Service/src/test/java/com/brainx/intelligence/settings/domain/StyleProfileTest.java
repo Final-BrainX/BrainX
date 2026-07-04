@@ -16,7 +16,6 @@ class StyleProfileTest {
 
         assertThat(profile.conversationToneValues()).isEmpty();
         assertThat(profile.writingStyleValues()).isEmpty();
-        assertThat(profile.assistanceStyleValues()).isEmpty();
         assertThat(profile.detectedFromNotesAt()).isNull();
     }
 
@@ -24,7 +23,6 @@ class StyleProfileTest {
     void styleSectionValueObjectsTreatNullAsEmpty() {
         assertThat(new ConversationTone(null).values()).isEmpty();
         assertThat(new WritingStyle(null).values()).isEmpty();
-        assertThat(new AssistanceStyle(null).values()).isEmpty();
     }
 
     @Test

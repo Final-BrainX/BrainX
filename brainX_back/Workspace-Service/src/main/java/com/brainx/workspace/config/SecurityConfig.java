@@ -41,7 +41,8 @@ public class SecurityConfig {
                                 "/api/v1/recent-activities", "/api/v1/recent-activities/**",
                                 "/api/v1/tags/**",
                                 "/api/v1/favorites/**",
-                                "/api/v1/graph", "/api/v1/graph/**"
+                                "/api/v1/graph", "/api/v1/graph/**",
+                                "/api/v1/share-links", "/api/v1/share-links/**"
                         ).permitAll()
                         .requestMatchers("/internal/v1/**").hasRole("SERVICE")
                         .anyRequest().authenticated()

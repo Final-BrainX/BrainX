@@ -13,9 +13,15 @@ RUN --mount=type=cache,target=/home/gradle/.gradle/caches,uid=1000,gid=1000,shar
     gradle clean bootJar --no-daemon
 
 FROM eclipse-temurin:21-jre-alpine
+RUN apk add --no-cache \
+    fontconfig \
+    ttf-dejavu \
+    font-noto \
+    font-noto-cjk \
+    && fc-cache -f
 WORKDIR /app
 
 COPY --from=build /workspace/build/libs/*.jar app.jar
 
 EXPOSE 8083
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+ENTRYPOINT ["java", "-Djava.awt.headless=true", "-jar", "/app/app.jar"]

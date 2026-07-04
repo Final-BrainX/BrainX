@@ -37,8 +37,13 @@ import com.brainx.intelligence.exploration.application.port.outbound.NoteChunkRe
 import com.brainx.intelligence.exploration.domain.NoteChunkSearchResult;
 import com.brainx.intelligence.exploration.domain.SearchScope;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
+import com.brainx.intelligence.settings.application.port.outbound.StyleProfilePort;
+import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.settings.domain.AiModel;
+import com.brainx.intelligence.settings.domain.ConversationTone;
+import com.brainx.intelligence.settings.domain.StyleProfile;
 import com.brainx.intelligence.settings.domain.VendorTokenCost;
+import com.brainx.intelligence.settings.domain.WritingStyle;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatChunk;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -69,6 +74,8 @@ class ChatServiceTest {
     private final AiTokenUsageCostEstimator usageCostEstimator = new AiTokenUsageCostEstimator(catalogPort);
     private final AiUsageRecorder aiUsageRecorder = new AiUsageRecorder(tokenUsagePort, usageCostEstimator);
     private final FakeChatEventPort chatEventPort = new FakeChatEventPort();
+    private final FakeStyleProfilePort styleProfilePort = new FakeStyleProfilePort();
+    private final StylePromptCompiler stylePromptCompiler = new StylePromptCompiler(styleProfilePort);
     private final ChatThreadTitleGenerator titleGenerator = new ChatThreadTitleGenerator(
         titleProperties,
         entitlementPort,
@@ -85,7 +92,8 @@ class ChatServiceTest {
         aiChatPort,
         usageCostEstimator,
         aiUsageRecorder,
-        chatEventPort
+        chatEventPort,
+        stylePromptCompiler
     );
 
     @BeforeEach
@@ -107,6 +115,12 @@ class ChatServiceTest {
             new AiChatChunk("", true)
         );
         routeDecider.decision = new ChatRouteDecision(ChatRoute.NOTE_QA, "note question", "gpt-5.4-nano");
+        styleProfilePort.profile = new StyleProfile(
+            "user-1",
+            new ConversationTone(Map.of("directness", "high", "verbosity", "concise")),
+            new WritingStyle(Map.of("formality", "business", "sentenceLength", "short")),
+            null
+        );
     }
 
     @Test
@@ -605,6 +619,10 @@ class ChatServiceTest {
         assertThat(events.getFirst().data()).containsEntry("route", "WORKSPACE_SEARCH");
         assertThat(retrievalPort.lastQuery.scope()).isEqualTo(SearchScope.USER);
         assertThat(retrievalPort.lastQuery.documentGroupId()).isNull();
+        assertThat(aiChatPort.lastRequest.messages().getFirst().content())
+            .contains("User conversation tone profile")
+            .contains("- directness: high")
+            .doesNotContain("User writing style profile");
         assertThat(aiChatPort.lastRequest.messages().getLast().content()).contains("workspace context");
         assertThat(persistencePort.messages.get(1).citations().getFirst().documentGroupId()).isEqualTo("group-2");
     }
@@ -631,7 +649,10 @@ class ChatServiceTest {
             .contains("writing assistant")
             .contains("level-1 Markdown heading")
             .contains("\"# <title>\"")
-            .contains("personal note-taking tone");
+            .contains("personal note-taking tone")
+            .contains("User writing style profile")
+            .contains("- formality: business")
+            .doesNotContain("User conversation tone profile");
         assertThat(aiChatPort.lastRequest.messages().getLast().content()).contains("Request:");
     }
 
@@ -658,7 +679,10 @@ class ChatServiceTest {
             .contains("Do not claim that anything was saved")
             .contains("level-1 Markdown heading")
             .contains("\"# <title>\"")
-            .contains("personal note-taking tone");
+            .contains("personal note-taking tone")
+            .contains("User writing style profile")
+            .contains("- formality: business")
+            .doesNotContain("User conversation tone profile");
     }
 
     @Test
@@ -692,9 +716,12 @@ class ChatServiceTest {
 
         assertThat(aiChatPort.lastRequest.messages().getFirst().content())
             .contains("RAG chat assistant")
+            .contains("User conversation tone profile")
+            .contains("- directness: high")
             .doesNotContain("level-1 Markdown heading")
             .doesNotContain("\"# <title>\"")
-            .doesNotContain("personal note-taking tone");
+            .doesNotContain("personal note-taking tone")
+            .doesNotContain("User writing style profile");
     }
 
     @Test
@@ -1076,6 +1103,23 @@ class ChatServiceTest {
         @Override
         public boolean existsByModelId(String modelId) {
             return model != null && model.modelId().equals(modelId);
+        }
+    }
+
+    private static final class FakeStyleProfilePort implements StyleProfilePort {
+
+        private StyleProfile profile;
+
+        @Override
+        public StyleProfile save(StyleProfile styleProfile) {
+            profile = styleProfile;
+            return styleProfile;
+        }
+
+        @Override
+        public Optional<StyleProfile> findStyleProfileByUserId(String userId) {
+            return Optional.ofNullable(profile)
+                .filter(item -> item.userId().equals(userId));
         }
     }
 

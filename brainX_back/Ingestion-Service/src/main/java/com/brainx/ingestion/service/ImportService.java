@@ -40,6 +40,7 @@ public class ImportService {
     private final WorkspaceApiClient workspaceApiClient;
     private final AssetService assetService;
     private final ContentConverter contentConverter;
+    private final PptxSlideService pptxSlideService;
     private final IngestionEventPublisher eventPublisher;
 
     @Value("${notion.client-id}")
@@ -359,6 +360,11 @@ public class ImportService {
                         assetService.ensureContentType(asset, "text/html");
                         yield buildHtmlEmbedHtml(asset.getAssetId(), asset.getFileName());
                     }
+                    case PPTX -> {
+                        assetService.ensureContentType(asset, "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+                        int slideCount = pptxSlideService.getSlideCount(bytes);
+                        yield buildPptEmbedHtml(asset.getAssetId(), asset.getFileName(), slideCount);
+                    }
                     case NONE -> contentConverter.convertSingleFile(asset.getFileName(), asset.getContentType(), bytes);
                 };
                 String noteId = workspaceApiClient.createNote(title, content, request.getTargetFolderId(), null, jwtToken);
@@ -408,6 +414,12 @@ public class ImportService {
                 + "\" data-file-name=\"" + escapeHtml(fileName) + "\"></div>";
     }
 
+    private String buildPptEmbedHtml(String assetId, String fileName, int slideCount) {
+        return "<div data-ppt-block=\"true\" data-asset-id=\"" + assetId
+                + "\" data-file-name=\"" + escapeHtml(fileName)
+                + "\" data-slide-count=\"" + slideCount + "\"></div>";
+    }
+
     /** ZIP 항목 하나를 노트 본문으로 변환한다. PDF/이미지/HTML은 먼저 파생 자산으로
         저장해 원본 바이너리를 보존한 뒤 임베드 블록을 만들고, 그 외에는 이미 변환된
         마크다운을 그대로 쓴다. */
@@ -421,6 +433,14 @@ public class ImportService {
             case PDF -> buildPdfEmbedHtml(assetId, entry.fullFileName());
             case IMAGE -> buildImageEmbedHtml(assetId, entry.fullFileName());
             case HTML -> buildHtmlEmbedHtml(assetId, entry.fullFileName());
+            case PPTX -> {
+                try {
+                    int slideCount = pptxSlideService.getSlideCount(entry.embedBytes());
+                    yield buildPptEmbedHtml(assetId, entry.fullFileName(), slideCount);
+                } catch (Exception e) {
+                    yield buildPptEmbedHtml(assetId, entry.fullFileName(), 0);
+                }
+            }
             case NONE -> entry.markdown();
         };
     }

@@ -8,7 +8,6 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import com.brainx.intelligence.infrastructure.persistence.jpa.JsonMapAttributeConverter;
-import com.brainx.intelligence.settings.domain.AssistanceStyle;
 import com.brainx.intelligence.settings.domain.ConversationTone;
 import com.brainx.intelligence.settings.domain.StyleProfile;
 import com.brainx.intelligence.settings.domain.WritingStyle;
@@ -63,7 +62,6 @@ public class StyleProfileJpaEntity {
             userId,
             new ConversationTone(nestedMap(style, "conversationTone")),
             new WritingStyle(nestedMap(style, "writingStyle")),
-            new AssistanceStyle(nestedMap(style, "assistanceStyle")),
             detectedFromNotesAt
         );
     }
@@ -72,7 +70,6 @@ public class StyleProfileJpaEntity {
         Map<String, Object> values = new LinkedHashMap<>();
         values.put("conversationTone", styleProfile.conversationToneValues());
         values.put("writingStyle", styleProfile.writingStyleValues());
-        values.put("assistanceStyle", styleProfile.assistanceStyleValues());
         return Map.copyOf(values);
     }
 

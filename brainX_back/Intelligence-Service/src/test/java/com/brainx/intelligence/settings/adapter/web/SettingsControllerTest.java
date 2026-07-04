@@ -134,7 +134,6 @@ class SettingsControllerTest {
             .thenReturn(new GetStyleProfileUseCase.StyleProfileResult(
                 Map.of("speechLevel", "haeyo"),
                 Map.of("formality", "business"),
-                Map.of("clarificationPolicy", "only_when_blocking"),
                 Instant.parse("2026-06-18T03:00:00Z")
             ));
 
@@ -143,7 +142,7 @@ class SettingsControllerTest {
             .andExpect(jsonPath("$.success").value(true))
             .andExpect(jsonPath("$.data.conversationTone.speechLevel").value("haeyo"))
             .andExpect(jsonPath("$.data.writingStyle.formality").value("business"))
-            .andExpect(jsonPath("$.data.assistanceStyle.clarificationPolicy").value("only_when_blocking"))
+            .andExpect(jsonPath("$.data.assistanceStyle").doesNotExist())
             .andExpect(jsonPath("$.data.detectedFromNotesAt").value("2026-06-18T03:00:00Z"))
             .andExpect(jsonPath("$.data.style").doesNotExist());
 
@@ -156,7 +155,6 @@ class SettingsControllerTest {
             .thenReturn(new PutStyleProfileUseCase.StyleProfileResult(
                 Map.of("directness", "high"),
                 Map.of("sentenceLength", "short"),
-                Map.of("proactivity", "medium"),
                 null
             ));
 
@@ -170,9 +168,6 @@ class SettingsControllerTest {
                       },
                       "writingStyle": {
                         "sentenceLength": "short"
-                      },
-                      "assistanceStyle": {
-                        "proactivity": "medium"
                       }
                     }
                     """))
@@ -180,14 +175,13 @@ class SettingsControllerTest {
             .andExpect(jsonPath("$.success").value(true))
             .andExpect(jsonPath("$.data.conversationTone.directness").value("high"))
             .andExpect(jsonPath("$.data.writingStyle.sentenceLength").value("short"))
-            .andExpect(jsonPath("$.data.assistanceStyle.proactivity").value("medium"))
+            .andExpect(jsonPath("$.data.assistanceStyle").doesNotExist())
             .andExpect(jsonPath("$.data.style").doesNotExist());
 
         verify(putStyleProfileUseCase).putStyleProfile(argThat(command ->
             command.userId().equals("user-1")
                 && "high".equals(command.conversationTone().get("directness"))
                 && "short".equals(command.writingStyle().get("sentenceLength"))
-                && "medium".equals(command.assistanceStyle().get("proactivity"))
         ));
     }
 

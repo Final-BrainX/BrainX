@@ -411,6 +411,32 @@ html.light .aurora b {
   color: rgb(var(--txt));
 }
 
+/* ── 공유 노트 렌더링 영역 ──────────────────────────────────── */
+.share-content { color: rgb(var(--txt2)); line-height: 1.8; }
+.share-content > * + * { margin-top: 0.75rem; }
+.share-content h1 { margin: 2rem 0 0.75rem; font-size: 1.75rem; font-weight: 800; color: rgb(var(--txt)); letter-spacing: -0.02em; line-height: 1.25; }
+.share-content h2 { margin: 1.75rem 0 0.6rem; font-size: 1.3rem; font-weight: 700; color: rgb(var(--txt)); }
+.share-content h3 { margin: 1.4rem 0 0.5rem; font-size: 1.1rem; font-weight: 600; color: rgb(var(--txt)); }
+.share-content h4 { margin: 1.2rem 0 0.4rem; font-size: 1rem; font-weight: 600; color: rgb(var(--txt)); }
+.share-content p { margin: 0.5rem 0; font-size: 1rem; }
+.share-content ul { margin: 0.5rem 0; padding-left: 1.5rem; list-style-type: disc; }
+.share-content ol { margin: 0.5rem 0; padding-left: 1.5rem; list-style-type: decimal; }
+.share-content li { margin: 0.25rem 0; font-size: 1rem; }
+.share-content strong, .share-content b { font-weight: 600; color: rgb(var(--txt)); }
+.share-content em { font-style: italic; }
+.share-content s { text-decoration: line-through; opacity: 0.6; }
+.share-content blockquote { border-left: 3px solid rgb(var(--primary) / 0.5); padding-left: 1rem; margin: 1rem 0; color: rgb(var(--txt3)); font-style: italic; }
+.share-content code { font-family: ui-monospace, monospace; font-size: 0.875rem; background: rgb(var(--surface2)); border-radius: 4px; padding: 0.1em 0.35em; color: rgb(var(--accent)); }
+.share-content pre { margin: 1rem 0; background: rgb(var(--surface2)); border-radius: 8px; padding: 1rem 1.25rem; overflow-x: auto; }
+.share-content pre code { background: none; padding: 0; font-size: 0.85rem; color: rgb(var(--txt2)); }
+.share-content hr { margin: 1.5rem 0; border: none; border-top: 1px solid rgb(var(--border) / 0.25); }
+.share-content a { color: rgb(var(--primary)); text-decoration: underline; text-underline-offset: 3px; }
+.share-content a:hover { opacity: 0.8; }
+.share-content a[data-brainx-note] { color: rgb(var(--txt3)); text-decoration: none; background: rgb(var(--surface2)); border-radius: 4px; padding: 0.1em 0.5em; font-size: 0.875rem; cursor: default; }
+.share-content .wiki-share-link { color: rgb(var(--primary)); text-decoration: none; background: rgb(var(--primary) / 0.08); border-radius: 4px; padding: 0.1em 0.4em; font-size: 0.9em; }
+.share-content .wiki-share-link:hover { background: rgb(var(--primary) / 0.16); }
+.share-content .wiki-link-badge { color: rgb(var(--txt3)); background: rgb(var(--surface2)); border-radius: 4px; padding: 0.1em 0.4em; font-size: 0.9em; cursor: default; }
+
 @keyframes drift {
   0%,
   100% {
@@ -1142,6 +1168,101 @@ html.light .tiptap-note-content .ProseMirror table.note-table :is(td, th) {
   font-size: 0.9em;
   user-select: none;
   pointer-events: none;
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.3rem;
+  margin-inline: 0.2rem;
+  padding: 0.05rem 0.25rem;
+  border-radius: 0.375rem;
+  background: rgb(var(--primary) / 0.08);
+  color: rgb(var(--txt));
+  vertical-align: baseline;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview--error {
+  background: rgb(239 68 68 / 0.12);
+  color: rgb(248 113 113);
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview__badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.25rem;
+  background: rgb(var(--primary) / 0.14);
+  padding-inline: 0.25rem;
+  color: rgb(var(--primary));
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview__text {
+  min-width: 0;
+  white-space: pre-wrap;
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview__controls {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview__button {
+  display: inline-grid;
+  width: 1.15rem;
+  height: 1.15rem;
+  place-items: center;
+  border-radius: 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+  transition: background 140ms ease, color 140ms ease, opacity 140ms ease;
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview__button--accept {
+  background: rgb(var(--primary));
+  color: white;
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview__button--accept:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview__button--cancel {
+  color: rgb(var(--txt3));
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview__button--cancel:hover {
+  background: rgb(var(--surface2) / 0.8);
+  color: rgb(var(--txt));
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview__spinner {
+  width: 0.7rem;
+  height: 0.7rem;
+  flex: 0 0 auto;
+  border: 1.5px solid rgb(var(--primary) / 0.24);
+  border-top-color: rgb(var(--primary));
+  border-radius: 999px;
+  animation: inline-continue-spin 800ms linear infinite;
+}
+
+@keyframes inline-continue-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── Split Demo 코드블록 NodeView ───────────────────────────── */
