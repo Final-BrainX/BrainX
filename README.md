@@ -81,6 +81,7 @@ User
 - Workspace-Service의 Ticket 2 기반 작업으로 `document_groups` 테이블과 `workspace_notes`/`workspace_folders`의 nullable `document_group_id` 컬럼을 먼저 도입하고, backfill과 제약 추가는 후속 Ticket에서 진행합니다.
 - Ticket 3 backfill은 `workspace_notes.user_id`로 member가 확실한 사용자만 대상으로 default Workspace를 만들고 note/folder를 귀속합니다. Guest folder처럼 member 여부가 불명확한 `workspace_folders` 단독 소유 데이터는 이번 단계에서 `document_group_id`가 null로 남을 수 있으며, 후속 검증/보완 대상입니다.
 - Ticket 4 1차는 Kafka `UserRegistered` 이벤트를 붙이지 않고, `User-Service -> Workspace-Service` internal API를 통한 Best-Effort default Workspace provisioning만 적용합니다. 이메일 회원가입과 OAuth 온보딩 완료 직후 `POST /internal/v1/workspace/users/{userId}/default-workspace`를 호출하되, 실패해도 회원가입/온보딩/JWT 발급은 그대로 진행합니다.
+- Ticket 5 1차는 `Workspace-Service`에 public Workspace API `GET /api/v1/workspaces`, `GET /api/v1/workspaces/{documentGroupId}`, `POST /api/v1/workspaces`, `PATCH /api/v1/workspaces/{documentGroupId}`만 추가합니다. 응답은 `documentGroupId`, `name`, `isDefault`, `createdAt`, `updatedAt`만 반환하고, count/storage/description 및 DELETE/default 변경은 후속 Ticket 범위로 남깁니다.
 
 ## Current Repository Map
 

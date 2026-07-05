@@ -36,4 +36,9 @@ public class Workspace {
         this.createdAt = now;
         this.updatedAt = now;
     }
+
+    public void rename(String name, Instant now) {
+        this.name = name;
+        this.updatedAt = now;
+    }
 }

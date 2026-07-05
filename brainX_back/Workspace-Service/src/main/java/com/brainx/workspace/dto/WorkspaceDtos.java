@@ -19,6 +19,33 @@ public final class WorkspaceDtos {
                                     List<Map<String, Object>> recentActivities) {
     }
 
+    public record WorkspaceCreateRequest(@NotBlank String name) {
+    }
+
+    public record WorkspacePatchRequest(@NotBlank String name) {
+    }
+
+    public record WorkspaceSummaryData(
+            String documentGroupId,
+            String name,
+            Boolean isDefault,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+    }
+
+    public record WorkspaceListData(List<WorkspaceSummaryData> workspaces) {
+    }
+
+    public record WorkspaceDetailData(
+            String documentGroupId,
+            String name,
+            Boolean isDefault,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+    }
+
     public record NoteListData(List<Map<String, Object>> notes, int totalCount) {
     }
 

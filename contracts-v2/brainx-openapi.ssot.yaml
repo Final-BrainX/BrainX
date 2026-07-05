@@ -13764,9 +13764,6 @@ components:
       properties:
         name:
           type: string
-        description:
-          type: string
-          nullable: true
       required:
       - name
       additionalProperties: false
@@ -13785,15 +13782,8 @@ components:
           type: string
         name:
           type: string
-        description:
-          type: string
-          nullable: true
         isDefault:
           type: boolean
-        noteCount:
-          type: integer
-        folderCount:
-          type: integer
         createdAt:
           type: string
           format: date-time
@@ -13804,8 +13794,6 @@ components:
       - documentGroupId
       - name
       - isDefault
-      - noteCount
-      - folderCount
       - createdAt
       - updatedAt
       additionalProperties: false
@@ -13820,16 +13808,7 @@ components:
       - workspaces
       additionalProperties: false
     WorkspaceDetailData:
-      allOf:
-      - $ref: '#/components/schemas/WorkspaceSummaryData'
-      - type: object
-        properties:
-          storageBytes:
-            type: integer
-            format: int64
-        required:
-        - storageBytes
-        additionalProperties: false
+      $ref: '#/components/schemas/WorkspaceSummaryData'
     WorkspaceSyncData:
       type: object
       properties:

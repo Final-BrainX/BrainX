@@ -84,6 +84,45 @@ public class WorkspaceService {
     }
 
     @Transactional(readOnly = true)
+    public WorkspaceListData listWorkspaces(String userId) {
+        return new WorkspaceListData(workspaceRepository.findByUserIdOrderByDefaultFirst(userId).stream()
+                .map(this::workspaceSummaryData)
+                .toList());
+    }
+
+    @Transactional(readOnly = true)
+    public WorkspaceDetailData getWorkspace(String userId, String documentGroupId) {
+        return workspaceDetailData(workspace(userId, documentGroupId));
+    }
+
+    public WorkspaceDetailData createWorkspace(String userId, WorkspaceCreateRequest request) {
+        String name = requireWorkspaceName(request.name());
+        if (workspaceRepository.existsByUserIdAndName(userId, name)) {
+            throw new WorkspaceException(HttpStatus.CONFLICT, "WORKSPACE_NAME_DUPLICATE",
+                    "Workspace name already exists for this user.");
+        }
+
+        Workspace workspace = new Workspace(Ids.workspace(), userId, name, false, Instant.now());
+        workspaceRepository.save(workspace);
+        return workspaceDetailData(workspace);
+    }
+
+    public WorkspaceDetailData patchWorkspace(String userId, String documentGroupId, WorkspacePatchRequest request) {
+        Workspace workspace = workspace(userId, documentGroupId);
+        String name = requireWorkspaceName(request.name());
+        if (Objects.equals(workspace.getName(), name)) {
+            return workspaceDetailData(workspace);
+        }
+        if (workspaceRepository.existsByUserIdAndNameAndDocumentGroupIdNot(userId, name, documentGroupId)) {
+            throw new WorkspaceException(HttpStatus.CONFLICT, "WORKSPACE_NAME_DUPLICATE",
+                    "Workspace name already exists for this user.");
+        }
+
+        workspace.rename(name, Instant.now());
+        return workspaceDetailData(workspace);
+    }
+
+    @Transactional(readOnly = true)
     public NoteListData listNotes(String userId, String folderId, String tag, String q, boolean includeDeleted) {
         String query = q == null ? null : q.trim().toLowerCase(Locale.ROOT);
         List<Map<String, Object>> notes = (includeDeleted
@@ -1026,6 +1065,11 @@ public class WorkspaceService {
                 .orElseThrow(() -> notFound("FOLDER_NOT_FOUND", "Folder not found."));
     }
 
+    private Workspace workspace(String userId, String documentGroupId) {
+        return workspaceRepository.findByDocumentGroupIdAndUserId(documentGroupId, userId)
+                .orElseThrow(() -> notFound("WORKSPACE_NOT_FOUND", "Workspace not found."));
+    }
+
     private WorkspaceException notFound(String code, String message) {
         return new WorkspaceException(HttpStatus.NOT_FOUND, code, message);
     }
@@ -1054,8 +1098,36 @@ public class WorkspaceService {
         );
     }
 
+    private WorkspaceSummaryData workspaceSummaryData(Workspace workspace) {
+        return new WorkspaceSummaryData(
+                workspace.getDocumentGroupId(),
+                workspace.getName(),
+                workspace.getIsDefault(),
+                workspace.getCreatedAt(),
+                workspace.getUpdatedAt()
+        );
+    }
+
+    private WorkspaceDetailData workspaceDetailData(Workspace workspace) {
+        return new WorkspaceDetailData(
+                workspace.getDocumentGroupId(),
+                workspace.getName(),
+                workspace.getIsDefault(),
+                workspace.getCreatedAt(),
+                workspace.getUpdatedAt()
+        );
+    }
+
     private String defaultDocumentGroupId(String userId) {
         return "dgrp_default_" + userId;
+    }
+
+    private String requireWorkspaceName(String name) {
+        String normalized = trimToNull(name);
+        if (normalized == null) {
+            throw new WorkspaceException(HttpStatus.BAD_REQUEST, "WORKSPACE_NAME_REQUIRED", "Workspace name is required.");
+        }
+        return normalized;
     }
 
     private ShareLinkData shareData(ShareLink share) {
