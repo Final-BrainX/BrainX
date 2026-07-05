@@ -8,6 +8,9 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import com.brainx.intelligence.agent.domain.AgentConflictException;
+import com.brainx.intelligence.agent.domain.AgentDomainException;
+import com.brainx.intelligence.agent.domain.AgentNotFoundException;
 import com.brainx.intelligence.chat.domain.ChatDomainException;
 import com.brainx.intelligence.chat.domain.ChatConflictException;
 import com.brainx.intelligence.chat.domain.ChatNotFoundException;
@@ -41,6 +44,7 @@ public class GlobalApiExceptionHandler {
         MethodArgumentNotValidException.class,
         BindException.class,
         HttpMessageNotReadableException.class,
+        AgentDomainException.class,
         ChatDomainException.class,
         ClusteringDomainException.class,
         ExplorationDomainException.class,
@@ -66,6 +70,7 @@ public class GlobalApiExceptionHandler {
     }
 
     @ExceptionHandler({
+        AgentNotFoundException.class,
         ChatNotFoundException.class,
         ClusteringNotFoundException.class,
         ConnectionNotFoundException.class,
@@ -78,6 +83,7 @@ public class GlobalApiExceptionHandler {
     }
 
     @ExceptionHandler({
+        AgentConflictException.class,
         ChatConflictException.class,
         ClusteringConflictException.class,
         ConnectionConflictException.class,

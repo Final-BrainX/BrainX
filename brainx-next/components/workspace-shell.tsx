@@ -37,6 +37,7 @@ const NAV = [
   { id: "notes", labelKey: "nav.notes" as const, icon: "notes" as const, path: "/notes" },
   { id: "graph", labelKey: "nav.graph" as const, icon: "graph" as const, path: "/graph" },
   { id: "chat", labelKey: "nav.chat" as const, icon: "chat" as const, path: "/chat" },
+  { id: "agent", labelKey: "nav.agent" as const, icon: "brain" as const, path: "/agent" },
 ];
 
 type SettingsTab = "profile" | "general" | "style" | "notifications" | "apiKeys" | "import" | "usage" | "stats" | "support" | "upgrade";
@@ -742,6 +743,7 @@ function SidebarItem({
         path === "/notes" && "tutorial-target-notes",
         path === "/graph" && "tutorial-target-mindmap",
         path === "/chat" && "tutorial-target-ai",
+        path === "/agent" && "tutorial-target-agent",
         active
           ? "bg-surface2/80 text-txt"
           : "text-txt2 hover:bg-surface2/50 hover:text-txt",
@@ -1066,6 +1068,7 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
     { label: t("nav.notes"), icon: "notes" as const, path: "/notes" },
     { label: t("nav.graph"), icon: "graph" as const, path: "/graph" },
     { label: t("nav.chat"), icon: "chat" as const, path: "/chat" },
+    { label: t("nav.agent"), icon: "brain" as const, path: "/agent" },
   ];
   const topTooltipClass =
     "pointer-events-none absolute top-[calc(100%+12px)] left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-[6px] bg-txt px-2.5 py-1.5 text-[12px] font-medium text-bg2 opacity-0 shadow-md transition-opacity duration-200 group-hover:opacity-100";

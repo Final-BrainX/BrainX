@@ -13,6 +13,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.brainx.intelligence.agent.application.port.outbound.AgentNoteSourcePort;
+import com.brainx.intelligence.agent.application.port.outbound.AgentNoteSourcePort.AgentNoteSource;
 import com.brainx.intelligence.autolink.application.port.outbound.AutoLinkNoteSourcePort;
 import com.brainx.intelligence.autolink.application.port.outbound.AutoLinkNoteSourcePort.AutoLinkNoteSource;
 import com.brainx.intelligence.connection.application.port.outbound.ConnectionNoteSourcePort;
@@ -30,7 +32,7 @@ import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysi
 import com.brainx.intelligence.shared.domain.DocumentGroups;
 
 @Repository
-public class NoteProjectionJpaAdapter implements NoteProjectionStore, AutoLinkNoteSourcePort, ConnectionNoteSourcePort, KnowledgeAnalysisNoteSourcePort, OrganizationNoteSourcePort, NoteIndexStatusPort {
+public class NoteProjectionJpaAdapter implements NoteProjectionStore, AgentNoteSourcePort, AutoLinkNoteSourcePort, ConnectionNoteSourcePort, KnowledgeAnalysisNoteSourcePort, OrganizationNoteSourcePort, NoteIndexStatusPort {
 
     private final NoteProjectionJpaRepository repository;
 
@@ -161,6 +163,18 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AutoLinkNo
                 projection.noteId(),
                 projection.title()
             ));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<AgentNoteSource> findSearchableAgentNoteSource(
+        String userId,
+        String documentGroupId,
+        String noteId
+    ) {
+        return findByUserIdAndDocumentGroupIdAndNoteId(userId, documentGroupId, noteId)
+            .filter(NoteProjection::searchable)
+            .map(projection -> new AgentNoteSource(projection.noteId(), projection.title()));
     }
 
     @Override

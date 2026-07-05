@@ -18,6 +18,7 @@
 | 시맨틱 검색 | `POST /api/v1/intelligence/semantic-search`, `POST /internal/v1/intelligence/semantic-search` | embedding + vector search | 노트 chunk vector index에서 query와 가까운 노트를 찾는다. 공개 API는 사용자 document group 기준, internal API는 service caller가 target user를 명시한다. |
 | AI 채팅/RAG | `POST /api/v1/ai/chat-threads/{threadId}/messages` | streaming chat LLM + RAG retrieval | 노트 기반 질문, workspace 검색, 글 작성, 노트 적용 초안을 하나의 채팅 흐름에서 처리한다. |
 | 채팅 스레드 관리 | `GET/POST/PATCH/DELETE /api/v1/ai/chat-threads...` | 일부 LLM | thread 생성 시 `initialMessage`가 있으면 짧은 제목을 LLM으로 생성한다. 목록/조회/상태 변경/삭제 자체는 LLM 호출이 아니다. |
+| Agent 실험 탭 | `GET/POST /api/v1/ai/agent-threads...`, `POST /api/v1/ai/agent-actions/{actionId}/approve|reject` | chat LLM + 승인 후 Workspace mutation | `/chat` 대체가 아닌 별도 `/agent` 실험 흐름이다. Agent는 `CREATE_NOTE`, `APPEND_NOTE_CONTENT` action을 제안만 하고, 사용자가 승인한 뒤에만 Workspace mutation을 수행한다. |
 | 인라인 어시스트 | `POST /api/v1/ai/inline-assists` | chat LLM | 노트 편집 중 선택 영역과 앞뒤 문맥을 바탕으로 요약, 재작성, 이어쓰기, 번역, 초안 작성을 수행한다. |
 | AI 제안 결정 기록 | `POST /api/v1/ai/suggestions/{suggestionId}/decision` | LLM 호출 없음 | inline assist 등에서 만들어진 제안의 수락/거절/재생성 결정을 이벤트로 기록한다. |
 | AI 링크 추천 | `POST /api/v1/ai/link-suggestions` | chat LLM | source note와 연결할 후보 note를 추천하고 이유/anchor 정보를 만든다. |
@@ -44,6 +45,16 @@
 
 라우터는 `LlmChatRouteDecider`를 사용하며 기본 모델은 `BRAINX_CHAT_ROUTER_MODEL` 또는 `gpt-5.4-nano`다. 라우터가 실패하거나 비활성화되면 rule-based fallback이 사용된다.
 
+## Agent 실험 탭
+
+`/agent`는 기존 `/chat` UI/API를 대체하지 않는 별도 실험 탭이다. Agent thread/message/action은 `intelligence_agent_threads`, `intelligence_agent_messages`, `intelligence_agent_actions`에 저장한다.
+
+- SSE event는 `delta`, `done`, `error`와 Agent 전용 `action_proposed`, `action_status`, `action_result`를 사용한다.
+- v1 허용 tool은 `CREATE_NOTE`, `APPEND_NOTE_CONTENT`뿐이다. unknown tool/action은 저장하지 않는다.
+- `CREATE_NOTE`는 승인 후 Workspace internal bulk-create API를 `INTELLIGENCE_AGENT` source로 호출한다.
+- `APPEND_NOTE_CONTENT`는 승인 후 note projection으로 user/documentGroup ownership을 확인하고, Workspace snapshot의 최신 `version`을 baseVersion으로 사용해 internal content patch `APPEND`를 호출한다.
+- 승인 전에는 Agent가 저장/수정 완료를 말하지 않고 실행 가능한 action card만 제안한다.
+
 ## 인라인 어시스트 액션
 
 | Action | 목적 | 주요 검증 |
@@ -64,6 +75,7 @@
 | --- | --- | --- |
 | AI 클러스터링 | `intelligence_cluster_jobs` | document group 전체 분석 job의 source snapshot과 현재 searchable note set을 비교한다. |
 | AI 인사이트 리포트 | `intelligence_insight_reports` | report 조회는 저장 결과 기준이며, POST가 새 report 생성을 담당한다. |
+| Agent 실험 탭 | `intelligence_agent_threads`, `intelligence_agent_messages`, `intelligence_agent_actions` | 승인 전 action proposal과 승인/거절/실행 결과를 chat thread와 별도 저장한다. |
 
 두 기능 모두 raw markdown 전체 대신 note card를 LLM 입력으로 사용한다. 기본 note card 필드는 `noteId`, `title`, `tags`, `headings`, `excerpt`다.
 
