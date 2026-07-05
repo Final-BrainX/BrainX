@@ -31,7 +31,6 @@ import {
 import { getMyWorkspaceStats, type WorkspaceUserStatsData } from "@/lib/workspace-api";
 import { summarizeWorkspaceNotes } from "@/lib/workspace-note-stats";
 import { cx } from "@/lib/utils";
-import { DesktopVaultSyncBanner } from "@/components/utility/desktop-vault-sync-status-section";
 
 function userNameFromSession() {
   const session = readAuthSession();
@@ -877,7 +876,6 @@ export function HomeScreen() {
         </div>
       </div>
 
-      <DesktopVaultSyncBanner className="mb-6" />
       <UserInsightDashboard notes={notes} workspaceStats={workspaceStats} />
     </div>
   );

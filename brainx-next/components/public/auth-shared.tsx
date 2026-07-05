@@ -3,7 +3,13 @@
 import { useId, type ChangeEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
-import { getHostedWebOrigin, getOAuthAuthorization, stashOAuthReturnTo, type OAuthProvider } from "@/lib/auth-api";
+import {
+  getHostedWebOrigin,
+  getOAuthAuthorization,
+  setAuthSessionPersistence,
+  stashOAuthReturnTo,
+  type OAuthProvider,
+} from "@/lib/auth-api";
 import { useBrainX } from "@/components/brainx-provider";
 import { Icon, ThemeToggle } from "@/components/brainx-ui";
 import { HeroConstellation } from "@/components/public/landing-screen";
@@ -67,9 +73,10 @@ export function Field({
 type SocialButtonsProps = {
   recentLogin?: "google" | "kakao" | "naver" | null;
   returnTo?: string | null;
+  rememberMe?: boolean;
 };
 
-export function SocialButtons({ recentLogin = null, returnTo = null }: SocialButtonsProps) {
+export function SocialButtons({ recentLogin = null, returnTo = null, rememberMe = true }: SocialButtonsProps) {
   const { pushToast } = useBrainX();
   const providers: Array<{
     name: string;
@@ -117,6 +124,7 @@ export function SocialButtons({ recentLogin = null, returnTo = null }: SocialBut
   const handleOAuth = async (provider: OAuthProvider, name: string) => {
     try {
       window.localStorage.removeItem(OAUTH_LINK_INTENT_KEY);
+      setAuthSessionPersistence(rememberMe ? "local" : "session");
       const normalizedReturnTo = returnTo ?? "/home";
 
       if (isElectronDesktop()) {

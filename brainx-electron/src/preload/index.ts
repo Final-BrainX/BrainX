@@ -57,6 +57,8 @@ const api: BrainxDesktopApi = {
     ipcRenderer.invoke("brainx-desktop:save-file", options) as Promise<boolean>,
   listVaults: () => ipcRenderer.invoke("brainx-desktop:list-vaults") as Promise<BrainxDesktopVaultSummary[]>,
   getActiveVault: () => ipcRenderer.invoke("brainx-desktop:get-active-vault") as Promise<BrainxDesktopVaultSummary | null>,
+  activateVault: (vaultId: string) =>
+    ipcRenderer.invoke("brainx-desktop:activate-vault", vaultId) as Promise<BrainxDesktopVaultSummary | null>,
   chooseVaultDirectory: () =>
     ipcRenderer.invoke("brainx-desktop:choose-vault-directory") as Promise<BrainxDesktopVaultSummary | null>,
   createVault: (options?: BrainxDesktopCreateVaultOptions) =>

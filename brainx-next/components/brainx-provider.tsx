@@ -20,7 +20,8 @@ import {
   updateNoteDerived
 } from "@/lib/brainx-data";
 import { getLocalStoredValue, setLocalStoredValue } from "@/lib/client-storage";
-import { ensureDevAuthSession, getAuthIdentityKey, readAuthSession } from "@/lib/auth-api";
+import { clearAuthSession, ensureDevAuthSession, getAuthIdentityKey, readAuthSession } from "@/lib/auth-api";
+import { getBrainxDesktopConfig, isElectronDesktop } from "@/lib/desktop-bridge";
 import { translate, type I18nKey, type LanguageCode } from "@/lib/i18n";
 import { USE_MOCK_NOTES } from "@/lib/workspace-api";
 import { loadWorkspaceBrainXNotes } from "@/lib/workspace-live-notes";
@@ -60,6 +61,7 @@ const NOTES_KEY = "brainx_notes_v1";
 const THEME_KEY = "brainx_theme_v1";
 const LANGUAGE_KEY = "brainx_language_v1";
 const SIDEBAR_KEY = "brainx_sidebar_collapsed_v1";
+const DESKTOP_AUTH_APP_VERSION_KEY = "brainx_desktop_auth_app_version_v1";
 
 const BrainXContext = createContext<BrainXContextValue | null>(null);
 
@@ -126,16 +128,43 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
   }, [notes]);
 
   useEffect(() => {
-    ensureDevAuthSession();
-    const nextTheme = readTheme();
-    const nextLanguage = readLanguage();
-    const nextSidebarCollapsed = readSidebarCollapsed();
-    const nextNotes = readNotes();
-    setTheme(nextTheme);
-    setLanguage(nextLanguage);
-    setSidebarCollapsed(nextSidebarCollapsed);
-    setNotes(nextNotes);
-    setHydrated(true);
+    let active = true;
+
+    async function bootstrap() {
+      ensureDevAuthSession();
+
+      if (isElectronDesktop()) {
+        try {
+          const config = await getBrainxDesktopConfig();
+          const currentVersion = config?.appVersion?.trim();
+          if (currentVersion) {
+            const storedVersion = getLocalStoredValue(DESKTOP_AUTH_APP_VERSION_KEY);
+            if (storedVersion && storedVersion !== currentVersion && readAuthSession()?.accessToken) {
+              clearAuthSession();
+            }
+            setLocalStoredValue(DESKTOP_AUTH_APP_VERSION_KEY, currentVersion);
+          }
+        } catch {
+          // ignore desktop config read failures during boot
+        }
+      }
+
+      if (!active) return;
+      const nextTheme = readTheme();
+      const nextLanguage = readLanguage();
+      const nextSidebarCollapsed = readSidebarCollapsed();
+      const nextNotes = readNotes();
+      setTheme(nextTheme);
+      setLanguage(nextLanguage);
+      setSidebarCollapsed(nextSidebarCollapsed);
+      setNotes(nextNotes);
+      setHydrated(true);
+    }
+
+    void bootstrap();
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {

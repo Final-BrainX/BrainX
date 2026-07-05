@@ -4,7 +4,6 @@ import { useEffect, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import type { InitialTab } from "@/components/notes/NotesWorkspace";
-import { DesktopVaultSyncBanner } from "@/components/utility/desktop-vault-sync-status-section";
 import { getBrainxDesktopConfig, isElectronDesktop, type BrainxDesktopVaultSummary } from "@/lib/desktop-bridge";
 import { chooseDesktopVaultDirectory, createDesktopVault, listDesktopVaults } from "@/lib/desktop-vault";
 import { getNoteById } from "@/lib/notes/mockNotes";
@@ -159,7 +158,6 @@ export default function NotesLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-full flex-col">
-      <DesktopVaultSyncBanner className="mx-4 mt-4 shrink-0 md:mx-6" />
       <NotesWorkspace
         initialTab={initialTab}
         persistKey="brainx_notes_workspace_v1"

@@ -41,6 +41,8 @@ export type AuthSession = {
   next?: string | null;
 };
 
+export type AuthSessionPersistence = "local" | "session";
+
 export type SignupConsents = {
   termsRequired: boolean;
   privacyRequired: boolean;
@@ -95,6 +97,7 @@ type NoteDraftClaimData = {
 export type ClaimedNoteIdMapping = { from: string; to: string };
 
 const AUTH_SESSION_KEY = "brainx_auth_session_v1";
+const AUTH_PERSISTENCE_KEY = "brainx_auth_persistence_v1";
 // lib/workspace-api.ts의 GUEST_SESSION_ID_KEY와 반드시 같은 값이어야 한다 — claim 요청이
 // 실제로 guest 데이터를 만든 것과 같은 guestId를 X-Guest-Id로 실어 보내야 하기 때문이다.
 const WORKSPACE_GUEST_SESSION_ID_KEY = "brainx_workspace_guest_id_v1";
@@ -132,6 +135,14 @@ const DEV_AUTH_SESSION: AuthSession = {
   provider: "email",
 };
 let clientLocationPromise: Promise<string | null> | null = null;
+
+function isDesktopRuntime() {
+  return typeof window !== "undefined" && !!window.brainxDesktop;
+}
+
+function canUseDevAuthBypass() {
+  return DEV_AUTH_BYPASS && !isDesktopRuntime();
+}
 
 async function resolveClientLocation() {
   if (typeof window === "undefined") {
@@ -399,11 +410,28 @@ export function saveAuthSession(session: Partial<AuthSession>) {
     onboardingToken: session.onboardingToken ?? null,
     next: session.next ?? null
   };
-  setLocalStoredValue(AUTH_SESSION_KEY, JSON.stringify(normalized));
+  const persistence = readAuthSessionPersistence();
+  if (persistence === "session") {
+    removeLocalStoredValue(AUTH_SESSION_KEY);
+    setSessionStoredValue(AUTH_SESSION_KEY, JSON.stringify(normalized));
+  } else {
+    removeSessionStoredValue(AUTH_SESSION_KEY);
+    setLocalStoredValue(AUTH_SESSION_KEY, JSON.stringify(normalized));
+  }
   if (normalized.provider === "google" || normalized.provider === "kakao" || normalized.provider === "naver") {
     setLocalStoredValue(LAST_SOCIAL_LOGIN_KEY, normalized.provider);
   }
   window.dispatchEvent(new Event("brainx-auth-session-changed"));
+}
+
+export function setAuthSessionPersistence(persistence: AuthSessionPersistence) {
+  if (typeof window === "undefined") return;
+  setLocalStoredValue(AUTH_PERSISTENCE_KEY, persistence);
+}
+
+export function readAuthSessionPersistence(): AuthSessionPersistence {
+  if (typeof window === "undefined") return "local";
+  return getLocalStoredValue(AUTH_PERSISTENCE_KEY) === "session" ? "session" : "local";
 }
 
 function normalizeSessionForCompare(session: AuthSession | null | undefined) {
@@ -445,15 +473,15 @@ export function isDevAuthSession(session: AuthSession | null | undefined) {
 export function readAuthSession() {
   if (typeof window === "undefined") return null;
   try {
-    const raw = getLocalStoredValue(AUTH_SESSION_KEY);
-    return raw ? (JSON.parse(raw) as AuthSession) : DEV_AUTH_BYPASS ? DEV_AUTH_SESSION : null;
+    const raw = getLocalStoredValue(AUTH_SESSION_KEY) ?? getSessionStoredValue(AUTH_SESSION_KEY);
+    return raw ? (JSON.parse(raw) as AuthSession) : canUseDevAuthBypass() ? DEV_AUTH_SESSION : null;
   } catch {
-    return DEV_AUTH_BYPASS ? DEV_AUTH_SESSION : null;
+    return canUseDevAuthBypass() ? DEV_AUTH_SESSION : null;
   }
 }
 
 export function ensureDevAuthSession() {
-  if (typeof window === "undefined" || !DEV_AUTH_BYPASS) return null;
+  if (typeof window === "undefined" || !canUseDevAuthBypass()) return null;
   const session = readAuthSession();
   if (session?.accessToken) return session;
   saveAuthSession(DEV_AUTH_SESSION);
@@ -463,9 +491,11 @@ export function ensureDevAuthSession() {
 export function clearAuthSession() {
   if (typeof window === "undefined") return;
   const prevSession = readAuthSession();
-  const hadStoredAuthSession = getLocalStoredValue(AUTH_SESSION_KEY) != null;
+  const hadStoredAuthSession =
+    getLocalStoredValue(AUTH_SESSION_KEY) != null || getSessionStoredValue(AUTH_SESSION_KEY) != null;
   const hadWorkspaceSession = getLocalStoredValue(WORKSPACE_SESSION_KEY) != null;
   removeLocalStoredValue(AUTH_SESSION_KEY);
+  removeSessionStoredValue(AUTH_SESSION_KEY);
   removeLocalStoredValue(WORKSPACE_SESSION_KEY);
   const nextSession = readAuthSession();
   const authSessionChanged = !isSameAuthSession(prevSession, nextSession);

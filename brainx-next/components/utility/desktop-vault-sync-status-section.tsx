@@ -53,7 +53,7 @@ function ActionButton({
 }
 
 function formatSyncDate(value?: string | null) {
-  if (!value) return "Not synced yet";
+  if (!value) return "아직 동기화되지 않음";
   return new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
@@ -64,19 +64,12 @@ function statusTone(status: BrainxDesktopManualSyncJob["status"]) {
   return "bg-slate-100 text-slate-700";
 }
 
-function statusAccent(status: BrainxDesktopManualSyncJob["status"]) {
-  if (status === "COMPLETED") return "border-emerald-200 bg-emerald-50/70 text-emerald-800";
-  if (status === "CONFLICT") return "border-amber-200 bg-amber-50/70 text-amber-800";
-  if (status === "FAILED") return "border-rose-200 bg-rose-50/70 text-rose-800";
-  return "border-slate-200 bg-slate-50 text-slate-700";
-}
-
 function toConflictSummary(conflict: Record<string, unknown>) {
   return {
     entityType: typeof conflict.entityType === "string" ? conflict.entityType : "unknown",
     localId: typeof conflict.localId === "string" ? conflict.localId : "-",
     remoteId: typeof conflict.remoteId === "string" ? conflict.remoteId : "-",
-    reason: typeof conflict.reason === "string" ? conflict.reason : "Conflict detected during manual sync.",
+    reason: typeof conflict.reason === "string" ? conflict.reason : "수동 동기화 중 충돌이 감지되었습니다.",
     localUpdatedAt: typeof conflict.localUpdatedAt === "string" ? conflict.localUpdatedAt : null,
     remoteUpdatedAt: typeof conflict.remoteUpdatedAt === "string" ? conflict.remoteUpdatedAt : null,
   };
@@ -158,50 +151,28 @@ function DesktopVaultSyncConflictDetail({
     <div className="mt-3 rounded-[10px] border border-[#f1d7a6] bg-[#fffaf1] px-3 py-3">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="text-[12px] font-semibold text-[#7a4b00]">Conflict detail</div>
-          <div className="mt-1 text-[11px] text-[#9a7b45]">Report generated {formatSyncDate(selection.report.generatedAt)}</div>
+          <div className="text-[12px] font-semibold text-[#7a4b00]">충돌 상세</div>
+          <div className="mt-1 text-[11px] text-[#9a7b45]">리포트 생성 {formatSyncDate(selection.report.generatedAt)}</div>
         </div>
         <button type="button" onClick={onClose} className="text-[11px] font-semibold text-[#9a7b45] hover:text-[#7a4b00]">
-          Close
+          닫기
         </button>
       </div>
       <div className="mt-3 space-y-2 text-[12px] text-[#4d4944]">
-        <div><strong>Entity:</strong> {summary.entityType}</div>
-        <div><strong>Reason:</strong> {summary.reason}</div>
-        <div><strong>Local ID:</strong> {summary.localId}</div>
-        <div><strong>Remote ID:</strong> {summary.remoteId}</div>
-        {summary.localUpdatedAt ? <div><strong>Local updated:</strong> {formatSyncDate(summary.localUpdatedAt)}</div> : null}
-        {summary.remoteUpdatedAt ? <div><strong>Remote updated:</strong> {formatSyncDate(summary.remoteUpdatedAt)}</div> : null}
+        <div><strong>대상:</strong> {summary.entityType}</div>
+        <div><strong>사유:</strong> {summary.reason}</div>
+        <div><strong>로컬 ID:</strong> {summary.localId}</div>
+        <div><strong>원격 ID:</strong> {summary.remoteId}</div>
+        {summary.localUpdatedAt ? <div><strong>로컬 수정:</strong> {formatSyncDate(summary.localUpdatedAt)}</div> : null}
+        {summary.remoteUpdatedAt ? <div><strong>원격 수정:</strong> {formatSyncDate(summary.remoteUpdatedAt)}</div> : null}
       </div>
     </div>
   );
 }
 
 export function DesktopVaultSyncBanner({ className }: { className?: string }) {
-  const { supported, syncPolicy, lastSyncJob, loading } = useDesktopVaultSyncStatus();
-
-  if (!supported || loading || !syncPolicy || !lastSyncJob) {
-    return null;
-  }
-
-  return (
-    <div className={cx("rounded-2xl border px-4 py-3", statusAccent(lastSyncJob.status), className)}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="text-[12px] font-semibold">
-            Desktop sync {lastSyncJob.status.toLowerCase()} · {syncPolicy.mode === "local-only" ? "local only" : "manual cloud"}
-          </div>
-          <div className="mt-1 text-[11px] opacity-80">
-            {lastSyncJob.message} {lastSyncJob.completedAt ? `· ${formatSyncDate(lastSyncJob.completedAt)}` : ""}
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2 text-[11px]">
-          <span className="rounded-full bg-white/70 px-2.5 py-1">conflicts {lastSyncJob.conflicts?.length ?? 0}</span>
-          <span className="rounded-full bg-white/70 px-2.5 py-1">failed {lastSyncJob.failedFiles?.length ?? 0}</span>
-        </div>
-      </div>
-    </div>
-  );
+  void className;
+  return null;
 }
 
 export function DesktopVaultSyncStatusSection() {
@@ -221,7 +192,7 @@ export function DesktopVaultSyncStatusSection() {
     try {
       const next = await setDesktopVaultSyncPolicy({ mode });
       setSyncPolicy(next);
-      pushToast(mode === "local-only" ? "로컬 전용 모드로 전환되었습니다." : "수동 클라우드 동기화 모드로 전환되었습니다.", "ok");
+      pushToast(mode === "local-only" ? "로컬 전용 모드로 전환했습니다." : "수동 클라우드 동기화 모드로 전환했습니다.", "ok");
     } catch (error) {
       pushToast(error instanceof Error ? error.message : "동기화 모드를 변경하지 못했습니다.", "err");
     } finally {
@@ -236,6 +207,9 @@ export function DesktopVaultSyncStatusSection() {
       const job = await requestDesktopVaultManualSync();
       setLastSyncJob(job);
       emitSyncUpdated(job);
+      if (typeof window !== "undefined" && (job.status === "COMPLETED" || job.status === "CONFLICT" || job.status === "SKIPPED")) {
+        window.dispatchEvent(new CustomEvent("brainx:notes-refresh", { detail: { syncRefresh: true } }));
+      }
       pushToast(job.message, job.status === "FAILED" ? "err" : job.status === "COMPLETED" ? "ok" : "info");
       await refresh();
     } catch (error) {
@@ -258,30 +232,30 @@ export function DesktopVaultSyncStatusSection() {
   return (
     <section className="mt-5 rounded-[12px] border border-[#e5e0d8] px-4 py-4">
       <div className="mb-3">
-        <h2 className="text-[14px] font-bold text-[#2f2d2a]">Desktop Vault Sync</h2>
+        <h2 className="text-[14px] font-bold text-[#2f2d2a]">데스크톱 볼트 동기화</h2>
         <p className="mt-1 text-[12px] leading-5 text-[#6d6861]">
-          Current vault <strong>{vaultName}</strong>. Local-only mode and manual cloud sync are separated so you can control when desktop data leaves the active vault.
+          현재 볼트는 <strong>{vaultName}</strong>입니다. 로컬 전용과 수동 클라우드 동기화를 분리해서 데스크톱 데이터가 언제 외부로 나가는지 직접 제어할 수 있습니다.
         </p>
       </div>
 
       <div className="mb-3 flex flex-wrap gap-2">
         <ActionButton primary={syncPolicy.mode === "local-only"} disabled={savingMode !== null} onClick={() => void updateMode("local-only")}>
-          Local Only
+          로컬 전용
         </ActionButton>
         <ActionButton primary={syncPolicy.mode === "manual-cloud"} disabled={savingMode !== null} onClick={() => void updateMode("manual-cloud")}>
-          Manual Cloud Sync
+          수동 클라우드 동기화
         </ActionButton>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-[10px] bg-[#fbfaf8] px-3 py-3">
         <div>
           <div className="text-[12px] font-semibold text-[#36332f]">
-            Current mode: {syncPolicy.mode === "local-only" ? "Local only" : "Manual cloud sync"}
+            현재 모드: {syncPolicy.mode === "local-only" ? "로컬 전용" : "수동 클라우드 동기화"}
           </div>
-          <div className="mt-1 text-[11px] text-[#8c877f]">Last sync: {formatSyncDate(syncPolicy.lastSyncedAt)}</div>
+          <div className="mt-1 text-[11px] text-[#8c877f]">마지막 동기화: {formatSyncDate(syncPolicy.lastSyncedAt)}</div>
         </div>
         <ActionButton onClick={() => void runManualSync()} disabled={manualSyncing || syncPolicy.mode !== "manual-cloud"}>
-          {manualSyncing ? "Syncing..." : "Run manual sync"}
+          {manualSyncing ? "동기화 중..." : "수동 동기화 실행"}
         </ActionButton>
       </div>
 
@@ -289,10 +263,10 @@ export function DesktopVaultSyncStatusSection() {
         <div className="mt-3 rounded-[10px] border border-[#e5e0d8] bg-white px-3 py-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <div className="text-[12px] font-semibold text-[#36332f]">Latest sync result</div>
+              <div className="text-[12px] font-semibold text-[#36332f]">최근 동기화 결과</div>
               <div className="mt-1 text-[11px] text-[#8c877f]">
-                Started {formatSyncDate(lastSyncJob.startedAt)}
-                {lastSyncJob.completedAt ? ` · Completed ${formatSyncDate(lastSyncJob.completedAt)}` : ""}
+                시작 {formatSyncDate(lastSyncJob.startedAt)}
+                {lastSyncJob.completedAt ? ` · 완료 ${formatSyncDate(lastSyncJob.completedAt)}` : ""}
               </div>
             </div>
             <span className={cx("rounded-full px-2.5 py-1 text-[11px] font-semibold", statusTone(lastSyncJob.status))}>
@@ -303,18 +277,18 @@ export function DesktopVaultSyncStatusSection() {
           <p className="mt-2 text-[12px] leading-5 text-[#4d4944]">{lastSyncJob.message}</p>
 
           <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-[#6d6861]">
-            <span className="rounded-full bg-[#f4f0e8] px-2.5 py-1">created notes {lastSyncJob.createdNotes?.length ?? 0}</span>
-            <span className="rounded-full bg-[#f4f0e8] px-2.5 py-1">failed files {lastSyncJob.failedFiles?.length ?? 0}</span>
-            <span className="rounded-full bg-[#f4f0e8] px-2.5 py-1">conflicts {lastSyncJob.conflicts?.length ?? 0}</span>
+            <span className="rounded-full bg-[#f4f0e8] px-2.5 py-1">생성 노트 {lastSyncJob.createdNotes?.length ?? 0}</span>
+            <span className="rounded-full bg-[#f4f0e8] px-2.5 py-1">실패 파일 {lastSyncJob.failedFiles?.length ?? 0}</span>
+            <span className="rounded-full bg-[#f4f0e8] px-2.5 py-1">충돌 {lastSyncJob.conflicts?.length ?? 0}</span>
           </div>
 
           {!!lastSyncJob.failedFiles?.length && (
             <div className="mt-3 space-y-2">
-              <div className="text-[12px] font-semibold text-[#36332f]">Failed files</div>
+              <div className="text-[12px] font-semibold text-[#36332f]">실패 파일</div>
               {lastSyncJob.failedFiles.slice(0, 5).map((item, index) => (
                 <div key={`${item.fileName ?? "file"}-${index}`} className="rounded-[8px] bg-[#fbfaf8] px-3 py-2 text-[12px] text-[#4d4944]">
-                  <div className="font-medium">{item.fileName ?? "Unknown file"}</div>
-                  <div className="mt-1 text-[11px] text-[#8c877f]">{item.reason ?? "Unknown error"}</div>
+                  <div className="font-medium">{item.fileName ?? "알 수 없는 파일"}</div>
+                  <div className="mt-1 text-[11px] text-[#8c877f]">{item.reason ?? "알 수 없는 오류"}</div>
                 </div>
               ))}
             </div>
@@ -322,7 +296,7 @@ export function DesktopVaultSyncStatusSection() {
 
           {!!lastSyncJob.conflicts?.length && (
             <div className="mt-3 space-y-2">
-              <div className="text-[12px] font-semibold text-[#36332f]">Conflict summary</div>
+              <div className="text-[12px] font-semibold text-[#36332f]">충돌 요약</div>
               {lastSyncJob.conflicts.slice(0, 5).map((conflict, index) => {
                 const summary = toConflictSummary(conflict);
                 return (
@@ -332,14 +306,14 @@ export function DesktopVaultSyncStatusSection() {
                     onClick={() => void openConflictDetail(index)}
                     className="block w-full rounded-[8px] bg-[#fff7e8] px-3 py-2 text-left text-[12px] text-[#4d4944] transition hover:bg-[#ffefcb]"
                   >
-                    <div className="font-medium">{summary.entityType} conflict</div>
+                    <div className="font-medium">{summary.entityType} 충돌</div>
                     <div className="mt-1 text-[11px] text-[#8c877f]">{summary.reason}</div>
-                    <div className="mt-1 text-[11px] text-[#8c877f]">local {summary.localId} · remote {summary.remoteId}</div>
+                    <div className="mt-1 text-[11px] text-[#8c877f]">로컬 {summary.localId} · 원격 {summary.remoteId}</div>
                   </button>
                 );
               })}
               {(lastSyncJob.conflicts?.length ?? 0) > 5 && (
-                <div className="text-[11px] text-[#8c877f]">See the full report in the active vault under `.brainx/conflicts/`.</div>
+                <div className="text-[11px] text-[#8c877f]">전체 리포트는 active vault의 `.brainx/conflicts/` 아래에서 확인할 수 있습니다.</div>
               )}
               <DesktopVaultSyncConflictDetail selection={conflictSelection} onClose={() => setConflictSelection(null)} />
             </div>

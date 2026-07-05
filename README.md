@@ -128,10 +128,16 @@ BrainX/
 - preload: renderer에 노출할 최소 bridge (`openExternal`, 런타임 설정 조회)
 - preload/main bridge는 renderer `fetch`가 실패해도 로그인/OAuth 완료 같은 핵심 인증 API를 메인 프로세스가 직접 호출해 앱 로그인을 마무리할 수 있다
 - renderer: 별도 UI를 중복 구현하지 않고 기존 `brainx-next`를 그대로 사용
+- Electron 첫 진입은 웹 랜딩 대신 데스크톱 시작 허브를 사용한다. 비로그인 상태면 바로 로그인 화면을 띄우고, 로그인 이후에는 최근 vault 자동 복원 또는 vault 생성/열기 화면으로 이어진다.
+- 로그인 화면의 `로그인 유지`를 끄면 세션은 앱 실행 중에만 유지되고, 켜면 다음 실행에도 자동 로그인 상태를 복원한다.
+- 데스크톱 앱 버전이 바뀐 새 빌드를 실행하면 저장된 로그인 세션은 한 번 비워 다시 로그인하도록 정리한다.
+- 데스크톱 앱은 웹 개발용 `dev` 우회 세션을 만들지 않으며, 저장된 세션이 없거나 버전 변경으로 세션이 정리되면 항상 기존 로그인 화면으로 되돌아간다.
 - 개발 모드: `brainx-next` dev server(`localhost:3000`)에 연결
 - 패키징 모드: 기본적으로 `https://brainx.p-e.kr/` 배포본을 로드하고, 추후 Next standalone 내장으로 확장
 - active vault가 있으면 import는 vault `notes/`·`assets/`에 직접 기록하고 export는 vault `exports/`에 저장
 - Home, Graph, 노트 통계는 active vault snapshot 기준으로 읽고 sync mode는 `local-only` / `manual-cloud`로 분리
+- 데스크톱 수동 동기화 최근 결과는 설정 화면에서 확인하고, 노트 화면 상단의 일시적인 성공/실패 배너는 노출하지 않는다.
+- 수동 동기화가 완료되면 노트 화면은 동기화된 항목이 모두 다시 보일 때까지 `동기화 중..` 로딩 셸을 유지한다.
 
 Electron으로 우선 감싸야 하는 핵심 웹 흐름은 아래와 같습니다.
 

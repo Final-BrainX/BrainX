@@ -26,6 +26,13 @@ export async function getActiveDesktopVault(): Promise<BrainxDesktopVaultSummary
   return window.brainxDesktop.getActiveVault();
 }
 
+export async function activateDesktopVault(vaultId: string): Promise<BrainxDesktopVaultSummary | null> {
+  if (!isElectronDesktop() || !window.brainxDesktop?.activateVault) {
+    return null;
+  }
+  return window.brainxDesktop.activateVault(vaultId);
+}
+
 export async function chooseDesktopVaultDirectory(): Promise<BrainxDesktopVaultSummary | null> {
   if (!isElectronDesktop() || !window.brainxDesktop?.chooseVaultDirectory) {
     return null;
