@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { WikiLinkContext, resolveWikiLinkTitle, type WikiLinkContextValue } from "./WikiLinkContext";
-import { AlertCircle, Check, ChevronLeft, Download, LoaderCircle, MoreHorizontal, PanelRightClose, PanelRight, RotateCcw, Save, Upload } from "lucide-react";
+import { AlertCircle, Check, ChevronLeft, Download, Link2, LoaderCircle, MoreHorizontal, PanelRightClose, PanelRight, RotateCcw, Save, Upload } from "lucide-react";
 import { cx } from "@/lib/utils";
 import { MockFolder, MockNote, PaneNode, PaneTabsState, Tab, NotesWorkspaceSession, DragPayload } from "@/lib/notes/noteTypes";
 import type { EditMode, AiActionType, NoteEditorHandle } from "./NoteEditor";
@@ -12,15 +12,18 @@ import {
   WorkspaceApiError,
   createWorkspaceFolder,
   createWorkspaceNote,
+  createWorkspaceNoteLink,
   deleteWorkspaceFolder,
   deleteWorkspaceNote,
   getNote,
+  getWorkspaceFavorites,
   getWorkspaceNoteDraft,
   issueWorkspaceNoteDraftId,
   listFolders,
   listNotes,
   listWorkspaceNoteDrafts,
   patchWorkspaceFolder,
+  putFavorite,
   saveWorkspaceNoteDraft,
   updateWorkspaceNoteContent,
   updateWorkspaceNoteMetadata,
@@ -46,6 +49,7 @@ import NotesExplorer from "./NotesExplorer";
 import RightSidebar, { type PendingAiRequest } from "./RightSidebar";
 import { moveNoteIntoFolder, reorderNoteRelativeTo, moveFolderUnder, reorderFolderRelativeTo } from "@/lib/notes/folderDnd";
 import { exportNote, uploadAndImportFile, type ExportFormat } from "@/lib/ingestion-api";
+import { ShareLinkModal } from "./ShareLinkModal";
 import { markdownToHtml } from "./NoteEditor";
 import { useBrainX } from "@/components/brainx-provider";
 import { consumePendingNoteClaim, readAuthSession } from "@/lib/auth-api";
@@ -379,10 +383,11 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
 
   const { pushToast } = useBrainX();
 
-  // 툴바 "···" 메뉴 — 지금은 "내보내기" 항목 하나뿐이지만, 새 메뉴 항목이 늘어날 자리.
+  // 툴바 "···" 메뉴
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [exportSubmenuOpen, setExportSubmenuOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -952,8 +957,11 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   }, [paneTabs, closePaneOrClearTabs]);
 
   /* 새 노트 생성 (선택된 폴더 또는 지정된 폴더 안에 생성), 지정한 패널의 새 탭으로 연다.
-     title을 주면(위키링크에서 생성하는 경우) 그 제목으로 바로 생성한다. */
-  const createNote = useCallback((folderId: string | undefined, paneId: string, title?: string) => {
+     title을 주면(위키링크에서 생성하는 경우) 그 제목으로 바로 생성한다. linkFromNoteId를 주면
+     (위키링크로 생성한 경우) 로그인 사용자에 한해 백엔드 노트 id가 확정되는 즉시 그 노트에서
+     새로 만든 노트로의 NoteLink를 만들어 마인드맵 edge에 반영한다(게스트는 그래프가 매 렌더마다
+     draft markdown의 [[..]]을 다시 파싱해 edge를 만들므로 별도 처리가 필요 없다). */
+  const createNote = useCallback((folderId: string | undefined, paneId: string, title?: string, linkFromNoteId?: string, favorite?: boolean) => {
     /* 게스트 노트 생성 제한 */
     if (isGuest && notes.length >= 10) {
       pushToast("체험 모드에서는 노트를 최대 10개까지 생성할 수 있습니다.", "err");
@@ -979,6 +987,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }
     const newNote = makeBlankNote(folderId);
     newNote.title = noteTitle;
+    if (favorite) newNote.favorite = true;
     const localNoteId = newNote.id;
     const newTabId = uid();
     setNotes((prev) => [newNote, ...prev]);
@@ -1019,6 +1028,24 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
           draftDirtyNoteIdsRef.current.add(draft.noteId);
           prevActiveNoteIdRef.current = draft.noteId;
           onActiveNoteChange?.(draft.noteId);
+
+          // 소스 노트가 아직 로컬(미확정) id면 그 노트 자체가 생성 중이라는 뜻 — 드문 케이스라
+          // 범위 밖으로 두고 조용히 스킵한다(전체 저장 시 위키링크 재동기화 파이프라인은 이번
+          // 작업 범위 밖).
+          if (linkFromNoteId && linkFromNoteId.startsWith("note_")) {
+            void createWorkspaceNoteLink(linkFromNoteId, {
+              targetNoteId: draft.noteId,
+              targetTitle: noteTitle,
+              createIfMissing: false,
+            }).catch(() => {});
+          }
+
+          // 즐겨찾기 영역에서 직접 만든 루트 노트는 자동 즐겨찾기 — draft id가 확정된 뒤에야
+          // 실제 noteId를 알 수 있으므로 여기서 호출한다(로컬 favorite:true는 이미 makeBlankNote
+          // 직후 반영해 화면엔 처음부터 별이 보인다).
+          if (favorite) {
+            void putFavorite("NOTE", draft.noteId, true).catch(() => {});
+          }
         })
         .catch((error) => {
           setLoadError(error instanceof Error ? error.message : "새 노트 임시저장 ID를 발급받지 못했습니다.");
@@ -1028,9 +1055,11 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     return newNote.id;
   }, [isGuest, notes, checkNoteDuplicate, pushToast, onActiveNoteChange]);
 
-  /* 사이드바 "+ 새 노트" 버튼 → 현재 선택된 폴더 안에, 활성 패널의 새 탭으로 생성 */
-  const handleNewNote = useCallback((folderId?: string) => {
-    createNote(folderId, primaryPaneId);
+  /* 사이드바 "+ 새 노트" 버튼 → 현재 선택된 폴더 안에, 활성 패널의 새 탭으로 생성.
+     favorite=true는 즐겨찾기 영역의 루트 생성 버튼에서만 쓴다(정책: 즐겨찾기 영역에서 직접
+     만든 루트 노트/폴더는 자동 즐겨찾기, 즐겨찾기 폴더 안의 하위 항목은 자동 즐겨찾기하지 않음). */
+  const handleNewNote = useCallback((folderId?: string, favorite?: boolean) => {
+    createNote(folderId, primaryPaneId, undefined, undefined, favorite);
   }, [createNote, primaryPaneId]);
 
   /* "새 파일 생성하기" / Ctrl+N — 항상 새 탭으로 추가한다. 탭이 0개(Welcome 상태)인 패널이면
@@ -1140,7 +1169,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
      달리 폴더는 actor 제약이 없어 guest도 만들 수 있고, 그래서 게스트 폴더가 회원가입 후에도
      승계되려면(claim 시 workspaceService.reassignGuestFolders) 처음부터 Postgres에 있어야
      한다. 실패하면 토스트만 띄우고 로컬 상태는 그대로 둔다(화면에서만 사라지는 일 방지). */
-  const handleCreateFolder = useCallback((parentFolderId: string | null, name: string) => {
+  const handleCreateFolder = useCallback((parentFolderId: string | null, name: string, favorite?: boolean) => {
     /* 게스트 폴더 생성 제한 */
     if (isGuest && folders.length >= 10) {
       pushToast("체험 모드에서는 폴더를 최대 10개까지 생성할 수 있습니다.", "err");
@@ -1152,12 +1181,14 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       return;
     }
     if (USE_MOCK_NOTES) {
-      setFolders((prev) => [...prev, { id: `folder-${uid()}`, name, parentFolderId }]);
+      setFolders((prev) => [...prev, { id: `folder-${uid()}`, name, parentFolderId, favorite: favorite || undefined }]);
       return;
     }
     void createWorkspaceFolder(name, parentFolderId)
       .then((created) => {
-        setFolders((prev) => [...prev, workspaceFolderToMock(created)]);
+        setFolders((prev) => [...prev, { ...workspaceFolderToMock(created), favorite: favorite || undefined }]);
+        // 즐겨찾기 영역에서 직접 만든 루트 폴더는 자동 즐겨찾기.
+        if (favorite) void putFavorite("FOLDER", created.folderId, true).catch(() => {});
       })
       .catch((error) => {
         pushToast(error instanceof Error ? error.message : "폴더를 만들지 못했습니다.", "err");
@@ -1189,11 +1220,34 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setFolders((prev) => prev.map((f) => (f.id === folderId ? { ...f, color } : f)));
   }, []);
 
+  /* 즐겨찾기 설정/해제 — 낙관적으로 먼저 반영하고, 백엔드 PUT이 실패하면 원래 값으로 되돌리며
+     토스트로 알린다. USE_MOCK_NOTES(순수 로컬 데모, 백엔드 없음) 모드는 다른 폴더/노트 CRUD와
+     동일하게 로컬 상태만 바꾸고 네트워크 호출 자체를 건너뛴다. */
   const handleToggleFolderFavorite = useCallback((folderId: string) => {
+    const current = folders.find((f) => f.id === folderId)?.favorite ?? false;
+    const next = !current;
     setFolders((prev) =>
-      prev.map((f) => (f.id === folderId ? { ...f, favorite: !f.favorite } : f))
+      prev.map((f) => (f.id === folderId ? { ...f, favorite: next } : f))
     );
-  }, []);
+    if (USE_MOCK_NOTES) return;
+    void putFavorite("FOLDER", folderId, next).catch((error) => {
+      setFolders((prev) => prev.map((f) => (f.id === folderId ? { ...f, favorite: current } : f)));
+      pushToast(error instanceof Error ? error.message : "즐겨찾기를 저장하지 못했습니다.", "err");
+    });
+  }, [folders, pushToast]);
+
+  const handleToggleNoteFavorite = useCallback((noteId: string) => {
+    const current = notes.find((n) => n.id === noteId)?.favorite ?? false;
+    const next = !current;
+    setNotes((prev) =>
+      prev.map((n) => (n.id === noteId ? { ...n, favorite: next } : n))
+    );
+    if (USE_MOCK_NOTES) return;
+    void putFavorite("NOTE", noteId, next).catch((error) => {
+      setNotes((prev) => prev.map((n) => (n.id === noteId ? { ...n, favorite: current } : n)));
+      pushToast(error instanceof Error ? error.message : "즐겨찾기를 저장하지 못했습니다.", "err");
+    });
+  }, [notes, pushToast]);
 
   /* 노트 삭제(들) — 같은 노트가 여러 패널에 중복으로 열려 있을 수 있으므로(의도된 기능) 모든
      패널을 훑어 해당 노트를 가리키는 탭을 전부 제거한다. 탭 제거로 0개가 된 패널은: 분할의
@@ -1433,8 +1487,10 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const handleEditorHandleChange = useCallback((paneId: string, tabId: string, handle: NoteEditorHandle | null) => {
     const key = `${paneId}:${tabId}`;
     if (handle) {
+      if (editorHandlesRef.current[key] === handle) return;
       editorHandlesRef.current[key] = handle;
     } else {
+      if (!(key in editorHandlesRef.current)) return;
       delete editorHandlesRef.current[key];
     }
     setEditorHandleRevision((current) => current + 1);
@@ -1576,7 +1632,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
               // 아님) undefined가 아니라 null도 유효한 값(루트)으로 그대로 반영한다.
               folderId: draft.folderId ?? undefined,
               updatedAt: draftSavedAt,
-              version: draft.baseVersion ?? persisted.version,
+              // version은 draft.baseVersion을 절대 쓰지 않는다 — Redis draft autosave(1.5초
+              // 디바운스, note.id.startsWith("note_")면 persisted 여부와 무관하게 계속 돈다)는
+              // Ctrl+S 실제 저장 후에도 지워지거나 갱신되지 않아, 여기서 draft.baseVersion을
+              // 반영하면 방금 올라간 persisted.version(Postgres 진짜 버전)을 그 전 스냅샷 값으로
+              // 되돌려버린다. 그 상태로 다음 Ctrl+S가 나가면 항상 409(NOTE_VERSION_CONFLICT)가
+              // 나고, 저장 성공 → notes-refresh → 이 merge → version 롤백 → 다음 저장 409 가
+              // 무한 반복된다(claim 직후처럼 notes-refresh가 잦으면 특히 잘 드러남). content/
+              // title/folderId와 달리 version은 "다음 저장의 낙관적 동시성 토큰"이므로 항상
+              // persisted.version(서버의 실제 최신 값)을 그대로 써야 한다.
+              version: persisted.version,
               persisted: true,
             };
           });
@@ -1588,6 +1653,20 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
           const nextFolders = folderData.folders.map(workspaceFolderToMock);
           setNotes(nextNotes);
           setFolders(nextFolders);
+
+          // 즐겨찾기 초기 상태 — 노트/폴더 목록 자체의 로딩을 막지 않도록 별도로, 비차단으로
+          // 가져온다. 실패해도 노트/폴더 목록은 이미 정상 로드됐으므로 조용히 무시한다.
+          void getWorkspaceFavorites()
+            .then(({ noteIds, folderIds }) => {
+              if (!active) return;
+              if (noteIds.size > 0) {
+                setNotes((prev) => prev.map((n) => (noteIds.has(n.id) ? { ...n, favorite: true } : n)));
+              }
+              if (folderIds.size > 0) {
+                setFolders((prev) => prev.map((f) => (folderIds.has(f.id) ? { ...f, favorite: true } : f)));
+              }
+            })
+            .catch(() => {});
 
           // state.activeId는 이 effect가 마운트 시점에 캡처한 값이라(아래 deps: []), 그 사이
           // 세션 복원(useEffect, 위쪽) 등으로 실제 트리의 paneId가 바뀌어도 갱신되지 않는다. 이
@@ -1956,10 +2035,15 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         if (found) handleNoteClick(found.id);
       },
       onCreate: (title) => {
-        createNote(undefined, primaryPaneId, title);
+        // 위키링크 자동완성이 방금 삽입한 [[title]]은 400ms 디바운스 타이머로만 동기화가
+        // 예약된 상태다 — createNote가 탭을 새 노트로 즉시 전환하면 그 타이머가 flush 없이
+        // clear되어 원본 노트에 방금 넣은 링크가 유실된다(되돌아오면 예전 텍스트가 보이는 원인).
+        // 탭을 전환하기 전에 현재 활성 에디터의 대기 중인 저장을 먼저 흘려보낸다.
+        activeEditorHandle?.flushPendingSave();
+        createNote(undefined, primaryPaneId, title, activeNoteId ?? undefined);
       },
     }),
-    [wikiLinkNoteRefs, wikiLinkFolderRefs, handleNoteClick, createNote, primaryPaneId]
+    [wikiLinkNoteRefs, wikiLinkFolderRefs, handleNoteClick, createNote, primaryPaneId, activeEditorHandle, activeNoteId]
   );
 
   // 노트/탭/패널 데이터 초기화가 끝나기 전에는 워크스페이스 전체를 로딩 상태로 대체한다 —
@@ -2044,6 +2128,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   );
 
   return (
+    <>
     <WikiLinkContext.Provider value={wikiLinkValue}>
     <SplitThemeContext.Provider value={AUTO_THEME}>
         <div className="flex h-full overflow-hidden">
@@ -2062,6 +2147,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
             onRenameFolder={handleRenameFolder}
             onChangeFolderColor={handleChangeFolderColor}
             onToggleFolderFavorite={handleToggleFolderFavorite}
+            onToggleNoteFavorite={handleToggleNoteFavorite}
             onDeleteFolder={handleDeleteFolder}
             onDeleteNote={handleDeleteNote}
             onRenameNote={handleRenameNoteFromExplorer}
@@ -2131,16 +2217,29 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
                   }}
                 >
                   {!exportSubmenuOpen ? (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => setExportSubmenuOpen(true)}
-                      disabled={!activeNote}
-                      className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[12px] text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt disabled:cursor-not-allowed disabled:text-txt3/50"
-                    >
-                      <Upload size={13} />
-                      <span>내보내기</span>
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => { setMoreMenuOpen(false); setShareModalOpen(true); }}
+                        disabled={!activeNote}
+                        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[12px] text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt disabled:cursor-not-allowed disabled:text-txt3/50"
+                      >
+                        <Link2 size={13} />
+                        <span>공유하기</span>
+                      </button>
+                      <div className="my-1 border-t border-line/30" />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => setExportSubmenuOpen(true)}
+                        disabled={!activeNote}
+                        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[12px] text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt disabled:cursor-not-allowed disabled:text-txt3/50"
+                      >
+                        <Upload size={13} />
+                        <span>내보내기</span>
+                      </button>
+                    </>
                   ) : (
                     <div>
                       <button
@@ -2257,5 +2356,9 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       </div>
     </SplitThemeContext.Provider>
     </WikiLinkContext.Provider>
+    {shareModalOpen && activeNote && (
+      <ShareLinkModal note={activeNote} onClose={() => setShareModalOpen(false)} />
+    )}
+    </>
   );
 }

@@ -5,6 +5,7 @@ import {
   Menu,
   dialog,
   ipcMain,
+  protocol,
   type OpenDialogOptions,
   type SaveDialogOptions,
   shell,
@@ -30,11 +31,14 @@ import {
   getWindowTitle,
 } from "./app-config.js";
 import type {
+  BrainxDesktopApiRequestOptions,
+  BrainxDesktopApiResponse,
   BrainxDesktopCreateVaultOptions,
   BrainxDesktopCreateVaultFolderOptions,
   BrainxDesktopCreateVaultNoteOptions,
   BrainxDesktopDeleteVaultFolderOptions,
   BrainxDesktopDeleteVaultNoteOptions,
+  BrainxDesktopImportVaultZipOptions,
   BrainxDesktopOpenFileOptions,
   BrainxDesktopPatchVaultFolderOptions,
   BrainxDesktopPopupOptions,
@@ -55,6 +59,20 @@ import type {
   BrainxDesktopWriteVaultAssetOptions,
 } from "../shared/desktop-api.js";
 
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "brainx-asset",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      bypassCSP: true,
+      corsEnabled: true,
+    },
+  },
+]);
+
 const electronProcess = process as NodeJS.Process & {
   defaultApp?: boolean;
 };
@@ -62,6 +80,7 @@ const electronProcess = process as NodeJS.Process & {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const preloadPath = path.join(__dirname, "..", "preload", "index.js");
+const devPngIconPath = path.resolve(__dirname, "..", "..", "build", "icon.png");
 
 let mainWindow: BrowserWindow | null = null;
 let rendererEntryUrl = getRendererEntryUrl();
@@ -93,6 +112,33 @@ type VaultIndexFile = {
   assets: BrainxDesktopVaultAsset[];
 };
 
+type VaultSyncStateFile = {
+  version: 1;
+  lastSyncedAt: string | null;
+  noteMappings: Record<string, { remoteNoteId: string }>;
+  folderMappings: Record<string, { remoteFolderId: string }>;
+  assetMappings: Record<string, { remoteAssetId: string; checksum: string | null; syncedAt: string | null }>;
+};
+
+type VaultSyncConflict = {
+  entityType: "note" | "folder" | "asset";
+  localId: string;
+  remoteId: string;
+  localUpdatedAt: string;
+  remoteUpdatedAt: string;
+  reason: string;
+};
+
+const AUTH_SESSION_STORAGE_KEY = "brainx_auth_session_v1";
+const DEFAULT_API_ORIGIN = "https://brainx.p-e.kr/";
+
+function getWindowIconPath() {
+  if (app.isPackaged) {
+    return undefined;
+  }
+  return fs.existsSync(devPngIconPath) ? devPngIconPath : undefined;
+}
+
 function getStorageFilePath() {
   return path.join(app.getPath("userData"), "renderer-storage.json");
 }
@@ -111,6 +157,32 @@ function getVaultWorkspaceFilePath(vault: BrainxDesktopVaultSummary) {
 
 function getVaultIndexFilePath(vault: BrainxDesktopVaultSummary) {
   return path.join(getVaultConfigDirectory(vault), "index.json");
+}
+
+function getVaultSyncStateFilePath(vault: BrainxDesktopVaultSummary) {
+  return path.join(getVaultConfigDirectory(vault), "sync-state.json");
+}
+
+function getVaultLastSyncJobFilePath(vault: BrainxDesktopVaultSummary) {
+  return path.join(getVaultConfigDirectory(vault), "last-sync-job.json");
+}
+
+function getVaultConflictsDirectory(vault: BrainxDesktopVaultSummary) {
+  return path.join(getVaultConfigDirectory(vault), "conflicts");
+}
+
+function getDesktopApiOrigin() {
+  const raw = process.env.BRAINX_DESKTOP_API_ORIGIN ?? process.env.BRAINX_ELECTRON_PROD_URL ?? DEFAULT_API_ORIGIN;
+  return new URL(raw).origin;
+}
+
+function resolveDesktopApiRequestUrl(rawPath: string) {
+  const apiOrigin = getDesktopApiOrigin();
+  const target = new URL(rawPath, apiOrigin);
+  if (target.origin !== apiOrigin) {
+    throw new Error("Desktop API bridge only allows requests to the configured BrainX origin.");
+  }
+  return target.toString();
 }
 
 function toVaultSummary(vaultPath: string, name = path.basename(vaultPath)): BrainxDesktopVaultSummary {
@@ -335,6 +407,171 @@ function persistVaultIndex(vault: BrainxDesktopVaultSummary, index: VaultIndexFi
   }
 }
 
+function readVaultSyncState(vault: BrainxDesktopVaultSummary): VaultSyncStateFile {
+  try {
+    const raw = fs.readFileSync(getVaultSyncStateFilePath(vault), "utf8");
+    const parsed = JSON.parse(raw) as Partial<VaultSyncStateFile>;
+    return {
+      version: 1,
+      lastSyncedAt: parsed.lastSyncedAt ?? null,
+      noteMappings: parsed.noteMappings ?? {},
+      folderMappings: parsed.folderMappings ?? {},
+      assetMappings: parsed.assetMappings ?? {},
+    };
+  } catch {
+    return {
+      version: 1,
+      lastSyncedAt: null,
+      noteMappings: {},
+      folderMappings: {},
+      assetMappings: {},
+    };
+  }
+}
+
+function persistVaultSyncState(vault: BrainxDesktopVaultSummary, state: VaultSyncStateFile) {
+  fs.writeFileSync(getVaultSyncStateFilePath(vault), JSON.stringify(state, null, 2), "utf8");
+}
+
+function readLastManualSyncJob(vault: BrainxDesktopVaultSummary): BrainxDesktopManualSyncJob | null {
+  try {
+    const raw = fs.readFileSync(getVaultLastSyncJobFilePath(vault), "utf8");
+    return JSON.parse(raw) as BrainxDesktopManualSyncJob;
+  } catch {
+    return null;
+  }
+}
+
+function persistLastManualSyncJob(vault: BrainxDesktopVaultSummary, job: BrainxDesktopManualSyncJob) {
+  fs.writeFileSync(getVaultLastSyncJobFilePath(vault), JSON.stringify(job, null, 2), "utf8");
+}
+
+function readStoredAuthSession() {
+  try {
+    const raw = storageState.local[AUTH_SESSION_STORAGE_KEY];
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { accessToken?: string | null; tokenType?: string | null };
+    if (!parsed.accessToken) return null;
+    return {
+      accessToken: parsed.accessToken,
+      tokenType: parsed.tokenType || "Bearer",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function hashValue(value: unknown) {
+  return crypto.createHash("sha1").update(JSON.stringify(value)).digest("hex");
+}
+
+function hashVaultFolder(folder: BrainxDesktopVaultFolder) {
+  return hashValue({
+    name: folder.name,
+    parentFolderId: folder.parentFolderId ?? null,
+    color: folder.color ?? null,
+    favorite: folder.favorite ?? false,
+  });
+}
+
+function hashVaultNote(note: BrainxDesktopVaultNote & { fileName?: string }) {
+  return hashValue({
+    title: note.title,
+    markdown: note.markdown,
+    folderId: note.folderId ?? null,
+    tags: note.tags,
+    typography: note.typography ?? null,
+  });
+}
+
+function isUpdatedAfter(updatedAt: string | null | undefined, baseline: string | null) {
+  if (!updatedAt || !baseline) return Boolean(updatedAt);
+  return Date.parse(updatedAt) > Date.parse(baseline);
+}
+
+function getVaultAssetById(vault: BrainxDesktopVaultSummary, assetId: string) {
+  const index = readVaultIndex(vault);
+  const asset = index.assets.find((item) => item.assetId === assetId);
+  if (!asset) {
+    throw new Error("Vault asset not found.");
+  }
+  return {
+    asset,
+    assetPath: path.join(vault.assetsPath, asset.relativePath),
+  };
+}
+
+function getVaultAssetFilePath(vault: BrainxDesktopVaultSummary, asset: BrainxDesktopVaultAsset) {
+  return path.join(vault.assetsPath, asset.relativePath);
+}
+
+function hashBufferSha256(buffer: Buffer) {
+  return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
+function extractAssetReferences(markdown: string) {
+  const references: Array<{ assetId: string; blockType: "image" | "pdf" | "html" | "ppt" | "unknown" }> = [];
+  const blockPattern = /<div\s+data-([a-z]+)-block="true"[^>]*data-asset-id="([^"]+)"/g;
+  for (const match of markdown.matchAll(blockPattern)) {
+    const rawType = match[1];
+    const assetId = match[2];
+    const blockType =
+      rawType === "image" || rawType === "pdf" || rawType === "html" || rawType === "ppt"
+        ? rawType
+        : "unknown";
+    references.push({ assetId, blockType });
+  }
+
+  const assetUrlPattern = /asset:\/\/([A-Za-z0-9._-]+)/g;
+  for (const match of markdown.matchAll(assetUrlPattern)) {
+    references.push({ assetId: match[1], blockType: "image" });
+  }
+
+  return references;
+}
+
+function replaceAssetIdsInMarkdown(markdown: string, replacements: Record<string, string>) {
+  let nextMarkdown = markdown;
+  for (const [sourceAssetId, targetAssetId] of Object.entries(replacements)) {
+    if (!sourceAssetId || sourceAssetId === targetAssetId) continue;
+    const escaped = sourceAssetId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    nextMarkdown = nextMarkdown.replace(new RegExp(`data-asset-id="${escaped}"`, "g"), `data-asset-id="${targetAssetId}"`);
+    nextMarkdown = nextMarkdown.replace(new RegExp(`asset://${escaped}`, "g"), `asset://${targetAssetId}`);
+  }
+  return nextMarkdown;
+}
+
+function isLocalVaultAssetId(assetId: string) {
+  return assetId.startsWith("vault_asset_");
+}
+
+function canMirrorAssetToVault(blockType: "image" | "pdf" | "html" | "ppt" | "unknown") {
+  return blockType === "image" || blockType === "pdf" || blockType === "html";
+}
+
+async function ensureDirectory(directoryPath: string) {
+  await fsp.mkdir(directoryPath, { recursive: true });
+}
+
+async function extractZipArchive(zipPath: string, destinationPath: string) {
+  await ensureDirectory(destinationPath);
+  await new Promise<void>((resolve, reject) => {
+    const command = `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${destinationPath.replace(/'/g, "''")}' -Force`;
+    const child = spawn("powershell.exe", ["-NoProfile", "-Command", command], {
+      windowsHide: true,
+      stdio: "ignore",
+    });
+    child.once("exit", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(`ZIP extraction failed with code ${code ?? "unknown"}.`));
+    });
+    child.once("error", reject);
+  });
+}
+
 function normalizeVaultSyncPolicy(
   current: BrainxDesktopVaultSyncPolicy,
   patch: { mode: BrainxDesktopVaultSyncMode; remoteWorkspaceId?: string | null }
@@ -467,6 +704,30 @@ function createFallbackHtml(message: string) {
 </html>`)}`;
 }
 
+function registerAssetProtocol() {
+  protocol.handle("brainx-asset", async (request) => {
+    const assetId = decodeURIComponent(new URL(request.url).pathname.replace(/^\/+/, "").replace(/^vault\/?/, ""));
+    const vault = getActiveVault();
+    if (!vault || !assetId) {
+      return new Response("Asset not found", { status: 404 });
+    }
+
+    try {
+      const { asset, assetPath } = getVaultAssetById(vault, assetId);
+      const buffer = await fsp.readFile(assetPath);
+      return new Response(buffer, {
+        status: 200,
+        headers: {
+          "content-type": asset.mimeType || "application/octet-stream",
+          "content-length": String(buffer.byteLength),
+        },
+      });
+    } catch {
+      return new Response("Asset not found", { status: 404 });
+    }
+  });
+}
+
 function createChildWindow(url: string, opener?: BrowserWindow | null, options?: BrainxDesktopPopupOptions) {
   const child = new BrowserWindow({
     parent: opener ?? mainWindow ?? undefined,
@@ -478,6 +739,7 @@ function createChildWindow(url: string, opener?: BrowserWindow | null, options?:
     autoHideMenuBar: true,
     show: false,
     title: options?.name ?? getWindowTitle(),
+    icon: getWindowIconPath(),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -507,7 +769,8 @@ function resolveDeepLink(rawUrl: string) {
   try {
     const parsed = new URL(rawUrl);
     if (parsed.protocol !== `${getProtocolScheme()}:`) return null;
-    const route = parsed.pathname.startsWith("/") ? parsed.pathname : `/${parsed.pathname}`;
+    const routePath = parsed.pathname.startsWith("/") ? parsed.pathname : `/${parsed.pathname}`;
+    const route = parsed.host ? `/${parsed.host}${routePath}` : routePath;
     const target = new URL(route + parsed.search + parsed.hash, appOrigin);
     return target.toString();
   } catch {
@@ -625,6 +888,598 @@ function createVaultNoteRecord(
     typography: null,
     fileName: buildNoteFileName(noteId, title),
   };
+}
+
+function createImportedAssetMarkdown(asset: BrainxDesktopVaultAsset) {
+  const lowerName = asset.fileName.toLowerCase();
+  if (asset.mimeType.startsWith("image/") || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(lowerName)) {
+    return `<div data-image-block="true" data-asset-id="${asset.assetId}" data-file-name="${asset.fileName}"></div>`;
+  }
+  if (lowerName.endsWith(".pdf")) {
+    return `<div data-pdf-block="true" data-asset-id="${asset.assetId}" data-file-name="${asset.fileName}"></div>`;
+  }
+  if (lowerName.endsWith(".html") || lowerName.endsWith(".htm")) {
+    return `<div data-html-block="true" data-asset-id="${asset.assetId}" data-file-name="${asset.fileName}"></div>`;
+  }
+  return [
+    `# ${path.basename(asset.fileName, path.extname(asset.fileName)) || asset.fileName}`,
+    "",
+    `- Imported asset: ${asset.fileName}`,
+    `- Vault path: assets/${asset.relativePath}`,
+    `- MIME type: ${asset.mimeType}`,
+    `- Size: ${asset.size} bytes`,
+  ].join("\n");
+}
+
+function createVaultAssetRecord(
+  index: VaultIndexFile,
+  vault: BrainxDesktopVaultSummary,
+  fileName: string,
+  mimeType: string,
+  buffer: Buffer
+) {
+  const now = new Date().toISOString();
+  const extension = path.extname(fileName) || ".bin";
+  const assetId = `vault_asset_${crypto.randomUUID()}`;
+  const relativePath = `${sanitizeSlug(path.basename(fileName, extension), assetId)}-${assetId}${extension}`;
+  fs.writeFileSync(path.join(vault.assetsPath, relativePath), buffer);
+  const asset: BrainxDesktopVaultAsset = {
+    assetId,
+    fileName,
+    mimeType,
+    relativePath,
+    size: buffer.byteLength,
+    createdAt: now,
+    updatedAt: now,
+  };
+  index.assets.unshift(asset);
+  return asset;
+}
+
+function ensureVaultFolderPath(
+  index: VaultIndexFile,
+  folderNameByPath: Map<string, string>,
+  segments: string[]
+) {
+  let parentFolderId: string | null = null;
+  let currentPath = "";
+  for (const rawSegment of segments) {
+    const segment = rawSegment.trim();
+    if (!segment) continue;
+    currentPath = currentPath ? `${currentPath}/${segment}` : segment;
+    const existingFolderId = folderNameByPath.get(currentPath);
+    if (existingFolderId) {
+      parentFolderId = existingFolderId;
+      continue;
+    }
+    const folder = createVaultFolderRecord(index, { name: segment, parentFolderId });
+    index.folders.push(folder);
+    folderNameByPath.set(currentPath, folder.folderId);
+    parentFolderId = folder.folderId;
+  }
+  return parentFolderId;
+}
+
+async function importExtractedVaultDirectory(
+  vault: BrainxDesktopVaultSummary,
+  targetFolderId: string | null,
+  extractedRoot: string
+) {
+  const index = readVaultIndex(vault);
+  const createdNotes: Array<{ noteId?: string; title?: string }> = [];
+  const failedFiles: Array<{ fileName?: string; reason?: string }> = [];
+  const folderNameByPath = new Map<string, string>();
+
+  const walk = async (directoryPath: string) => {
+    const entries = await fsp.readdir(directoryPath, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name === ".brainx") continue;
+      const fullPath = path.join(directoryPath, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+        continue;
+      }
+      const relativePath = path.relative(extractedRoot, fullPath);
+      const relativeSegments = relativePath.split(path.sep);
+      const parentSegments = relativeSegments.slice(0, -1);
+      const parentFolderId =
+        parentSegments.length > 0
+          ? ensureVaultFolderPath(index, folderNameByPath, parentSegments)
+          : targetFolderId;
+
+      try {
+        const buffer = await fsp.readFile(fullPath);
+        const lowerName = entry.name.toLowerCase();
+        const isTextLike =
+          /\.(md|markdown|txt|html|htm|csv)$/i.test(lowerName) ||
+          ["text/plain", "text/markdown", "text/html", "text/csv"].includes(guessMimeType(fullPath));
+
+        if (isTextLike) {
+          const note = createVaultNoteRecord(index, {
+            title: path.basename(entry.name, path.extname(entry.name)),
+            markdown: buffer.toString("utf8"),
+            folderId: parentFolderId,
+            tags: [],
+          });
+          index.notes.unshift(note);
+          writeVaultNoteMarkdown(vault, note.fileName, note.markdown);
+          createdNotes.push({ noteId: note.noteId, title: note.title });
+          continue;
+        }
+
+        const asset = createVaultAssetRecord(index, vault, entry.name, guessMimeType(fullPath), buffer);
+        const note = createVaultNoteRecord(index, {
+          title: path.basename(entry.name, path.extname(entry.name)),
+          markdown: createImportedAssetMarkdown(asset),
+          folderId: parentFolderId,
+          tags: ["imported-asset"],
+        });
+        index.notes.unshift(note);
+        writeVaultNoteMarkdown(vault, note.fileName, note.markdown);
+        createdNotes.push({ noteId: note.noteId, title: note.title });
+      } catch (error) {
+        failedFiles.push({
+          fileName: relativePath,
+          reason: error instanceof Error ? error.message : "Unknown import failure",
+        });
+      }
+    }
+  };
+
+  await walk(extractedRoot);
+  persistVaultIndex(vault, index);
+  return { createdNotes, failedFiles };
+}
+
+function buildRemoteWorkspaceHeaders(session: { accessToken: string; tokenType: string }, init?: RequestInit) {
+  const headers = new Headers(init?.headers ?? {});
+  headers.set("Authorization", `${session.tokenType} ${session.accessToken}`);
+  if (init?.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  return headers;
+}
+
+async function remoteWorkspaceRequest<T>(pathName: string, init?: RequestInit): Promise<T> {
+  const session = readStoredAuthSession();
+  if (!session?.accessToken) {
+    throw new Error("Desktop manual sync requires an authenticated BrainX session.");
+  }
+
+  const response = await fetch(`${getDesktopApiOrigin()}${pathName}`, {
+    ...init,
+    headers: buildRemoteWorkspaceHeaders(session, init),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | { success?: boolean; data?: T; message?: string; error?: { message?: string } }
+    | null;
+  if (!response.ok || !payload?.success) {
+    throw new Error(payload?.message ?? payload?.error?.message ?? `Remote sync request failed (${response.status}).`);
+  }
+  return payload.data as T;
+}
+
+async function remoteWorkspaceBinaryRequest(pathName: string, init?: RequestInit) {
+  const session = readStoredAuthSession();
+  if (!session?.accessToken) {
+    throw new Error("Desktop manual sync requires an authenticated BrainX session.");
+  }
+
+  const response = await fetch(`${getDesktopApiOrigin()}${pathName}`, {
+    ...init,
+    headers: buildRemoteWorkspaceHeaders(session, init),
+  });
+  if (!response.ok) {
+    throw new Error(`Remote asset request failed (${response.status}).`);
+  }
+  return response;
+}
+
+async function uploadVaultAssetToRemote(
+  vault: BrainxDesktopVaultSummary,
+  index: VaultIndexFile,
+  syncState: VaultSyncStateFile,
+  localAssetId: string
+) {
+  const asset = index.assets.find((item) => item.assetId === localAssetId);
+  if (!asset) {
+    throw new Error(`Vault asset not found for sync: ${localAssetId}`);
+  }
+
+  const assetPath = getVaultAssetFilePath(vault, asset);
+  const buffer = await fsp.readFile(assetPath);
+  const checksum = hashBufferSha256(buffer);
+  const currentMapping = syncState.assetMappings[localAssetId];
+  if (currentMapping?.remoteAssetId && currentMapping.checksum === checksum) {
+    return currentMapping.remoteAssetId;
+  }
+
+  const uploadSession = await remoteWorkspaceRequest<{
+    uploadSessionId: string;
+    uploadUrl: string;
+    maxSizeBytes: number;
+  }>("/api/v1/assets/upload-sessions", {
+    method: "POST",
+    body: JSON.stringify({
+      fileName: asset.fileName,
+      contentType: asset.mimeType,
+      sizeBytes: asset.size,
+      targetNoteId: null,
+    }),
+  });
+
+  const formData = new FormData();
+  formData.append("file", new Blob([buffer], { type: asset.mimeType || "application/octet-stream" }), asset.fileName);
+  await remoteWorkspaceBinaryRequest(`/api/v1/assets/upload-sessions/${uploadSession.uploadSessionId}/binary`, {
+    method: "PUT",
+    body: formData,
+  });
+
+  const completed = await remoteWorkspaceRequest<{ assetId: string; status: string }>(
+    `/api/v1/assets/upload-sessions/${uploadSession.uploadSessionId}/complete`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        checksum,
+        conversionMode: "KEEP_ORIGINAL",
+      }),
+    }
+  );
+
+  syncState.assetMappings[localAssetId] = {
+    remoteAssetId: completed.assetId,
+    checksum,
+    syncedAt: new Date().toISOString(),
+  };
+  return completed.assetId;
+}
+
+async function ensureRemoteAssetMirroredToVault(
+  vault: BrainxDesktopVaultSummary,
+  index: VaultIndexFile,
+  syncState: VaultSyncStateFile,
+  remoteAssetId: string
+) {
+  const existingEntry = Object.entries(syncState.assetMappings).find(([, value]) => value.remoteAssetId === remoteAssetId);
+  if (existingEntry) {
+    const [localAssetId] = existingEntry;
+    const existingAsset = index.assets.find((item) => item.assetId === localAssetId);
+    if (existingAsset && fs.existsSync(getVaultAssetFilePath(vault, existingAsset))) {
+      return localAssetId;
+    }
+  }
+
+  const detail = await remoteWorkspaceRequest<{
+    assetId: string;
+    fileName: string;
+    contentType: string;
+    sizeBytes: number;
+    downloadUrl: string;
+    createdAt?: string;
+  }>(`/api/v1/assets/${remoteAssetId}`);
+  const response = await remoteWorkspaceBinaryRequest(`/api/v1/assets/${remoteAssetId}/file`);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const asset = createVaultAssetRecord(index, vault, detail.fileName, detail.contentType, buffer);
+  if (detail.createdAt) {
+    asset.createdAt = detail.createdAt;
+    asset.updatedAt = detail.createdAt;
+  }
+  syncState.assetMappings[asset.assetId] = {
+    remoteAssetId,
+    checksum: hashBufferSha256(buffer),
+    syncedAt: new Date().toISOString(),
+  };
+  return asset.assetId;
+}
+
+async function buildRemoteMarkdownFromLocalNote(
+  vault: BrainxDesktopVaultSummary,
+  index: VaultIndexFile,
+  syncState: VaultSyncStateFile,
+  localMarkdown: string
+) {
+  const replacements: Record<string, string> = {};
+  for (const reference of extractAssetReferences(localMarkdown)) {
+    if (!isLocalVaultAssetId(reference.assetId)) continue;
+    replacements[reference.assetId] = await uploadVaultAssetToRemote(vault, index, syncState, reference.assetId);
+  }
+  return replaceAssetIdsInMarkdown(localMarkdown, replacements);
+}
+
+async function buildLocalMarkdownFromRemoteNote(
+  vault: BrainxDesktopVaultSummary,
+  index: VaultIndexFile,
+  syncState: VaultSyncStateFile,
+  remoteMarkdown: string
+) {
+  const replacements: Record<string, string> = {};
+  for (const reference of extractAssetReferences(remoteMarkdown)) {
+    if (isLocalVaultAssetId(reference.assetId)) continue;
+    if (!canMirrorAssetToVault(reference.blockType)) continue;
+    replacements[reference.assetId] = await ensureRemoteAssetMirroredToVault(vault, index, syncState, reference.assetId);
+  }
+  return replaceAssetIdsInMarkdown(remoteMarkdown, replacements);
+}
+
+function writeConflictReport(vault: BrainxDesktopVaultSummary, jobId: string, conflicts: VaultSyncConflict[]) {
+  if (conflicts.length === 0) return;
+  fs.mkdirSync(getVaultConflictsDirectory(vault), { recursive: true });
+  fs.writeFileSync(
+    path.join(getVaultConflictsDirectory(vault), `${jobId}.json`),
+    JSON.stringify({ jobId, generatedAt: new Date().toISOString(), conflicts }, null, 2),
+    "utf8"
+  );
+}
+
+function readConflictReport(vault: BrainxDesktopVaultSummary, jobId: string) {
+  try {
+    const raw = fs.readFileSync(path.join(getVaultConflictsDirectory(vault), `${jobId}.json`), "utf8");
+    return JSON.parse(raw) as { jobId: string; generatedAt: string; conflicts: Array<Record<string, unknown>> };
+  } catch {
+    return null;
+  }
+}
+
+async function runManualVaultSync(vault: BrainxDesktopVaultSummary): Promise<BrainxDesktopManualSyncJob> {
+  const jobId = `vault_sync_${crypto.randomUUID()}`;
+  const startedAt = new Date().toISOString();
+  const index = readVaultIndex(vault);
+  if (index.syncPolicy.mode !== "manual-cloud") {
+    const skippedJob = {
+      jobId,
+      status: "SKIPPED",
+      mode: index.syncPolicy.mode,
+      startedAt,
+      message: "Vault sync mode is local-only. Switch to manual-cloud to run sync.",
+    } satisfies BrainxDesktopManualSyncJob;
+    persistLastManualSyncJob(vault, skippedJob);
+    return skippedJob;
+  }
+
+  try {
+    const syncState = readVaultSyncState(vault);
+    const remoteFolders = await remoteWorkspaceRequest<Array<{ folderId: string; name: string; parentFolderId: string | null; updatedAt?: string }>>("/api/v1/folders/tree");
+    const remoteNotesData = await remoteWorkspaceRequest<{ notes: Array<{ noteId: string; title: string; markdown: string; folderId: string | null; tags: string[]; version: number; createdAt: string; updatedAt: string }>; totalCount: number }>("/api/v1/notes");
+    const remoteFoldersById = new Map(remoteFolders.map((folder) => [folder.folderId, folder]));
+    const remoteNotesById = new Map(remoteNotesData.notes.map((note) => [note.noteId, note]));
+    const reverseFolderMappings = new Map(Object.entries(syncState.folderMappings).map(([localId, value]) => [value.remoteFolderId, localId]));
+    const reverseNoteMappings = new Map(Object.entries(syncState.noteMappings).map(([localId, value]) => [value.remoteNoteId, localId]));
+    const conflicts: VaultSyncConflict[] = [];
+    const createdNotes: Array<{ noteId?: string; title?: string }> = [];
+
+    for (const remoteFolder of remoteFolders) {
+      if (reverseFolderMappings.has(remoteFolder.folderId)) continue;
+      const parentFolderId = remoteFolder.parentFolderId ? reverseFolderMappings.get(remoteFolder.parentFolderId) ?? null : null;
+      const localFolder = createVaultFolderRecord(index, { name: remoteFolder.name, parentFolderId });
+      localFolder.updatedAt = remoteFolder.updatedAt ?? localFolder.updatedAt;
+      index.folders.push(localFolder);
+      syncState.folderMappings[localFolder.folderId] = { remoteFolderId: remoteFolder.folderId };
+      reverseFolderMappings.set(remoteFolder.folderId, localFolder.folderId);
+    }
+
+    const folderDepth = (folder: BrainxDesktopVaultFolder) => {
+      let depth = 0;
+      let currentParent = folder.parentFolderId;
+      while (currentParent) {
+        depth += 1;
+        currentParent = index.folders.find((item) => item.folderId === currentParent)?.parentFolderId ?? null;
+      }
+      return depth;
+    };
+
+    const localFolders = index.folders.slice().sort((left, right) => folderDepth(left) - folderDepth(right));
+    for (const localFolder of localFolders) {
+      const mapping = syncState.folderMappings[localFolder.folderId];
+      const localChanged = isUpdatedAfter(localFolder.updatedAt, syncState.lastSyncedAt);
+      const payload = {
+        name: localFolder.name,
+        parentFolderId: localFolder.parentFolderId
+          ? syncState.folderMappings[localFolder.parentFolderId]?.remoteFolderId ?? null
+          : null,
+      };
+
+      if (!mapping) {
+        const created = await remoteWorkspaceRequest<{ folderId: string; name: string; parentFolderId: string | null }>(
+          "/api/v1/folders",
+          { method: "POST", body: JSON.stringify(payload) }
+        );
+        syncState.folderMappings[localFolder.folderId] = { remoteFolderId: created.folderId };
+        reverseFolderMappings.set(created.folderId, localFolder.folderId);
+        continue;
+      }
+
+      const remoteFolder = remoteFoldersById.get(mapping.remoteFolderId);
+      if (!remoteFolder) {
+        const recreated = await remoteWorkspaceRequest<{ folderId: string; name: string; parentFolderId: string | null }>(
+          "/api/v1/folders",
+          { method: "POST", body: JSON.stringify(payload) }
+        );
+        syncState.folderMappings[localFolder.folderId] = { remoteFolderId: recreated.folderId };
+        reverseFolderMappings.set(recreated.folderId, localFolder.folderId);
+        continue;
+      }
+
+      const remoteChanged = isUpdatedAfter(remoteFolder.updatedAt ?? null, syncState.lastSyncedAt);
+      if (localChanged && remoteChanged && hashVaultFolder(localFolder) !== hashValue(remoteFolder)) {
+        conflicts.push({
+          entityType: "folder",
+          localId: localFolder.folderId,
+          remoteId: remoteFolder.folderId,
+          localUpdatedAt: localFolder.updatedAt,
+          remoteUpdatedAt: remoteFolder.updatedAt ?? localFolder.updatedAt,
+          reason: "Both local and remote folder metadata changed since the last sync.",
+        });
+        continue;
+      }
+
+      if (localChanged) {
+        await remoteWorkspaceRequest(`/api/v1/folders/${remoteFolder.folderId}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+      } else if (remoteChanged) {
+        localFolder.name = remoteFolder.name;
+        localFolder.parentFolderId = remoteFolder.parentFolderId
+          ? reverseFolderMappings.get(remoteFolder.parentFolderId) ?? null
+          : null;
+        localFolder.updatedAt = remoteFolder.updatedAt ?? localFolder.updatedAt;
+      }
+    }
+
+    for (const remoteNote of remoteNotesData.notes) {
+      if (reverseNoteMappings.has(remoteNote.noteId)) continue;
+      const localizedMarkdown = await buildLocalMarkdownFromRemoteNote(vault, index, syncState, remoteNote.markdown);
+      const localNote = createVaultNoteRecord(index, {
+        title: remoteNote.title,
+        markdown: localizedMarkdown,
+        folderId: remoteNote.folderId ? reverseFolderMappings.get(remoteNote.folderId) ?? null : null,
+        tags: remoteNote.tags ?? [],
+      });
+      localNote.updatedAt = remoteNote.updatedAt;
+      localNote.createdAt = remoteNote.createdAt;
+      localNote.version = Math.max(remoteNote.version ?? 1, 1);
+      index.notes.unshift(localNote);
+      writeVaultNoteMarkdown(vault, localNote.fileName, localNote.markdown);
+      syncState.noteMappings[localNote.noteId] = { remoteNoteId: remoteNote.noteId };
+      createdNotes.push({ noteId: localNote.noteId, title: localNote.title });
+    }
+
+    for (const localNote of index.notes) {
+      const mapping = syncState.noteMappings[localNote.noteId];
+      const localChanged = isUpdatedAfter(localNote.updatedAt, syncState.lastSyncedAt);
+      let remoteEquivalentMarkdown: string | null = null;
+      const getRemoteEquivalentMarkdown = async () => {
+        if (remoteEquivalentMarkdown !== null) {
+          return remoteEquivalentMarkdown;
+        }
+        remoteEquivalentMarkdown = await buildRemoteMarkdownFromLocalNote(vault, index, syncState, localNote.markdown);
+        return remoteEquivalentMarkdown;
+      };
+      const metadataPayload = {
+        title: localNote.title,
+        folderId: localNote.folderId ? syncState.folderMappings[localNote.folderId]?.remoteFolderId ?? null : null,
+        tags: localNote.tags,
+        typography: localNote.typography ?? null,
+      };
+
+      if (!mapping) {
+        const created = await remoteWorkspaceRequest<{ noteId: string; title: string; folderId: string | null; version: number; createdAt: string }>(
+          "/api/v1/notes",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              title: localNote.title,
+              markdown: await getRemoteEquivalentMarkdown(),
+              folderId: metadataPayload.folderId,
+              tags: localNote.tags,
+            }),
+          }
+        );
+        syncState.noteMappings[localNote.noteId] = { remoteNoteId: created.noteId };
+        continue;
+      }
+
+      const remoteNote = remoteNotesById.get(mapping.remoteNoteId);
+      if (!remoteNote) {
+        const recreated = await remoteWorkspaceRequest<{ noteId: string; title: string; folderId: string | null; version: number; createdAt: string }>(
+          "/api/v1/notes",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              title: localNote.title,
+              markdown: await getRemoteEquivalentMarkdown(),
+              folderId: metadataPayload.folderId,
+              tags: localNote.tags,
+            }),
+          }
+        );
+        syncState.noteMappings[localNote.noteId] = { remoteNoteId: recreated.noteId };
+        continue;
+      }
+
+      const remoteChanged = isUpdatedAfter(remoteNote.updatedAt, syncState.lastSyncedAt);
+      if (
+        localChanged &&
+        remoteChanged &&
+        hashVaultNote(localNote) !== hashValue({
+          title: remoteNote.title,
+          markdown: await buildLocalMarkdownFromRemoteNote(vault, index, syncState, remoteNote.markdown),
+          folderId: remoteNote.folderId ? reverseFolderMappings.get(remoteNote.folderId) ?? null : null,
+          tags: remoteNote.tags ?? [],
+        })
+      ) {
+        conflicts.push({
+          entityType: "note",
+          localId: localNote.noteId,
+          remoteId: remoteNote.noteId,
+          localUpdatedAt: localNote.updatedAt,
+          remoteUpdatedAt: remoteNote.updatedAt,
+          reason: "Both local and remote note content changed since the last sync.",
+        });
+        continue;
+      }
+
+      if (localChanged) {
+        await remoteWorkspaceRequest(`/api/v1/notes/${remoteNote.noteId}/content`, {
+          method: "PUT",
+          body: JSON.stringify({
+            baseVersion: remoteNote.version ?? 1,
+            markdown: await getRemoteEquivalentMarkdown(),
+            clientSavedAt: new Date().toISOString(),
+          }),
+        });
+        await remoteWorkspaceRequest(`/api/v1/notes/${remoteNote.noteId}/metadata`, {
+          method: "PATCH",
+          body: JSON.stringify(metadataPayload),
+        });
+      } else if (remoteChanged) {
+        const localizedMarkdown = await buildLocalMarkdownFromRemoteNote(vault, index, syncState, remoteNote.markdown);
+        localNote.title = remoteNote.title;
+        localNote.markdown = localizedMarkdown;
+        localNote.folderId = remoteNote.folderId ? reverseFolderMappings.get(remoteNote.folderId) ?? null : null;
+        localNote.tags = remoteNote.tags ?? [];
+        localNote.version = Math.max(remoteNote.version ?? localNote.version, localNote.version);
+        localNote.updatedAt = remoteNote.updatedAt;
+        writeVaultNoteMarkdown(vault, localNote.fileName, localNote.markdown);
+      }
+    }
+
+    persistVaultIndex(vault, index);
+    syncState.lastSyncedAt = new Date().toISOString();
+    persistVaultSyncState(vault, syncState);
+    writeConflictReport(vault, jobId, conflicts);
+    index.syncPolicy.lastSyncedAt = syncState.lastSyncedAt;
+    persistVaultIndex(vault, index);
+
+    const completedJob = {
+      jobId,
+      status: conflicts.length > 0 ? "CONFLICT" : "COMPLETED",
+      mode: index.syncPolicy.mode,
+      startedAt,
+      completedAt: new Date().toISOString(),
+      message: conflicts.length > 0
+        ? "Manual sync completed with conflicts. Review .brainx/conflicts for details."
+        : "Manual sync completed.",
+      createdNotes,
+      failedFiles: [],
+      conflicts,
+    } satisfies BrainxDesktopManualSyncJob;
+    persistLastManualSyncJob(vault, completedJob);
+    return completedJob;
+  } catch (error) {
+    const failedJob = {
+      jobId,
+      status: "FAILED",
+      mode: index.syncPolicy.mode,
+      startedAt,
+      completedAt: new Date().toISOString(),
+      message: error instanceof Error ? error.message : "Manual sync failed.",
+      failedFiles: [],
+      conflicts: [],
+    } satisfies BrainxDesktopManualSyncJob;
+    persistLastManualSyncJob(vault, failedJob);
+    return failedJob;
+  }
 }
 
 function buildAppMenu() {
@@ -774,6 +1629,7 @@ async function createMainWindow() {
     autoHideMenuBar: true,
     show: false,
     backgroundColor: "#0b1020",
+    icon: getWindowIconPath(),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -783,6 +1639,7 @@ async function createMainWindow() {
 
   attachNavigationPolicy(window);
   hardenContents(window.webContents);
+  window.webContents.openDevTools({ mode: "detach" });
 
   window.once("ready-to-show", () => window.show());
   window.on("closed", () => {
@@ -944,6 +1801,25 @@ function registerIpc() {
       persistStorageState();
     }
     event.returnValue = true;
+  });
+
+  ipcMain.handle("brainx-desktop:request-api", async (_event, options: BrainxDesktopApiRequestOptions) => {
+    const url = resolveDesktopApiRequestUrl(options.path);
+    const response = await fetch(url, {
+      method: options.method ?? "GET",
+      headers: options.headers,
+      body: options.body,
+    });
+    const bodyText = await response.text();
+    const headers = Object.fromEntries(response.headers.entries());
+    const result: BrainxDesktopApiResponse = {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      bodyText,
+      headers,
+    };
+    return result;
   });
 
   ipcMain.handle("brainx-desktop:open-file", async (event, options?: BrainxDesktopOpenFileOptions) => {
@@ -1137,25 +2013,58 @@ function registerIpc() {
   ipcMain.handle("brainx-desktop:write-vault-asset", (_event, options: BrainxDesktopWriteVaultAssetOptions) => {
     const vault = requireActiveVault();
     const index = readVaultIndex(vault);
-    const now = new Date().toISOString();
-    const extension = path.extname(options.fileName) || ".bin";
-    const assetId = `vault_asset_${crypto.randomUUID()}`;
-    const relativePath = `${sanitizeSlug(path.basename(options.fileName, extension), assetId)}-${assetId}${extension}`;
-    const assetPath = path.join(vault.assetsPath, relativePath);
     const buffer = Buffer.from(options.dataBase64, "base64");
-    fs.writeFileSync(assetPath, buffer);
-    const asset: BrainxDesktopVaultAsset = {
-      assetId,
-      fileName: options.fileName,
-      mimeType: options.mimeType,
-      relativePath,
-      size: buffer.byteLength,
-      createdAt: now,
-      updatedAt: now,
-    };
-    index.assets.unshift(asset);
+    const asset = createVaultAssetRecord(index, vault, options.fileName, options.mimeType, buffer);
     persistVaultIndex(vault, index);
     return asset;
+  });
+
+  ipcMain.handle("brainx-desktop:open-vault-asset", async (_event, assetId: string) => {
+    const vault = requireActiveVault();
+    const { assetPath } = getVaultAssetById(vault, assetId);
+    const result = await shell.openPath(assetPath);
+    return result.length === 0;
+  });
+
+  ipcMain.handle("brainx-desktop:import-vault-zip", async (_event, options: BrainxDesktopImportVaultZipOptions) => {
+    const vault = requireActiveVault();
+    const jobId = `desktop_zip_import_${crypto.randomUUID()}`;
+    const startedAt = new Date().toISOString();
+    const tempRoot = path.join(app.getPath("temp"), "brainx-vault-imports", jobId);
+    const zipPath = path.join(tempRoot, options.fileName);
+    const extractPath = path.join(tempRoot, "unzipped");
+
+    try {
+      await ensureDirectory(tempRoot);
+      await fsp.writeFile(zipPath, Buffer.from(options.dataBase64, "base64"));
+      await extractZipArchive(zipPath, extractPath);
+      const result = await importExtractedVaultDirectory(vault, options.targetFolderId ?? null, extractPath);
+      return {
+        jobId,
+        status: result.failedFiles.length > 0 ? "CONFLICT" : "COMPLETED",
+        mode: readVaultIndex(vault).syncPolicy.mode,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        message: result.failedFiles.length > 0 ? "ZIP import completed with some failed files." : "ZIP import completed.",
+        createdNotes: result.createdNotes,
+        failedFiles: result.failedFiles,
+        conflicts: [],
+      } satisfies BrainxDesktopManualSyncJob;
+    } catch (error) {
+      return {
+        jobId,
+        status: "FAILED",
+        mode: readVaultIndex(vault).syncPolicy.mode,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        message: error instanceof Error ? error.message : "ZIP import failed.",
+        createdNotes: [],
+        failedFiles: [{ fileName: options.fileName, reason: error instanceof Error ? error.message : "Unknown ZIP import failure" }],
+        conflicts: [],
+      } satisfies BrainxDesktopManualSyncJob;
+    } finally {
+      await fsp.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
+    }
   });
 
   ipcMain.handle("brainx-desktop:save-vault-export", async (_event, options: BrainxDesktopSaveVaultExportOptions) => {
@@ -1194,6 +2103,18 @@ function registerIpc() {
     return readVaultIndex(vault).syncPolicy;
   });
 
+  ipcMain.handle("brainx-desktop:get-latest-manual-sync-job", () => {
+    const vault = getActiveVault();
+    if (!vault) return null;
+    return readLastManualSyncJob(vault);
+  });
+
+  ipcMain.handle("brainx-desktop:get-manual-sync-conflict-report", (_event, jobId: string) => {
+    const vault = getActiveVault();
+    if (!vault) return null;
+    return readConflictReport(vault, jobId);
+  });
+
   ipcMain.handle(
     "brainx-desktop:set-vault-sync-policy",
     (_event, policy: { mode: BrainxDesktopVaultSyncMode; remoteWorkspaceId?: string | null }) => {
@@ -1205,27 +2126,9 @@ function registerIpc() {
     }
   );
 
-  ipcMain.handle("brainx-desktop:request-manual-sync", (): BrainxDesktopManualSyncJob => {
+  ipcMain.handle("brainx-desktop:request-manual-sync", async () => {
     const vault = requireActiveVault();
-    const index = readVaultIndex(vault);
-    const startedAt = new Date().toISOString();
-    if (index.syncPolicy.mode !== "manual-cloud") {
-      return {
-        jobId: `vault_sync_${crypto.randomUUID()}`,
-        status: "SKIPPED",
-        mode: index.syncPolicy.mode,
-        startedAt,
-        message: "Vault sync mode is local-only. Switch to manual-cloud to enqueue sync jobs.",
-      };
-    }
-
-    return {
-      jobId: `vault_sync_${crypto.randomUUID()}`,
-      status: "QUEUED",
-      mode: index.syncPolicy.mode,
-      startedAt,
-      message: "Manual sync job scaffold created. Remote sync worker is the next implementation step.",
-    };
+    return runManualVaultSync(vault);
   });
 }
 
@@ -1237,6 +2140,7 @@ if (!registerSingleInstanceHandling()) {
   app.whenReady().then(async () => {
     loadStorageState();
     loadVaultState();
+    registerAssetProtocol();
     registerProtocolHandling();
     buildAppMenu();
     await bootstrapRendererRuntime();

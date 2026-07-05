@@ -1,16 +1,17 @@
 "use client";
 
 import { clearAuthSession, isDevAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { getWorkspaceApiBaseUrl } from "@/lib/api-base";
 import { CLUSTERS, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
+import { requestDesktopApiJson } from "@/lib/desktop-api-request";
 import { getBrainxDesktopConfig, isElectronDesktop } from "@/lib/desktop-bridge";
 import { getDesktopVaultSnapshot } from "@/lib/desktop-vault";
+import { DEV_USER_ID as WORKSPACE_DEV_USER_ID } from "@/lib/dev-user";
 import { extractWikiLinkTargets, resolveWikiLinkByTitle } from "@/lib/wiki-links";
 import type { NoteDraftData } from "@/lib/workspace-api";
 
-const WORKSPACE_API_BASE_URL = process.env.NEXT_PUBLIC_WORKSPACE_API_BASE_URL ?? "http://localhost:8082";
 export const USE_MOCK_GRAPH = process.env.NEXT_PUBLIC_GRAPH_USE_MOCK !== "false";
 export const USE_MOCK_GRAPH_CLUSTERS = process.env.NEXT_PUBLIC_GRAPH_CLUSTERS_USE_MOCK !== "false";
-const WORKSPACE_DEV_USER_ID = process.env.NEXT_PUBLIC_WORKSPACE_DEV_USER_ID?.trim();
 
 export type GraphNodeData = {
   id: string;
@@ -55,7 +56,7 @@ async function workspaceRequest<T>(path: string, init?: RequestInit): Promise<T>
   const session = readAuthSession();
   const useAuthenticatedSession = Boolean(session?.accessToken) && !isDevAuthSession(session);
   const useDevUserHeader = Boolean(WORKSPACE_DEV_USER_ID) && !useAuthenticatedSession;
-  const response = await fetch(`${WORKSPACE_API_BASE_URL}${path}`, {
+  const requestInit: RequestInit = {
     ...init,
     credentials: "include",
     headers: {
@@ -64,9 +65,14 @@ async function workspaceRequest<T>(path: string, init?: RequestInit): Promise<T>
       ...(useAuthenticatedSession ? { Authorization: `${session?.tokenType ?? "Bearer"} ${session?.accessToken}` } : {}),
       ...(init?.headers ?? {})
     }
-  });
-
-  const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
+  };
+  const desktopResponse = await requestDesktopApiJson<ApiResponse<T>>(path, requestInit);
+  const response = desktopResponse
+    ? { ok: desktopResponse.ok, status: desktopResponse.status }
+    : await fetch(`${getWorkspaceApiBaseUrl()}${path}`, requestInit);
+  const payload = desktopResponse
+    ? desktopResponse.payload
+    : ((await (response as Response).json().catch(() => null)) as ApiResponse<T> | null);
   if (response.status === 401 || response.status === 403) {
     clearAuthSession();
     throw new Error("Login expired. Please sign in again.");
@@ -155,16 +161,17 @@ export function graphToBrainXNotes(graph: GraphData): BrainXNote[] {
   }
 
   return graph.nodes.map((node) => {
+    const title = node.title?.trim() || "Untitled";
     const cluster = normalizeClusterId(node.clusterId ?? node.folderId ?? node.noteId);
     const createdAt = normalizeDate(node.createdAt);
     const updatedAt = normalizeDate(node.updatedAt);
     return {
       id: node.noteId,
-      title: node.title || "Untitled",
+      title,
       markdown: "",
       folderId: cluster,
       cluster,
-      summary: normalizeSummary(node.summary, node.title),
+      summary: normalizeSummary(node.summary),
       tags: node.tags ?? [],
       links: Array.from(linksByNoteId.get(node.noteId) ?? []),
       searchIndexStatus: "UNKNOWN",
@@ -187,13 +194,14 @@ export function graphToBrainXNotes(graph: GraphData): BrainXNote[] {
 export function draftsToBrainXNotes(drafts: NoteDraftData[]): BrainXNote[] {
   return drafts.map((draft) => {
     const fallbackCluster = CLUSTERS[0].id;
+    const title = draft.title?.trim() || "제목 없음";
     return {
       id: draft.noteId,
-      title: draft.title?.trim() || "제목 없음",
+      title,
       markdown: draft.markdown ?? "",
       folderId: fallbackCluster,
       cluster: fallbackCluster,
-      summary: normalizeSummary(null, draft.title ?? "제목 없음"),
+      summary: normalizeSummary(null),
       tags: [],
       links: [],
       searchIndexStatus: "UNKNOWN",
@@ -250,10 +258,10 @@ function normalizeClusterId(value: string): ClusterId {
   return ids[Math.abs(hash) % ids.length];
 }
 
-function normalizeSummary(summary: string | null | undefined, title: string) {
+function normalizeSummary(summary: string | null | undefined) {
   const text = summary?.trim();
   if (text) return text;
-  return `${title}은 아직 처리되지 않았습니다. AI 기능이 제한됩니다.`;
+  return "";
 }
 
 function normalizeDate(value: string | null | undefined) {

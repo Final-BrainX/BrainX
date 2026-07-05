@@ -100,14 +100,30 @@ function ImageBlockView({ node, updateAttributes, selected, getPos, editor }: No
           // 네이티브 HTML5 드래그(draggable) 대신 ⠿ 손잡이와 같은 마우스 이벤트 기반 드래그로
           // 옮긴다 — 노션처럼 이미지를 직접 잡고 끌 때도 휠 스크롤이 되게 하려는 목적
           // (네이티브 드래그 중에는 브라우저가 'wheel' 이벤트를 보내지 않는다, DragHandleExtension
-          // 참고). 클릭만으로는 드래그가 시작되지 않게 preventDefault만 하고 실제 시작은
-          // mousemove가 충분히 움직였을 때만 하지 않고 즉시 시작한다 — 손잡이 드래그와 동일한
-          // 단순한 동작(클릭 즉시 드래그 상태)으로 통일.
-          if (!editor.isEditable) return;
+          // 참고). 예전에는 mousedown 즉시 preventDefault + 드래그 시작이었는데, 그러면 순수
+          // 클릭(이동 없음)도 항상 드래그로 처리되어 브라우저/ProseMirror의 기본 클릭 선택
+          // (NodeSelection)이 아예 발생하지 않았다 — 이미지를 클릭해도 선택 표시가 안 되고
+          // Delete 키가 먹지 않는 버그의 원인이었다. 그래서 dnd-kit의 PointerSensor와 동일한
+          // 값(4px)만큼 실제로 움직였을 때만 드래그를 시작하고, 움직이지 않은 순수 클릭은
+          // preventDefault 없이 그대로 흘려보내 기본 클릭 선택이 동작하게 둔다.
+          if (!editor.isEditable || event.button !== 0) return;
           const pos = getPos();
           if (pos == null) return;
-          event.preventDefault();
-          startBlockDrag(pos);
+          const startX = event.clientX;
+          const startY = event.clientY;
+          const THRESHOLD = 4;
+          const handleMove = (moveEvent: MouseEvent) => {
+            if (Math.abs(moveEvent.clientX - startX) > THRESHOLD || Math.abs(moveEvent.clientY - startY) > THRESHOLD) {
+              cleanup();
+              startBlockDrag(pos);
+            }
+          };
+          const cleanup = () => {
+            window.removeEventListener("mousemove", handleMove);
+            window.removeEventListener("mouseup", cleanup);
+          };
+          window.addEventListener("mousemove", handleMove);
+          window.addEventListener("mouseup", cleanup);
         }}
       >
         <BlockSizeToolbar

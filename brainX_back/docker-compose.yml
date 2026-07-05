@@ -167,7 +167,7 @@ services:
       EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: ingestion-service
     ports:
-      - "8083:8083"
+      - "127.0.0.1:8083:8083"
     depends_on:
       discovery-service:
         condition: service_healthy
@@ -369,7 +369,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: ["sh", "/docker-entrypoint-initdb.d/01-create-service-databases.sh"]
+    command:
+      ["sh", "/docker-entrypoint-initdb.d/01-create-service-databases.sh"]
 
   postgres:
     image: postgres:16-alpine

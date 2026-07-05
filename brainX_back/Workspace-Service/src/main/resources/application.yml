@@ -23,7 +23,7 @@ spring:
     driver-class-name: ${DB_DRIVER:org.postgresql.Driver}
   sql:
     init:
-      mode: always
+      mode: ${SPRING_SQL_INIT_MODE:always}
       schema-locations:
         - classpath:db/migration/V20260702_01__repair_workspace_note_links_link_type.sql
   data:

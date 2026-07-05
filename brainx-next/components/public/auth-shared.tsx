@@ -3,11 +3,12 @@
 import { useId, type ChangeEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
-import { getOAuthAuthorization, stashOAuthReturnTo, type OAuthProvider } from "@/lib/auth-api";
+import { getHostedWebOrigin, getOAuthAuthorization, stashOAuthReturnTo, type OAuthProvider } from "@/lib/auth-api";
 import { useBrainX } from "@/components/brainx-provider";
 import { Icon, ThemeToggle } from "@/components/brainx-ui";
 import { HeroConstellation } from "@/components/public/landing-screen";
 import { BrandLogo } from "@/components/brand-logo";
+import { isElectronDesktop, openBrainxExternalUrl } from "@/lib/desktop-bridge";
 
 const OAUTH_LINK_INTENT_KEY = "brainx_oauth_link_intent_v1";
 
@@ -116,7 +117,20 @@ export function SocialButtons({ recentLogin = null, returnTo = null }: SocialBut
   const handleOAuth = async (provider: OAuthProvider, name: string) => {
     try {
       window.localStorage.removeItem(OAUTH_LINK_INTENT_KEY);
-      stashOAuthReturnTo(returnTo ?? "/home");
+      const normalizedReturnTo = returnTo ?? "/home";
+
+      if (isElectronDesktop()) {
+        const hostedOrigin = getHostedWebOrigin();
+        const desktopStartUrl = `${hostedOrigin}/oauth/desktop/${provider}?returnTo=${encodeURIComponent(normalizedReturnTo)}`;
+        const opened = await openBrainxExternalUrl(desktopStartUrl);
+        if (!opened) {
+          throw new Error("외부 브라우저를 열지 못했습니다.");
+        }
+        pushToast("브라우저에서 로그인 후 앱으로 자동 복귀합니다.", "info");
+        return;
+      }
+
+      stashOAuthReturnTo(normalizedReturnTo);
       const data = await getOAuthAuthorization(provider);
       window.location.href = data.authorizationUrl;
     } catch (error) {

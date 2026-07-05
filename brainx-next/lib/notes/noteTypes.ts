@@ -5,18 +5,17 @@ export type NoteCategory = "backend" | "frontend" | "ai" | "architecture" | "dat
    "최근 수정순"은 NoteEditor.tsx의 setContent 호출에 emitUpdate:false를 명시해, 노트를 열기만
    해도(탭 전환 등 프로그램적 로드) updatedAt이 갱신되던 버그를 고쳐서 신뢰할 수 있게 만들었다 —
    실제 제목/본문 변경에만 반응한다. */
-export type SortOption = "modified" | "created" | "title" | "favorites" | "ai";
+export type SortOption = "modified" | "created" | "title" | "ai";
 
 export type SortDirection = "asc" | "desc";
 
 /** 정렬 옵션을 바꿀 때(방향은 그대로 두고 옵션만 바꿀 때) 적용할 자연스러운 기본 방향.
-    제목/즐겨찾기는 "정방향"이 오름차순(A→Z, 즐겨찾기 먼저)이고, 수정일/생성일은 "정방향"이
-    최신이 먼저 오는 내림차순이라 서로 반대다 — 옵션을 바꿀 때마다 이 표를 참고해 리셋한다. */
+    제목은 "정방향"이 오름차순(A→Z)이고, 수정일/생성일은 "정방향"이 최신이 먼저 오는
+    내림차순이라 서로 반대다 — 옵션을 바꿀 때마다 이 표를 참고해 리셋한다. */
 export const DEFAULT_SORT_DIRECTION: Record<SortOption, SortDirection> = {
   modified: "desc",
   created: "desc",
   title: "asc",
-  favorites: "desc",
   ai: "asc",
 };
 
@@ -27,18 +26,13 @@ export const SORT_OPTION_ENABLED: Record<SortOption, boolean> = {
   modified: true,
   created: true,
   title: true,
-  favorites: true,
   ai: false,
 };
 
-/** 즐겨찾기 우선은 "즐겨찾기가 먼저 온다"는 그룹 순서 자체는 방향과 무관하게 항상 고정하고,
-    방향은 각 그룹(즐겨찾기/비즐겨찾기) 내부의 최근 수정순 정렬에만 적용한다 — 즐겨찾기를
-    "나중에" 보여주는 것까지 방향으로 뒤집으면 옵션 이름과 모순되기 때문. */
 export const SORT_DIRECTION_APPLICABLE: Record<SortOption, boolean> = {
   modified: true,
   created: true,
   title: true,
-  favorites: true,
   ai: false,
 };
 
@@ -94,14 +88,6 @@ export function sortNotes<T extends { title: string; createdAt: number; updatedA
       return arr.sort((a, b) => (a.createdAt - b.createdAt) * sign);
     case "title":
       return arr.sort((a, b) => naturalTitleCompare(a.title, b.title) * sign);
-    case "favorites":
-      // 즐겨찾기가 먼저 오는 것 자체는 방향과 무관하게 고정하고, 각 그룹(즐겨찾기/비즐겨찾기)
-      // 내부는 최근 수정순으로 정렬한다 — 방향은 그 내부 정렬에만 적용된다(기본 desc=최신 먼저).
-      return arr.sort((a, b) => {
-        const fa = favorites.has(a.id) ? 1 : 0;
-        const fb = favorites.has(b.id) ? 1 : 0;
-        return fb - fa || (a.updatedAt - b.updatedAt) * sign;
-      });
     case "ai":
       // 실제 데이터가 없다 — SORT_OPTION_ENABLED에서 UI 선택 자체를 막고, 여기서도
       // "동작하는 척" 재정렬하지 않고 원래 순서를 그대로 유지한다.
@@ -109,8 +95,8 @@ export function sortNotes<T extends { title: string; createdAt: number; updatedA
   }
 }
 
-/** 폴더 정렬 — 폴더에는 생성/수정 시각이 없어(MockFolder 참고) "제목순"/"즐겨찾기 우선"만 실제로
-    재정렬하고, 그 외 기준(최근 수정순 등)에서는 기존 순서를 그대로 유지한다. */
+/** 폴더 정렬 — 폴더에는 생성/수정 시각이 없어(MockFolder 참고) "제목순"만 실제로 재정렬하고,
+    그 외 기준(최근 수정순 등)에서는 기존 순서를 그대로 유지한다. */
 export function sortFolders<T extends { name: string; id: string; favorite?: boolean }>(
   folders: T[],
   sortBy: SortOption,
@@ -122,14 +108,6 @@ export function sortFolders<T extends { name: string; id: string; favorite?: boo
   switch (sortBy) {
     case "title":
       return arr.sort((a, b) => naturalTitleCompare(a.name, b.name) * sign);
-    case "favorites":
-      // 폴더에는 updatedAt이 없어(MockFolder 참고) 노트처럼 최근 수정순으로 그룹 내부를 정렬할
-      // 수 없다 — 즐겨찾기 그룹은 먼저 오도록 고정하고, 내부는 제목 자연 정렬로 대체한다.
-      return arr.sort((a, b) => {
-        const fa = favorites.has(a.id) || a.favorite ? 1 : 0;
-        const fb = favorites.has(b.id) || b.favorite ? 1 : 0;
-        return fb - fa || naturalTitleCompare(a.name, b.name);
-      });
     default:
       return arr;
   }
@@ -164,6 +142,8 @@ export interface MockNote {
   persisted?: boolean;
   /** 선택 사항 — 설정하지 않은 노트는 기존 기본 스타일을 그대로 사용한다 */
   typography?: NoteTypography;
+  /** 즐겨찾기 여부 — MockFolder.favorite와 동일한 개념(PUT /api/v1/favorites/NOTE/{noteId}). */
+  favorite?: boolean;
 }
 
 /** 일반 노트 탭 — 패널에 열린 탭은 항상 실제 노트를 가리킨다. 열린 노트가 하나도 없는 패널은

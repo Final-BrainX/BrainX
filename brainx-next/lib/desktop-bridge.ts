@@ -123,10 +123,20 @@ export type BrainxDesktopVaultSnapshot = {
 
 export type BrainxDesktopManualSyncJob = {
   jobId: string;
-  status: "QUEUED" | "SKIPPED";
+  status: "QUEUED" | "RUNNING" | "COMPLETED" | "SKIPPED" | "FAILED" | "CONFLICT";
   mode: BrainxDesktopVaultSyncMode;
   startedAt: string;
   message: string;
+  completedAt?: string;
+  createdNotes?: Array<{ noteId?: string; title?: string }>;
+  failedFiles?: Array<{ fileName?: string; reason?: string }>;
+  conflicts?: Array<Record<string, unknown>>;
+};
+
+export type BrainxDesktopManualSyncConflictReport = {
+  jobId: string;
+  generatedAt: string;
+  conflicts: Array<Record<string, unknown>>;
 };
 
 type BrainxDesktopApi = {
@@ -138,6 +148,18 @@ type BrainxDesktopApi = {
   getStoredValue?: (area: "local" | "session", key: string) => string | null;
   setStoredValue?: (area: "local" | "session", key: string, value: string) => void;
   removeStoredValue?: (area: "local" | "session", key: string) => void;
+  requestApi?: (options: {
+    path: string;
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+  }) => Promise<{
+    ok: boolean;
+    status: number;
+    statusText: string;
+    bodyText: string;
+    headers: Record<string, string>;
+  }>;
   openFile?: (options?: { title?: string; accept?: string[] }) => Promise<{
     name: string;
     mimeType: string;
@@ -157,6 +179,8 @@ type BrainxDesktopApi = {
   saveVaultNoteMetadata?: (options: { noteId: string; title: string; folderId?: string | null; tags?: string[]; typography?: BrainxDesktopVaultNote["typography"] }) => Promise<{ noteId: string; title: string; folderId: string | null; tags: string[]; version: number; typography?: BrainxDesktopVaultNote["typography"] }>;
   deleteVaultNote?: (options: { noteId: string }) => Promise<{ noteId: string; deletedAt: string; purgeAt: string | null }>;
   writeVaultAsset?: (options: { fileName: string; mimeType: string; dataBase64: string }) => Promise<BrainxDesktopVaultAsset>;
+  openVaultAsset?: (assetId: string) => Promise<boolean>;
+  importVaultZip?: (options: { fileName: string; dataBase64: string; targetFolderId?: string | null }) => Promise<BrainxDesktopManualSyncJob>;
   saveVaultExport?: (options: { fileName: string; mimeType: string; dataBase64: string }) => Promise<{ saved: boolean; filePath: string }>;
   getVaultWorkspaceStats?: () => Promise<{
     noteCount: number;
@@ -166,6 +190,8 @@ type BrainxDesktopApi = {
   getVaultSyncPolicy?: () => Promise<BrainxDesktopVaultSyncPolicy | null>;
   setVaultSyncPolicy?: (policy: { mode: BrainxDesktopVaultSyncMode; remoteWorkspaceId?: string | null }) => Promise<BrainxDesktopVaultSyncPolicy>;
   requestManualSync?: () => Promise<BrainxDesktopManualSyncJob>;
+  getLatestManualSyncJob?: () => Promise<BrainxDesktopManualSyncJob | null>;
+  getManualSyncConflictReport?: (jobId: string) => Promise<BrainxDesktopManualSyncConflictReport | null>;
 };
 
 declare global {
@@ -208,6 +234,17 @@ export async function getBrainxDesktopConfig() {
     return null;
   }
   return window.brainxDesktop.getConfig();
+}
+
+export async function openBrainxExternalUrl(url: string) {
+  if (typeof window === "undefined") return false;
+
+  if (isElectronDesktop() && window.brainxDesktop?.openExternal) {
+    return window.brainxDesktop.openExternal(url);
+  }
+
+  const popup = window.open(url, "_blank", "noopener,noreferrer");
+  return Boolean(popup);
 }
 
 export async function openBrainxPopup(options: DesktopPopupOptions): Promise<PopupHandle | null> {

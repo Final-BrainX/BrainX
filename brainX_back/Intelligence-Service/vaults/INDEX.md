@@ -13,6 +13,7 @@
 - `docs/domain/consumed-events-domain-map.md`: `Intelligence-Service`가 consumer로 받는 AsyncAPI 이벤트와 Intelligence 도메인 기능 연결을 설명할 때 참고합니다.
 - `docs/domain/style-profile-input-direction.md`: 사람을 위한 UX/도메인 문서입니다. 사용자 문체 설정 입력 방식, `StyleProfile` 정규화 방향, 대화 말투와 결과물 문체 분리를 논의할 때 참고합니다.
 - `docs/technical/conditional-on-bean.md`: Spring Boot `@ConditionalOnBean`의 의미와 Qdrant adapter 적용 맥락을 확인할 때 참고합니다.
+- `docs/technical/ai-feature-catalog.md`: `Intelligence-Service`의 AI/LLM 기능 전체 목록, 공개 API, LLM 호출 여부, provider/model 경계를 확인할 때 참고합니다.
 - `docs/technical/ai-model-pricing-and-usage.md`: AI 모델 catalog 비용 필드, availability 결합, token usage/cost estimate 기록 정책을 확인할 때 참고합니다.
 - `docs/technical/consumed-event-contract-alignment.md`: 구현된 consumed event handler와 AsyncAPI SSOT의 topic/payload 일치 수준을 확인할 때 참고합니다.
 - `docs/technical/consumed-events-implementation-checkpoints.md`: `Intelligence-Service`가 consumer로 받는 이벤트별 구현 체크포인트를 확인할 때 참고합니다.

@@ -17,6 +17,9 @@ public interface NoteRepository extends JpaRepository<Note, String> {
     List<Note> findByUserIdAndFolderIdIn(String userId, Collection<String> folderIds);
     Optional<Note> findFirstByUserIdAndTitleAndDeletedFalse(String userId, String title);
 
+    @Query("SELECT n FROM Note n WHERE n.userId = :userId AND LOWER(n.title) = LOWER(:title) AND n.deleted = false ORDER BY n.createdAt ASC LIMIT 1")
+    Optional<Note> findFirstByUserIdAndTitleIgnoreCaseAndDeletedFalse(@Param("userId") String userId, @Param("title") String title);
+
     /** 같은 folderId(루트면 null) 안의, 삭제되지 않은 형제 노트만 조회 — derived query의
         "= :param"은 NULL(루트)을 매치하지 못해 직접 JPQL로 null/non-null 양쪽을 처리한다. */
     @Query("SELECT n FROM Note n WHERE n.userId = :userId AND n.deleted = false AND " +

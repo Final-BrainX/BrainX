@@ -14,6 +14,7 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { useBrainX } from "@/components/brainx-provider";
 import { Icon, type IconName } from "@/components/brainx-ui";
+import { DesktopVaultSyncStatusSection } from "@/components/utility/desktop-vault-sync-status-section";
 import { ImportScreen } from "@/components/utility/import-screen";
 import { McpApiKeysPanel } from "@/components/utility/mcp-api-keys-panel";
 import { getOAuthAuthorization, logout, readAuthSession, type OAuthProvider } from "@/lib/auth-api";
@@ -1175,7 +1176,7 @@ function GeneralSettingsPanel({
           action={<ConsentButton checked={consents.behaviorAnalyticsOptional} disabled={savingConsent === "behaviorAnalyticsOptional"} onChange={(value) => onConsentChange("behaviorAnalyticsOptional", value)} />}
         />
       </section>
-      <DesktopVaultSyncSection />
+      <DesktopVaultSyncStatusSection />
     </>
   );
 }

@@ -191,10 +191,87 @@ create table if not exists intelligence_insight_reports (
   completed_at timestamp(6) with time zone
 );
 
+create or replace function brainx_legacy_lob_to_text(value oid, fallback text)
+returns text
+language plpgsql
+as $$
+begin
+  if value is null then
+    return fallback;
+  end if;
+
+  return convert_from(lo_get(value), 'UTF8');
+exception
+  when others then
+    return fallback;
+end;
+$$;
+
+create or replace function brainx_repair_lob_text_column(table_name text, column_name text, fallback text)
+returns void
+language plpgsql
+as $$
+declare
+  current_type text;
+begin
+  select columns.udt_name
+    into current_type
+    from information_schema.columns columns
+   where columns.table_schema = 'public'
+     and columns.table_name = brainx_repair_lob_text_column.table_name
+     and columns.column_name = brainx_repair_lob_text_column.column_name;
+
+  if current_type is null then
+    return;
+  end if;
+
+  if current_type = 'oid' then
+    execute format(
+      'alter table %I alter column %I drop default',
+      table_name,
+      column_name
+    );
+    execute format(
+      'alter table %I alter column %I type text using brainx_legacy_lob_to_text(%I, %L)',
+      table_name,
+      column_name,
+      column_name,
+      fallback
+    );
+  elsif current_type <> 'text' then
+    execute format(
+      'alter table %I alter column %I type text using %I::text',
+      table_name,
+      column_name,
+      column_name
+    );
+  end if;
+end;
+$$;
+
+select brainx_repair_lob_text_column('user_ai_model_settings', 'user_api_keys', '{}');
+select brainx_repair_lob_text_column('user_style_profiles', 'style', '{}');
+select brainx_repair_lob_text_column('event_consumption_records', 'error_message', null);
+select brainx_repair_lob_text_column('intelligence_note_projections', 'tags', '[]');
+select brainx_repair_lob_text_column('intelligence_note_projections', 'markdown', null);
+select brainx_repair_lob_text_column('exploration_note_summaries', 'summary', '');
+select brainx_repair_lob_text_column('intelligence_chat_messages', 'content', '');
+select brainx_repair_lob_text_column('intelligence_chat_messages', 'note_scope', '{}');
+select brainx_repair_lob_text_column('intelligence_chat_messages', 'client_context', '{}');
+select brainx_repair_lob_text_column('intelligence_chat_messages', 'citations', '[]');
+select brainx_repair_lob_text_column('intelligence_chat_messages', 'token_usage', null);
+select brainx_repair_lob_text_column('intelligence_cluster_jobs', 'scope_json', '{}');
+select brainx_repair_lob_text_column('intelligence_cluster_jobs', 'algorithm_options_json', '{}');
+select brainx_repair_lob_text_column('intelligence_cluster_jobs', 'clusters_json', '[]');
+select brainx_repair_lob_text_column('intelligence_insight_reports', 'scope_json', '{}');
+select brainx_repair_lob_text_column('intelligence_insight_reports', 'summary', null);
+select brainx_repair_lob_text_column('intelligence_insight_reports', 'knowledge_gaps_json', '[]');
+select brainx_repair_lob_text_column('intelligence_insight_reports', 'recommendations_json', '[]');
+
 alter table ai_models
   add column if not exists vendor_cached_input_cost_per_1k_tokens numeric(12, 6),
   add column if not exists vendor_cost_currency varchar(3);
-update ai_models set vendor_cost_currency = 'USD' where vendor_cost_currency is null or trim(vendor_cost_currency) = '';
+update ai_models set vendor_cost_currency = 'USD' where vendor_cost_currency is null or trim(vendor_cost_currency::text) = '';
 alter table ai_models
   alter column vendor_cost_currency set default 'USD',
   alter column vendor_cost_currency set not null;
@@ -212,7 +289,7 @@ alter table intelligence_note_projections
   add column if not exists index_attempt_count integer,
   add column if not exists last_index_error_code varchar(120),
   add column if not exists last_index_error_message varchar(1000);
-update intelligence_note_projections set document_group_id = 'default' where document_group_id is null or trim(document_group_id) = '';
+update intelligence_note_projections set document_group_id = 'default' where document_group_id is null or trim(document_group_id::text) = '';
 update intelligence_note_projections set content_pending = false where content_pending is null;
 update intelligence_note_projections set index_attempt_count = 0 where index_attempt_count is null;
 alter table intelligence_note_projections
@@ -225,7 +302,7 @@ alter table intelligence_note_projections
 
 alter table intelligence_chat_messages
   add column if not exists client_context text;
-update intelligence_chat_messages set client_context = '{}' where client_context is null or trim(client_context) = '';
+update intelligence_chat_messages set client_context = '{}' where client_context is null or trim(client_context::text) = '';
 alter table intelligence_chat_messages
   alter column client_context set default '{}',
   alter column client_context set not null;
@@ -310,3 +387,6 @@ create index if not exists idx_insight_reports_user_report
 create index if not exists idx_insight_reports_user_idempotency
   on intelligence_insight_reports (user_id, idempotency_key)
   where idempotency_key is not null;
+
+drop function if exists brainx_repair_lob_text_column(text, text, text);
+drop function if exists brainx_legacy_lob_to_text(oid, text);

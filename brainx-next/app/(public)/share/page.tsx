@@ -1,7 +1,13 @@
 import { Suspense } from "react";
 import { ShareScreen } from "@/components/public-screens";
 
-export default function SharePage() {
+// /share?id=SHARE_ID 형식의 쿼리 파라미터 지원 (레거시 호환)
+interface Props {
+  searchParams: Promise<{ id?: string }>;
+}
+
+export default async function ShareQueryPage({ searchParams }: Props) {
+  const { id } = await searchParams;
   return (
     <Suspense
       fallback={
@@ -10,7 +16,7 @@ export default function SharePage() {
         </div>
       }
     >
-      <ShareScreen />
+      <ShareScreen shareId={id} />
     </Suspense>
   );
 }

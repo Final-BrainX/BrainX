@@ -63,6 +63,7 @@ import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator.TokenCostEstimate;
 import com.brainx.intelligence.shared.domain.DocumentGroups;
+import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -104,6 +105,7 @@ public class ChatService implements
     private final AiTokenUsageCostEstimator usageCostEstimator;
     private final AiUsageRecorder aiUsageRecorder;
     private final ChatEventPort chatEventPort;
+    private final StylePromptCompiler stylePromptCompiler;
 
     public ChatService(
         ChatProperties properties,
@@ -115,7 +117,8 @@ public class ChatService implements
         AiChatPort aiChatPort,
         AiTokenUsageCostEstimator usageCostEstimator,
         AiUsageRecorder aiUsageRecorder,
-        ChatEventPort chatEventPort
+        ChatEventPort chatEventPort,
+        StylePromptCompiler stylePromptCompiler
     ) {
         this.properties = properties;
         this.titleGenerator = titleGenerator;
@@ -127,6 +130,7 @@ public class ChatService implements
         this.usageCostEstimator = usageCostEstimator;
         this.aiUsageRecorder = aiUsageRecorder;
         this.chatEventPort = chatEventPort;
+        this.stylePromptCompiler = stylePromptCompiler;
     }
 
     @Override
@@ -229,7 +233,10 @@ public class ChatService implements
         List<RagContext> contexts = hasClientContext || !requiresNoteContext(route)
             ? List.of()
             : retrieveContexts(thread, message, route);
-        String systemPrompt = systemPrompt(isRightSidebarContext(command.clientContext()), route);
+        String systemPrompt = StylePromptCompiler.appendToSystemPrompt(
+            systemPrompt(isRightSidebarContext(command.clientContext()), route),
+            styleInstructions(userId, route)
+        );
         String userPrompt = hasClientContext
             ? userPromptFromClientContext(message, clientContextPrompt, route)
             : userPrompt(message, contexts, route);
@@ -472,6 +479,14 @@ public class ChatService implements
             If the question is unrelated to the provided note context, do not answer the external question.
             Instead, briefly say in Korean that this sidebar answers questions about the current note.
             """;
+    }
+
+    private String styleInstructions(String userId, ChatRoute route) {
+        return switch (route) {
+            case NOTE_QA, WORKSPACE_SEARCH -> stylePromptCompiler.conversationToneInstructions(userId);
+            case COMPOSE, NOTE_ACTION -> stylePromptCompiler.writingStyleInstructions(userId);
+            case OUT_OF_SCOPE -> "";
+        };
     }
 
     private String userPrompt(String message, List<RagContext> contexts, ChatRoute route) {

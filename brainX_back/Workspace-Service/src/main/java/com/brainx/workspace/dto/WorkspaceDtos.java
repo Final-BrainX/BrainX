@@ -177,7 +177,8 @@ public final class WorkspaceDtos {
     }
 
     public record PublicSharedNoteData(String shareId, String noteId, String title, String markdown,
-                                       ShareAuthor author, String permission, Instant expiresAt) {
+                                       ShareAuthor author, String permission, Instant expiresAt,
+                                       Map<String, String> linkedShares) {
     }
 
     public record ShareAuthor(String nickname) {

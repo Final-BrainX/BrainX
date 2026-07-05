@@ -96,7 +96,6 @@ public class SettingsController {
         return ApiSuccessResponse.ok(new StyleProfileData(
             result.conversationTone(),
             result.writingStyle(),
-            result.assistanceStyle(),
             result.detectedFromNotesAt()
         ));
     }
@@ -109,14 +108,12 @@ public class SettingsController {
         var result = putStyleProfileUseCase.putStyleProfile(new PutStyleProfileCommand(
             userId(principal),
             nullToEmpty(request.conversationTone()),
-            nullToEmpty(request.writingStyle()),
-            nullToEmpty(request.assistanceStyle())
+            nullToEmpty(request.writingStyle())
         ));
 
         return ApiSuccessResponse.ok(new StyleProfileData(
             result.conversationTone(),
             result.writingStyle(),
-            result.assistanceStyle(),
             result.detectedFromNotesAt()
         ));
     }
@@ -168,15 +165,13 @@ public class SettingsController {
 
     record StyleProfilePutRequest(
         Map<String, Object> conversationTone,
-        Map<String, Object> writingStyle,
-        Map<String, Object> assistanceStyle
+        Map<String, Object> writingStyle
     ) {
     }
 
     record StyleProfileData(
         Map<String, Object> conversationTone,
         Map<String, Object> writingStyle,
-        Map<String, Object> assistanceStyle,
         Instant detectedFromNotesAt
     ) {
     }

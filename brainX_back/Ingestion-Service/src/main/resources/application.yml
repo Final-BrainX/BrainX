@@ -29,8 +29,8 @@ spring:
   servlet:
     multipart:
       enabled: true
-      max-file-size: 100MB
-      max-request-size: 100MB
+      max-file-size: 5GB
+      max-request-size: 5GB
 
 jwt:
   secret: ${JWT_SECRET:replace_with_at_least_32_byte_secret}

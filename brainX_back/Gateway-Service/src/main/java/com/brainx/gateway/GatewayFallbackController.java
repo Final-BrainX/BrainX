@@ -1,5 +1,6 @@
 package com.brainx.gateway;
 
+import org.springframework.cloud.gateway.route.Route;
 import org.springframework.cloud.gateway.support.ServerWebExchangeUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -28,11 +29,14 @@ public class GatewayFallbackController {
         error.put("code", "SERVICE_UNAVAILABLE");
         error.put("message", service + " is temporarily unavailable.");
 
+        Route route = exchange.getAttribute(ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR);
+        String routeId = route != null ? route.getId() : null;
+
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("success", false);
         body.put("service", service);
         body.put("path", exchange.getRequest().getPath().value());
-        body.put("routeId", exchange.getAttribute(ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR));
+        body.put("routeId", routeId);
         body.put("error", error);
         return body;
     }

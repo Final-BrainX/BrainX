@@ -9,7 +9,7 @@ import { CLUSTERS, deriveGraphEdges, noteById, clusterById, type BrainXNote, typ
 import { deriveDraftWikiLinkEdges, draftsToBrainXNotes, getGraph, graphEdgesForFlow, graphToBrainXNotes, USE_MOCK_GRAPH, USE_MOCK_GRAPH_CLUSTERS } from "@/lib/graph-api";
 import { createBridgeConcepts, createLinkSuggestions, getLatestClusterJob, requestClusterJob, type BridgeConceptsData, type ClusterJobData, type ClusterJobLatestData, type LinkSuggestionsData } from "@/lib/intelligence-api";
 import { mergeNoteIndexStatuses } from "@/lib/note-index-statuses";
-import { createWorkspaceNote, createWorkspaceNoteLink, listWorkspaceNoteDrafts, type NoteCreated } from "@/lib/workspace-api";
+import { createWorkspaceNote, createWorkspaceNoteLink, hasWorkspaceUserIdentity, listWorkspaceNoteDrafts, type NoteCreated } from "@/lib/workspace-api";
 import { useBrainX } from "@/components/brainx-provider";
 import { Avatar, Badge, Btn, Card, Icon } from "@/components/brainx-ui";
 import { cx } from "@/lib/utils";
@@ -1362,10 +1362,12 @@ function GraphCanvasFlow({
       />
       
       {/* AI Summary Tooltip */}
-      {hovered && !selectedId && (
+      {hovered && (!selectedId || selectionModeActive) && (
         <TooltipOverlay 
           hovered={hovered} 
           clusterMetaById={clusterMetaById}
+          bridgeMode={bridgeMode}
+          linkMode={linkMode}
           onMouseEnter={() => {
             if (hoverTimeoutRef.current) window.clearTimeout(hoverTimeoutRef.current);
           }}
@@ -1383,15 +1385,28 @@ function GraphCanvasFlow({
 function TooltipOverlay({
   hovered,
   clusterMetaById,
+  bridgeMode,
+  linkMode,
   onMouseEnter,
   onMouseLeave
 }: {
   hovered: BrainXNote;
   clusterMetaById: Map<string, GraphClusterMeta>;
+  bridgeMode: boolean;
+  linkMode: boolean;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
 }) {
   const { getNode, flowToScreenPosition } = useReactFlow();
+
+  const summaryText = (hovered.summary ?? "").trim();
+  const unavailableForAiSelection = (bridgeMode || linkMode) && hovered.availableForAiFeatures !== true;
+  const tooltipBody = unavailableForAiSelection
+    ? bridgeMode
+      ? "아직 AI 색인이 준비되지 않은 노트입니다. 색인이 완료되면 징검다리 추천에 사용할 수 있어요."
+      : "아직 AI 색인이 준비되지 않은 노트입니다. 색인이 완료되면 연결 추천에 사용할 수 있어요."
+    : summaryText;
+  if (!tooltipBody) return null;
 
   const node = getNode(hovered.id);
   if (!node) return null;
@@ -1407,6 +1422,8 @@ function TooltipOverlay({
 
   const cluster = resolveGraphCluster(hovered.cluster, clusterMetaById);
   const clusterColor = `rgb(${cluster.color})`;
+  const title = (hovered.title ?? "").trim() || "제목 없음";
+  const tooltipLabel = unavailableForAiSelection ? "AI 추천 준비 전" : `${cluster.label} · AI 요약`;
 
   // createPortal: [data-route]의 transform 애니메이션이 position:fixed를
   // 깨므로, transform이 없는 document.body에 직접 렌더링
@@ -1426,6 +1443,7 @@ function TooltipOverlay({
       }}
     >
       <div
+        role="tooltip"
         className="fade-up rounded-xl p-3 shadow-2xl"
         style={{
           background: 'rgb(var(--surface) / 0.92)',
@@ -1440,11 +1458,11 @@ function TooltipOverlay({
         <div className="mb-1.5 flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full" style={{ background: clusterColor }} />
           <span className="text-[13px] text-txt2">
-            {cluster.label} · AI 요약
+            {tooltipLabel}
           </span>
         </div>
-        <div className="mb-1 text-[15px] font-semibold leading-snug text-txt">{hovered.title}</div>
-        <p className="line-clamp-3 text-[13.5px] leading-relaxed text-txt3">{hovered.summary}</p>
+        <div className="mb-1 break-words text-[15px] font-semibold leading-snug text-txt">{title}</div>
+        <p className="line-clamp-3 break-words text-[13.5px] leading-relaxed text-txt3">{tooltipBody}</p>
 
         {/* 역삼각형 말풍선 화살표 */}
         <div
@@ -1539,6 +1557,8 @@ function GraphScreenInner() {
     return values;
   }, [dynamicClusters]);
   const selected = selectedId ? notes.find((note) => note.id === selectedId) ?? null : null;
+  const selectedSummary = (selected?.summary ?? "").trim();
+  const noteDetailPanelVisible = selected !== null && !bridgeMode && !linkMode;
   const hasGraphData = notes.length > 0;
   const noteIndexStatusUnavailable = rawNotes.some((note) => note.indexStatusUnavailable);
   const aiReadyNoteLabel = noteIndexStatusUnavailable ? "선택 가능한 노트" : "색인된 노트";
@@ -1631,7 +1651,12 @@ function GraphScreenInner() {
       showError?: boolean;
     } = {}) => {
       const session = readAuthSession();
-      const hasRealLogin = !!session?.accessToken && !isDevAuthSession(session);
+      // 데이터 로딩 경로 분기는 JWT 유무만이 아니라, 이 요청이 Workspace-Service에 실제로
+      // "식별된 사용자"로 도착하는지(hasWorkspaceUserIdentity — 로컬의 X-User-Id dev override
+      // 포함)를 기준으로 삼는다. JWT만 보면, 로컬 개발에서 NEXT_PUBLIC_WORKSPACE_DEV_USER_ID가
+      // 설정된 경우 실제로는 USER로 저장된 데이터를 GUEST draft 경로로 잘못 읽어 새로고침 후
+      // 사라진 것처럼 보이는 불일치가 생긴다.
+      const hasWorkspaceIdentity = hasWorkspaceUserIdentity();
       const requestId = graphRequestIdRef.current + 1;
       graphRequestIdRef.current = requestId;
 
@@ -1645,7 +1670,7 @@ function GraphScreenInner() {
         return;
       }
 
-      if (!hasRealLogin) {
+      if (!hasWorkspaceIdentity) {
         setLiveNotes([]);
         setLiveEdges([]);
         try {
@@ -2426,8 +2451,12 @@ function GraphScreenInner() {
 
         <div
           className={cx(
-            "pointer-events-auto flex flex-col items-end gap-3 transition-all duration-300 ease-out",
-            !hasGraphData || sidebarsVisible ? "translate-x-0 opacity-100" : "translate-x-10 opacity-0"
+            "flex flex-col items-end gap-3 transition-all duration-300 ease-out",
+            noteDetailPanelVisible
+              ? "pointer-events-none translate-x-10 opacity-0"
+              : !hasGraphData || sidebarsVisible
+                ? "pointer-events-auto translate-x-0 opacity-100"
+                : "pointer-events-none translate-x-10 opacity-0"
           )}
         >
           <div className="glass relative z-20 flex items-center gap-0.5 rounded-xl p-1.5 backdrop-blur-md shadow-sm">
@@ -3000,7 +3029,7 @@ function GraphScreenInner() {
         </div>
       ) : null}
 
-      {selected && !bridgeMode && !linkMode ? (
+      {noteDetailPanelVisible ? (
         <div className="fade-up absolute bottom-5 right-5 top-5 z-30 w-80">
           <div className="flex h-full flex-col overflow-hidden bg-surface/90 border border-line/70 rounded-2xl backdrop-blur-xl shadow-2xl">
             <div className="flex items-start justify-between gap-2 border-b border-line/70 p-4">
@@ -3021,13 +3050,15 @@ function GraphScreenInner() {
                   </Badge>
                 ))}
               </div>
-              <div className="mb-4 rounded-xl border border-primary/30 bg-primary/10 p-3">
-                <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-primary">
-                  <Icon name="sparkle" size={13} />
-                  AI 분석 요약
+              {selectedSummary ? (
+                <div className="mb-4 rounded-xl border border-primary/30 bg-primary/10 p-3">
+                  <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-primary">
+                    <Icon name="sparkle" size={13} />
+                    AI 분석 요약
+                  </div>
+                  <p className="break-words text-[13px] leading-relaxed text-txt2">{selectedSummary}</p>
                 </div>
-                <p className="text-[13px] leading-relaxed text-txt2">{selected.summary}</p>
-              </div>
+              ) : null}
               <div className="mb-2 text-[11px] font-semibold text-txt3">신경 시냅스 (연결된 노트) {selected.links.length}</div>
               <div className="mb-4 space-y-1.5">
                 {selected.links.map((id) => {

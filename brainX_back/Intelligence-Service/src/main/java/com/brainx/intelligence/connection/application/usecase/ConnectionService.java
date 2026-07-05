@@ -36,6 +36,7 @@ import com.brainx.intelligence.connection.domain.ConnectionForbiddenException;
 import com.brainx.intelligence.connection.domain.ConnectionNotFoundException;
 import com.brainx.intelligence.connection.domain.ConnectionProviderUnavailableException;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
+import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -70,6 +71,7 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
     private final AiModelSettingsPort aiModelSettingsPort;
     private final AiChatPort aiChatPort;
     private final AiUsageRecorder aiUsageRecorder;
+    private final StylePromptCompiler stylePromptCompiler;
     private final ObjectMapper objectMapper;
 
     public ConnectionService(
@@ -81,6 +83,7 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
         AiModelSettingsPort aiModelSettingsPort,
         AiChatPort aiChatPort,
         AiUsageRecorder aiUsageRecorder,
+        StylePromptCompiler stylePromptCompiler,
         ObjectMapper objectMapper
     ) {
         this.noteSourcePort = noteSourcePort;
@@ -91,6 +94,7 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
         this.aiModelSettingsPort = aiModelSettingsPort;
         this.aiChatPort = aiChatPort;
         this.aiUsageRecorder = aiUsageRecorder;
+        this.stylePromptCompiler = stylePromptCompiler;
         this.objectMapper = objectMapper;
     }
 
@@ -163,7 +167,10 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
         String modelId = resolveBridgeModelId(userId);
         int maxRecommendations = bridgeProperties.getMaxRecommendations();
         List<String> bridgeLinkTitles = bridgeLinkTitles(sourceNotes);
-        String systemPrompt = bridgeSystemPrompt(maxRecommendations);
+        String systemPrompt = StylePromptCompiler.appendToSystemPrompt(
+            bridgeSystemPrompt(maxRecommendations),
+            stylePromptCompiler.conversationToneInstructions(userId)
+        );
         String userPrompt = bridgeUserPrompt(sourceNotes, bridgeLinkTitles, maxRecommendations);
         int tokenEstimate = estimateTokens(systemPrompt + "\n" + userPrompt);
 

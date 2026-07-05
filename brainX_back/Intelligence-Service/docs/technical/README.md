@@ -5,6 +5,7 @@
 ## 남겨둘 문서
 
 - `conditional-on-bean.md`: Spring Boot `@ConditionalOnBean` 동작과 Qdrant adapter 연결 방식
+- `ai-feature-catalog.md`: Intelligence-Service AI/LLM 기능 전체 카탈로그와 공개 API/LLM 호출 경계
 - `ai-model-pricing-and-usage.md`: AI 모델 카탈로그 가격과 token usage / cost 추정 메모
 - `intelligence-operational-db-ddl.md`: 운영 PostgreSQL schema baseline DDL과 부분 적용 DB 체크리스트
 - `connection-api.md`: 연결 추천 공개 API와 event / usage 경계

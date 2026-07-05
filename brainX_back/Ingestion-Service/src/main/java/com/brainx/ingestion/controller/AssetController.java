@@ -39,6 +39,7 @@ public class AssetController {
     private static final long MAX_PROXY_IMAGE_BYTES = 15L * 1024 * 1024;
 
     private final AssetService assetService;
+    private final com.brainx.ingestion.service.PptxSlideService pptxSlideService;
 
     // TEMP: 로그인 없이 테스트할 때 쓰는 고정 사용자 ID. 실제 로그인 연동 완료 후 제거할 것.
     private static final String DEV_TEST_USER_ID = "dev-test-user";
@@ -100,6 +101,27 @@ public class AssetController {
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         ContentDisposition.inline().filename(asset.getFileName()).build().toString())
                 .body(bytes);
+    }
+
+    // GET /api/v1/assets/{assetId}/slides/{slideIndex}
+    // PPTX 슬라이드를 PNG 이미지로 렌더링해 반환한다. slideIndex는 0-based.
+    @GetMapping("/{assetId}/slides/{slideIndex}")
+    public ResponseEntity<byte[]> getPptxSlide(
+            @PathVariable String assetId,
+            @PathVariable int slideIndex) {
+        Asset asset = assetService.getAssetForViewing(assetId);
+        byte[] pptxBytes = assetService.readBytes(asset);
+        try {
+            byte[] png = pptxSlideService.renderSlide(pptxBytes, slideIndex);
+            return ResponseEntity.ok()
+                    .contentType(MediaType.IMAGE_PNG)
+                    .body(png);
+        } catch (IllegalArgumentException e) {
+            throw BrainXException.badRequest("INVALID_SLIDE_INDEX", e.getMessage());
+        } catch (Exception e) {
+            log.error("슬라이드 렌더링 실패: assetId={}, slideIndex={}, error={}", assetId, slideIndex, e.getMessage());
+            throw BrainXException.internalError("슬라이드를 렌더링하지 못했습니다");
+        }
     }
 
     /**

@@ -62,7 +62,6 @@ public class DomainDevUiView extends AppLayout {
     private final TextArea userApiKeys = new TextArea("User API keys JSON");
     private final TextArea conversationTone = new TextArea("Conversation tone JSON");
     private final TextArea writingStyle = new TextArea("Writing style JSON");
-    private final TextArea assistanceStyle = new TextArea("Assistance style JSON");
 
     private final List<DomainDefinition> domains = List.of(
         new DomainDefinition("settings", "AI 사용 준비", "AI 모델, 기본 모델, 문체 프로필", "live", "settings"),
@@ -172,8 +171,7 @@ public class DomainDevUiView extends AppLayout {
 
         conversationTone.setValue("{\n  \"speechLevel\": \"haeyo\",\n  \"directness\": \"high\"\n}");
         writingStyle.setValue("{\n  \"formality\": \"business\",\n  \"sentenceLength\": \"short\"\n}");
-        assistanceStyle.setValue("{\n  \"clarificationPolicy\": \"only_when_blocking\"\n}");
-        List.of(conversationTone, writingStyle, assistanceStyle).forEach(area -> {
+        List.of(conversationTone, writingStyle).forEach(area -> {
             area.setWidthFull();
             area.setMinHeight("120px");
         });
@@ -230,10 +228,9 @@ public class DomainDevUiView extends AppLayout {
 
         var stylePanel = section(
             "Style profile",
-            new Span("Separated conversation, writing, and assistance preferences."),
+            new Span("Separated conversation and writing preferences."),
             conversationTone,
             writingStyle,
-            assistanceStyle,
             styleActions
         );
 
@@ -307,7 +304,6 @@ public class DomainDevUiView extends AppLayout {
             var result = getStyleProfileUseCase.getStyleProfile(new GetStyleProfileQuery(userId()));
             conversationTone.setValue(prettyMap(result.conversationTone()));
             writingStyle.setValue(prettyMap(result.writingStyle()));
-            assistanceStyle.setValue(prettyMap(result.assistanceStyle()));
             inspect(
                 "GetStyleProfileQuery(userId=" + userId() + ")",
                 pretty(result)
@@ -320,8 +316,7 @@ public class DomainDevUiView extends AppLayout {
             var result = putStyleProfileUseCase.putStyleProfile(new PutStyleProfileCommand(
                 userId(),
                 readJsonMap(conversationTone.getValue()),
-                readJsonMap(writingStyle.getValue()),
-                readJsonMap(assistanceStyle.getValue())
+                readJsonMap(writingStyle.getValue())
             ));
             inspect(
                 "PutStyleProfileCommand(userId=" + userId() + ")",

@@ -19,6 +19,7 @@ import {
 import {
   Folder,
   FolderOpen,
+  FolderPlus,
   FileText,
   Plus,
   FilePlus,
@@ -89,7 +90,7 @@ function buildTree(
 }
 
 /* 드래그 중 표시할 인디케이터 */
-interface OverIndicator {
+export interface OverIndicator {
   targetId: string;
   position: "before" | "after" | "into";
   valid: boolean;
@@ -202,9 +203,9 @@ export default function FolderTree({
       if (!overData) return null;
       const activeRect = event.active.rect.current.translated;
       if (!activeRect) return null;
-      return resolveDrop(folders, active, overData, activeRect, over.rect);
+      return resolveDrop(folders, active, overData, activeRect, over.rect, notes);
     },
-    [folders]
+    [folders, notes]
   );
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
@@ -223,10 +224,16 @@ export default function FolderTree({
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
-      const resolved = resolveCurrent(event);
-      if (resolved?.valid) resolved.commit(dropHandlers);
-      setActiveDrag(null);
-      setOverIndicator(null);
+      // commit()이 도중에 예외를 던져도(예: 상위 상태 갱신 콜백에서 예외) activeDrag/overIndicator는
+      // 반드시 원상 복구되어야 한다 — 안 그러면 이 함수가 여기서 중단되어 아래 reset이 아예
+      // 실행되지 않고, 드래그하던 행이 영구히 반투명 상태로 남는다.
+      try {
+        const resolved = resolveCurrent(event);
+        if (resolved?.valid) resolved.commit(dropHandlers);
+      } finally {
+        setActiveDrag(null);
+        setOverIndicator(null);
+      }
     },
     [resolveCurrent, dropHandlers]
   );
@@ -235,6 +242,29 @@ export default function FolderTree({
     setActiveDrag(null);
     setOverIndicator(null);
   }, []);
+
+  /* 방어적 안전망: dnd-kit의 onDragEnd/onDragCancel이 어떤 이유로든(예: 드래그 도중 포커스가
+     브라우저 밖으로 나가거나 탭이 전환되는 경우) 호출되지 않으면 activeDrag/overIndicator가
+     영구히 남아 해당 행이 계속 반투명 상태로 보인다 — 성공/실패/no-op/취소 모든 경우에 정상
+     reset되도록 pointerup/pointercancel/visibility 변화에서 한 번 더 정리한다. */
+  useEffect(() => {
+    if (!activeDrag) return;
+    const clear = () => {
+      setActiveDrag(null);
+      setOverIndicator(null);
+    };
+    const onVisibility = () => { if (document.hidden) clear(); };
+    window.addEventListener("pointerup", clear);
+    window.addEventListener("pointercancel", clear);
+    window.addEventListener("blur", clear);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pointerup", clear);
+      window.removeEventListener("pointercancel", clear);
+      window.removeEventListener("blur", clear);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [activeDrag]);
 
   return (
     <DndContext
@@ -343,7 +373,7 @@ function RootDropZone() {
 }
 
 /* ── 드롭 인디케이터 ── */
-function DropIndicatorOverlay({ indicator }: { indicator: OverIndicator | null }) {
+export function DropIndicatorOverlay({ indicator }: { indicator: OverIndicator | null }) {
   if (!indicator) return null;
   const color = indicator.valid ? "rgb(var(--primary))" : "rgb(239 68 68)";
   if (indicator.position === "into") {
@@ -702,7 +732,7 @@ function FolderNode({
     <div>
       <div
         ref={(el) => { setDropRef(el); rowRef.current = el; }}
-        className="group relative flex h-7 cursor-pointer items-center gap-1 rounded-md pr-1 transition-colors hover:bg-surface2/40"
+        className="group relative flex h-7 cursor-pointer items-center gap-1 rounded-md pr-1.5 transition-colors hover:bg-surface2/40"
         style={{
           paddingLeft: indent,
           // 다중 선택(isMultiSelected)은 배경만으로 표시하고, 왼쪽 강조선은 즐겨찾기 색상 전용으로 남긴다
@@ -710,7 +740,6 @@ function FolderNode({
           background: isMultiSelected
             ? "rgb(var(--primary) / 0.15)"
             : isSelected ? "rgb(var(--primary) / 0.1)" : undefined,
-          borderLeft: item.folder.favorite ? `2px solid ${folderColor}` : "2px solid transparent",
           opacity: isBeingDragged ? 0.4 : undefined,
         }}
         onMouseEnter={() => setHovered(true)}
@@ -730,6 +759,7 @@ function FolderNode({
           ref={setDragRef}
           {...listeners}
           {...attributes}
+          draggable={false}
           onClick={(e) => e.stopPropagation()}
           title="드래그하여 위치 변경"
           className={cx(
@@ -796,27 +826,34 @@ function FolderNode({
           </span>
         )}
 
-        {item.folder.favorite && !renaming && (
-          <Star size={10} className="shrink-0 fill-yellow-400 text-yellow-400" />
-        )}
-
+        {/* 아이콘 순서: 노트 생성 → 폴더 생성 → 즐겨찾기 → 더보기(...). 즐겨찾기 아이콘은 이미
+            즐겨찾기된 상태면 hover와 무관하게 항상 보이고, 아니면 hover 전에는 공간을 차지하지
+            않다가 hover 시에만 나타난다(노트 생성/폴더 생성/더보기와 동일하게 hover 전용). */}
         {(hovered || menuOpen) && !renaming && (
           <div className="relative flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
-              onClick={() => { setCreatingSubfolder(true); setExpanded(true); }}
-              title="새 폴더 생성"
-              className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-primary"
+              onClick={() => { onCreateNote(item.folder.id); setExpanded(true); }}
+              title="이 폴더에 노트 생성"
+              className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-primary/15 hover:text-primary"
             >
-              <Plus size={11} />
+              <FilePlus size={11} />
             </button>
             <button
               type="button"
-              onClick={() => { onCreateNote(item.folder.id); setExpanded(true); }}
-              title="이 폴더에 노트 생성"
-              className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-primary"
+              onClick={() => { setCreatingSubfolder(true); setExpanded(true); }}
+              title="새 폴더 생성"
+              className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-txt2"
             >
-              <FilePlus size={11} />
+              <FolderPlus size={11} />
+            </button>
+            <button
+              type="button"
+              onClick={() => onToggleFolderFavorite(item.folder.id)}
+              title={item.folder.favorite ? "즐겨찾기 해제" : "즐겨찾기 추가"}
+              className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-yellow-400"
+            >
+              <Star size={11} className={cx("shrink-0", item.folder.favorite && "fill-yellow-400 text-yellow-400")} />
             </button>
             <button
               type="button"
@@ -843,6 +880,11 @@ function FolderNode({
             )}
           </div>
         )}
+        {/* hover도 메뉴도 아니지만 즐겨찾기 상태라면, 위 hover 그룹과 동일한 자리(더보기 바로
+            왼쪽)에 별만 계속 보여준다. */}
+        {!(hovered || menuOpen) && item.folder.favorite && !renaming && (
+          <Star size={11} className="mr-0.5 shrink-0 fill-yellow-400 text-yellow-400" />
+        )}
 
         <HoverInfoCard anchorRef={rowRef} hovered={hovered && !renaming && !menuOpen && !isBeingDragged}>
           <p className="mb-1.5 flex items-center gap-1.5 truncate font-semibold text-txt">
@@ -855,7 +897,12 @@ function FolderNode({
       </div>
 
       {expanded && (
-        <div>
+        <div className="relative" style={{ background: "rgb(var(--surface2) / 0.10)" }}>
+          <span
+            aria-hidden
+            className="pointer-events-none absolute bottom-0 top-0"
+            style={{ left: indent + 11, width: 1, background: "rgb(var(--line) / 0.35)" }}
+          />
           {creatingSubfolder && (
             <div className="flex h-7 items-center gap-1.5" style={{ paddingLeft: indent + 20 }}>
               <Folder size={13} className="shrink-0 text-yellow-400/60" />
@@ -1075,7 +1122,7 @@ function NoteRow({
         onDragEnd();
       }}
       className={cx(
-        "group relative flex h-7 cursor-pointer select-none items-center gap-1 rounded-md pr-1 text-[12px] transition-colors",
+        "group relative flex h-7 cursor-pointer select-none items-center gap-1 rounded-md pr-1.5 text-[12px] transition-colors",
         isActive ? "font-medium text-txt" : "text-txt3 hover:text-txt2",
         dragging && "opacity-40"
       )}
@@ -1094,6 +1141,7 @@ function NoteRow({
         ref={setDragRef}
         {...listeners}
         {...attributes}
+        draggable={false}
         onClick={(e) => e.stopPropagation()}
         title="드래그하여 위치 변경"
         className={cx(
@@ -1131,12 +1179,18 @@ function NoteRow({
       ) : (
         <span className="flex-1 truncate">{note.title}</span>
       )}
-      {isFavorite && !renaming && (
-        <Star size={10} className="shrink-0 fill-yellow-400 text-yellow-400" />
-      )}
-
+      {/* 아이콘 순서: 즐겨찾기 → 더보기(...). 즐겨찾기 아이콘은 이미 즐겨찾기된 상태면 hover와
+          무관하게 항상 보이고, 아니면 hover 전에는 공간을 차지하지 않다가 hover 시에만 나타난다. */}
       {(hovered || menuOpen) && !renaming && (
-        <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div className="relative flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={() => onToggleFavorite?.()}
+            title={isFavorite ? "즐겨찾기 해제" : "즐겨찾기 추가"}
+            className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-yellow-400"
+          >
+            <Star size={11} className={cx("shrink-0", isFavorite && "fill-yellow-400 text-yellow-400")} />
+          </button>
           <button
             type="button"
             onClick={() => { captureDeleteSnapshot(); setMenuAnchor(null); setMenuOpen((v) => !v); }}
@@ -1159,6 +1213,9 @@ function NoteRow({
             />
           )}
         </div>
+      )}
+      {!(hovered || menuOpen) && isFavorite && !renaming && (
+        <Star size={11} className="mr-0.5 shrink-0 fill-yellow-400 text-yellow-400" />
       )}
 
       <HoverInfoCard anchorRef={rowRef} hovered={hovered && !dragging && !renaming && !menuOpen}>
