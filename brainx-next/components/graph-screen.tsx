@@ -5,9 +5,21 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Compass, FileUp, PencilLine, Pin, PinOff, Sparkles } from "lucide-react";
 import { buildAuthPath, isDevAuthSession, readAuthSession } from "@/lib/auth-api";
-import { CLUSTERS, deriveGraphEdges, noteById, clusterById, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
+import { deriveGraphEdges, noteById, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
 import { deriveDraftWikiLinkEdges, draftsToBrainXNotes, getGraph, graphEdgesForFlow, graphToBrainXNotes, pendingCreatedNoteToBrainXNote, pendingWikiLinkEntryToEdge, USE_MOCK_GRAPH, USE_MOCK_GRAPH_CLUSTERS } from "@/lib/graph-api";
-import { createBridgeConcepts, createLinkSuggestions, getLatestClusterJob, requestClusterJob, type BridgeConceptsData, type ClusterJobData, type ClusterJobLatestData, type LinkSuggestionsData } from "@/lib/intelligence-api";
+import { createBridgeConcepts, createLinkSuggestions, getLatestClusterJob, requestClusterJob, type BridgeConceptsData, type ClusterJobLatestData, type LinkSuggestionsData } from "@/lib/intelligence-api";
+import {
+  AI_CLUSTER_MAX_CLUSTERS,
+  AI_CLUSTER_MAX_NOTES,
+  AI_CLUSTER_MIN_NOTES,
+  DEFAULT_DOCUMENT_GROUP_ID,
+  applyAiClustersToNotes,
+  deriveNoteClusterMeta,
+  isAiFeatureReadyNote,
+  resolveAiCluster,
+  type AiClusterMeta as GraphClusterMeta,
+  type AiClusterStatus,
+} from "@/lib/ai-cluster-projection";
 import { mergeNoteIndexStatuses } from "@/lib/note-index-statuses";
 import { readPendingCreatedNotes, removePendingCreatedNoteByNoteId } from "@/lib/notes/pending-created-note-cache";
 import { createWorkspaceNote, createWorkspaceNoteLink, hasWorkspaceUserIdentity, listWorkspaceNoteDrafts, type NoteCreated } from "@/lib/workspace-api";
@@ -227,46 +239,6 @@ type LinkAcceptState = {
   error?: string;
 };
 
-type AiClusterStatus = "idle" | "loading" | "analyzing" | "error";
-type GraphClusterMeta = {
-  id: string;
-  label: string;
-  color: string;
-  summary?: string;
-  keywords: string[];
-  confidence?: number;
-};
-type NormalizedAiCluster = GraphClusterMeta & {
-  noteIds: string[];
-};
-
-const DEFAULT_DOCUMENT_GROUP_ID = "default";
-const AI_CLUSTER_MIN_NOTES = 5;
-const AI_CLUSTER_MAX_NOTES = 50;
-const AI_CLUSTER_MAX_CLUSTERS = 6;
-const UNASSIGNED_CLUSTER_ID = "ai-unassigned";
-const AI_CLUSTER_COLORS = [
-  "59 130 246",
-  "139 92 246",
-  "34 211 238",
-  "244 114 182",
-  "52 211 153",
-  "245 158 11",
-  "14 165 233",
-  "236 72 153",
-  "132 204 22",
-  "168 85 247",
-  "20 184 166",
-  "248 113 113"
-];
-const UNASSIGNED_CLUSTER: GraphClusterMeta = {
-  id: UNASSIGNED_CLUSTER_ID,
-  label: "미분류",
-  color: "148 163 184",
-  summary: "최근 AI 클러스터 결과에 포함되지 않은 노트입니다.",
-  keywords: [],
-};
-
 type OrbitFlowEdge = Edge<{
   isBridge: boolean;
   isSelected: boolean;
@@ -281,102 +253,6 @@ function seededUnit(seed: string) {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0) / 4294967295;
-}
-
-function resolveGraphCluster(clusterId: string, clusterMetaById: Map<string, GraphClusterMeta>): GraphClusterMeta {
-  const known = clusterMetaById.get(clusterId);
-  if (known) return known;
-  const fallback = clusterById(clusterId);
-  return {
-    id: clusterId,
-    label: fallback.label,
-    color: fallback.color,
-    keywords: [],
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function textField(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function numberField(value: unknown) {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-  return undefined;
-}
-
-function stringArrayField(value: unknown) {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => (typeof item === "string" ? item.trim() : ""))
-    .filter(Boolean);
-}
-
-function normalizeAiCluster(raw: unknown, index: number, existingNoteIds: Set<string>): NormalizedAiCluster | null {
-  if (!isRecord(raw)) return null;
-  const noteIds = stringArrayField(raw.noteIds).filter((noteId) => existingNoteIds.has(noteId));
-  if (noteIds.length === 0) return null;
-  const clusterId = textField(raw.clusterId) || `ai-cluster-${index + 1}`;
-  const title = textField(raw.title) || `AI 클러스터 ${index + 1}`;
-  return {
-    id: clusterId,
-    label: title,
-    color: AI_CLUSTER_COLORS[index % AI_CLUSTER_COLORS.length],
-    summary: textField(raw.summary) || undefined,
-    keywords: stringArrayField(raw.keywords),
-    confidence: numberField(raw.confidence),
-    noteIds,
-  };
-}
-
-function aiClusterJobUsable(job: ClusterJobData | null | undefined): job is ClusterJobData {
-  return !!job && job.status === "COMPLETED" && Array.isArray(job.clusters) && job.clusters.length > 0;
-}
-
-function applyAiClustersToNotes(notes: BrainXNote[], latest: ClusterJobLatestData | null) {
-  const job = latest?.job;
-  if (!aiClusterJobUsable(job)) {
-    return { notes, clusters: null as GraphClusterMeta[] | null };
-  }
-
-  const existingNoteIds = new Set(notes.map((note) => note.id));
-  const normalizedClusters = (job.clusters ?? [])
-    .map((cluster, index) => normalizeAiCluster(cluster, index, existingNoteIds))
-    .filter((cluster): cluster is NormalizedAiCluster => !!cluster);
-  if (normalizedClusters.length === 0) {
-    return { notes, clusters: null as GraphClusterMeta[] | null };
-  }
-
-  const clusterByNoteId = new Map<string, string>();
-  for (const cluster of normalizedClusters) {
-    for (const noteId of cluster.noteIds) {
-      if (!clusterByNoteId.has(noteId)) {
-        clusterByNoteId.set(noteId, cluster.id);
-      }
-    }
-  }
-
-  let hasUnassigned = false;
-  const clusteredNotes = notes.map((note) => {
-    const clusterId = clusterByNoteId.get(note.id);
-    if (!clusterId) {
-      hasUnassigned = true;
-      return { ...note, cluster: UNASSIGNED_CLUSTER_ID, folderId: UNASSIGNED_CLUSTER_ID };
-    }
-    return { ...note, cluster: clusterId, folderId: clusterId };
-  });
-  const clusters: GraphClusterMeta[] = normalizedClusters.map(({ noteIds: _noteIds, ...cluster }) => cluster);
-  if (hasUnassigned) {
-    clusters.push(UNASSIGNED_CLUSTER);
-  }
-  return { notes: clusteredNotes, clusters };
 }
 
 function settleLayout(notes: BrainXNote[], iterations = 260) {
@@ -457,10 +333,6 @@ function isFilteredOutByTime(note: BrainXNote, timeFilter: string) {
   if (timeFilter === "전체") return false;
   const limit = timeFilter === "최근 1일" ? 1 : timeFilter === "최근 1주" ? 7 : 99;
   return (ageRank[note.updated] ?? 0) > limit;
-}
-
-function isAiFeatureReadyNote(note: BrainXNote) {
-  return note.availableForAiFeatures === true;
 }
 
 function isBridgeSelectableNote(
@@ -1139,7 +1011,7 @@ function GraphCanvasFlow({
     }
 
     const newNodes = notes.map(note => {
-      const cluster = resolveGraphCluster(note.cluster, clusterMetaById);
+      const cluster = resolveAiCluster(note.cluster, clusterMetaById);
       const linkCount = note.links.length;
       const baseRadius = 3.5 + Math.min(4, linkCount * 0.75);
       const selected = activeId === note.id;
@@ -1203,10 +1075,10 @@ function GraphCanvasFlow({
         ? !isSelected
         : (bridgeMode ? !edge.bridge : (sourceDimmed || targetDimmed));
       // 소스 노드의 색상을 엣지에 전달
-      const sourceColor = sourceNote ? resolveGraphCluster(sourceNote.cluster, clusterMetaById).color : null;
+      const sourceColor = sourceNote ? resolveAiCluster(sourceNote.cluster, clusterMetaById).color : null;
       // 선택/호버된 활성 노드의 색상을 엣지에 전달
       const activeNote = activeId ? notes.find(n => n.id === activeId) : null;
-      const activeColor = activeNote ? resolveGraphCluster(activeNote.cluster, clusterMetaById).color : null;
+      const activeColor = activeNote ? resolveAiCluster(activeNote.cluster, clusterMetaById).color : null;
       return {
         id: `${edge.source}-${edge.target}`,
         source: edge.source,
@@ -1421,7 +1293,7 @@ function TooltipOverlay({
     y: node.position.y - radius,
   });
 
-  const cluster = resolveGraphCluster(hovered.cluster, clusterMetaById);
+  const cluster = resolveAiCluster(hovered.cluster, clusterMetaById);
   const clusterColor = `rgb(${cluster.color})`;
   const title = (hovered.title ?? "").trim() || "제목 없음";
   const tooltipLabel = unavailableForAiSelection ? "AI 추천 준비 전" : `${cluster.label} · AI 요약`;
@@ -1588,11 +1460,10 @@ function GraphScreenInner() {
 
     return optimisticEdges.length > 0 ? [...base, ...optimisticEdges] : base;
   }, [liveEdges, notes]);
-  const clusterListNotes = USE_MOCK_GRAPH_CLUSTERS ? mockNotes : notes;
   const dynamicClusters = useMemo(() => {
     if (aiClusterProjection.clusters) return aiClusterProjection.clusters;
-    return CLUSTERS.map((cluster) => ({ ...cluster, keywords: [] }));
-  }, [aiClusterProjection.clusters]);
+    return deriveNoteClusterMeta(notes);
+  }, [aiClusterProjection.clusters, notes]);
   const clusterMetaById = useMemo(() => {
     const values = new Map<string, GraphClusterMeta>();
     for (const cluster of dynamicClusters) {
@@ -2336,10 +2207,10 @@ function GraphScreenInner() {
     setLinkSelectedIds((current) => current.filter((id) => notes.some((note) => note.id === id)));
   }, [notes]);
 
-  const selectedCluster = selected ? resolveGraphCluster(selected.cluster, clusterMetaById) : null;
+  const selectedCluster = selected ? resolveAiCluster(selected.cluster, clusterMetaById) : null;
   const clusterStateMessage = (() => {
     if (!aiClusterPanelEnabled) {
-      return { title: "카테고리 기준", body: "개발 모드와 mock 데이터는 기본 카테고리로 표시됩니다." };
+      return { title: "노트 기반 분류", body: "AI 클러스터가 꺼진 상태에서는 현재 노트의 태그와 그룹만 표시합니다." };
     }
     if (clusterStatus === "loading") {
       return { title: "상태 확인 중", body: "최근 AI 클러스터 결과를 불러오고 있습니다." };
@@ -2472,7 +2343,7 @@ function GraphScreenInner() {
               ) : null}
               <div className="mt-3 space-y-0.5">
                 {dynamicClusters.map((cluster) => {
-                  const count = clusterListNotes.filter((note) => note.cluster === cluster.id).length;
+                  const count = notes.filter((note) => note.cluster === cluster.id).length;
                   const hidden = hiddenClusters[cluster.id];
                   return (
                     <button
@@ -2493,11 +2364,10 @@ function GraphScreenInner() {
             <div className="glass w-52 rounded-2xl p-2.5 space-y-0.5 backdrop-blur-md shadow-sm">
               <div className="flex items-center gap-1.5 px-1.5 pb-1.5 text-[11px] font-semibold text-txt2">
                 <Icon name="cluster" size={13} />
-                클러스터 (카테고리)
+                클러스터
               </div>
-              {["ml", "read", "proj", "work", "life"].map((clusterId) => {
-                const cluster = clusterById(clusterId as ClusterId);
-                const count = clusterListNotes.filter((note) => note.cluster === cluster.id).length;
+              {dynamicClusters.map((cluster) => {
+                const count = notes.filter((note) => note.cluster === cluster.id).length;
                 const hidden = hiddenClusters[cluster.id];
                 return (
                   <button
@@ -3131,7 +3001,7 @@ function GraphScreenInner() {
                 {selected.links.map((id) => {
                   const linked = noteById(notes, id);
                   if (!linked) return null;
-                  const linkedCluster = resolveGraphCluster(linked.cluster, clusterMetaById);
+                  const linkedCluster = resolveAiCluster(linked.cluster, clusterMetaById);
                   return (
                     <button key={id} type="button" onClick={() => setSelectedId(id)} className="flex w-full items-center gap-2 rounded-lg p-2 hover:bg-txt/5 transition-colors">
                       <span className="h-2 w-2 rounded-full shrink-0 shadow-[0_0_6px_currentColor]" style={{ background: `rgb(${linkedCluster.color})`, color: `rgb(${linkedCluster.color})` }} />
