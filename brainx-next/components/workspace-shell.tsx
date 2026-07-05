@@ -20,6 +20,7 @@ import {
   clearAuthSession,
   isDevAuthSession,
   isSameAuthSession,
+  logout,
   readAuthSession,
   type AuthSession,
 } from "@/lib/auth-api";
@@ -926,6 +927,7 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [notifications, setNotifications] = useState<MyNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [loggingOut, setLoggingOut] = useState(false);
   const isGuest = !session?.accessToken;
 
   useEffect(() => {
@@ -1162,15 +1164,26 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
           <div className="relative">
             <button
               type="button"
-              onClick={() => {
+              disabled={loggingOut}
+              onClick={async () => {
                 setNotificationOpen(false);
                 if (isGuest) {
                   setGuestMenuOpen((current) => !current);
                   return;
                 }
-                onOpenSettings();
+                if (loggingOut) return;
+                setLoggingOut(true);
+                try {
+                  await logout();
+                  pushToast("로그아웃되었습니다.", "ok");
+                } catch (error) {
+                  pushToast(error instanceof Error ? error.message : "로그아웃에 실패했습니다.", "err");
+                } finally {
+                  setLoggingOut(false);
+                }
+                window.location.replace("/");
               }}
-              className="tutorial-target-profile group relative flex h-8 items-center gap-1.5 rounded-lg px-2 transition-colors hover:bg-surface2/60"
+              className="tutorial-target-profile group relative flex h-8 items-center gap-1.5 rounded-lg px-2 transition-colors hover:bg-surface2/60 disabled:opacity-60"
             >
               <Avatar name={displayName} size={26} imageUrl={displayImageUrl} />
               <div className="hidden text-left leading-tight sm:block">
@@ -1184,7 +1197,10 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
               {isGuest ? <Icon name="chevD" size={12} className="text-txt3" /> : null}
               {!isGuest ? (
                 <span className={topTooltipClass}>
-                  사용자 프로필
+                  <span className="flex items-center gap-1">
+                    <Icon name="logout" size={12} />
+                    로그아웃
+                  </span>
                   <div className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt" style={{ zIndex: -1 }} />
                 </span>
               ) : null}
