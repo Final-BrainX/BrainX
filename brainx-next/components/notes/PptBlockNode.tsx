@@ -6,9 +6,8 @@ import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tip
 import { ChevronLeft, ChevronRight, ExternalLink, Maximize2, Minimize2, Presentation } from "lucide-react";
 import { isElectronDesktop } from "@/lib/desktop-bridge";
 import { openDesktopVaultAsset } from "@/lib/desktop-vault";
-import { getAssetFileUrl, getPptSlideUrl, isDesktopVaultAssetId } from "@/lib/ingestion-api";
+import { getAssetFileUrl, getPptSlideUrl, getPptSlideVideoUrl, isDesktopVaultAssetId } from "@/lib/ingestion-api";
 import { cx } from "@/lib/utils";
-import { getPptSlideUrl, getPptSlideVideoUrl, getAssetFileUrl } from "@/lib/ingestion-api";
 import { startBlockDrag } from "./DragHandleExtension";
 
 function decodeHtmlEntities(value: string) {
@@ -34,6 +33,7 @@ function PptBlockView({ node, selected, getPos, editor }: NodeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const isVideoSlide = videoSlideSet.has(currentSlide);
+  const isLocalVaultAsset = assetId ? isDesktopVaultAssetId(assetId) : false;
   const slideUrl = assetId && !isVideoSlide ? getPptSlideUrl(assetId, currentSlide) : "";
   const slideVideoUrl = assetId && isVideoSlide ? getPptSlideVideoUrl(assetId, currentSlide) : "";
   const downloadUrl = assetId ? getAssetFileUrl(assetId) : "";
