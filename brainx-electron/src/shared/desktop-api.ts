@@ -237,6 +237,7 @@ export type BrainxDesktopApi = {
   saveFile: (options: BrainxDesktopSaveFileOptions) => Promise<boolean>;
   listVaults: () => Promise<BrainxDesktopVaultSummary[]>;
   getActiveVault: () => Promise<BrainxDesktopVaultSummary | null>;
+  activateVault: (vaultId: string) => Promise<BrainxDesktopVaultSummary | null>;
   chooseVaultDirectory: () => Promise<BrainxDesktopVaultSummary | null>;
   createVault: (options?: BrainxDesktopCreateVaultOptions) => Promise<BrainxDesktopVaultSummary | null>;
   getVaultSnapshot: () => Promise<BrainxDesktopVaultSnapshot | null>;

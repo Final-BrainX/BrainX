@@ -115,7 +115,8 @@ function OAuthCallbackContent() {
         if (!activeRef.current) return;
         pushToast("소셜 로그인이 완료되었습니다.", "ok");
         const returnTo = isElectronDesktop() ? queryReturnTo : consumeOAuthReturnTo();
-        router.replace(data.next === "ONBOARDING" ? buildAuthPath("/onboarding", returnTo) : resolveAuthReturnTo(returnTo));
+        const nextRoute = isElectronDesktop() && returnTo === "/home" ? "/" : resolveAuthReturnTo(returnTo);
+        router.replace(data.next === "ONBOARDING" ? buildAuthPath("/onboarding", returnTo) : nextRoute);
       })
       .catch((error) => {
         if (!activeRef.current) return;

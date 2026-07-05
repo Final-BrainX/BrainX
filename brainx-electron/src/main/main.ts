@@ -359,6 +359,18 @@ function loadVaultState() {
     vaultState.activeVaultId = null;
     vaultState.recentVaults = [];
   }
+
+  vaultState.recentVaults = vaultState.recentVaults.filter((vault) => fs.existsSync(vault.vaultPath));
+
+  if (vaultState.activeVaultId && !vaultState.recentVaults.some((vault) => vault.id === vaultState.activeVaultId)) {
+    vaultState.activeVaultId = null;
+  }
+
+  if (!vaultState.activeVaultId && vaultState.recentVaults.length > 0) {
+    vaultState.activeVaultId = vaultState.recentVaults[0].id;
+  }
+
+  persistVaultState();
 }
 
 function requireActiveVault() {
@@ -976,6 +988,13 @@ async function importExtractedVaultDirectory(
       if (entry.name === ".brainx") continue;
       const fullPath = path.join(directoryPath, entry.name);
       if (entry.isDirectory()) {
+        if (
+          entry.name === path.basename(vault.notesPath) ||
+          entry.name === path.basename(vault.assetsPath) ||
+          entry.name === path.basename(vault.exportsPath)
+        ) {
+          continue;
+        }
         await walk(fullPath);
         continue;
       }
@@ -1238,8 +1257,11 @@ async function runManualVaultSync(vault: BrainxDesktopVaultSummary): Promise<Bra
 
   try {
     const syncState = readVaultSyncState(vault);
-    const remoteFolders = await remoteWorkspaceRequest<Array<{ folderId: string; name: string; parentFolderId: string | null; updatedAt?: string }>>("/api/v1/folders/tree");
+    const remoteFoldersData = await remoteWorkspaceRequest<{
+      folders: Array<{ folderId: string; name: string; parentFolderId: string | null; updatedAt?: string }>;
+    }>("/api/v1/folders/tree");
     const remoteNotesData = await remoteWorkspaceRequest<{ notes: Array<{ noteId: string; title: string; markdown: string; folderId: string | null; tags: string[]; version: number; createdAt: string; updatedAt: string }>; totalCount: number }>("/api/v1/notes");
+    const remoteFolders = Array.isArray(remoteFoldersData.folders) ? remoteFoldersData.folders : [];
     const remoteFoldersById = new Map(remoteFolders.map((folder) => [folder.folderId, folder]));
     const remoteNotesById = new Map(remoteNotesData.notes.map((note) => [note.noteId, note]));
     const reverseFolderMappings = new Map(Object.entries(syncState.folderMappings).map(([localId, value]) => [value.remoteFolderId, localId]));
@@ -1857,6 +1879,14 @@ function registerIpc() {
 
   ipcMain.handle("brainx-desktop:get-active-vault", () => getActiveVault());
 
+  ipcMain.handle("brainx-desktop:activate-vault", (_event, vaultId: string) => {
+    const vault = vaultState.recentVaults.find((item) => item.id === vaultId);
+    if (!vault || !fs.existsSync(vault.vaultPath)) {
+      return null;
+    }
+    return upsertVault({ ...vault, lastOpenedAt: new Date().toISOString() });
+  });
+
   ipcMain.handle("brainx-desktop:choose-vault-directory", async (event) => {
     const owner = resolveDialogOwner(event.sender);
     const result = await showOpenDialogForOwner(owner, {
@@ -1867,7 +1897,12 @@ function registerIpc() {
 
     const selectedPath = result.filePaths[0];
     const vault = toVaultSummary(selectedPath);
-    return upsertVault(vault);
+    const hadWorkspaceDescriptor = fs.existsSync(getVaultWorkspaceFilePath(vault));
+    const openedVault = upsertVault(vault);
+    if (!hadWorkspaceDescriptor) {
+      await importExtractedVaultDirectory(openedVault, null, selectedPath);
+    }
+    return openedVault;
   });
 
   ipcMain.handle("brainx-desktop:create-vault", async (event, options?: BrainxDesktopCreateVaultOptions) => {
