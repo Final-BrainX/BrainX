@@ -167,7 +167,7 @@ services:
       EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: ingestion-service
     ports:
-      - "127.0.0.1:8083:8083"
+      - "8083:8083"
     depends_on:
       discovery-service:
         condition: service_healthy
