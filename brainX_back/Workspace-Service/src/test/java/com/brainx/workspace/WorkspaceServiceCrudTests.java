@@ -79,13 +79,19 @@ class WorkspaceServiceCrudTests {
 
     @Test
     void noteFolderLinkGraphAndDeleteCrudFollowWorkspaceContract() {
-        FolderData folder = workspaceService.createFolder(USER_ID, new FolderCreateRequest("Study", null));
+        FolderData folder = workspaceService.createFolder(USER_ID, new FolderCreateRequest(null, "Study", null));
         NoteCreatedData first = workspaceService.createNote(USER_ID,
-                new NoteCreateRequest("First note", "hello", folder.folderId(), List.of("java")));
+                new NoteCreateRequest(null, "First note", "hello", folder.folderId(), List.of("java")));
         NoteCreatedData second = workspaceService.createNote(USER_ID,
-                new NoteCreateRequest("Second note", "target", folder.folderId(), List.of("graph")));
+                new NoteCreateRequest(null, "Second note", "target", folder.folderId(), List.of("graph")));
+        String defaultDocumentGroupId = "dgrp_default_" + USER_ID;
+
+        assertThat(folder.documentGroupId()).isEqualTo(defaultDocumentGroupId);
+        assertThat(first.documentGroupId()).isEqualTo(defaultDocumentGroupId);
+        assertThat(second.documentGroupId()).isEqualTo(defaultDocumentGroupId);
 
         NoteDetailData detail = workspaceService.getNote(USER_ID, first.noteId());
+        assertThat(detail.documentGroupId()).isEqualTo(defaultDocumentGroupId);
         assertThat(detail.title()).isEqualTo("First note");
         assertThat(detail.folder().folderId()).isEqualTo(folder.folderId());
         assertThat(detail.version()).isEqualTo(1);
@@ -106,6 +112,7 @@ class WorkspaceServiceCrudTests {
         NoteMetadataData metadata = workspaceService.patchMetadata(USER_ID, first.noteId(),
                 new NoteMetadataPatchRequest("Renamed note", folder.folderId(), List.of("java", "workspace"), false,
                         new NoteTypography(110, "Pretendard", Map.of("body", 17, "h1", 32)), null));
+        assertThat(metadata.documentGroupId()).isEqualTo(defaultDocumentGroupId);
         assertThat(metadata.title()).isEqualTo("Renamed note");
         assertThat(metadata.tags()).containsExactly("java", "workspace");
         assertThat(metadata.typography().scalePercent()).isEqualTo(110);
@@ -163,6 +170,8 @@ class WorkspaceServiceCrudTests {
 
         WorkspaceSyncData fullSync = workspaceService.syncWorkspace(USER_ID, null, true);
         assertThat(fullSync.notes()).extracting(note -> note.get("noteId")).contains(first.noteId(), second.noteId());
+        assertThat(fullSync.notes()).extracting(note -> note.get("documentGroupId")).containsOnly(defaultDocumentGroupId);
+        assertThat(fullSync.folders()).extracting(folderMap -> folderMap.get("documentGroupId")).containsOnly(defaultDocumentGroupId);
         assertThat(eventOutboxRepository.count()).isGreaterThanOrEqualTo(8);
     }
 
@@ -180,6 +189,7 @@ class WorkspaceServiceCrudTests {
         String noteId = bulk.createdNotes().getFirst().noteId();
         InternalNoteSnapshotData snapshot = workspaceService.snapshot(noteId);
         assertThat(snapshot.title()).isEqualTo("Imported note");
+        assertThat(snapshot.documentGroupId()).isEqualTo("dgrp_default_" + USER_ID);
         assertThat(snapshot.version()).isEqualTo(1);
 
         NoteContentSaveData patched = workspaceService.patchContentInternal(noteId,
@@ -187,6 +197,7 @@ class WorkspaceServiceCrudTests {
         assertThat(patched.version()).isEqualTo(2);
 
         InternalNoteSnapshotData afterPatch = workspaceService.snapshot(noteId);
+        assertThat(afterPatch.documentGroupId()).isEqualTo("dgrp_default_" + USER_ID);
         assertThat(afterPatch.markdown()).contains("appended");
     }
 
@@ -194,11 +205,12 @@ class WorkspaceServiceCrudTests {
     void snapshotWithTagsSerializesAsJsonArrayWithoutLazyInitializationException() throws Exception {
         NoteCreatedData created = workspaceService.createNote(
                 USER_ID,
-                new NoteCreateRequest("Tagged snapshot note", "snapshot body", null, List.of("tag-1", "tag-2"))
+                new NoteCreateRequest(null, "Tagged snapshot note", "snapshot body", null, List.of("tag-1", "tag-2"))
         );
 
         InternalNoteSnapshotData snapshot = workspaceService.snapshot(created.noteId());
 
+        assertThat(snapshot.documentGroupId()).isEqualTo("dgrp_default_" + USER_ID);
         assertThat(snapshot.tags()).containsExactly("tag-1", "tag-2");
 
         String json = objectMapper.writeValueAsString(ApiResponse.success(snapshot));
@@ -212,27 +224,27 @@ class WorkspaceServiceCrudTests {
 
     @Test
     void duplicateFolderAndNoteNamesAreAutoSuffixedWithinTheSameParent() {
-        FolderData first = workspaceService.createFolder(USER_ID, new FolderCreateRequest("폴더", null));
-        FolderData second = workspaceService.createFolder(USER_ID, new FolderCreateRequest("폴더", null));
-        FolderData third = workspaceService.createFolder(USER_ID, new FolderCreateRequest("폴더", null));
+        FolderData first = workspaceService.createFolder(USER_ID, new FolderCreateRequest(null, "폴더", null));
+        FolderData second = workspaceService.createFolder(USER_ID, new FolderCreateRequest(null, "폴더", null));
+        FolderData third = workspaceService.createFolder(USER_ID, new FolderCreateRequest(null, "폴더", null));
         assertThat(first.name()).isEqualTo("폴더");
         assertThat(second.name()).isEqualTo("폴더 2");
         assertThat(third.name()).isEqualTo("폴더 3");
 
         // depth가 다르면(하위 폴더) 같은 이름을 허용한다.
-        FolderData nested = workspaceService.createFolder(USER_ID, new FolderCreateRequest("폴더", first.folderId()));
+        FolderData nested = workspaceService.createFolder(USER_ID, new FolderCreateRequest(null, "폴더", first.folderId()));
         assertThat(nested.name()).isEqualTo("폴더");
 
         FolderData renamed = workspaceService.patchFolder(USER_ID, third.folderId(), new FolderPatchRequest("폴더", null));
         assertThat(renamed.name()).isEqualTo("폴더 3");
 
-        NoteCreatedData firstNote = workspaceService.createNote(USER_ID, new NoteCreateRequest("노트", "", first.folderId(), List.of()));
-        NoteCreatedData secondNote = workspaceService.createNote(USER_ID, new NoteCreateRequest("노트", "", first.folderId(), List.of()));
+        NoteCreatedData firstNote = workspaceService.createNote(USER_ID, new NoteCreateRequest(null, "노트", "", first.folderId(), List.of()));
+        NoteCreatedData secondNote = workspaceService.createNote(USER_ID, new NoteCreateRequest(null, "노트", "", first.folderId(), List.of()));
         assertThat(firstNote.title()).isEqualTo("노트");
         assertThat(secondNote.title()).isEqualTo("노트 2");
 
         // 다른 폴더에서는 같은 제목을 허용한다.
-        NoteCreatedData noteInOtherFolder = workspaceService.createNote(USER_ID, new NoteCreateRequest("노트", "", second.folderId(), List.of()));
+        NoteCreatedData noteInOtherFolder = workspaceService.createNote(USER_ID, new NoteCreateRequest(null, "노트", "", second.folderId(), List.of()));
         assertThat(noteInOtherFolder.title()).isEqualTo("노트");
     }
 
@@ -249,13 +261,28 @@ class WorkspaceServiceCrudTests {
     }
 
     @Test
+    void folderTreeKeepsUserWideScopeButIncludesDocumentGroupIdPerFolder() {
+        FolderData folder = workspaceService.createFolder(USER_ID, new FolderCreateRequest(null, "Tree Folder", null));
+
+        FolderTreeData tree = workspaceService.folderTree(USER_ID);
+
+        assertThat(tree.documentGroupId()).isNull();
+        assertThat(tree.folders()).hasSize(1);
+        assertThat(tree.folders().getFirst()).containsEntry("folderId", folder.folderId());
+        assertThat(tree.folders().getFirst()).containsEntry("documentGroupId", "dgrp_default_" + USER_ID);
+    }
+
+    // persistDraft의 documentGroupId 저장 검증은 Neo4j/Spring 컨텍스트가 필요 없는
+    // com.brainx.workspace.service.WorkspaceServicePersistDraftTest(Mockito 단위 테스트)로 분리했다.
+
+    @Test
     void syncGraphAllRecreatesNeo4jNodesAndEdgesFromPostgreSqlSSOT() {
         // Given
-        FolderData folder = workspaceService.createFolder(USER_ID, new FolderCreateRequest("Sync Test Folder", null));
+        FolderData folder = workspaceService.createFolder(USER_ID, new FolderCreateRequest(null, "Sync Test Folder", null));
         NoteCreatedData note1 = workspaceService.createNote(USER_ID,
-                new NoteCreateRequest("Sync Note 1", "sync target", folder.folderId(), List.of("sync")));
+                new NoteCreateRequest(null, "Sync Note 1", "sync target", folder.folderId(), List.of("sync")));
         NoteCreatedData note2 = workspaceService.createNote(USER_ID,
-                new NoteCreateRequest("Sync Note 2", "sync target 2", folder.folderId(), List.of("sync")));
+                new NoteCreateRequest(null, "Sync Note 2", "sync target 2", folder.folderId(), List.of("sync")));
         workspaceService.createLink(USER_ID, note1.noteId(),
                 new NoteLinkCreateRequest(note2.noteId(), "Sync Note 2", false, null, null));
 
@@ -283,9 +310,9 @@ class WorkspaceServiceCrudTests {
     @Test
     void savingWikiLinkContentCreatesLedgerLinksAndBackfillKeepsGraphInSync() {
         NoteCreatedData target = workspaceService.createNote(USER_ID,
-                new NoteCreateRequest("Target note", "target", null, List.of("graph")));
+                new NoteCreateRequest(null, "Target note", "target", null, List.of("graph")));
         NoteCreatedData source = workspaceService.createNote(USER_ID,
-                new NoteCreateRequest("Source note", "<p><span data-wiki-link=\"true\" data-title=\"Target note\" data-alias=\"Target alias\" data-heading=\"deep-dive\">[[Target alias]]</span></p>", null, List.of("wiki")));
+                new NoteCreateRequest(null, "Source note", "<p><span data-wiki-link=\"true\" data-title=\"Target note\" data-alias=\"Target alias\" data-heading=\"deep-dive\">[[Target alias]]</span></p>", null, List.of("wiki")));
 
         GraphData graph = workspaceService.graph(USER_ID, null, null, LocalDate.now().minusDays(1), LocalDate.now().plusDays(1));
         assertThat(graph.edges()).hasSize(1);
@@ -304,14 +331,14 @@ class WorkspaceServiceCrudTests {
     @Test
     void creatingTargetNoteAfterSourceSaveReconcilesExistingWikiLinks() {
         NoteCreatedData source = workspaceService.createNote(USER_ID,
-                new NoteCreateRequest("Kafka", "<p>message [[envelope]] flow</p>", null, List.of("stream")));
+                new NoteCreateRequest(null, "Kafka", "<p>message [[envelope]] flow</p>", null, List.of("stream")));
 
         GraphData beforeTargetExists = workspaceService.graph(USER_ID, null, null, LocalDate.now().minusDays(1), LocalDate.now().plusDays(1));
         assertThat(beforeTargetExists.nodes()).hasSize(1);
         assertThat(beforeTargetExists.edges()).isEmpty();
 
         NoteCreatedData target = workspaceService.createNote(USER_ID,
-                new NoteCreateRequest("envelope", "", null, List.of("stream")));
+                new NoteCreateRequest(null, "envelope", "", null, List.of("stream")));
 
         BacklinksData backlinks = workspaceService.backlinks(USER_ID, target.noteId());
         assertThat(backlinks.backlinks()).hasSize(1);
@@ -327,9 +354,9 @@ class WorkspaceServiceCrudTests {
     @Test
     void renamingNoteReconcilesExistingWikiLinksForOldAndNewTitles() {
         NoteCreatedData source = workspaceService.createNote(USER_ID,
-                new NoteCreateRequest("Kafka", "<p>[[envelope]] payload</p>", null, List.of("stream")));
+                new NoteCreateRequest(null, "Kafka", "<p>[[envelope]] payload</p>", null, List.of("stream")));
         NoteCreatedData target = workspaceService.createNote(USER_ID,
-                new NoteCreateRequest("envelope", "", null, List.of("stream")));
+                new NoteCreateRequest(null, "envelope", "", null, List.of("stream")));
 
         GraphData initialGraph = workspaceService.graph(USER_ID, null, null, LocalDate.now().minusDays(1), LocalDate.now().plusDays(1));
         assertThat(initialGraph.edges()).hasSize(1);

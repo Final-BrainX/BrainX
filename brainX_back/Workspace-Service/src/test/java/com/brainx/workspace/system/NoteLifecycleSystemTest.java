@@ -57,7 +57,7 @@ class NoteLifecycleSystemTest {
     void noteFullLifecycle_createReadUpdateDelete() {
         // 1. 생성
         NoteCreatedData created = workspaceService.createNote(USER_ID,
-                new NoteCreateRequest("시스템 테스트 노트", "# 제목\n\n본문입니다.", null, List.of("java", "spring")));
+                new NoteCreateRequest(null, "시스템 테스트 노트", "# 제목\n\n본문입니다.", null, List.of("java", "spring")));
         assertThat(created.noteId()).isNotBlank();
         assertThat(created.version()).isEqualTo(1);
 
@@ -92,7 +92,7 @@ class NoteLifecycleSystemTest {
     void saveContent_withStaleVersion_throwsVersionConflict() {
         // given
         NoteCreatedData created = workspaceService.createNote(USER_ID,
-                new NoteCreateRequest("충돌 테스트", "초기 내용", null, List.of()));
+                new NoteCreateRequest(null, "충돌 테스트", "초기 내용", null, List.of()));
         workspaceService.saveContent(USER_ID, created.noteId(),
                 new NoteContentSaveRequest(1, "첫 번째 수정", Instant.now()));
 
@@ -110,11 +110,11 @@ class NoteLifecycleSystemTest {
     @DisplayName("[시스템] 폴더 생성 후 노트 이동 — 동일 폴더 내 이름 중복 시 자동 접미사")
     void createFolder_andMoveNote_duplicateNameAutoSuffixed() {
         // given — 폴더 생성
-        FolderData folder = workspaceService.createFolder(USER_ID, new FolderCreateRequest("개발 노트", null));
+        FolderData folder = workspaceService.createFolder(USER_ID, new FolderCreateRequest(null, "개발 노트", null));
         NoteCreatedData note1 = workspaceService.createNote(USER_ID,
-                new NoteCreateRequest("Java", "내용1", folder.folderId(), List.of()));
+                new NoteCreateRequest(null, "Java", "내용1", folder.folderId(), List.of()));
         NoteCreatedData note2 = workspaceService.createNote(USER_ID,
-                new NoteCreateRequest("Java", "내용2", folder.folderId(), List.of()));
+                new NoteCreateRequest(null, "Java", "내용2", folder.folderId(), List.of()));
 
         // 같은 폴더에 같은 이름 → 자동 접미사 "Java 2"
         assertThat(note1.title()).isEqualTo("Java");
@@ -125,11 +125,11 @@ class NoteLifecycleSystemTest {
     @DisplayName("[시스템] 노트 목록 조회 — 폴더·태그·키워드 필터링")
     void listNotes_withFiltersCombined_returnsMatchingNotes() {
         // given
-        FolderData folder = workspaceService.createFolder(USER_ID, new FolderCreateRequest("테스트 폴더", null));
+        FolderData folder = workspaceService.createFolder(USER_ID, new FolderCreateRequest(null, "테스트 폴더", null));
         workspaceService.createNote(USER_ID,
-                new NoteCreateRequest("Spring 개요", "Spring 내용", folder.folderId(), List.of("java", "spring")));
+                new NoteCreateRequest(null, "Spring 개요", "Spring 내용", folder.folderId(), List.of("java", "spring")));
         workspaceService.createNote(USER_ID,
-                new NoteCreateRequest("React 기초", "React 내용", folder.folderId(), List.of("frontend")));
+                new NoteCreateRequest(null, "React 기초", "React 내용", folder.folderId(), List.of("frontend")));
 
         // when — 태그 + 키워드 필터
         NoteListData result = workspaceService.listNotes(USER_ID, folder.folderId(), "spring", "spring", false);
@@ -144,7 +144,7 @@ class NoteLifecycleSystemTest {
     void publicShare_withNullExpiresAt_regressionCheck() {
         // given
         NoteCreatedData note = workspaceService.createNote(USER_ID,
-                new NoteCreateRequest("공유 테스트 노트", "내용", null, List.of()));
+                new NoteCreateRequest(null, "공유 테스트 노트", "내용", null, List.of()));
 
         ShareLink badLink = new ShareLink(
                 "sys-share-null-" + System.currentTimeMillis(),
@@ -170,7 +170,7 @@ class NoteLifecycleSystemTest {
         long before = eventOutboxRepository.count();
 
         NoteCreatedData note = workspaceService.createNote(USER_ID,
-                new NoteCreateRequest("이벤트 테스트", "내용", null, List.of()));
+                new NoteCreateRequest(null, "이벤트 테스트", "내용", null, List.of()));
         workspaceService.saveContent(USER_ID, note.noteId(),
                 new NoteContentSaveRequest(1, "수정", Instant.now()));
         workspaceService.deleteNote(USER_ID, note.noteId(), "trash");

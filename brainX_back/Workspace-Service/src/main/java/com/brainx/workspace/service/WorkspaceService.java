@@ -172,7 +172,8 @@ public class WorkspaceService {
     public NoteCreatedData createNote(String userId, NoteCreateRequest request) {
         Instant now = Instant.now();
         String title = dedupeNoteTitle(userId, request.folderId(), request.title(), null);
-        Note note = new Note(Ids.note(), userId, title, request.markdown(), request.folderId(), request.tags(), now);
+        String documentGroupId = resolveDocumentGroupId(userId, request.documentGroupId());
+        Note note = new Note(Ids.note(), userId, documentGroupId, title, request.markdown(), request.folderId(), request.tags(), now);
         noteRepository.save(note);
         syncWikiLinksForNote(note, now);
         syncIncomingWikiLinksForTitle(userId, note.getTitle(), note.getNoteId(), now);
@@ -186,7 +187,8 @@ public class WorkspaceService {
                 "tags", note.getTags(),
                 "version", note.getVersion()
         ));
-        return new NoteCreatedData(note.getNoteId(), note.getTitle(), note.getFolderId(), note.getVersion(), note.getCreatedAt());
+        return new NoteCreatedData(note.getNoteId(), note.getDocumentGroupId(), note.getTitle(), note.getFolderId(), note.getVersion(),
+                note.getCreatedAt());
     }
 
     public ClaimedNoteDraft persistDraft(String userId, NoteDraftData draft) {
@@ -200,7 +202,8 @@ public class WorkspaceService {
             // 같은 폴더에 같은 제목(기본값 "제목 없음" 포함)이 있으면 충돌하므로 새로 생기는
             // 시점에 한 번만 갈라준다(이미 영속화된 노트를 매 flush마다 다시 검사/리네임하지 않음).
             title = dedupeNoteTitle(userId, draft.folderId(), title, null);
-            note = new Note(noteId, userId, title, markdown, draft.folderId(), List.of(), now);
+            String documentGroupId = resolveDocumentGroupId(userId, draft.documentGroupId());
+            note = new Note(noteId, userId, documentGroupId, title, markdown, draft.folderId(), List.of(), now);
             noteRepository.save(note);
             syncWikiLinksForNote(note, now);
             syncIncomingWikiLinksForTitle(userId, note.getTitle(), note.getNoteId(), now);
@@ -225,7 +228,7 @@ public class WorkspaceService {
         }
         snapshot(note, now);
         activity(userId, note, "updated", now);
-        return new ClaimedNoteDraft(note.getNoteId(), draft.noteId(), note.getTitle(), note.getVersion());
+        return new ClaimedNoteDraft(note.getNoteId(), draft.noteId(), note.getDocumentGroupId(), note.getTitle(), note.getVersion());
     }
 
     @Transactional(readOnly = true)
@@ -235,8 +238,8 @@ public class WorkspaceService {
         // tags는 지연 로딩 컬렉션이라 트랜잭션 안에서 복사해 둬야 세션이 닫힌 뒤 직렬화할 때
         // LazyInitializationException이 나지 않는다.
         List<String> tags = new ArrayList<>(note.getTags());
-        return new NoteDetailData(note.getNoteId(), note.getTitle(), note.getMarkdown(), folder, tags, note.getVersion(),
-                note.getCreatedAt(), note.getUpdatedAt(), new Permissions(true, true), typography(note));
+        return new NoteDetailData(note.getNoteId(), note.getDocumentGroupId(), note.getTitle(), note.getMarkdown(), folder, tags,
+                note.getVersion(), note.getCreatedAt(), note.getUpdatedAt(), new Permissions(true, true), typography(note));
     }
 
     public DeleteNoteData deleteNote(String userId, String noteId, String mode) {
@@ -309,7 +312,8 @@ public class WorkspaceService {
                 "typography", request.typography(),
                 "version", note.getVersion()
         ));
-        return new NoteMetadataData(noteId, note.getTitle(), note.getFolderId(), note.getTags(), note.getVersion(), typography(note), null);
+        return new NoteMetadataData(noteId, note.getDocumentGroupId(), note.getTitle(), note.getFolderId(), note.getTags(),
+                note.getVersion(), typography(note), null);
     }
 
     @Transactional(readOnly = true)
@@ -392,7 +396,8 @@ public class WorkspaceService {
     public FolderData createFolder(String userId, FolderCreateRequest request) {
         Instant now = Instant.now();
         String name = dedupeFolderName(userId, request.parentFolderId(), request.name(), null);
-        Folder folder = new Folder(Ids.folder(), userId, name, request.parentFolderId(), now);
+        String documentGroupId = resolveDocumentGroupId(userId, request.documentGroupId());
+        Folder folder = new Folder(Ids.folder(), userId, documentGroupId, name, request.parentFolderId(), now);
         folderRepository.save(folder);
         eventPublisher.publish("FolderCreated", userId, payload(
                 "folderId", folder.getFolderId(), "userId", userId, "name", folder.getName(), "parentFolderId", folder.getParentFolderId()
@@ -402,7 +407,7 @@ public class WorkspaceService {
 
     @Transactional(readOnly = true)
     public FolderTreeData folderTree(String userId) {
-        return new FolderTreeData(folderRepository.findByUserIdOrderByNameAsc(userId).stream().map(this::folderMap).toList());
+        return new FolderTreeData(null, folderRepository.findByUserIdOrderByNameAsc(userId).stream().map(this::folderMap).toList());
     }
 
     public FolderData patchFolder(String userId, String folderId, FolderPatchRequest request) {
@@ -756,7 +761,8 @@ public class WorkspaceService {
     public InternalNoteBulkCreateData bulkCreate(InternalNoteBulkCreateRequest request) {
         List<InternalCreatedNote> created = new ArrayList<>();
         for (InternalNoteCreateItem item : request.notes()) {
-            NoteCreatedData data = createNote(request.userId(), new NoteCreateRequest(item.title(), item.markdown(), request.targetFolderId(), item.tags()));
+            NoteCreatedData data = createNote(request.userId(),
+                    new NoteCreateRequest(null, item.title(), item.markdown(), request.targetFolderId(), item.tags()));
             created.add(new InternalCreatedNote(item.externalId(), data.noteId(), data.version()));
         }
         return new InternalNoteBulkCreateData(created, List.of());
@@ -766,7 +772,8 @@ public class WorkspaceService {
     public InternalNoteSnapshotData snapshot(String noteId) {
         Note note = noteRepository.findById(noteId).orElseThrow(() -> notFound("NOTE_NOT_FOUND", "Note not found."));
         List<String> tags = new ArrayList<>(note.getTags());
-        return new InternalNoteSnapshotData(note.getNoteId(), note.getTitle(), note.getMarkdown(), tags, note.getFolderId(),
+        return new InternalNoteSnapshotData(note.getNoteId(), note.getDocumentGroupId(), note.getTitle(), note.getMarkdown(), tags,
+                note.getFolderId(),
                 note.getVersion(), note.getUpdatedAt());
     }
 
@@ -1084,7 +1091,8 @@ public class WorkspaceService {
     }
 
     private FolderData folderData(Folder folder) {
-        return new FolderData(folder.getFolderId(), folder.getName(), folder.getParentFolderId(), folder.getParentFolderId() == null ? 0 : 1);
+        return new FolderData(folder.getFolderId(), folder.getDocumentGroupId(), folder.getName(), folder.getParentFolderId(),
+                folder.getParentFolderId() == null ? 0 : 1);
     }
 
     private InternalDefaultWorkspaceData defaultWorkspaceData(Workspace workspace) {
@@ -1122,6 +1130,14 @@ public class WorkspaceService {
         return "dgrp_default_" + userId;
     }
 
+    private String resolveDocumentGroupId(String userId, String requestedDocumentGroupId) {
+        String normalized = trimToNull(requestedDocumentGroupId);
+        if (normalized != null) {
+            return normalized;
+        }
+        return getOrCreateDefaultWorkspace(userId).documentGroupId();
+    }
+
     private String requireWorkspaceName(String name) {
         String normalized = trimToNull(name);
         if (normalized == null) {
@@ -1135,13 +1151,15 @@ public class WorkspaceService {
     }
 
     private Map<String, Object> noteMap(Note note) {
-        return payload("noteId", note.getNoteId(), "title", note.getTitle(), "markdown", note.getMarkdown(), "folderId", note.getFolderId(),
+        return payload("noteId", note.getNoteId(), "documentGroupId", note.getDocumentGroupId(), "title", note.getTitle(),
+                "markdown", note.getMarkdown(), "folderId", note.getFolderId(),
                 "tags", new ArrayList<>(note.getTags()), "version", note.getVersion(), "createdAt", note.getCreatedAt(), "updatedAt", note.getUpdatedAt(),
                 "deleted", note.isDeleted(), "typography", typography(note));
     }
 
     private Map<String, Object> folderMap(Folder folder) {
-        return payload("folderId", folder.getFolderId(), "name", folder.getName(), "parentFolderId", folder.getParentFolderId(), "depth", folderData(folder).depth());
+        return payload("folderId", folder.getFolderId(), "documentGroupId", folder.getDocumentGroupId(), "name", folder.getName(),
+                "parentFolderId", folder.getParentFolderId(), "depth", folderData(folder).depth());
     }
 
     private Map<String, Object> linkMap(NoteLink link) {

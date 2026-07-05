@@ -49,15 +49,17 @@ public final class WorkspaceDtos {
     public record NoteListData(List<Map<String, Object>> notes, int totalCount) {
     }
 
-    public record NoteCreateRequest(@NotBlank String title, String markdown, String folderId, List<String> tags) {
+    public record NoteCreateRequest(String documentGroupId, @NotBlank String title, String markdown, String folderId,
+                                    List<String> tags) {
     }
 
-    public record NoteCreatedData(String noteId, String title, String folderId, int version, Instant createdAt) {
+    public record NoteCreatedData(String noteId, String documentGroupId, String title, String folderId, int version,
+                                  Instant createdAt) {
     }
 
-    public record NoteDetailData(String noteId, String title, String markdown, FolderRef folder, List<String> tags,
-                                 int version, Instant createdAt, Instant updatedAt, Permissions permissions,
-                                 NoteTypography typography) {
+    public record NoteDetailData(String noteId, String documentGroupId, String title, String markdown, FolderRef folder,
+                                 List<String> tags, int version, Instant createdAt, Instant updatedAt,
+                                 Permissions permissions, NoteTypography typography) {
     }
 
     public record NoteTypography(Integer scalePercent, String fontFamily, Map<String, Integer> overrides) {
@@ -77,16 +79,17 @@ public final class WorkspaceDtos {
                                       Map<String, Object> conflict) {
     }
 
-    public record NoteDraftSaveRequest(String title, @NotNull String markdown, String folderId,
+    public record NoteDraftSaveRequest(String documentGroupId, String title, @NotNull String markdown, String folderId,
                                        @NotNull Integer baseVersion, @NotNull Instant clientSavedAt) {
     }
 
-    public record NoteDraftSaveData(String noteId, String actorType, Instant savedAt,
+    public record NoteDraftSaveData(String noteId, String documentGroupId, String actorType, Instant savedAt,
                                     Instant expiresAt, String status) {
     }
 
-    public record NoteDraftData(String noteId, String actorType, String title, String markdown, String folderId,
-                                Integer baseVersion, Instant clientSavedAt, Instant savedAt, Instant expiresAt) {
+    public record NoteDraftData(String noteId, String documentGroupId, String actorType, String title, String markdown,
+                                String folderId, Integer baseVersion, Instant clientSavedAt, Instant savedAt,
+                                Instant expiresAt) {
     }
 
     public record NoteDraftListData(List<NoteDraftData> drafts) {
@@ -95,7 +98,8 @@ public final class WorkspaceDtos {
     public record NoteDraftIdData(String noteId, String actorType, Instant issuedAt, String status) {
     }
 
-    public record ClaimedNoteDraft(String noteId, String sourceNoteId, String title, int version) {
+    public record ClaimedNoteDraft(String noteId, String sourceNoteId, String documentGroupId, String title,
+                                   int version) {
     }
 
     public record NoteDraftClaimData(int claimedCount, List<ClaimedNoteDraft> notes) {
@@ -108,8 +112,8 @@ public final class WorkspaceDtos {
                                            NoteTypography typography, Integer order) {
     }
 
-    public record NoteMetadataData(String noteId, String title, String folderId, List<String> tags, int version,
-                                   NoteTypography typography, Integer order) {
+    public record NoteMetadataData(String noteId, String documentGroupId, String title, String folderId,
+                                   List<String> tags, int version, NoteTypography typography, Integer order) {
     }
 
     public record DeleteNoteData(String noteId, Instant deletedAt, Instant purgeAt) {
@@ -133,13 +137,14 @@ public final class WorkspaceDtos {
     public record RecentActivityItem(String noteId, String title, String activityType, Instant activityAt) {
     }
 
-    public record FolderCreateRequest(@NotBlank String name, String parentFolderId) {
+    public record FolderCreateRequest(String documentGroupId, @NotBlank String name, String parentFolderId) {
     }
 
-    public record FolderData(String folderId, String name, String parentFolderId, Integer depth) {
+    public record FolderData(String folderId, String documentGroupId, String name, String parentFolderId,
+                             Integer depth) {
     }
 
-    public record FolderTreeData(List<Map<String, Object>> folders) {
+    public record FolderTreeData(String documentGroupId, List<Map<String, Object>> folders) {
     }
 
     public record FolderPatchRequest(String name, String parentFolderId) {
@@ -226,8 +231,8 @@ public final class WorkspaceDtos {
     public record InternalCreatedNote(String externalId, String noteId, int version) {
     }
 
-    public record InternalNoteSnapshotData(String noteId, String title, String markdown, List<String> tags,
-                                           String folderId, int version, Instant updatedAt) {
+    public record InternalNoteSnapshotData(String noteId, String documentGroupId, String title, String markdown,
+                                           List<String> tags, String folderId, int version, Instant updatedAt) {
     }
 
     public record InternalUserWorkspaceStatsData(int noteCount, long storageBytes, List<InternalUserActivityDto> activities) {
