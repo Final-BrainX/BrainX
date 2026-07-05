@@ -157,16 +157,16 @@ public class WorkspaceService {
         return desiredName + " " + suffix;
     }
 
-    private String dedupeFolderName(String userId, String parentFolderId, String desiredName, String excludeFolderId) {
-        Set<String> taken = folderRepository.findSiblingsByUserIdAndParentFolderId(userId, parentFolderId).stream()
+    private String dedupeFolderName(String userId, String documentGroupId, String parentFolderId, String desiredName, String excludeFolderId) {
+        Set<String> taken = folderRepository.findSiblingsByUserIdAndDocumentGroupIdAndParentFolderId(userId, documentGroupId, parentFolderId).stream()
                 .filter(folder -> excludeFolderId == null || !folder.getFolderId().equals(excludeFolderId))
                 .map(Folder::getName)
                 .collect(Collectors.toSet());
         return dedupeName(taken, desiredName);
     }
 
-    private String dedupeNoteTitle(String userId, String folderId, String desiredTitle, String excludeNoteId) {
-        Set<String> taken = noteRepository.findSiblingsByUserIdAndFolderId(userId, folderId).stream()
+    private String dedupeNoteTitle(String userId, String documentGroupId, String folderId, String desiredTitle, String excludeNoteId) {
+        Set<String> taken = noteRepository.findSiblingsByUserIdAndDocumentGroupIdAndFolderId(userId, documentGroupId, folderId).stream()
                 .filter(note -> excludeNoteId == null || !note.getNoteId().equals(excludeNoteId))
                 .map(Note::getTitle)
                 .collect(Collectors.toSet());
@@ -175,11 +175,11 @@ public class WorkspaceService {
 
     public NoteCreatedData createNote(String userId, NoteCreateRequest request) {
         Instant now = Instant.now();
-        String title = dedupeNoteTitle(userId, request.folderId(), request.title(), null);
         requireOwnedWorkspaceIfProvided(userId, request.documentGroupId());
         String documentGroupId = resolveDocumentGroupId(userId, request.documentGroupId());
         requireFolderInWorkspace(userId, request.folderId(), documentGroupId,
                 "FOLDER_WORKSPACE_MISMATCH", "Folder does not belong to the target Workspace.");
+        String title = dedupeNoteTitle(userId, documentGroupId, request.folderId(), request.title(), null);
         Note note = new Note(Ids.note(), userId, documentGroupId, title, request.markdown(), request.folderId(), request.tags(), now);
         noteRepository.save(note);
         syncWikiLinksForNote(note, now);
@@ -208,8 +208,9 @@ public class WorkspaceService {
             // draft가 Postgres에 처음 들어오는 순간(idle flush 또는 guest->user claim) — 이미
             // 같은 폴더에 같은 제목(기본값 "제목 없음" 포함)이 있으면 충돌하므로 새로 생기는
             // 시점에 한 번만 갈라준다(이미 영속화된 노트를 매 flush마다 다시 검사/리네임하지 않음).
-            title = dedupeNoteTitle(userId, draft.folderId(), title, null);
+            // dedupe가 documentGroupId를 스코프로 쓰므로 반드시 resolve를 먼저 한다.
             String documentGroupId = resolveDocumentGroupId(userId, draft.documentGroupId());
+            title = dedupeNoteTitle(userId, documentGroupId, draft.folderId(), title, null);
             note = new Note(noteId, userId, documentGroupId, title, markdown, draft.folderId(), List.of(), now);
             noteRepository.save(note);
             syncWikiLinksForNote(note, now);
@@ -308,7 +309,7 @@ public class WorkspaceService {
                     "FOLDER_WORKSPACE_MISMATCH", "Folder does not belong to the note's Workspace.");
         }
         String desiredTitle = (request.title() != null && !request.title().isBlank()) ? request.title() : note.getTitle();
-        String finalTitle = dedupeNoteTitle(userId, targetFolderId, desiredTitle, noteId);
+        String finalTitle = dedupeNoteTitle(userId, note.getDocumentGroupId(), targetFolderId, desiredTitle, noteId);
         note.patchMetadata(finalTitle, request.folderId(), request.tags(), request.archived(), typographyJson(request.typography()), now);
         if (!Objects.equals(previousTitle, note.getTitle())) {
             syncIncomingWikiLinksForTitle(userId, previousTitle, noteId, now);
@@ -409,11 +410,11 @@ public class WorkspaceService {
 
     public FolderData createFolder(String userId, FolderCreateRequest request) {
         Instant now = Instant.now();
-        String name = dedupeFolderName(userId, request.parentFolderId(), request.name(), null);
         requireOwnedWorkspaceIfProvided(userId, request.documentGroupId());
         String documentGroupId = resolveDocumentGroupId(userId, request.documentGroupId());
         requireFolderInWorkspace(userId, request.parentFolderId(), documentGroupId,
                 "PARENT_FOLDER_WORKSPACE_MISMATCH", "Parent folder does not belong to the target Workspace.");
+        String name = dedupeFolderName(userId, documentGroupId, request.parentFolderId(), request.name(), null);
         Folder folder = new Folder(Ids.folder(), userId, documentGroupId, name, request.parentFolderId(), now);
         folderRepository.save(folder);
         eventPublisher.publish("FolderCreated", userId, payload(
@@ -446,7 +447,7 @@ public class WorkspaceService {
                     "PARENT_FOLDER_WORKSPACE_MISMATCH", "Parent folder does not belong to the folder's Workspace.");
         }
         String desiredName = (request.name() != null && !request.name().isBlank()) ? request.name() : folder.getName();
-        String finalName = dedupeFolderName(userId, targetParentFolderId, desiredName, folderId);
+        String finalName = dedupeFolderName(userId, folder.getDocumentGroupId(), targetParentFolderId, desiredName, folderId);
         folder.patch(finalName, request.parentFolderId(), Instant.now());
         eventPublisher.publish("FolderChanged", userId, payload(
                 "folderId", folderId, "userId", userId, "name", folder.getName(), "parentFolderId", request.parentFolderId()
