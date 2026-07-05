@@ -33,7 +33,7 @@ export function getPptSlideUrl(assetId: string, slideIndex: number) {
 
 /** PPTX 슬라이드에 삽입된 영상 URL. 영상이 없는 슬라이드는 404를 반환한다. */
 export function getPptSlideVideoUrl(assetId: string, slideIndex: number) {
-  return `${INGESTION_API_BASE_URL}/api/v1/assets/${assetId}/slides/${slideIndex}/video`;
+  return `${getIngestionApiBaseUrl()}/api/v1/assets/${assetId}/slides/${slideIndex}/video`;
 }
 
 /** 노션 등에서 가져온 이미지의 서명 URL이 만료됐거나 그 호스트가 CORS로 우리 origin을 막을 때
