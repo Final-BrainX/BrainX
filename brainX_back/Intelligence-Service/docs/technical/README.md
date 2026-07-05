@@ -5,6 +5,7 @@
 ## 남겨둘 문서
 
 - `conditional-on-bean.md`: Spring Boot `@ConditionalOnBean` 동작과 Qdrant adapter 연결 방식
+- `ai-feature-catalog.md`: Intelligence-Service AI/LLM 기능 전체 카탈로그와 공개 API/LLM 호출 경계
 - `ai-model-pricing-and-usage.md`: AI 모델 카탈로그 가격과 token usage / cost 추정 메모
 - `intelligence-operational-db-ddl.md`: 운영 PostgreSQL schema baseline DDL과 부분 적용 DB 체크리스트
 - `connection-api.md`: 연결 추천 공개 API와 event / usage 경계
@@ -17,6 +18,8 @@
 - `note-chunking.md`: note chunking과 search/vector indexing 메모
 - `sample-notes-rag-cli.md`: 로컬 RAG 샘플 CLI 메모
 - `vectorstore-embedding-model.md`: Qdrant와 Voyage embedding 메모
+- `llm-quality-evaluation-report-2026-07-04.md`: StyleProfile LLM 품질 평가 요약
+- `llm-quality-evaluations/style-profile-quality-evaluation-2026-07-04.md`: StyleProfile 문체 설정 상세 평가 보고서
 - `consumed-event-contract-alignment.md`: Kafka 계약 정합성 포인터
 - `consumed-events-implementation-checkpoints.md`: Kafka 구현 체크리스트
 

@@ -18,7 +18,8 @@ import Color from "@tiptap/extension-color";
 import Highlight from "@tiptap/extension-highlight";
 import { Check, Link2, Highlighter, Loader2, Sparkles, Wand2, RotateCcw, Search, FileText, ExternalLink, X, AlertTriangle } from "lucide-react";
 import { Table, TableRow, TableHeader, TableCell, TableView } from "@tiptap/extension-table";
-import { TaskList, TaskItem } from "@tiptap/extension-list";
+import { TaskList } from "@tiptap/extension-list";
+import { ListItemTabFix, TaskItemTabFix } from "./ListTabFix";
 import type { Fragment, Mark, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { cx } from "@/lib/utils";
 import { MockNote } from "@/lib/notes/noteTypes";
@@ -35,9 +36,10 @@ import { HtmlBlock } from "./HtmlBlockNode";
 import { blockWidthPercent, type BlockWidthMode } from "./BlockControls";
 import { FontSize, FontFamily, FONT_SIZE_PRESETS, FONT_FAMILY_PRESETS } from "./fontExtensions";
 import { WikiLink, WikiLinkLiveEdit } from "./WikiLinkNode";
-import { DragHandle } from "./DragHandleExtension";
+import { DragHandle, startBlockDrag } from "./DragHandleExtension";
 import { WikiLinkSuggestion } from "./WikiLinkSuggestion";
 import { WikiLinkAutocomplete } from "./WikiLinkAutocomplete";
+import { InNoteSearch } from "./InNoteSearch";
 import { useWikiLinkContext } from "./WikiLinkContext";
 import { SlashCommandKey, SlashCommandSuggestion } from "./SlashCommand";
 import { SlashCommandMenu } from "./SlashCommandMenu";
@@ -1430,6 +1432,18 @@ function insertMarkdownContent(editor: Editor, range: RewriteRange, text: string
     .run();
 }
 
+function insertInlineContinueContent(editor: Editor, range: RewriteRange, text: string) {
+  editor
+    .chain()
+    .focus()
+    .insertContentAt({ from: range.from, to: range.to }, markdownToEditorInsertionHtml(text))
+    .command(({ tr }) => {
+      tr.setMeta(InlineContinueDraftKey, { type: "clear" } satisfies InlineContinueDraftMeta);
+      return true;
+    })
+    .run();
+}
+
 function messageFromUnknown(error: unknown) {
   return error instanceof Error ? error.message : "AI 요청에 실패했습니다.";
 }
@@ -1458,81 +1472,95 @@ function continueSuggestionId(draft: ContinueSuggestionState | null | undefined)
 
 const CONTINUE_TRIGGER_IDLE_MS = 600;
 const CONTINUE_TRIGGER_SAFE_WIDTH = 124;
-const CONTINUE_DRAFT_SAFE_WIDTH = 420;
 
-/* "이어쓰기" 제안 UI는 본문 흐름 안에 직접 꽂지 않고 editor shell 위에 띄운다. 트리거 버튼은
-   idle 상태에서만 작게 보이고, 결과 위젯은 커서 라인 아래 여백 쪽에 둬 현재 줄을 덮지 않게 한다. */
-function InlineContinueFloatingWidget({
-  draft,
-  anchor,
-  onAccept,
-  onCancel,
-}: {
-  draft: ContinueSuggestionState;
-  anchor: { left: number; top: number };
-  onAccept: () => void;
-  onCancel: () => void;
-}) {
+const INLINE_CONTINUE_ACCEPT_EVENT = "brainx:inline-continue-accept";
+const INLINE_CONTINUE_CANCEL_EVENT = "brainx:inline-continue-cancel";
+
+function inlineContinueWidgetKey(draft: ContinueSuggestionState) {
+  let textHash = 0;
+  for (let i = 0; i < draft.text.length; i += 1) {
+    textHash = (textHash * 31 + draft.text.charCodeAt(i)) | 0;
+  }
+  return `inline-continue-${draft.requestId}-${draft.status}-${draft.insertPos}-${draft.text.length}-${textHash}`;
+}
+
+function dispatchInlineContinueWidgetEvent(view: EditorView, eventName: string) {
+  view.dom.dispatchEvent(new CustomEvent(eventName, { bubbles: true }));
+}
+
+function createInlineContinueDraftWidget(draft: ContinueSuggestionState, view: EditorView) {
   const isLoading = draft.status === "loading";
   const isError = draft.status === "error";
+  const canAccept = draft.status === "ready" && draft.text.trim().length > 0;
   const bodyText = isError
-    ? "앞 문맥이 조금 더 필요합니다."
+    ? draft.message
     : draft.text.trim()
       ? draft.text
       : "이어 쓰는 중...";
 
-  const stop = (event: React.MouseEvent<HTMLButtonElement>, action: () => void) => {
+  const wrapper = document.createElement("span");
+  wrapper.className = [
+    "inline-continue-preview",
+    isError ? "inline-continue-preview--error" : "",
+    isLoading ? "inline-continue-preview--loading" : "",
+  ].filter(Boolean).join(" ");
+  wrapper.setAttribute("contenteditable", "false");
+  wrapper.setAttribute("data-inline-continue-preview", "true");
+
+  const badge = document.createElement("span");
+  badge.className = "inline-continue-preview__badge";
+  badge.textContent = "AI";
+  wrapper.appendChild(badge);
+
+  const text = document.createElement("span");
+  text.className = "inline-continue-preview__text";
+  text.textContent = bodyText;
+  wrapper.appendChild(text);
+
+  if (isLoading) {
+    const spinner = document.createElement("span");
+    spinner.className = "inline-continue-preview__spinner";
+    spinner.setAttribute("aria-hidden", "true");
+    wrapper.appendChild(spinner);
+  }
+
+  const controls = document.createElement("span");
+  controls.className = "inline-continue-preview__controls";
+
+  const stop = (event: Event) => {
     event.preventDefault();
     event.stopPropagation();
-    action();
   };
 
-  return (
-    <div className="absolute z-40 max-w-[min(420px,calc(100%-16px))]" style={{ left: anchor.left, top: anchor.top }} data-inline-continue-widget="true">
-      <div
-        className={cx(
-          "flex w-fit max-w-full items-start gap-1.5 rounded-md border px-2 py-1 text-[12px] leading-relaxed shadow-sm",
-          isError
-            ? "border-red-400/40 bg-red-500/10 text-red-300"
-            : "border-primary/30 bg-primary/10 text-txt"
-        )}
-      >
-        <span className="inline-flex shrink-0 items-center gap-1 rounded bg-primary/15 px-1 text-[10px] font-semibold text-primary">
-          <Sparkles size={10} />
-          AI
-        </span>
-        <span
-          className={cx(
-            "max-h-28 min-w-0 overflow-y-auto break-words border-b border-dashed pr-1",
-            isError ? "border-red-400/50" : "border-primary/50"
-          )}
-        >
-          {bodyText}
-        </span>
-        {isLoading ? <Loader2 size={12} className="shrink-0 animate-spin text-primary" /> : null}
-        {draft.status === "ready" ? (
-          <button
-            type="button"
-            title="이어쓰기 수락"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={(event) => stop(event, onAccept)}
-            className="grid h-5 w-5 shrink-0 place-items-center rounded bg-primary text-white transition-colors hover:brightness-110"
-          >
-            <Check size={12} />
-          </button>
-        ) : null}
-        <button
-          type="button"
-          title={isLoading ? "이어쓰기 중단" : "이어쓰기 취소"}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={(event) => stop(event, onCancel)}
-          className="grid h-5 w-5 shrink-0 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-txt"
-        >
-          <X size={12} />
-        </button>
-      </div>
-    </div>
-  );
+  const accept = document.createElement("button");
+  accept.type = "button";
+  accept.className = "inline-continue-preview__button inline-continue-preview__button--accept";
+  accept.textContent = "\u2713";
+  accept.title = "이어쓰기 적용";
+  accept.setAttribute("aria-label", "이어쓰기 적용");
+  accept.disabled = !canAccept;
+  accept.addEventListener("mousedown", stop);
+  accept.addEventListener("click", (event) => {
+    stop(event);
+    if (canAccept) dispatchInlineContinueWidgetEvent(view, INLINE_CONTINUE_ACCEPT_EVENT);
+  });
+  controls.appendChild(accept);
+
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "inline-continue-preview__button inline-continue-preview__button--cancel";
+  cancel.textContent = "\u00d7";
+  cancel.title = isLoading ? "이어쓰기 중단" : "이어쓰기 취소";
+  cancel.setAttribute("aria-label", isLoading ? "이어쓰기 중단" : "이어쓰기 취소");
+  cancel.addEventListener("mousedown", stop);
+  cancel.addEventListener("click", (event) => {
+    stop(event);
+    dispatchInlineContinueWidgetEvent(view, INLINE_CONTINUE_CANCEL_EVENT);
+  });
+  controls.appendChild(cancel);
+
+  wrapper.appendChild(controls);
+  return wrapper;
 }
 
 const InlineContinueDraftExtension = Extension.create({
@@ -1559,6 +1587,28 @@ const InlineContinueDraftExtension = Extension.create({
               ...previous,
               insertPos: Math.min(mapped.pos, tr.doc.content.size),
             };
+          },
+        },
+        props: {
+          decorations(state) {
+            const draft = InlineContinueDraftKey.getState(state);
+            if (!draft) return DecorationSet.empty;
+            const insertPos = Math.min(draft.insertPos, state.doc.content.size);
+            return DecorationSet.create(state.doc, [
+              Decoration.widget(
+                insertPos,
+                (view) => createInlineContinueDraftWidget(draft, view),
+                {
+                  key: inlineContinueWidgetKey(draft),
+                  side: 1,
+                  ignoreSelection: true,
+                  stopEvent: (event) => {
+                    const target = event.target;
+                    return target instanceof Element && Boolean(target.closest("[data-inline-continue-preview='true']"));
+                  },
+                }
+              ),
+            ]);
           },
         },
       }),
@@ -2014,14 +2064,40 @@ class BrainXTableView extends TableView {
       const coords = ev.posAtCoords({ left: rect.left + 4, top: rect.top + 4 });
       if (!coords) return;
       const $pos = ev.state.doc.resolve(coords.pos);
+      let tablePos: number | null = null;
       for (let d = $pos.depth; d >= 0; d--) {
-        if ($pos.node(d).type.name === "table") {
-          const tablePos = $pos.before(d);
-          ev.dispatch(ev.state.tr.setSelection(NodeSelection.create(ev.state.doc, tablePos)));
-          ev.focus();
-          break;
-        }
+        if ($pos.node(d).type.name === "table") { tablePos = $pos.before(d); break; }
       }
+      if (tablePos == null) return;
+      const resolvedTablePos = tablePos;
+
+      // 단순 클릭(=표 전체 선택)과 hold&drop(=표 이동)을 같은 그립에서 구분한다 — 노트탐색기
+      // 드래그(dnd-kit activationConstraint distance:4)와 동일한 기준으로, 눌린 채 4px 넘게
+      // 움직이면 그때 DragHandleExtension의 블록 드래그로 전환하고, 움직임 없이 떼면 기존
+      // "표 전체 선택" 동작을 그대로 수행한다.
+      const startX = event.clientX;
+      const startY = event.clientY;
+      let dragStarted = false;
+      const cleanup = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      const onMove = (e: MouseEvent) => {
+        if (dragStarted) return;
+        if (Math.hypot(e.clientX - startX, e.clientY - startY) > 4) {
+          dragStarted = true;
+          cleanup();
+          startBlockDrag(resolvedTablePos);
+        }
+      };
+      const onUp = () => {
+        cleanup();
+        if (dragStarted) return;
+        ev.dispatch(ev.state.tr.setSelection(NodeSelection.create(ev.state.doc, resolvedTablePos)));
+        ev.focus();
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
     });
     this.dom.style.position = "relative";
     this.dom.appendChild(this.gripHandle);
@@ -2166,9 +2242,35 @@ const BrainXTableHeader = TableHeader.extend({
   },
 });
 
+/** 표 바로 다음 블록의 맨 앞(커서 오프셋 0)에서 Backspace를 누르면, 기본 joinBackward가
+    표 마지막 셀 안으로 커서를 병합해버리는 대신 표 전체를 삭제한다. 조건에 맞지 않으면
+    false를 반환해 기본 Backspace 체인(코드블록 처리 등)으로 그대로 넘어간다. */
+const TableBackspaceFix = Extension.create({
+  name: "tableBackspaceFix",
+  addKeyboardShortcuts() {
+    return {
+      Backspace: () => {
+        const { state } = this.editor;
+        const { $from, empty } = state.selection;
+        if (!empty || $from.parentOffset !== 0) return false;
+        const before = $from.before($from.depth);
+        if (before <= 0) return false;
+        const nodeBefore = state.doc.resolve(before).nodeBefore;
+        if (!nodeBefore || nodeBefore.type.name !== "table") return false;
+        const tablePos = before - nodeBefore.nodeSize;
+        return this.editor.chain().focus().deleteRange({ from: tablePos, to: before }).run();
+      },
+    };
+  },
+});
+
 const NOTE_EDITOR_EXTENSIONS = [
   StarterKit.configure({
     codeBlock: false,
+    // 기본 ListItem의 Tab은 표준 sinkListItem을 그대로 쓴다 — 중첩 하위 목록을 이미 갖고 있는
+    // 항목에서 Tab을 누르면 그 하위 목록까지 통째로 한 단계 더 밀려 들어가는 버그가 있어
+    // (ListTabFix.ts 상단 주석 참고) ListItemTabFix로 교체한다.
+    listItem: false,
     // 기본 Heading은 "#"+공백을 지워버리는 input rule을 쓴다(라이브 프리뷰와 상충) — 아래
     // MarkdownHeading(이 "#"를 실제 텍스트로 유지)으로 대체한다.
     heading: false,
@@ -2185,6 +2287,7 @@ const NOTE_EDITOR_EXTENSIONS = [
     // 표/이미지 등 다른 블록 뒤의 기존 동작은 그대로 둔다.
     trailingNode: { notAfter: ["heading"] },
   }),
+  ListItemTabFix,
   MarkdownHeading.configure({ levels: [...SUPPORTED_HEADING_LEVELS] }),
   HeadingLevelSync,
   InlineContinueDraftExtension,
@@ -2378,13 +2481,14 @@ const NOTE_EDITOR_EXTENSIONS = [
   TableRow,
   BrainXTableHeader,
   BrainXTableCell,
+  TableBackspaceFix,
   WikiLink,
   WikiLinkLiveEdit,
   WikiLinkSuggestion,
   TagNode,
   TagSuggestion,
   TaskList,
-  TaskItem.configure({ nested: true }),
+  TaskItemTabFix.configure({ nested: true }),
   TaskListMarkdownBridge,
   ToggleNode,
   SlashCommandSuggestion,
@@ -2419,6 +2523,10 @@ export interface NoteEditorHandle {
   /** 우측 목차(RightSidebar) 클릭 → 해당 heading으로 스크롤. index는 parseHeadings가 매긴
       문서 순서(0-based, heading id "h-{index}")와 동일한 기준이라 그대로 재사용할 수 있다. */
   scrollToHeading: (index: number) => void;
+  /** 본문 텍스트/이미지/표가 아직 없는 빈 여백(EditorPanel.tsx의 패딩 wrapper)에서 우클릭했을 때
+      호출된다 — 그 좌표로 커서 이동이 가능하면 이동 후, 안 되면(문서 범위 밖) 현재 selection
+      기준으로 같은 본문 컨텍스트 메뉴를 띄운다. */
+  openContextMenu: (x: number, y: number) => void;
 }
 
 /* ── 커스텀 버블 메뉴 ──────────────────────────────────────────────────
@@ -2723,13 +2831,17 @@ interface NoteEditorProps {
   onActivate: () => void;
   onContentChange: (noteId: string, newContentHtml: string) => void;
   onAiAction: (type: AiActionType, text: string) => void;
+  /** 탭 바와 제목 사이 공간에 렌더링할 DOM 노드(EditorPanel이 만들어 전달) — Ctrl+F 검색창을
+      본문 위 플로팅이 아니라 그 자리에 우측 정렬로 꽂아 넣기 위해 InNoteSearch가 포털로 쓴다.
+      없으면(예: editor-lab처럼 이 레이아웃이 없는 곳) InNoteSearch가 기존 플로팅 위치로 대체한다. */
+  searchAnchorEl?: HTMLElement | null;
 }
 
 /** TipTap 에디터 코어 — Bubble Toolbar, 색상/형광펜, 코드블록을 포함한 노트 본문 편집 영역.
     읽기/편집 모드는 노트(탭) 단위로 부모(EditorPanel)가 관리하며, 이 컴포넌트는 mode prop을
     그대로 따르기만 한다(모드를 직접 설정하지 않음 — 그래야 탭별 모드가 서로 덮어쓰지 않는다). */
 const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEditor(
-  { note, mode, allTags, onActivate, onContentChange, onAiAction },
+  { note, mode, allTags, onActivate, onContentChange, onAiAction, searchAnchorEl },
   ref
 ) {
   const contentSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2752,7 +2864,6 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
   }, [note.id, note.content]);
   const [cursorAiAnchor, setCursorAiAnchor] = useState<{ left: number; top: number } | null>(null);
   const [continueDraftView, setContinueDraftView] = useState<ContinueSuggestionState | null>(null);
-  const [continueDraftAnchor, setContinueDraftAnchor] = useState<{ left: number; top: number } | null>(null);
   const wikiCtx = useWikiLinkContext();
 
   /* 내부 노트 링크(LinkPopover에서 만든 brainx-note://<id> href) 클릭 처리 — 읽기 모드는
@@ -2791,10 +2902,34 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
         const files = Array.from(event.clipboardData?.files ?? []).filter((f) =>
           f.type.startsWith("image/")
         );
-        if (files.length === 0) return false;
-        event.preventDefault();
-        files.forEach((file) => insertImageBlockFromFile(view, file));
-        return true;
+        if (files.length > 0) {
+          event.preventDefault();
+          files.forEach((file) => insertImageBlockFromFile(view, file));
+          return true;
+        }
+        // 붙여넣은 클립보드 내용 "전체"가 fenced code block(```lang ... ```) 하나로만 이루어진
+        // 경우만 좁게 가로챈다 — 이 노트 에디터에는 일반 마크다운 텍스트를 파싱하는 paste 파서가
+        // 아예 없어서(여러 문단이 섞인 붙여넣기까지 처리하려면 별도의 마크다운 paste 파서가
+        // 필요하고, 그건 기존 처리와 충돌 위험이 커 이번 범위에서 보류했다), 그 대신 "코드
+        // 에디터에서 코드 블록 하나를 복사해 그대로 붙여넣는" 가장 흔한 경우만 안전하게 처리한다.
+        // HTML 클립보드가 함께 있으면(리치 텍스트 붙여넣기) 기존 처리에 맡긴다.
+        if (!event.clipboardData?.getData("text/html")) {
+          const text = event.clipboardData?.getData("text/plain") ?? "";
+          const fenceMatch = /^```([a-zA-Z0-9_+-]*)\r?\n([\s\S]*?)\r?\n```$/.exec(text.trim());
+          if (fenceMatch) {
+            event.preventDefault();
+            const language = fenceMatch[1] ? fenceMatch[1].toLowerCase() : null;
+            const code = fenceMatch[2].replace(/\r\n/g, "\n");
+            const codeBlockType = view.state.schema.nodes.codeBlock;
+            const node = codeBlockType.create(
+              { language, preview: false },
+              code ? view.state.schema.text(code) : undefined
+            );
+            view.dispatch(view.state.tr.replaceSelectionWith(node));
+            return true;
+          }
+        }
+        return false;
       },
       // 표 테두리/래퍼 영역(셀 내부가 아닌 곳) 클릭 → 표 전체를 NodeSelection으로 선택한다.
       // handleClickOn은 클릭 좌표가 속한 모든 조상 노드에 대해 안쪽→바깥쪽 순서로 호출되므로,
@@ -2844,18 +2979,21 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
           openPositions.push(pos);
         }
       });
-      if (openPositions.length === 0) return;
-      let tr = ed.state.tr;
-      for (const pos of openPositions) {
-        const node = tr.doc.nodeAt(pos);
-        if (node) tr = tr.setNodeMarkup(pos, undefined, { ...node.attrs, preview: true });
+      if (openPositions.length > 0) {
+        let tr = ed.state.tr;
+        for (const pos of openPositions) {
+          const node = tr.doc.nodeAt(pos);
+          if (node) tr = tr.setNodeMarkup(pos, undefined, { ...node.attrs, preview: true });
+        }
+        ed.view.dispatch(tr);
       }
-      ed.view.dispatch(tr);
-      // blur가 "다른 노트 클릭"으로 일어난 경우, 곧바로 note.id가 바뀌면서 아래 [note.id, editor]
+      // blur가 "다른 노트/탭 클릭"으로 일어난 경우, 곧바로 note.id가 바뀌면서 아래 [note.id, editor]
       // effect가 contentSyncTimerRef를 그냥 clearTimeout만 하고(flush 없이) 새 노트 내용으로
-      // 덮어쓴다 — 그 사이 400ms 디바운스가 아직 안 끌렸으면 방금 되돌린 preview:true가 notes
-      // state에 저장되지 못한 채 사라져, 그 노트를 다시 열면 코드 편집 상태로 보이는 문제가
-      // 있었다. 이 보정만큼은 디바운스를 기다리지 않고 즉시 저장한다.
+      // 덮어쓴다 — 그 사이 400ms 디바운스가 아직 안 끌렸으면 방금 편집한 내용(위 mermaid
+      // preview 보정뿐 아니라, 붙여넣은 이미지처럼 blur 직전에 반영된 다른 변경도 마찬가지)이
+      // notes state에 저장되지 못한 채 사라진다(재현: 이미지를 붙여넣고 곧장 다른 노트를
+      // 클릭하면 이미지가 사라짐). 그래서 mermaid 보정 여부와 무관하게 blur 시점에는 항상
+      // 디바운스를 기다리지 않고 즉시 저장한다.
       if (contentSyncTimerRef.current) {
         clearTimeout(contentSyncTimerRef.current);
         contentSyncTimerRef.current = null;
@@ -2974,7 +3112,20 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       target.classList.add("brainx-heading-flash");
       window.setTimeout(() => target.classList.remove("brainx-heading-flash"), 900);
     },
-  }), [editor, note.id, onContentChange, startInlineDraftSession]);
+    openContextMenu: (x, y) => {
+      if (!editor || mode !== "edit") return;
+      onActivate();
+      const coords = editor.view.posAtCoords({ left: x, top: y });
+      if (coords) {
+        // 빈 여백이라도 문서 범위 안(예: 마지막 문단 아래 빈 공간)이면 그 위치로 커서를 옮긴다.
+        const $pos = editor.state.doc.resolve(coords.pos);
+        const selection = TextSelection.near($pos);
+        editor.view.dispatch(editor.state.tr.setSelection(selection));
+      }
+      // coords가 없으면(문서 완전히 바깥) 현재 selection을 그대로 두고 메뉴만 띄운다.
+      setContextMenu({ x, y, inTable: false, inImage: false });
+    },
+  }), [editor, mode, note.id, onActivate, onContentChange, startInlineDraftSession]);
 
   const requestInlineContinue = useCallback(async () => {
     if (!editor) return;
@@ -3087,9 +3238,8 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
     if (!draft || draft.status !== "ready") return;
 
     suppressInlineContinueAutoRejectRef.current = true;
-    clearInlineContinueDraft(editor);
     const insertPos = Math.min(draft.insertPos, editor.state.doc.content.size);
-    insertMarkdownContent(editor, { from: insertPos, to: insertPos }, draft.text);
+    insertInlineContinueContent(editor, { from: insertPos, to: insertPos }, draft.text);
     decideAiSuggestion(draft.suggestionId, { decision: "ACCEPTED" }).catch((error) => {
       console.warn("Failed to record accepted AI suggestion.", error);
     });
@@ -3109,6 +3259,26 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       });
     }
   }, [editor]);
+
+  useEffect(() => {
+    if (!editor) return;
+
+    const handleAccept = (event: Event) => {
+      event.preventDefault();
+      acceptInlineContinue();
+    };
+    const handleCancel = (event: Event) => {
+      event.preventDefault();
+      cancelInlineContinue();
+    };
+
+    editor.view.dom.addEventListener(INLINE_CONTINUE_ACCEPT_EVENT, handleAccept);
+    editor.view.dom.addEventListener(INLINE_CONTINUE_CANCEL_EVENT, handleCancel);
+    return () => {
+      editor.view.dom.removeEventListener(INLINE_CONTINUE_ACCEPT_EVENT, handleAccept);
+      editor.view.dom.removeEventListener(INLINE_CONTINUE_CANCEL_EVENT, handleCancel);
+    };
+  }, [acceptInlineContinue, cancelInlineContinue, editor]);
 
   useEffect(() => {
     if (!editor) return;
@@ -3158,26 +3328,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       setCursorAiAnchor(null);
     };
 
-    const updateContinueDraftAnchor = () => {
-      const draft = getInlineContinueDraft(editor);
-      const shellRectForDraft = editorShellRef.current?.getBoundingClientRect();
-      if (draft && shellRectForDraft) {
-        const pos = Math.min(draft.insertPos, editor.state.doc.content.size);
-        const draftCoords = safeCoordsAtPos(editor.view, pos, 1);
-        const left = Math.max(
-          8,
-          Math.min(draftCoords.left - shellRectForDraft.left, shellRectForDraft.width - CONTINUE_DRAFT_SAFE_WIDTH)
-        );
-        const top = Math.max(8, draftCoords.bottom - shellRectForDraft.top + 10);
-        setContinueDraftAnchor({ left, top });
-      } else {
-        setContinueDraftAnchor(null);
-      }
-    };
-
     const updateCursorAiAnchor = () => {
-      updateContinueDraftAnchor();
-
       const editorHasFocus = editor.view.dom.contains(document.activeElement);
       const slashCommandOpen = SlashCommandKey.getState(editor.state)?.active ?? false;
       if (!editor.isEditable || !editorHasFocus || contextMenu || slashCommandOpen || getInlineContinueDraft(editor)) {
@@ -3340,6 +3491,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
         onActivate();
         const coords = editor.view.posAtCoords({ left: event.clientX, top: event.clientY });
         let clickedInTable = false;
+        let clickedImagePos: number | null = null;
         if (coords) {
           const $clicked = editor.state.doc.resolve(coords.pos);
           for (let depth = $clicked.depth; depth >= 0; depth -= 1) {
@@ -3348,11 +3500,20 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
               break;
             }
           }
+          // 이미지는 atom 블록이라 depth로 "들어가지" 않는다 — 우클릭 좌표가 정확히 그 이미지의
+          // 앞/뒤 경계에 해당하는지를 nodeBefore/nodeAfter로 확인한다.
+          if ($clicked.nodeAfter?.type.name === "imageBlock") {
+            clickedImagePos = coords.pos;
+          } else if ($clicked.nodeBefore?.type.name === "imageBlock") {
+            clickedImagePos = coords.pos - $clicked.nodeBefore.nodeSize;
+          }
           const currentSelection = editor.state.selection;
           const keepCellRange = currentSelection instanceof CellSelection
             && coords.pos >= currentSelection.from
             && coords.pos <= currentSelection.to;
-          if (!keepCellRange) {
+          if (clickedImagePos != null) {
+            editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, clickedImagePos)));
+          } else if (!keepCellRange) {
             const selection = TextSelection.near($clicked);
             editor.view.dispatch(editor.state.tr.setSelection(selection));
           }
@@ -3361,6 +3522,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
           x: event.clientX,
           y: event.clientY,
           inTable: clickedInTable,
+          inImage: clickedImagePos != null,
         });
       }}
     >
@@ -3387,17 +3549,10 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
           <CursorContinueButton onRequest={requestInlineContinue} />
         </div>
       ) : null}
-      {editor && continueDraftView && continueDraftAnchor ? (
-        <InlineContinueFloatingWidget
-          draft={continueDraftView}
-          anchor={continueDraftAnchor}
-          onAccept={acceptInlineContinue}
-          onCancel={cancelInlineContinue}
-        />
-      ) : null}
       {editor && <TableToolbar editor={editor} />}
       {editor && <WikiLinkAutocomplete editor={editor} />}
       {editor && <TagAutocomplete editor={editor} allTags={allTags} />}
+      {editor && <InNoteSearch editor={editor} anchorEl={searchAnchorEl} />}
       {editor && (
         <SlashCommandMenu editor={editor} onPickImage={() => fileInputRef.current?.click()} />
       )}

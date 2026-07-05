@@ -1,3 +1,14 @@
+x-desktop-popup-bridge:
+  description: Browser popup callbacks may use window.postMessage, while Electron desktop clients may deliver the same callback payload through preload/IPC renderer events.
+x-desktop-file-session-bridge:
+  description: Electron desktop clients may back renderer auth/session persistence and file open-save flows with preload IPC bridges while Web clients continue to use browser storage and download behavior.
+x-desktop-bundled-renderer:
+  description: Packaged Electron desktop clients may serve a bundled local Next standalone renderer from unpacked app resources and fall back to the remote web deployment only as a desktop runtime fallback.
+x-desktop-local-vault:
+  description: Electron desktop clients may persist local vault metadata in app user-data storage, normalize user-selected vault folders into notes/assets/exports plus .brainx workspace descriptors, store local vault note and folder indexes separately from future cloud sync policy, and keep import-export plus graph-home statistics bound to the active vault.
+x-desktop-manual-sync:
+  description: Electron desktop clients may expose preload IPC helpers for vault sync mode selection and manual sync job requests while remote workspace synchronization remains a separate follow-up worker implementation.
+
 openapi: 3.0.3
 info:
   title: BrainX API SSOT
@@ -24,10 +35,19 @@ info:
 
     - operation 단위 소비자 메타데이터는 x-consumers로 표현한다.
 
-    - operation 단위 이벤트 결합은 x-produces-events로 표현하고 AsyncAPI SSOT를 참조한다.'
+    - operation 단위 이벤트 결합은 x-produces-events로 표현하고 AsyncAPI SSOT를 참조한다.
+
+    - 2026-07 기준 공식 클라이언트 표면은 Next.js web app과 Electron desktop shell을 함께 고려한다.'
+  x-client-apps:
+  - id: web.next
+    type: frontend
+    description: Next.js App Router 기반 주력 웹 클라이언트
+  - id: desktop.electron
+    type: desktop
+    description: brainx-next를 재사용하는 Electron 기반 PC 앱 셸
 servers:
 - url: https://brainx.p-e.kr
-  description: AWS dev API 게이트웨이. 로컬 개발은 Gateway-Service 기본 포트 8088을 사용한다.
+  description: AWS dev API 게이트웨이. 로컬 public API 개발은 Gateway-Service 기본 포트 8088을 사용한다. Workspace-Service 직접 개발/디버깅 포트는 8082이지만, 이는 gateway 포트가 아니다.
 - url: https://api.brainx.com
   description: 운영 API 게이트웨이
 tags:
@@ -886,7 +906,7 @@ paths:
       x-produces-events: []
       x-internal-sync-calls: []
       x-async-boundary: false
-      x-implementation-note: Subscription reads require the persisted `billingCycle` field defined by `SubscriptionData`. Commerce-Service must keep `commerce_subscriptions.billing_cycle` present in every deployed database, and Spring SQL init applies the tracked SQL migration under `Commerce-Service/src/main/resources/db/migration` before JPA schema update so older environments are repaired before serving reads.
+      x-implementation-note: Subscription reads require the persisted `billingCycle` field defined by `SubscriptionData`. Commerce-Service must keep `commerce_subscriptions.billing_cycle` present in every deployed database, and Spring SQL init applies the tracked SQL migration under `Commerce-Service/src/main/resources/db/migration` before JPA schema update so older environments are repaired before serving reads. The local docker-compose profile may override `SPRING_SQL_INIT_MODE=never` for fresh databases so base tables can be created first without legacy repair scripts running against empty schemas.
       responses:
         '200':
           description: 성공
@@ -3828,7 +3848,7 @@ paths:
       - NoteLinkCreated
       x-internal-sync-calls: []
       x-async-boundary: false
-      x-implementation-note: Workspace-Service persists `workspace_note_links.link_type` as a required ledger column. Legacy databases must run the tracked SQL init migration under `Workspace-Service/src/main/resources/db/migration` so existing rows are backfilled before Hibernate schema update enforces NOT NULL.
+      x-implementation-note: Workspace-Service persists `workspace_note_links.link_type` as a required ledger column. Legacy databases must run the tracked SQL init migration under `Workspace-Service/src/main/resources/db/migration` so existing rows are backfilled before Hibernate schema update enforces NOT NULL. The local docker-compose profile may override `SPRING_SQL_INIT_MODE=never` for fresh databases so Hibernate can create the base `workspace_note_links` table before any legacy repair path is needed.
       parameters:
       - $ref: '#/components/parameters/IdempotencyKey'
       - name: noteId
@@ -10428,7 +10448,7 @@ paths:
         reason: Commerce owns payment ledger
       x-produces-events: []
       x-async-boundary: false
-      x-implementation-note: Payment history relies on the Commerce checkout-session ledger, including the persisted `billingCycle` field on `commerce_checkout_sessions`. Spring SQL init applies the tracked SQL migration under `Commerce-Service/src/main/resources/db/migration` before JPA schema update so admin payment tables do not silently fall back to empty data after schema drift.
+      x-implementation-note: Payment history relies on the Commerce checkout-session ledger, including the persisted `billingCycle` field on `commerce_checkout_sessions`. Spring SQL init applies the tracked SQL migration under `Commerce-Service/src/main/resources/db/migration` before JPA schema update so admin payment tables do not silently fall back to empty data after schema drift. The local docker-compose profile may override `SPRING_SQL_INIT_MODE=never` for fresh databases to avoid running legacy repair SQL against empty schemas.
       parameters:
       - name: status
         in: query
@@ -14504,6 +14524,10 @@ components:
       additionalProperties: false
     NoteLinkCreateRequest:
       type: object
+      x-implementation-note: >-
+        Web/Electron note editors must normalize wiki-link title, alias, and heading inputs to
+        trimmed strings before client-side resolution or navigation so malformed serialized attrs
+        cannot break `[[...]]` rendering, autocomplete, or note creation flows.
       properties:
         targetNoteId:
           type: string
@@ -16361,9 +16385,6 @@ components:
         writingStyle:
           type: object
           additionalProperties: true
-        assistanceStyle:
-          type: object
-          additionalProperties: true
         detectedFromNotesAt:
           type: string
           format: date-time
@@ -16371,7 +16392,6 @@ components:
       required:
       - conversationTone
       - writingStyle
-      - assistanceStyle
       additionalProperties: false
     StyleProfilePutRequest:
       type: object
@@ -16380,9 +16400,6 @@ components:
           type: object
           additionalProperties: true
         writingStyle:
-          type: object
-          additionalProperties: true
-        assistanceStyle:
           type: object
           additionalProperties: true
       additionalProperties: false
@@ -18576,7 +18593,7 @@ x-consumer-catalog:
   description: 홈, 워크스페이스 동기화, 최근 활동 및 검색 UI
 - id: web.note-editor
   type: frontend
-  description: 마크다운/WYSIWYG 노트 편집기
+  description: 마크다운/WYSIWYG 노트 편집기. Split view 렌더링에서는 활성 pane/tab의 editor handle 등록을 중복 갱신하지 않아야 하며, 로컬 ref 동기화만으로 재귀적인 state update loop가 생기지 않도록 유지한다.
 - id: web.graph
   type: frontend
   description: 2D/3D 그래프 및 마인드맵 UI

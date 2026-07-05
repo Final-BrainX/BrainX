@@ -25,8 +25,13 @@ import com.brainx.intelligence.insight.domain.InsightReport;
 import com.brainx.intelligence.insight.domain.InsightReportStatus;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
+import com.brainx.intelligence.settings.application.port.outbound.StyleProfilePort;
+import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.settings.domain.AiModel;
 import com.brainx.intelligence.settings.domain.AiModelSettings;
+import com.brainx.intelligence.settings.domain.ConversationTone;
+import com.brainx.intelligence.settings.domain.StyleProfile;
+import com.brainx.intelligence.settings.domain.WritingStyle;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatChunk;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -55,6 +60,8 @@ class InsightServiceTest {
     private final FakeTokenUsagePort tokenUsagePort = new FakeTokenUsagePort();
     private final FakeInsightEventPort eventPort = new FakeInsightEventPort();
     private final InsightProperties properties = new InsightProperties();
+    private final FakeStyleProfilePort styleProfilePort = new FakeStyleProfilePort();
+    private final StylePromptCompiler stylePromptCompiler = new StylePromptCompiler(styleProfilePort);
     private final InsightService service = new InsightService(
         store,
         noteSource,
@@ -65,12 +72,19 @@ class InsightServiceTest {
         eventPort,
         properties,
         new ObjectMapper(),
+        stylePromptCompiler,
         Clock.fixed(Instant.parse("2026-06-26T00:00:00Z"), ZoneOffset.UTC)
     );
 
     @Test
     void requestInsightReportFiltersLearningRecommendationsWhenDisabled() {
         settingsPort.settings = Optional.of(new AiModelSettings("user-1", "gpt-user", Map.of()));
+        styleProfilePort.profile = new StyleProfile(
+            "user-1",
+            new ConversationTone(Map.of("directness", "high")),
+            new WritingStyle(Map.of("formality", "business", "informationDensity", "dense")),
+            null
+        );
         noteSource.notes = List.of(
             note("note-1", "Spring", List.of("backend"), List.of("Security"), "Spring Security basics"),
             note("note-2", "OAuth", List.of("auth"), List.of("Token"), "OAuth token flow")
@@ -103,6 +117,11 @@ class InsightServiceTest {
         assertThat(report.recommendations()).hasSize(1);
         assertThat(report.recommendations().getFirst().type()).isEqualTo("CONNECT");
         assertThat(chatPort.lastRequest.modelId()).isEqualTo("gpt-user");
+        assertThat(chatPort.lastRequest.messages().getFirst().content())
+            .contains("Mandatory user style instructions")
+            .contains("every final generated or edited user-facing text segment")
+            .contains("Use this formality/tone: business")
+            .doesNotContain("every final user-facing conversational sentence");
         assertThat(entitlementPort.lastRequest.capability()).isEqualTo("INSIGHT_REPORT");
         assertThat(tokenUsagePort.records).hasSize(1);
         assertThat(tokenUsagePort.records.getFirst().featureId()).isEqualTo("insight-report-chat");
@@ -304,6 +323,23 @@ class InsightServiceTest {
         @Override
         public void insightReportCompleted(InsightReportCompletedEvent event) {
             completedEvents.add(event);
+        }
+    }
+
+    private static class FakeStyleProfilePort implements StyleProfilePort {
+
+        private StyleProfile profile;
+
+        @Override
+        public StyleProfile save(StyleProfile styleProfile) {
+            profile = styleProfile;
+            return styleProfile;
+        }
+
+        @Override
+        public Optional<StyleProfile> findStyleProfileByUserId(String userId) {
+            return Optional.ofNullable(profile)
+                .filter(item -> item.userId().equals(userId));
         }
     }
 

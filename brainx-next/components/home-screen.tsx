@@ -401,16 +401,22 @@ export function HomeScreen() {
 
   useEffect(() => {
     let active = true;
-    getMyWorkspaceStats()
-      .then((stats) => {
-        if (active) setWorkspaceStats(stats);
-      })
-      .catch(() => {
-        if (active) setWorkspaceStats(null);
-      });
+    const loadStats = () => {
+      getMyWorkspaceStats()
+        .then((stats) => {
+          if (active) setWorkspaceStats(stats);
+        })
+        .catch(() => {
+          if (active) setWorkspaceStats(null);
+        });
+    };
+
+    loadStats();
+    window.addEventListener("brainx:notes-refresh", loadStats);
 
     return () => {
       active = false;
+      window.removeEventListener("brainx:notes-refresh", loadStats);
     };
   }, []);
 

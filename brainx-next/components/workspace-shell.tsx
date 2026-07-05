@@ -11,6 +11,7 @@ import { BrandLogo } from "@/components/brand-logo";
 import { AccountSettingsModal } from "@/components/utility/account-settings-modal";
 import { PanelLeftClose, PanelLeft } from "lucide-react";
 import type { BrainXNote } from "@/lib/brainx-data";
+import { addPopupResultListener } from "@/lib/desktop-bridge";
 import { cx, stripMarkdown } from "@/lib/utils";
 import { semanticSearch, type SemanticSearchData } from "@/lib/intelligence-api";
 import { formatCreditCount, formatTokenPercent } from "@/lib/token-usage";
@@ -18,6 +19,7 @@ import {
   buildAuthPath,
   clearAuthSession,
   isDevAuthSession,
+  isSameAuthSession,
   readAuthSession,
   type AuthSession,
 } from "@/lib/auth-api";
@@ -37,7 +39,7 @@ const NAV = [
   { id: "chat", labelKey: "nav.chat" as const, icon: "chat" as const, path: "/chat" },
 ];
 
-type SettingsTab = "profile" | "general" | "notifications" | "apiKeys" | "import" | "usage" | "stats" | "support" | "upgrade";
+type SettingsTab = "profile" | "general" | "style" | "notifications" | "apiKeys" | "import" | "usage" | "stats" | "support" | "upgrade";
 
 function isActive(pathname: string, path: string) {
   if (path === "/notes") return pathname.startsWith("/notes");
@@ -925,8 +927,11 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
   const isGuest = !session?.accessToken;
 
   useEffect(() => {
-    setSession(readAuthSession());
-    const syncSession = () => setSession(readAuthSession());
+    const syncSession = () => {
+      const nextSession = readAuthSession();
+      setSession((prev) => (isSameAuthSession(prev, nextSession) ? prev : nextSession));
+    };
+    syncSession();
     window.addEventListener("brainx-auth-session-changed", syncSession);
     return () =>
       window.removeEventListener("brainx-auth-session-changed", syncSession);
@@ -996,15 +1001,13 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
 
     refreshPlan();
 
-    function handlePaymentMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin) return;
-      if (event.data?.type === PAYMENT_RESULT_MESSAGE_TYPE) refreshPlan();
-    }
-
     window.addEventListener("focus", refreshPlan);
     window.addEventListener("brainx-auth-session-changed", refreshPlan);
     window.addEventListener("brainx-subscription-changed", refreshPlan);
-    window.addEventListener("message", handlePaymentMessage);
+    const removePaymentListener = addPopupResultListener(
+      PAYMENT_RESULT_MESSAGE_TYPE,
+      () => refreshPlan()
+    );
     const refreshInterval = window.setInterval(refreshPlan, 30000);
 
     return () => {
@@ -1012,7 +1015,7 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
       window.removeEventListener("focus", refreshPlan);
       window.removeEventListener("brainx-auth-session-changed", refreshPlan);
       window.removeEventListener("brainx-subscription-changed", refreshPlan);
-      window.removeEventListener("message", handlePaymentMessage);
+      removePaymentListener();
       window.clearInterval(refreshInterval);
     };
   }, [session?.accessToken, session?.userId]);

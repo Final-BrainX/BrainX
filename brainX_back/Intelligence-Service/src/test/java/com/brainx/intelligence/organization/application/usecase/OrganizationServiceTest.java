@@ -24,8 +24,13 @@ import com.brainx.intelligence.organization.domain.OrganizationNotFoundException
 import com.brainx.intelligence.organization.domain.OrganizationProviderUnavailableException;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
+import com.brainx.intelligence.settings.application.port.outbound.StyleProfilePort;
+import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.settings.domain.AiModel;
 import com.brainx.intelligence.settings.domain.AiModelSettings;
+import com.brainx.intelligence.settings.domain.ConversationTone;
+import com.brainx.intelligence.settings.domain.StyleProfile;
+import com.brainx.intelligence.settings.domain.WritingStyle;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatChunk;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -51,6 +56,8 @@ class OrganizationServiceTest {
     private final FakeTokenUsagePort tokenUsagePort = new FakeTokenUsagePort();
     private final FakeOrganizationEventPort eventPort = new FakeOrganizationEventPort();
     private final OrganizationProperties properties = new OrganizationProperties();
+    private final FakeStyleProfilePort styleProfilePort = new FakeStyleProfilePort();
+    private final StylePromptCompiler stylePromptCompiler = new StylePromptCompiler(styleProfilePort);
     private final OrganizationService service = new OrganizationService(
         noteSource,
         entitlementPort,
@@ -59,12 +66,19 @@ class OrganizationServiceTest {
         new AiUsageRecorder(tokenUsagePort, new AiTokenUsageCostEstimator(new EmptyAiModelCatalogPort())),
         eventPort,
         properties,
+        stylePromptCompiler,
         new ObjectMapper()
     );
 
     @Test
     void createProposalUsesDefaultDocumentGroupAndUserModel() {
         settingsPort.settings = Optional.of(new AiModelSettings("user-1", "gpt-user", Map.of()));
+        styleProfilePort.profile = new StyleProfile(
+            "user-1",
+            new ConversationTone(Map.of("warmth", "warm", "directness", "high")),
+            new WritingStyle(Map.of("formality", "business")),
+            null
+        );
         noteSource.allNotes = List.of(
             note("note-1", "folder-a", "Spring", List.of("backend"), List.of("Boot"), "sanitized Spring excerpt"),
             note("note-2", "folder-b", "Database", List.of("sql"), List.of("Index"), "PostgreSQL excerpt")
@@ -96,6 +110,11 @@ class OrganizationServiceTest {
         assertThat(noteSource.lastDocumentGroupId).isEqualTo("default");
         assertThat(noteSource.lastAllLimit).isEqualTo(50);
         assertThat(chatPort.lastRequest.modelId()).isEqualTo("gpt-user");
+        assertThat(chatPort.lastRequest.messages().getFirst().content())
+            .contains("Mandatory user style instructions")
+            .contains("every final user-facing conversational sentence")
+            .contains("Keep the directness level: high")
+            .doesNotContain("every final generated or edited user-facing text segment");
         assertThat(chatPort.lastRequest.messages().get(1).content())
             .contains("sanitized Spring excerpt")
             .doesNotContain("markdown");
@@ -323,6 +342,23 @@ class OrganizationServiceTest {
         @Override
         public void folderOrganizationProposalCreated(FolderOrganizationProposalCreatedEvent event) {
             createdEvents.add(event);
+        }
+    }
+
+    private static class FakeStyleProfilePort implements StyleProfilePort {
+
+        private StyleProfile profile;
+
+        @Override
+        public StyleProfile save(StyleProfile styleProfile) {
+            profile = styleProfile;
+            return styleProfile;
+        }
+
+        @Override
+        public Optional<StyleProfile> findStyleProfileByUserId(String userId) {
+            return Optional.ofNullable(profile)
+                .filter(item -> item.userId().equals(userId));
         }
     }
 

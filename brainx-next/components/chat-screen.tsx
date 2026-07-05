@@ -369,6 +369,13 @@ function noteTitleFromAiMessage(text: string, fallbackTitle?: string | null) {
   return truncateNoteTitle(heading?.[1] ?? fallbackTitle ?? "AI 초안");
 }
 
+function stripDuplicateDraftTitleHeading(markdown: string, title: string) {
+  const heading = /^(\s{0,3}#{1,6}\s+(.+?)[ \t]*)(?:\r?\n|$)/.exec(markdown);
+  if (!heading) return markdown;
+  if (truncateNoteTitle(heading[2]) !== truncateNoteTitle(title)) return markdown;
+  return markdown.slice(heading[0].length).replace(/^(?:[ \t]*(?:\r?\n))+/, "");
+}
+
 function markdownLinkLabel(value: string) {
   return markdownTitleText(value).replace(/[[\]\\]/g, "\\$&") || "참고 노트";
 }
@@ -761,8 +768,10 @@ export function ChatScreen() {
       return;
     }
 
-    const markdown = buildChatDraftMarkdown(message);
-    if (!markdown.trim()) return;
+    const title = noteTitleFromAiMessage(message.text, activeThread?.title);
+    const draftMarkdown = buildChatDraftMarkdown(message);
+    if (!draftMarkdown.trim()) return;
+    const markdown = stripDuplicateDraftTitleHeading(draftMarkdown, title);
 
     setDraftSaveStates((current) => ({
       ...current,
@@ -771,7 +780,7 @@ export function ChatScreen() {
 
     try {
       const created = await createWorkspaceNoteFromPayload({
-        title: noteTitleFromAiMessage(message.text, activeThread?.title),
+        title,
         markdown,
         folderId: null,
         tags: CHAT_DRAFT_NOTE_TAGS

@@ -84,6 +84,7 @@ User
 ```text
 BrainX/
 ├─ brainx-next/           # 현재 주력 Next.js 프론트엔드 프로토타입
+├─ brainx-electron/       # Electron 기반 PC 앱 셸 (brainx-next 재사용)
 ├─ brainX_front/          # 이전 Vite/React 프론트엔드 실험 코드
 ├─ brainX_back/           # Spring Boot MSA 백엔드 워크스페이스
 │  ├─ User-Service/       # 인증/사용자 서비스 (포트 8080)
@@ -103,6 +104,7 @@ BrainX/
 ### 로컬 Kafka
 
 `brainX_back/docker-compose.yml`에는 로컬 Kafka broker가 들어 있습니다. 호스트에서는 `localhost:9092`, 컨테이너 내부에서는 `kafka:9092`로 접근합니다. 1차 Kafka 범위에서는 기존 동기 흐름을 그대로 유지하고, 이벤트 발행은 서비스 플래그로 켜는 방식입니다. `BRAINX_EVENTS_OUTBOX_ENABLED=true`이면 Workspace-Service와 Commerce-Service가 outbox row를 Kafka로 흘리고, `BRAINX_EVENTS_PRODUCER_ENABLED=true`이면 Ingestion-Service가 `IntegrationConnected`, `ImportJobCompleted`, `ImportJobFailed`를 발행합니다. `BRAINX_EVENTS_CONSUMER_ENABLED=true`이면 Intelligence-Service가 workspace note 이벤트, `CaptureReceived`, note link 이벤트, folder 이벤트, `UserDeletionRequested`를 소비합니다. 작업 요약은 [`brainX_back/KAFKA_IMPLEMENTATION_SUMMARY.md`](brainX_back/KAFKA_IMPLEMENTATION_SUMMARY.md)에 둡니다. `ImportJobRequested`는 앞으로의 async worker 흐름에서 다룹니다.
+`brainX_back/docker-compose.yml`의 `Intelligence-Service`는 env_file, Eureka, Kafka, Qdrant, and workspace-token settings를 한 서비스 블록으로 합쳐 두었습니다.
 `Admin-Service`가 Docker Compose로 뜰 때 관리자 모니터링의 Kafka lag는 `KAFKA_BOOTSTRAP_SERVERS=kafka:9092`, `BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID=intelligence-service` 기준으로 읽습니다. 배포 compose에서도 같은 값을 `admin-service` 환경변수로 주입하며, 호스트에서 직접 `Admin-Service`를 실행할 때만 `localhost:9092` 기본값을 사용합니다.
 
 ## Frontend: brainx-next
@@ -117,8 +119,31 @@ BrainX/
 - 환불은 관리자 사유를 함께 전달하고, 환불 안내 메일 발송과 Commerce 구독의 `free` 전환을 기준으로 사용자 화면이 주기적으로 최신 플랜을 다시 읽어오도록 맞췄습니다.
 - Commerce 환불은 `REFUNDED` 상태를 DB 체크 제약에 포함하도록 보정했고, 결제사에서 이미 취소된 결제라면 로컬 원장과 구독 상태를 `환불 완료 + free 전환`으로 재동기화하도록 처리했습니다.
 - `/notes` 우측 인라인 AI는 질문 모드와 작성 모드를 지원하며, 작성 요청은 Intelligence Service의 `DRAFT` inline assist action으로 현재 편집기 커서에 스트리밍 삽입됩니다.
+
+## Desktop App: brainx-electron
+
+`brainx-electron`은 `brainx-next`를 재사용하는 BrainX의 데스크톱 셸입니다. 1차 목표는 웹앱을 다시 만드는 것이 아니라, 현재 배포/개발 중인 Next.js 앱을 Electron 창 안에서 안정적으로 실행하고 브라우저 전용 흐름을 데스크톱 친화적으로 감싸는 것입니다.
+
+- main process: 앱 창 생성, 팝업 창 정책, 외부 링크 위임, 보안 기본 정책
+- preload: renderer에 노출할 최소 bridge (`openExternal`, 런타임 설정 조회)
+- renderer: 별도 UI를 중복 구현하지 않고 기존 `brainx-next`를 그대로 사용
+- 개발 모드: `brainx-next` dev server(`localhost:3000`)에 연결
+- 패키징 모드: 기본적으로 `https://brainx.p-e.kr/` 배포본을 로드하고, 추후 Next standalone 내장으로 확장
+- active vault가 있으면 import는 vault `notes/`·`assets/`에 직접 기록하고 export는 vault `exports/`에 저장
+- Home, Graph, 노트 통계는 active vault snapshot 기준으로 읽고 sync mode는 `local-only` / `manual-cloud`로 분리
+
+Electron으로 우선 감싸야 하는 핵심 웹 흐름은 아래와 같습니다.
+
+- Notion OAuth 팝업
+- Toss 결제 팝업
+- 노트 새 창 열기
+- 외부 링크/파일 다운로드
+- 로컬 세션 및 향후 OS 연동 기능
 - `/notes` 성능 최적화는 저위험 변경을 우선 적용합니다. 내보내기 유틸은 클릭 시점에 지연 로드하고, Mermaid 자동 preview 전환과 본문 저장 동기화는 변경이 실제 발생한 경우에만 후속 렌더링이 이어지도록 유지합니다.
 - `/notes` 초기 탐색기 렌더링은 저장된 워크스페이스 스냅샷을 먼저 복원한 뒤 서버/Redis 최신값으로 동기화해, 빈 탐색기 상태가 먼저 보였다가 다시 채워지는 깜빡임을 줄입니다.
+- `/notes` 에디터의 표는 바로 다음 블록 맨 앞에서 Backspace 시 삭제되고, 좌상단 그립을 hold&drop하면(누른 채 이동) 다른 위치로 옮길 수 있습니다. 노트탐색기/즐겨찾기 트리는 즐겨찾기 폴더 안에서 즐겨찾기 노트를 우선 정렬하고, 별 아이콘 위치를 트리 전체에서 통일했으며, 드래그 상태(반투명/선택)가 성공·실패·no-op·취소 모든 경로에서 정상 reset되도록 방어적 안전망을 추가했습니다.
+- 게스트(비로그인) 노트 목록은 Postgres `listNotes()`가 아니라 draft 목록(`listWorkspaceNoteDrafts`) 기준으로 불러오도록 고쳐, 새로고침 후에도 게스트가 만든 노트와 그 위키링크 기반 마인드맵 연결이 유지됩니다.
+- Ctrl+F 인노트 검색창은 탭바와 스크롤 영역 사이의 크기 0 앵커에 절대 위치로 겹쳐 그려, 탭-본문 사이에 별도 공간을 차지하지 않고 스크롤해도 같은 위치에 고정됩니다.
 
 ### Tech Stack
 
@@ -168,7 +193,9 @@ BrainX/
 
 ### Frontend API Boundary
 
-프론트는 `NEXT_PUBLIC_API_BASE_URL`을 통해 API 서버와 연결합니다. 값이 비어 있으면 같은 origin 기준으로 요청합니다.
+프론트는 기본적으로 `NEXT_PUBLIC_API_BASE_URL`을 통해 public API gateway와 연결합니다. 값이 비어 있으면 같은 origin 기준으로 요청합니다. 로컬 개발 기본값 `API_SERVER_URL=http://localhost:8088`은 `Gateway-Service`를 가리킵니다.
+
+현재 `lib/workspace-api.ts`, `lib/graph-api.ts`는 별도 `NEXT_PUBLIC_WORKSPACE_API_BASE_URL`도 읽습니다. 이 값은 로컬에서 `Workspace-Service`를 직접 붙일 때만 사용하며 기본값은 `http://localhost:8082`입니다. 따라서 `brainx-next/.env.example` 기준값처럼 `8082`가 맞고, `8088`은 workspace direct URL이 아니라 gateway URL입니다.
 
 현재 구현된 API 클라이언트 파일:
 
@@ -456,7 +483,7 @@ Docker Compose로 앱을 실행할 때는 앱 컨테이너에만 `POSTGRES_HOST=
 | Neo4j Bolt | 백엔드 서비스 접속 URI | `bolt://localhost:7687` |
 
 기본 로컬 계정은 `.env`의 `NEO4J_USERNAME`, `NEO4J_PASSWORD`로 관리합니다. Docker Compose 내부에서 Workspace-Service는 `bolt://neo4j:7687`로 접속하고, 로컬 IDE 실행 시에는 `bolt://localhost:7687`을 사용합니다.
-Workspace-Service는 노트 저장 시 본문 `[[...]]` 위키링크와 TipTap `data-wiki-link` span을 authoritative `workspace_note_links` 원장으로 정규화하고, Neo4j는 그 원장을 projection/read model로 반영합니다. `workspace_note_links.link_type`는 MANUAL/WIKI를 구분하는 필수 컬럼이며, 레거시 운영 DB는 `Workspace-Service/src/main/resources/db/migration/V20260702_01__repair_workspace_note_links_link_type.sql`가 기존 행을 백필한 뒤 Hibernate `NOT NULL` 스키마 업데이트가 지나가도록 맞췄습니다. 타깃 노트가 나중에 생성되거나 제목이 바뀌는 경우에도 기존 노트들을 다시 스캔해 wiki-link 관계를 재물질화합니다. `/api/v1/graph/sync`는 기존 노트 전체를 다시 스캔해 위키링크 원장을 백필한 뒤 Neo4j `LINKED` 관계를 재구성합니다.
+Workspace-Service는 노트 저장 시 본문 `[[...]]` 위키링크와 TipTap `data-wiki-link` span을 authoritative `workspace_note_links` 원장으로 정규화하고, Neo4j는 그 원장을 projection/read model로 반영합니다. `workspace_note_links.link_type`는 MANUAL/WIKI를 구분하는 필수 컬럼이며, 레거시 운영 DB는 `Workspace-Service/src/main/resources/db/migration/V20260702_01__repair_workspace_note_links_link_type.sql`가 기존 행을 백필한 뒤 Hibernate `NOT NULL` 스키마 업데이트가 지나가도록 맞췄습니다. 기본 앱 설정은 `SPRING_SQL_INIT_MODE=always`를 유지하지만, `brainX_back/docker-compose.yml`의 로컬 fresh DB 프로필은 `workspace-service`에 `SPRING_SQL_INIT_MODE=never`를 주입해 빈 DB에서 repair SQL이 선행 실행되어 부팅이 막히지 않게 합니다. 타깃 노트가 나중에 생성되거나 제목이 바뀌는 경우에도 기존 노트들을 다시 스캔해 wiki-link 관계를 재물질화합니다. `/api/v1/graph/sync`는 기존 노트 전체를 다시 스캔해 위키링크 원장을 백필한 뒤 Neo4j `LINKED` 관계를 재구성합니다.
 
 DB 접속 계정과 비밀번호는 루트 `.env`의 `POSTGRES_USER`, `POSTGRES_PASSWORD`를 모든 서비스가 공통으로 사용합니다. 각 서비스는 자기 `application.yml`에서 `.env`의 DB host/port와 서비스별 DB name을 조합해 JDBC URL을 만듭니다.
 
@@ -621,7 +648,7 @@ cd C:\Edu\Final\brainX_back\Commerce-Service
 관리자 프로필 사진은 로컬 저장소 값을 공통 상태로 올려, 오른쪽 프로필 레일에서 바꾸면 왼쪽 사이드바와 모니터링 레일 관리자 목록의 현재 로그인 관리자 아바타도 즉시 같이 바뀝니다.
 관리자 로그인 세션은 브라우저 `localStorage`와 same-site 쿠키에 함께 저장해 `admin.brainx.p-e.kr -> admin-frontend -> admin-service` 프록시 체인에서도 후속 `/api/v1/admin/**` 요청이 안정적으로 같은 액세스 토큰을 전달하도록 유지합니다.
 Admin-Service의 관리자 첫 화면 read model은 Commerce-Service billing read 실패를 그대로 화면 500으로 전파하지 않도록 완화했습니다. 구독/결제 내부 API가 일시적으로 깨지면 사용자 목록은 `free` fallback plan과 빈 결제/구독 목록, 0원 KPI로라도 렌더링해 운영자가 먼저 진입하고 장애를 확인할 수 있게 유지합니다. 다만 근본 원인은 Commerce-Service 운영 DB `commerce_subscriptions.billing_cycle`, `commerce_checkout_sessions.billing_cycle` 같은 원장 스키마를 엔티티와 맞추는 것입니다.
-Commerce-Service는 EC2에서 수동으로 넣었던 `commerce_subscriptions.billing_cycle`, `commerce_checkout_sessions.billing_cycle`, `commerce_checkout_sessions_status_check` 보정을 `src/main/resources/db/migration/V20260701_01__repair_billing_cycle_columns.sql`로 추적합니다. Spring SQL init가 이 migration SQL을 JPA schema update보다 먼저 적용해 오래된 운영 DB도 같은 스키마 보정을 따라가게 했습니다.
+Commerce-Service는 EC2에서 수동으로 넣었던 `commerce_subscriptions.billing_cycle`, `commerce_checkout_sessions.billing_cycle`, `commerce_checkout_sessions_status_check` 보정을 `src/main/resources/db/migration/V20260701_01__repair_billing_cycle_columns.sql`로 추적합니다. Spring SQL init가 이 migration SQL들을 JPA schema update보다 먼저 적용해 오래된 운영 DB도 같은 스키마 보정을 따라가게 했습니다. 기본 앱 설정은 `SPRING_SQL_INIT_MODE=always`를 유지하지만, `brainX_back/docker-compose.yml`의 로컬 fresh DB 프로필은 `commerce-service`에 `SPRING_SQL_INIT_MODE=never`를 주입해 빈 DB에서 repair SQL이 선행 실행되어 부팅이 막히지 않게 합니다.
 모니터링 대시보드의 Kafka 큐 대기 Lag는 추정값이 아니라 Kafka consumer group의 현재 lag를 읽어오며, 일별 스냅샷에도 함께 저장해서 목록과 상세가 같은 상태를 보게 했습니다.
 Kafka lag 카드의 live 값은 별도 `/api/v1/admin/monitoring/kafka-lag`로 읽어 UI를 가볍게 유지하고, 브로커 연결 실패는 `연결 실패`, committed offset이 없으면 `미집계`, 실제 lag가 0일 때만 `정상`으로 보여 줍니다. 운영 알람 기준은 `1,000 msgs` 이상 경고, `5,000 msgs` 이상 심각으로 두었습니다.
 모니터링 서비스 체크에는 `Intelligence-Service`와 `Mcp-Service`도 포함해 AI/MCP 응답과 지연을 실제 health probe 기준으로 보여 줍니다.
@@ -707,6 +734,16 @@ npx --yes http-server . -p 18081 -a 127.0.0.1
 ```
 
 ## Current Notes
+
+- **(2026-07-05 버그 수정) NotesWorkspace editor handle 무한 업데이트 방지**:
+  - 분석 대상: `contracts-v2/brainx-openapi.ssot.yaml`, `brainx-next/components/notes/NotesWorkspace.tsx`, `EditorPanel.tsx`.
+  - `EditorPanel`이 ref 콜백과 effect 양쪽에서 같은 editor handle을 부모에 반복 등록하고, `NotesWorkspace`가 실제 변경 여부와 무관하게 revision state를 올리면서 `Maximum update depth exceeded` 루프가 날 수 있던 문제를 고쳤다.
+  - 이제 부모 등록은 effect 한 군데로만 모으고, 같은 pane/tab 키에 같은 handle이 다시 들어오면 no-op 처리한다. 활성 편집기 추적, 우측 패널의 active editor 연동, split view 편집 기능은 그대로 유지된다.
+
+- **(2026-07-05 버그 수정) 위키링크 title 타입 오염 방어**:
+  - 분석 대상: `contracts-v2/brainx-openapi.ssot.yaml`, `brainx-next/components/notes/WikiLinkContext.tsx`, `WikiLinkNode.tsx`.
+  - `resolveWikiLinkTitle()`가 `title.trim()`을 바로 호출해, 직렬화가 꼬인 위키링크 attrs에서 `title`이 문자열이 아닌 값으로 들어오면 `/notes` 에디터가 즉시 `TypeError`로 깨지던 문제를 고쳤다.
+  - 위키링크 제목/별칭/헤딩은 이제 렌더링, 자동완성, 이동, 생성 전부 공통 정규화 함수로 문자열화하고 trim한 뒤 사용한다. 덕분에 손상된 `data-title`/TipTap attrs가 섞여도 기존 링크 탐색 기능은 유지되고, 비정상 값은 빈 제목으로만 안전하게 격리된다.
 
 - **(2026-07-02 UX 정리) 마이페이지 로그아웃, 위키 자동완성 키 충돌, 그래프 hover 대비 조정**:
   - 마이페이지 프로필 메뉴에 로그아웃 버튼을 회원탈퇴 영역 위로 옮기고, 로그아웃 후에는 `/`(landing)으로 돌아가도록 정리했다.
@@ -834,3 +871,32 @@ npx --yes http-server . -p 18081 -a 127.0.0.1
 ## North Star
 
 BrainX는 사용자가 정리 노동에 시간을 쓰는 도구가 아니라, 기록한 생각이 자동으로 연결되고 다시 발견되는 도구입니다. 모든 기능은 사용자가 더 많이 관리하게 만드는 방향이 아니라, 더 잘 생각하게 만드는 방향으로 설계합니다.
+## 2026-07 Desktop Popup Bridge Update
+
+- `brainx-next/lib/desktop-bridge.ts` routes popup callbacks through browser `postMessage` on Web and preload/IPC custom events on Electron.
+- Notion OAuth callback (`app/notion-callback/page.tsx`), Toss checkout popup (`app/billing/checkout/*`), and note new-window open flows now share the same desktop-aware popup branch.
+
+## 2026-07 Desktop File And Session Bridge Update
+
+- `brainx-electron` now exposes native file open/save dialogs and desktop-backed renderer storage for Electron.
+- `brainx-next` auth/session persistence now prefers the desktop storage bridge on Electron while keeping browser localStorage/sessionStorage fallback on Web.
+- Import file selection and note export download flows now use native dialogs on Electron and browser file flows on Web.
+
+## 2026-07 Desktop Phase 1 Installable App Update
+
+- `brainx-electron` phase 1 now targets an installable desktop shell that each user can run on their own PC before the full local-first vault phase.
+- packaged Electron builds now prefer a bundled local Next standalone renderer and fall back to the remote deployment only when the local renderer is unavailable.
+- the Electron shell now includes a single-instance lock, custom protocol deep-link scaffold, basic desktop menu, and renderer load fallback screen for desktop stability.
+- packaged Windows builds now bootstrap the bundled standalone renderer from unpacked app resources and spawn it with an Electron-compatible Node runtime path instead of relying on the installer executable as a generic fork target.
+
+## 2026-07 Desktop Phase 2 Local Vault Foundation
+
+- `brainx-electron` now persists recent vault metadata under the desktop app user-data path and exposes vault discovery/creation IPC bridges to the renderer.
+- each selected vault is normalized into a local workspace structure with `notes/`, `assets/`, `exports/`, and `.brainx/workspace.json` so the app can evolve toward an Obsidian-style local-first runtime.
+- phase 2 is still a foundation step: local vault selection exists, but note CRUD and sync are not yet redirected to the vault storage layer.
+
+## 2026-07 Desktop Phase 2 Local Vault Runtime
+
+- `/notes` on Electron now gates first-run entry behind vault selection so users choose or create a local vault before the workspace mounts.
+- the Electron desktop bridge now persists vault note and folder metadata in `.brainx/index.json` and stores note bodies as markdown files under `notes/`.
+- vault assets can now be written into the local `assets/` directory and the workspace descriptor keeps an explicit sync policy boundary for future cloud/manual sync work.

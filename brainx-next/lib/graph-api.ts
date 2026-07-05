@@ -2,13 +2,15 @@
 
 import { clearAuthSession, isDevAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
 import { CLUSTERS, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
+import { getBrainxDesktopConfig, isElectronDesktop } from "@/lib/desktop-bridge";
+import { getDesktopVaultSnapshot } from "@/lib/desktop-vault";
+import { DEV_USER_ID as WORKSPACE_DEV_USER_ID } from "@/lib/dev-user";
 import { extractWikiLinkTargets, resolveWikiLinkByTitle } from "@/lib/wiki-links";
 import type { NoteDraftData } from "@/lib/workspace-api";
 
 const WORKSPACE_API_BASE_URL = process.env.NEXT_PUBLIC_WORKSPACE_API_BASE_URL ?? "http://localhost:8082";
 export const USE_MOCK_GRAPH = process.env.NEXT_PUBLIC_GRAPH_USE_MOCK !== "false";
 export const USE_MOCK_GRAPH_CLUSTERS = process.env.NEXT_PUBLIC_GRAPH_CLUSTERS_USE_MOCK !== "false";
-const WORKSPACE_DEV_USER_ID = process.env.NEXT_PUBLIC_WORKSPACE_DEV_USER_ID?.trim();
 
 export type GraphNodeData = {
   id: string;
@@ -78,7 +80,67 @@ async function workspaceRequest<T>(path: string, init?: RequestInit): Promise<T>
   return payload.data as T;
 }
 
+async function shouldUseDesktopVaultGraph() {
+  if (!isElectronDesktop()) return false;
+  const config = await getBrainxDesktopConfig();
+  return Boolean(config?.activeVault);
+}
+
+async function getDesktopVaultGraph(): Promise<GraphData> {
+  const snapshot = await getDesktopVaultSnapshot();
+  const notes = snapshot?.notes ?? [];
+  const noteRefs = notes.map((note) => ({
+    id: note.noteId,
+    title: note.title,
+    markdown: note.markdown,
+  }));
+
+  const edges: GraphEdgeData[] = [];
+  const seen = new Set<string>();
+
+  for (const note of notes) {
+    for (const target of extractWikiLinkTargets(note.markdown)) {
+      const resolved = resolveWikiLinkByTitle(noteRefs, target);
+      if (!resolved || resolved.id === note.noteId) continue;
+      const pairKey = [note.noteId, resolved.id].sort().join("::");
+      if (seen.has(pairKey)) continue;
+      seen.add(pairKey);
+      edges.push({
+        id: `vault_edge_${pairKey}`,
+        source: note.noteId,
+        target: resolved.id,
+        type: "REFERENCE",
+        weight: 1,
+      });
+    }
+  }
+
+  return {
+    nodes: notes.map((note) => ({
+      id: note.noteId,
+      noteId: note.noteId,
+      title: note.title,
+      summary: note.markdown.slice(0, 160),
+      folderId: note.folderId,
+      tags: note.tags,
+      createdAt: note.createdAt,
+      updatedAt: note.updatedAt,
+      lastViewedAt: note.updatedAt,
+    })),
+    edges,
+    summaries: {
+      mode: "desktop-vault",
+      assetCount: snapshot?.assets.length ?? 0,
+      folderCount: snapshot?.folders.length ?? 0,
+    },
+    lastViewedAt: notes[0]?.updatedAt ?? null,
+  };
+}
+
 export async function getGraph() {
+  if (await shouldUseDesktopVaultGraph()) {
+    return getDesktopVaultGraph();
+  }
   return workspaceRequest<GraphData>("/api/v1/graph");
 }
 
@@ -93,16 +155,17 @@ export function graphToBrainXNotes(graph: GraphData): BrainXNote[] {
   }
 
   return graph.nodes.map((node) => {
+    const title = node.title?.trim() || "Untitled";
     const cluster = normalizeClusterId(node.clusterId ?? node.folderId ?? node.noteId);
     const createdAt = normalizeDate(node.createdAt);
     const updatedAt = normalizeDate(node.updatedAt);
     return {
       id: node.noteId,
-      title: node.title || "Untitled",
+      title,
       markdown: "",
       folderId: cluster,
       cluster,
-      summary: normalizeSummary(node.summary, node.title),
+      summary: normalizeSummary(node.summary),
       tags: node.tags ?? [],
       links: Array.from(linksByNoteId.get(node.noteId) ?? []),
       searchIndexStatus: "UNKNOWN",
@@ -125,13 +188,14 @@ export function graphToBrainXNotes(graph: GraphData): BrainXNote[] {
 export function draftsToBrainXNotes(drafts: NoteDraftData[]): BrainXNote[] {
   return drafts.map((draft) => {
     const fallbackCluster = CLUSTERS[0].id;
+    const title = draft.title?.trim() || "제목 없음";
     return {
       id: draft.noteId,
-      title: draft.title?.trim() || "제목 없음",
+      title,
       markdown: draft.markdown ?? "",
       folderId: fallbackCluster,
       cluster: fallbackCluster,
-      summary: normalizeSummary(null, draft.title ?? "제목 없음"),
+      summary: normalizeSummary(null),
       tags: [],
       links: [],
       searchIndexStatus: "UNKNOWN",
@@ -188,10 +252,10 @@ function normalizeClusterId(value: string): ClusterId {
   return ids[Math.abs(hash) % ids.length];
 }
 
-function normalizeSummary(summary: string | null | undefined, title: string) {
+function normalizeSummary(summary: string | null | undefined) {
   const text = summary?.trim();
   if (text) return text;
-  return `${title}은 아직 처리되지 않았습니다. AI 기능이 제한됩니다.`;
+  return "";
 }
 
 function normalizeDate(value: string | null | undefined) {

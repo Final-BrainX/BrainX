@@ -1,7 +1,8 @@
 
 "use client";
 
-import { clearAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { clearAuthSession, isDevAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { DEV_USER_ID } from "@/lib/dev-user";
 import type { components } from "@/lib/generated/intelligence-openapi";
 
 type Schemas = components["schemas"];
@@ -78,7 +79,6 @@ export class IntelligenceAuthRequiredError extends Error {
 }
 
 const INTELLIGENCE_API_BASE_URL = "";
-const DEV_USER_ID = process.env.NEXT_PUBLIC_WORKSPACE_DEV_USER_ID?.trim();
 
 function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
   return response.message ?? response.error?.message ?? fallback;
@@ -223,12 +223,15 @@ function notifyTokenUsageChanged() {
 
 function buildHeaders(headers?: HeadersInit, options?: IntelligenceRequestOptions) {
   const session = readAuthSession();
+  const useAuthenticatedSession = Boolean(session?.accessToken) && !isDevAuthSession(session);
   const next = new Headers(headers);
   next.set("Content-Type", "application/json");
   if (session?.accessToken) {
     next.set("Authorization", `${session.tokenType ?? "Bearer"} ${session.accessToken}`);
   }
-  if (DEV_USER_ID) {
+  // workspace-api.ts/graph-api.ts와 동일한 기준 — 실제 인증 세션이 있으면 dev X-User-Id를
+  // 덧붙이지 않는다(진짜 로그인 사용자 위에 로컬 dev 사용자를 덮어씌우지 않기 위함).
+  if (DEV_USER_ID && !useAuthenticatedSession) {
     next.set("X-User-Id", DEV_USER_ID);
   }
   if (options?.idempotencyKey) {

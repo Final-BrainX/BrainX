@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useState, useCallback } from "react";
 import { X, Plus, Eye, SquarePen, Pin } from "lucide-react";
+import { openBrainxPopup } from "@/lib/desktop-bridge";
 import { cx } from "@/lib/utils";
 import { Tab, MockNote, DragPayload } from "@/lib/notes/noteTypes";
 import type { EditMode } from "./NoteEditor";
@@ -245,7 +246,17 @@ export default function TabBar({
             const url = `${window.location.origin}/notes/${contextMenu.noteId}`;
             navigator.clipboard?.writeText(url).catch(() => {});
           }}
-          onOpenNewWindow={() => window.open(`/notes/${contextMenu.noteId}`, "_blank")}
+          onOpenNewWindow={() => {
+            void openBrainxPopup({
+              url: `/notes/${contextMenu.noteId}`,
+              name: "brainx-note-window",
+              target: "_blank",
+              width: 1280,
+              height: 900,
+              minWidth: 960,
+              minHeight: 640,
+            });
+          }}
           onSplitRight={() => onSplitTabRight(contextMenu.tabId)}
           onSplitDown={() => onSplitTabDown(contextMenu.tabId)}
           canSplitWorkspace={canSplitWorkspace}

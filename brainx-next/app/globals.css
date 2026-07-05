@@ -1027,29 +1027,38 @@ html.light .aurora b {
    올리면(또는 이미 선택된 상태면) 보이고, 클릭하면 표 전체가 NodeSelection으로 선택된다. */
 .tiptap-note-content .ProseMirror .note-table-grip {
   position: absolute;
-  top: -9px;
-  left: -9px;
-  width: 16px;
-  height: 16px;
+  top: -11px;
+  left: -11px;
+  width: 20px;
+  height: 20px;
   display: grid;
   place-items: center;
-  border-radius: 4px;
-  border: 1px solid rgb(var(--border) / 0.6);
+  border-radius: 5px;
+  border: 1.5px solid rgb(var(--border) / 0.8);
   background: rgb(var(--surface));
-  color: rgb(var(--txt3));
+  color: rgb(var(--txt2));
   opacity: 0;
-  cursor: pointer;
+  transform: scale(0.9);
+  cursor: grab;
   z-index: 5;
   padding: 0;
-  transition: opacity 0.12s, color 0.12s, border-color 0.12s;
+  box-shadow: 0 2px 6px -1px rgba(2, 6, 23, 0.25);
+  transition: opacity 0.12s, color 0.12s, border-color 0.12s, background-color 0.12s, transform 0.12s, box-shadow 0.12s;
 }
 .tiptap-note-content .ProseMirror .tableWrapper:hover .note-table-grip,
 .tiptap-note-content .ProseMirror table.note-table[data-node-selected="true"] ~ .note-table-grip {
   opacity: 1;
+  transform: scale(1);
 }
 .tiptap-note-content .ProseMirror .note-table-grip:hover {
-  color: rgb(var(--primary));
-  border-color: rgb(var(--primary) / 0.6);
+  color: #ffffff;
+  background: rgb(var(--primary));
+  border-color: rgb(var(--primary));
+  box-shadow: 0 4px 10px -2px rgb(var(--primary) / 0.5);
+}
+.tiptap-note-content .ProseMirror .note-table-grip:active {
+  cursor: grabbing;
+  transform: scale(0.96);
 }
 
 .tiptap-note-content .ProseMirror table.note-table .column-resize-handle {
@@ -1148,6 +1157,15 @@ html.light .tiptap-note-content .ProseMirror table.note-table :is(td, th) {
   display: none;
 }
 
+/* 노트 패널 내부 검색(Ctrl+F, InNoteSearch.tsx) 매치 하이라이트 */
+.in-note-search-match {
+  background: rgb(250 204 21 / 0.35);
+  border-radius: 2px;
+}
+.in-note-search-match-active {
+  background: rgb(var(--primary) / 0.45);
+}
+
 /* 커서가 위치한 줄 → 마크다운 소스 표시 (Obsidian Live Preview)
    blockquote는 소스 표시를 위해 스타일을 초기화한다.            */
 
@@ -1168,6 +1186,101 @@ html.light .tiptap-note-content .ProseMirror table.note-table :is(td, th) {
   font-size: 0.9em;
   user-select: none;
   pointer-events: none;
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.3rem;
+  margin-inline: 0.2rem;
+  padding: 0.05rem 0.25rem;
+  border-radius: 0.375rem;
+  background: rgb(var(--primary) / 0.08);
+  color: rgb(var(--txt));
+  vertical-align: baseline;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview--error {
+  background: rgb(239 68 68 / 0.12);
+  color: rgb(248 113 113);
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview__badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.25rem;
+  background: rgb(var(--primary) / 0.14);
+  padding-inline: 0.25rem;
+  color: rgb(var(--primary));
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview__text {
+  min-width: 0;
+  white-space: pre-wrap;
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview__controls {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview__button {
+  display: inline-grid;
+  width: 1.15rem;
+  height: 1.15rem;
+  place-items: center;
+  border-radius: 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+  transition: background 140ms ease, color 140ms ease, opacity 140ms ease;
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview__button--accept {
+  background: rgb(var(--primary));
+  color: white;
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview__button--accept:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview__button--cancel {
+  color: rgb(var(--txt3));
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview__button--cancel:hover {
+  background: rgb(var(--surface2) / 0.8);
+  color: rgb(var(--txt));
+}
+
+.split-pane-editor .ProseMirror .inline-continue-preview__spinner {
+  width: 0.7rem;
+  height: 0.7rem;
+  flex: 0 0 auto;
+  border: 1.5px solid rgb(var(--primary) / 0.24);
+  border-top-color: rgb(var(--primary));
+  border-radius: 999px;
+  animation: inline-continue-spin 800ms linear infinite;
+}
+
+@keyframes inline-continue-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── Split Demo 코드블록 NodeView ───────────────────────────── */
