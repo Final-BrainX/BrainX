@@ -653,7 +653,7 @@ Workspace 전환 시 Home에 현재 Workspace 이름이 반영된다.
 
 Status
 
-⬜ Planned
+🟨 In Progress
 
 Priority
 
@@ -682,6 +682,12 @@ Notes
 ↓
 
 Welcome Board
+
+### 1차 완료 범위
+
+- `NotesWorkspace`가 `currentWorkspaceId`를 구독해 탐색기와 Quick Switcher의 노트/폴더 목록을 현재 Workspace 기준으로 클라이언트 필터링한다.
+- `documentGroupId=null` 레거시 note/folder는 Guest 또는 Workspace 미선택 상태에서는 그대로 보이고, default Workspace 선택 시에만 함께 노출한다.
+- split/tabs/Welcome Board 초기화와 Workspace 기준 서버 재조회 전환은 2차 후속 범위로 남긴다.
 
 ---
 

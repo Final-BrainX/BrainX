@@ -61,6 +61,7 @@ export interface MockFolder {
   id: string;
   name: string;
   parentFolderId: string | null;
+  documentGroupId?: string | null;
   color?: string;
   favorite?: boolean;
 }
@@ -136,6 +137,7 @@ export interface MockNote {
   tags: string[];
   category: NoteCategory;
   folderId?: string;
+  documentGroupId?: string | null;
   createdAt: number;
   updatedAt: number;
   version?: number;

@@ -76,6 +76,7 @@ export type BrainxDesktopVaultFolder = {
   folderId: string;
   name: string;
   parentFolderId: string | null;
+  documentGroupId?: string | null;
   color?: string;
   favorite?: boolean;
   createdAt: string;
@@ -87,6 +88,7 @@ export type BrainxDesktopVaultNote = {
   title: string;
   markdown: string;
   folderId: string | null;
+  documentGroupId?: string | null;
   tags: string[];
   version: number;
   createdAt: string;

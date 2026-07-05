@@ -25,6 +25,7 @@ export type NoteDetail = {
   title: string;
   markdown: string;
   folder: { folderId: string; name: string } | null;
+  documentGroupId: string | null;
   tags: string[];
   version: number;
   createdAt: string;
@@ -37,6 +38,7 @@ export type WorkspaceNoteItem = {
   title: string;
   markdown: string;
   folderId: string | null;
+  documentGroupId: string | null;
   tags: string[];
   version: number;
   createdAt: string;
@@ -48,6 +50,7 @@ export type WorkspaceFolderItem = {
   folderId: string;
   name: string;
   parentFolderId: string | null;
+  documentGroupId: string | null;
 };
 
 export type NoteCreated = {
@@ -190,6 +193,7 @@ async function getDesktopVaultListData(): Promise<NoteListData> {
       title: note.title,
       markdown: note.markdown,
       folderId: note.folderId,
+      documentGroupId: note.documentGroupId ?? null,
       tags: note.tags,
       version: note.version,
       createdAt: note.createdAt,
@@ -207,6 +211,7 @@ async function getDesktopVaultFolderData(): Promise<FolderTreeData> {
       folderId: folder.folderId,
       name: folder.name,
       parentFolderId: folder.parentFolderId,
+      documentGroupId: folder.documentGroupId ?? null,
     })),
   };
 }
@@ -450,6 +455,7 @@ export async function createWorkspaceFolder(name: string, parentFolderId: string
       folderId: created.folderId,
       name: created.name,
       parentFolderId: created.parentFolderId,
+      documentGroupId: created.documentGroupId ?? null,
     };
   }
   return authedRequest<WorkspaceFolderItem>("/api/v1/folders", {
@@ -635,6 +641,7 @@ export function workspaceNoteToMock(note: WorkspaceNoteItem | NoteDetail): MockN
     tags: note.tags ?? [],
     category: "backend",
     folderId,
+    documentGroupId: note.documentGroupId ?? null,
     createdAt: Date.parse(note.createdAt) || Date.now(),
     updatedAt: Date.parse(note.updatedAt) || Date.now(),
     version: note.version,
@@ -663,7 +670,8 @@ export function workspaceFolderToMock(folder: WorkspaceFolderItem): MockFolder {
   return {
     id: folder.folderId,
     name: folder.name,
-    parentFolderId: folder.parentFolderId
+    parentFolderId: folder.parentFolderId,
+    documentGroupId: folder.documentGroupId ?? null,
   };
 }
 

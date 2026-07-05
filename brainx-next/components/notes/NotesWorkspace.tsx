@@ -60,6 +60,7 @@ import { exportNote, uploadAndImportFile, type ExportFormat } from "@/lib/ingest
 import { ShareLinkModal } from "./ShareLinkModal";
 import { markdownToHtml } from "./NoteEditor";
 import { useBrainX } from "@/components/brainx-provider";
+import { useWorkspace } from "@/components/workspace-provider";
 import { consumePendingNoteClaim, readAuthSession } from "@/lib/auth-api";
 
 export type InitialTab = { kind: "note"; noteId: string } | { kind: "start" };
@@ -414,6 +415,7 @@ function resolveVisiblePaneId(root: PaneNode, activeId: string): string {
 }
 
 export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteChange }: NotesWorkspaceProps) {
+  const { currentWorkspaceId, workspaces } = useWorkspace();
   // 최초 1회만 생성되는 초기값 (pane root와 paneTabs가 같은 paneId를 공유해야 함)
   const initRef = useRef<ReturnType<typeof createInitialPaneState> | null>(null);
   if (!initRef.current) initRef.current = createInitialPaneState(initialTab);
@@ -593,6 +595,27 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     const session = readAuthSession();
     return !session?.accessToken;
   }, []);
+  const currentWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.documentGroupId === currentWorkspaceId) ?? null,
+    [workspaces, currentWorkspaceId]
+  );
+  const includeLegacyNullDocumentGroup = currentWorkspaceId === null || currentWorkspace?.isDefault === true;
+  const matchesCurrentWorkspace = useCallback(
+    (documentGroupId: string | null | undefined) => {
+      if (currentWorkspaceId === null) return true;
+      if ((documentGroupId ?? null) === currentWorkspaceId) return true;
+      return includeLegacyNullDocumentGroup && (documentGroupId ?? null) === null;
+    },
+    [currentWorkspaceId, includeLegacyNullDocumentGroup]
+  );
+  const visibleNotes = useMemo(
+    () => notes.filter((note) => matchesCurrentWorkspace(note.documentGroupId)),
+    [notes, matchesCurrentWorkspace]
+  );
+  const visibleFolders = useMemo(
+    () => folders.filter((folder) => matchesCurrentWorkspace(folder.documentGroupId)),
+    [folders, matchesCurrentWorkspace]
+  );
 
   /* 같은 depth에서 동일 이름의 노트 중복 여부 확인 (노트↔노트만, 폴더와는 허용) */
   const checkNoteDuplicate = useCallback((title: string, folderId: string | null | undefined): boolean => {
@@ -1404,7 +1427,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       return;
     }
     if (USE_MOCK_NOTES) {
-      setFolders((prev) => [...prev, { id: `folder-${uid()}`, name, parentFolderId, favorite: favorite || undefined }]);
+      setFolders((prev) => [
+        ...prev,
+        {
+          id: `folder-${uid()}`,
+          name,
+          parentFolderId,
+          documentGroupId: currentWorkspaceId,
+          favorite: favorite || undefined,
+        },
+      ]);
       return;
     }
     void createWorkspaceFolder(name, parentFolderId)
@@ -1416,7 +1448,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       .catch((error) => {
         pushToast(error instanceof Error ? error.message : "폴더를 만들지 못했습니다.", "err");
       });
-  }, [isGuest, folders, checkFolderDuplicate, pushToast]);
+  }, [isGuest, folders, checkFolderDuplicate, pushToast, currentWorkspaceId]);
 
   const handleRenameFolder = useCallback((folderId: string, newName: string) => {
     const folder = folders.find((f) => f.id === folderId);
@@ -2440,7 +2472,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     >
       {welcomeQuickSwitcherOpen ? (
         <QuickSwitcher
-          notes={notes}
+          notes={visibleNotes}
           onSelect={handleQuickSwitcherSelect}
           onClose={() => setQuickSwitcher(null)}
         />
@@ -2464,8 +2496,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         {/* ── 좌측: 노트 탐색기 ──────────────────────── */}
         {explorerOpen && (
           <NotesExplorer
-            notes={notes}
-            folders={folders}
+            notes={visibleNotes}
+            folders={visibleFolders}
             activeNoteId={activeNoteId ?? ""}
             selectedFolderId={selectedFolderId}
             onSelectFolder={handleSelectFolder}
