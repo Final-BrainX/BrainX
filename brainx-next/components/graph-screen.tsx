@@ -22,7 +22,7 @@ import {
 } from "@/lib/ai-cluster-projection";
 import { mergeNoteIndexStatuses } from "@/lib/note-index-statuses";
 import { readPendingCreatedNotes, removePendingCreatedNoteByNoteId } from "@/lib/notes/pending-created-note-cache";
-import { createWorkspaceNote, getNote, getWorkspaceNoteDraft, hasWorkspaceUserIdentity, listWorkspaceNoteDrafts, updateWorkspaceNoteContent, WorkspaceApiError, type NoteCreated } from "@/lib/workspace-api";
+import { createWorkspaceNote, getNote, hasWorkspaceUserIdentity, listWorkspaceNoteDrafts, updateWorkspaceNoteContent, WorkspaceApiError, type NoteCreated } from "@/lib/workspace-api";
 import { contentHasWikiLinkTo } from "@/lib/wiki-links";
 import { useBrainX } from "@/components/brainx-provider";
 import { Avatar, Badge, Btn, Card, Icon } from "@/components/brainx-ui";
@@ -2134,9 +2134,8 @@ function GraphScreenInner() {
         throw new Error("연결할 원본 노트를 찾을 수 없습니다.");
       }
       const targetTitle = normalizeMarkdownText(suggestion.targetTitle || targetNote?.title || "연결 노트");
-      const latestDraft = await getWorkspaceNoteDraft(sourceNote.id).catch(() => null);
       const latestSource = await getNote(sourceNote.id);
-      const latestMarkdown = latestDraft?.markdown ?? latestSource?.markdown ?? "";
+      const latestMarkdown = latestSource?.markdown ?? "";
       const applied = applyLinkSuggestionToMarkdown(latestMarkdown, suggestion, targetTitle);
       if (applied.error) {
         throw new Error(applied.error);
@@ -2144,11 +2143,11 @@ function GraphScreenInner() {
       if (applied.changed) {
         const saved = await updateWorkspaceNoteContent({
           id: sourceNote.id,
-          title: latestDraft?.title || latestSource?.title || sourceNote.title,
+          title: latestSource?.title || sourceNote.title,
           content: applied.markdown,
           tags: latestSource?.tags ?? sourceNote.tags,
           category: "ai",
-          folderId: latestDraft?.folderId ?? latestSource?.folder?.folderId ?? sourceNote.folderId,
+          folderId: latestSource?.folder?.folderId ?? sourceNote.folderId,
           createdAt: Date.parse(latestSource?.createdAt ?? "") || Date.parse(sourceNote.createdAt) || Date.now(),
           updatedAt: Date.now(),
           version: latestSource.version ?? sourceNote.version,
@@ -2159,7 +2158,7 @@ function GraphScreenInner() {
           return baseNotes.map((note) => note.id === sourceNote.id
             ? {
                 ...note,
-                title: latestDraft?.title || latestSource?.title || note.title,
+                title: latestSource?.title || note.title,
                 markdown: applied.markdown,
                 version: saved.version,
                 updatedAt: saved.savedAt,
