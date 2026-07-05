@@ -119,7 +119,7 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
         AutoLinkResult result = noteAutoLinkUseCase.analyze(new AutoLinkCommand(
             userId,
             documentGroupId,
-            NoteAutoLinkStrategy.VECTOR_LLM,
+            NoteAutoLinkStrategy.LLM_ONLY,
             null,
             null
         ));
@@ -127,7 +127,7 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
             throw new ConnectionConflictException("Link suggestion note limit exceeded.");
         }
 
-        AutoLinkStrategyResult strategy = vectorStrategy(result);
+        AutoLinkStrategyResult strategy = linkSuggestionStrategy(result);
         if (strategy == null) {
             return new LinkSuggestionsResult(List.of());
         }
@@ -140,13 +140,19 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
 
         List<LinkSuggestionResult> suggestions = strategy.suggestions().stream()
             .filter(suggestion -> noteId.equals(suggestion.sourceNoteId()))
-            .map(suggestion -> new LinkSuggestionResult(
-                suggestion.suggestionId(),
-                suggestion.targetNoteId(),
-                suggestion.targetTitle(),
-                suggestion.confidence(),
-                suggestion.reason()
-            ))
+            .map(suggestion -> {
+                var anchor = suggestion.anchor();
+                return new LinkSuggestionResult(
+                    suggestion.suggestionId(),
+                    suggestion.targetNoteId(),
+                    suggestion.targetTitle(),
+                    suggestion.confidence(),
+                    suggestion.reason(),
+                    anchor == null ? "" : anchor.matchedText(),
+                    anchor == null ? -1 : anchor.startOffset(),
+                    anchor == null ? -1 : anchor.endOffset()
+                );
+            })
             .toList();
         suggestions.forEach(suggestion -> connectionEventPort.linkSuggestionCreated(new LinkSuggestionCreatedEvent(
             userId,
@@ -400,12 +406,12 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
         }
     }
 
-    private static AutoLinkStrategyResult vectorStrategy(AutoLinkResult result) {
+    private static AutoLinkStrategyResult linkSuggestionStrategy(AutoLinkResult result) {
         if (result == null || result.strategies() == null) {
             return null;
         }
         return result.strategies().stream()
-            .filter(strategy -> strategy.strategy() == NoteAutoLinkStrategy.VECTOR_LLM)
+            .filter(strategy -> strategy.strategy() == NoteAutoLinkStrategy.LLM_ONLY)
             .findFirst()
             .orElse(null);
     }

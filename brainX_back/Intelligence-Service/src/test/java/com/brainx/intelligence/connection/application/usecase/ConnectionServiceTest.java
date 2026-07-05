@@ -99,7 +99,7 @@ class ConnectionServiceTest {
 
         assertThat(noteSourcePort.lastDocumentGroupId).isEqualTo("default");
         assertThat(autoLinkUseCase.lastCommand.documentGroupId()).isEqualTo("default");
-        assertThat(autoLinkUseCase.lastCommand.strategy()).isEqualTo(NoteAutoLinkStrategy.VECTOR_LLM);
+        assertThat(autoLinkUseCase.lastCommand.strategy()).isEqualTo(NoteAutoLinkStrategy.LLM_ONLY);
         assertThat(autoLinkUseCase.lastCommand.maxNotes()).isNull();
         assertThat(autoLinkUseCase.lastCommand.modelId()).isNull();
         assertThat(entitlementPort.lastRequest.capability()).isEqualTo("LINK_SUGGESTIONS");
@@ -107,6 +107,9 @@ class ConnectionServiceTest {
         assertThat(result.suggestions().getFirst().suggestionId()).isEqualTo("suggestion-1");
         assertThat(result.suggestions().getFirst().targetNoteId()).isEqualTo("target-1");
         assertThat(result.suggestions().getFirst().score()).isEqualTo(0.84d);
+        assertThat(result.suggestions().getFirst().anchorText()).isEqualTo("Anchor");
+        assertThat(result.suggestions().getFirst().anchorStartOffset()).isZero();
+        assertThat(result.suggestions().getFirst().anchorEndOffset()).isEqualTo(6);
         assertThat(connectionEventPort.createdEvents).hasSize(1);
         assertThat(connectionEventPort.createdEvents.getFirst().featureId()).isEqualTo("link-suggestions");
         assertThat(connectionEventPort.createdEvents.getFirst().noteId()).isEqualTo("note-1");
@@ -349,7 +352,7 @@ class ConnectionServiceTest {
         autoLinkUseCase.result = new AutoLinkResult(
             "user-1",
             "default",
-            NoteAutoLinkStrategy.VECTOR_LLM,
+            NoteAutoLinkStrategy.LLM_ONLY,
             "LIMIT_EXCEEDED",
             true,
             50,
@@ -380,14 +383,14 @@ class ConnectionServiceTest {
         return new AutoLinkResult(
             "user-1",
             "default",
-            NoteAutoLinkStrategy.VECTOR_LLM,
+            NoteAutoLinkStrategy.LLM_ONLY,
             "COMPLETED",
             false,
             50,
             2,
             2,
             List.of(new AutoLinkStrategyResult(
-                NoteAutoLinkStrategy.VECTOR_LLM,
+                NoteAutoLinkStrategy.LLM_ONLY,
                 status,
                 "gpt-test",
                 2,

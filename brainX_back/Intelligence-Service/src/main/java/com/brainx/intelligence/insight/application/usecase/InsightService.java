@@ -3,6 +3,7 @@ package com.brainx.intelligence.insight.application.usecase;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -15,6 +16,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import com.brainx.intelligence.insight.application.port.inbound.GetInsightReportUseCase;
+import com.brainx.intelligence.insight.application.port.inbound.GetLatestInsightReportUseCase;
+import com.brainx.intelligence.insight.application.port.inbound.GetLatestInsightReportUseCase.GetLatestInsightReportQuery;
+import com.brainx.intelligence.insight.application.port.inbound.GetLatestInsightReportUseCase.LatestInsightReport;
 import com.brainx.intelligence.insight.application.port.inbound.RequestInsightReportUseCase;
 import com.brainx.intelligence.insight.application.port.outbound.InsightEventPort;
 import com.brainx.intelligence.insight.application.port.outbound.InsightEventPort.InsightReportCompletedEvent;
@@ -25,6 +29,8 @@ import com.brainx.intelligence.insight.domain.InsightForbiddenException;
 import com.brainx.intelligence.insight.domain.InsightNotFoundException;
 import com.brainx.intelligence.insight.domain.InsightRecommendation;
 import com.brainx.intelligence.insight.domain.InsightReport;
+import com.brainx.intelligence.insight.domain.InsightReportLatestState;
+import com.brainx.intelligence.insight.domain.InsightReportStatus;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
 import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
@@ -44,12 +50,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Service
-public class InsightService implements RequestInsightReportUseCase, GetInsightReportUseCase {
+public class InsightService implements RequestInsightReportUseCase, GetInsightReportUseCase, GetLatestInsightReportUseCase {
 
     static final String INSIGHT_REPORT_CAPABILITY = "INSIGHT_REPORT";
     static final String INSIGHT_REPORT_FEATURE_ID = "insight-report-chat";
+    static final String SOURCE_SNAPSHOT_SCOPE_KEY = "_sourceSnapshot";
     private static final int HARD_MAX_NOTES = 50;
     private static final int HARD_MAX_RECOMMENDATIONS = 20;
+    private static final int LATEST_REPORT_LOOKBACK = 20;
 
     private final InsightReportStore insightReportStore;
     private final KnowledgeAnalysisNoteSourcePort noteSourcePort;
@@ -159,7 +167,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
             reportId,
             userId,
             scope.documentGroupId(),
-            scope.normalizedScope(),
+            scopeWithSourceSnapshot(scope.normalizedScope(), notes),
             includeLearningRecommendations,
             modelId,
             idempotencyKey,
@@ -168,7 +176,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
         insightEventPort.insightReportRequested(new InsightReportRequestedEvent(
             userId,
             reportId,
-            running.scope(),
+            publicScope(running.scope()),
             includeLearningRecommendations
         ));
 
@@ -209,6 +217,54 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
                 requireText(query.reportId(), "reportId")
             )
             .orElseThrow(() -> new InsightNotFoundException("Insight report was not found."));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public LatestInsightReport getLatestInsightReport(GetLatestInsightReportQuery query) {
+        String userId = requireText(query.userId(), "userId");
+        String documentGroupId = DocumentGroups.normalize(query.documentGroupId());
+        List<KnowledgeAnalysisNote> notes = noteSourcePort.findAnalysisNotes(
+            userId,
+            documentGroupId,
+            Math.min(properties.getMaxNotes(), HARD_MAX_NOTES)
+        );
+        Instant latestNoteUpdatedAt = latestNoteUpdatedAt(notes);
+        if (notes.isEmpty()) {
+            return new LatestInsightReport(
+                documentGroupId,
+                0,
+                null,
+                InsightReportLatestState.NO_SOURCE_NOTES,
+                null
+            );
+        }
+
+        InsightReport latestReport = insightReportStore.findRecentByUserIdAndDocumentGroupId(
+                userId,
+                documentGroupId,
+                LATEST_REPORT_LOOKBACK
+            ).stream()
+            .filter(InsightService::isWorkspaceInsightReport)
+            .findFirst()
+            .orElse(null);
+        if (latestReport == null) {
+            return new LatestInsightReport(
+                documentGroupId,
+                notes.size(),
+                latestNoteUpdatedAt,
+                InsightReportLatestState.NOT_ANALYZED,
+                null
+            );
+        }
+
+        return new LatestInsightReport(
+            documentGroupId,
+            notes.size(),
+            latestNoteUpdatedAt,
+            latestState(latestReport, notes),
+            latestReport
+        );
     }
 
     private List<KnowledgeAnalysisNote> loadNotes(String userId, ScopeSpec scope) {
@@ -429,6 +485,105 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
             message = exception.getClass().getSimpleName();
         }
         return message.length() > 300 ? message.substring(0, 300) : message;
+    }
+
+    private static Map<String, Object> scopeWithSourceSnapshot(
+        Map<String, Object> scope,
+        List<KnowledgeAnalysisNote> notes
+    ) {
+        Map<String, Object> values = new LinkedHashMap<>(scope == null ? Map.of() : scope);
+        values.put(SOURCE_SNAPSHOT_SCOPE_KEY, sourceSnapshot(notes));
+        return values;
+    }
+
+    private static Map<String, Object> publicScope(Map<String, Object> scope) {
+        Map<String, Object> values = new LinkedHashMap<>(scope == null ? Map.of() : scope);
+        values.remove(SOURCE_SNAPSHOT_SCOPE_KEY);
+        return values;
+    }
+
+    private static Map<String, Object> sourceSnapshot(List<KnowledgeAnalysisNote> notes) {
+        List<Map<String, Object>> sourceNotes = notes.stream()
+            .sorted(Comparator.comparing(KnowledgeAnalysisNote::noteId))
+            .map(note -> {
+                Map<String, Object> values = new LinkedHashMap<>();
+                values.put("noteId", note.noteId());
+                values.put("updatedAt", note.updatedAt().toString());
+                return values;
+            })
+            .toList();
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("noteCount", notes.size());
+        Instant latestUpdatedAt = latestNoteUpdatedAt(notes);
+        snapshot.put("latestNoteUpdatedAt", latestUpdatedAt == null ? null : latestUpdatedAt.toString());
+        snapshot.put("notes", sourceNotes);
+        return snapshot;
+    }
+
+    private static InsightReportLatestState latestState(InsightReport report, List<KnowledgeAnalysisNote> notes) {
+        if (report.status() == InsightReportStatus.FAILED) {
+            return InsightReportLatestState.FAILED;
+        }
+        if (report.status() != InsightReportStatus.COMPLETED) {
+            return InsightReportLatestState.STALE;
+        }
+        return sourceSnapshotMatches(report.scope().get(SOURCE_SNAPSHOT_SCOPE_KEY), notes)
+            ? InsightReportLatestState.FRESH
+            : InsightReportLatestState.STALE;
+    }
+
+    private static boolean sourceSnapshotMatches(Object snapshot, List<KnowledgeAnalysisNote> notes) {
+        return sourceVersionMap(notes).equals(snapshotVersionMap(snapshot));
+    }
+
+    private static Map<String, String> sourceVersionMap(List<KnowledgeAnalysisNote> notes) {
+        Map<String, String> values = new LinkedHashMap<>();
+        notes.stream()
+            .sorted(Comparator.comparing(KnowledgeAnalysisNote::noteId))
+            .forEach(note -> values.put(note.noteId(), note.updatedAt().toString()));
+        return values;
+    }
+
+    private static Map<String, String> snapshotVersionMap(Object snapshot) {
+        if (!(snapshot instanceof Map<?, ?> values)) {
+            return Map.of();
+        }
+        Object rawNotes = values.get("notes");
+        if (!(rawNotes instanceof List<?> notes)) {
+            return Map.of();
+        }
+        Map<String, String> versions = new LinkedHashMap<>();
+        for (Object item : notes) {
+            if (!(item instanceof Map<?, ?> note)) {
+                continue;
+            }
+            Object noteId = note.get("noteId");
+            Object updatedAt = note.get("updatedAt");
+            if (noteId != null && updatedAt != null && StringUtils.hasText(noteId.toString())) {
+                versions.put(noteId.toString().trim(), updatedAt.toString().trim());
+            }
+        }
+        return versions;
+    }
+
+    private static Instant latestNoteUpdatedAt(List<KnowledgeAnalysisNote> notes) {
+        return notes.stream()
+            .map(KnowledgeAnalysisNote::updatedAt)
+            .max(Instant::compareTo)
+            .orElse(null);
+    }
+
+    private static boolean isWorkspaceInsightReport(InsightReport report) {
+        return !hasScopedNoteIds(publicScope(report.scope()));
+    }
+
+    private static boolean hasScopedNoteIds(Map<String, Object> scope) {
+        Object noteIds = scope == null ? null : scope.get("noteIds");
+        if (!(noteIds instanceof List<?> list)) {
+            return false;
+        }
+        return list.stream()
+            .anyMatch(item -> item != null && StringUtils.hasText(item.toString()));
     }
 
     private static String normalizeNullable(String value) {

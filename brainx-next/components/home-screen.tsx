@@ -6,6 +6,7 @@ import { clusterById, type BrainXNote } from "@/lib/brainx-data";
 import { useBrainX } from "@/components/brainx-provider";
 import { Btn, Card, Icon } from "@/components/brainx-ui";
 import { isDevAuthSession, readAuthSession } from "@/lib/auth-api";
+import { DEV_USER_ID } from "@/lib/dev-user";
 import { getMyProfile } from "@/lib/user-api";
 import {
   AI_CLUSTER_MAX_CLUSTERS,
@@ -19,7 +20,14 @@ import {
   type AiClusterMeta,
   type AiClusterStatus,
 } from "@/lib/ai-cluster-projection";
-import { getLatestClusterJob, requestClusterJob, type ClusterJobLatestData } from "@/lib/intelligence-api";
+import {
+  getLatestClusterJob,
+  getLatestInsightReport,
+  requestClusterJob,
+  requestInsightReport,
+  type ClusterJobLatestData,
+  type InsightReportLatestData,
+} from "@/lib/intelligence-api";
 import { getMyWorkspaceStats, type WorkspaceUserStatsData } from "@/lib/workspace-api";
 import { summarizeWorkspaceNotes } from "@/lib/workspace-note-stats";
 import { cx } from "@/lib/utils";
@@ -36,6 +44,28 @@ function topicLabel(note: BrainXNote, clusterMetaById?: Map<string, AiClusterMet
   return note.tags[0] || clusterById(note.cluster).label;
 }
 
+type AiInsightStatus = "idle" | "loading" | "generating" | "error";
+
+type HomeInsightItem = {
+  color: string;
+  tag: string;
+  text?: string;
+  html?: string;
+};
+
+function insightText(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function recommendationText(value: unknown) {
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  const title = insightText(record.title);
+  const reason = insightText(record.reason);
+  if (title && reason) return `${title} - ${reason}`;
+  return title || reason;
+}
+
 function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; workspaceStats: WorkspaceUserStatsData | null }) {
   const router = useRouter();
   const { pushToast } = useBrainX();
@@ -44,6 +74,10 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
   const [clusterStatus, setClusterStatus] = useState<AiClusterStatus>("idle");
   const [clusterError, setClusterError] = useState<string | null>(null);
   const clusterRequestIdRef = useRef(0);
+  const [insightLatest, setInsightLatest] = useState<InsightReportLatestData | null>(null);
+  const [insightStatus, setInsightStatus] = useState<AiInsightStatus>("idle");
+  const [insightError, setInsightError] = useState<string | null>(null);
+  const insightRequestIdRef = useRef(0);
   const summary = useMemo(() => summarizeWorkspaceNotes(notes), [notes]);
   const totalNotes = workspaceStats?.noteCount ?? summary.totalNotes;
   const totalLinks = summary.totalLinks;
@@ -51,6 +85,7 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
   const recentActivityTitle = workspaceStats?.activities?.[0]?.title?.trim() || null;
   const currentSession = readAuthSession();
   const aiClusterPanelEnabled = !!currentSession?.accessToken && !isDevAuthSession(currentSession);
+  const aiInsightPanelEnabled = (!!currentSession?.accessToken && !isDevAuthSession(currentSession)) || Boolean(DEV_USER_ID);
   const aiClusterProjection = useMemo(
     () => aiClusterPanelEnabled ? applyAiClustersToNotes(notes, clusterLatest) : { notes, clusters: null },
     [aiClusterPanelEnabled, clusterLatest, notes]
@@ -140,6 +175,77 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
     }
     return { title: "기본 분류", body: "아직 AI 클러스터 결과가 없어 기존 분류로 표시하고 있어요." };
   })();
+  const insightReport = insightLatest?.report ?? null;
+  const aiInsightButtonDisabled =
+    !aiInsightPanelEnabled ||
+    insightStatus === "loading" ||
+    insightStatus === "generating" ||
+    insightLatest?.state === "NO_SOURCE_NOTES";
+  const insightActionLabel = (() => {
+    if (insightLatest?.state === "FRESH") return "다시 생성";
+    if (insightLatest?.state === "STALE") return "최신 리포트 생성";
+    if (insightLatest?.state === "FAILED") return "재시도";
+    return "AI 리포트 생성";
+  })();
+  const insightStateMessage = (() => {
+    if (!aiInsightPanelEnabled) {
+      return { title: "로컬 요약", body: "로그인된 실제 워크스페이스에서 AI 인사이트 리포트를 생성할 수 있어요." };
+    }
+    if (insightStatus === "loading") {
+      return { title: "최근 리포트 확인 중", body: "이전에 생성한 AI 인사이트 리포트를 불러오고 있어요." };
+    }
+    if (insightStatus === "generating") {
+      return { title: "AI 리포트 생성 중", body: "현재 노트 카드로 지식 공백과 추천 액션을 분석하고 있어요." };
+    }
+    if (insightLatest?.state === "NO_SOURCE_NOTES") {
+      return { title: "분석 대상 없음", body: "색인된 노트가 생기면 AI 인사이트 리포트를 만들 수 있어요." };
+    }
+    if (insightLatest?.state === "STALE") {
+      return { title: "노트가 변경됨", body: "아래 리포트는 이전 노트 기준이에요. 최신 리포트를 다시 생성할 수 있어요." };
+    }
+    if (insightLatest?.state === "FAILED") {
+      return { title: "최근 생성 실패", body: insightReport?.failureMessage ?? "AI 인사이트 리포트 생성에 실패했어요. 다시 시도해 주세요." };
+    }
+    if (insightLatest?.state === "FRESH") {
+      return { title: "AI 리포트 적용", body: "실제 LLM이 생성한 최신 인사이트 리포트를 표시하고 있어요." };
+    }
+    if (insightError) {
+      return { title: "리포트 확인 실패", body: insightError };
+    }
+    return { title: "로컬 요약", body: "아직 AI 리포트가 없어 현재 노트/연결 기준의 빠른 요약을 보여주고 있어요." };
+  })();
+
+  const refreshInsightLatest = useCallback(
+    async ({ showError = false }: { showError?: boolean } = {}) => {
+      if (!aiInsightPanelEnabled) {
+        setInsightLatest(null);
+        setInsightError(null);
+        setInsightStatus("idle");
+        return null;
+      }
+
+      const requestId = insightRequestIdRef.current + 1;
+      insightRequestIdRef.current = requestId;
+      setInsightStatus((current) => current === "generating" ? current : "loading");
+
+      try {
+        const latest = await getLatestInsightReport({ documentGroupId: DEFAULT_DOCUMENT_GROUP_ID });
+        if (requestId !== insightRequestIdRef.current) return null;
+        setInsightLatest(latest);
+        setInsightError(null);
+        setInsightStatus("idle");
+        return latest;
+      } catch (error) {
+        if (requestId !== insightRequestIdRef.current) return null;
+        const message = error instanceof Error ? error.message : "AI 인사이트 리포트를 불러오지 못했습니다.";
+        setInsightError(message);
+        setInsightStatus("error");
+        if (showError) pushToast(message, "err");
+        return null;
+      }
+    },
+    [aiInsightPanelEnabled, pushToast]
+  );
 
   const refreshClusterLatest = useCallback(
     async ({ showError = false }: { showError?: boolean } = {}) => {
@@ -209,6 +315,43 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
     }
   }, [aiClusterButtonDisabled, aiClusterUsableNoteCount, pushToast, refreshClusterLatest]);
 
+  const requestAiInsightReport = useCallback(async () => {
+    if (aiInsightButtonDisabled) return;
+    const requestId = insightRequestIdRef.current + 1;
+    insightRequestIdRef.current = requestId;
+    setInsightStatus("generating");
+    setInsightError(null);
+
+    try {
+      const report = await requestInsightReport({
+        scope: {
+          documentGroupId: DEFAULT_DOCUMENT_GROUP_ID,
+          maxNotes: AI_CLUSTER_MAX_NOTES,
+        },
+        includeLearningRecommendations: true,
+      });
+      if (requestId !== insightRequestIdRef.current) return;
+      setInsightLatest((current) => ({
+        documentGroupId: DEFAULT_DOCUMENT_GROUP_ID,
+        searchableNoteCount: current?.searchableNoteCount ?? aiClusterUsableNoteCount,
+        latestNoteUpdatedAt: current?.latestNoteUpdatedAt ?? null,
+        state: report.status === "FAILED" ? "FAILED" : "FRESH",
+        report,
+      }));
+      pushToast(
+        report.status === "FAILED" ? "AI 인사이트 리포트 생성에 실패했습니다." : "AI 인사이트 리포트를 생성했습니다.",
+        report.status === "FAILED" ? "err" : "ok"
+      );
+      await refreshInsightLatest({ showError: false });
+    } catch (error) {
+      if (requestId !== insightRequestIdRef.current) return;
+      const message = error instanceof Error ? error.message : "AI 인사이트 리포트 생성을 시작하지 못했습니다.";
+      setInsightError(message);
+      setInsightStatus("error");
+      pushToast(message, "err");
+    }
+  }, [aiInsightButtonDisabled, aiClusterUsableNoteCount, pushToast, refreshInsightLatest]);
+
   useEffect(() => {
     let active = true;
     refreshClusterLatest({ showError: false }).finally(() => {
@@ -219,6 +362,17 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
       clusterRequestIdRef.current += 1;
     };
   }, [refreshClusterLatest]);
+
+  useEffect(() => {
+    let active = true;
+    refreshInsightLatest({ showError: false }).finally(() => {
+      if (!active) return;
+    });
+    return () => {
+      active = false;
+      insightRequestIdRef.current += 1;
+    };
+  }, [refreshInsightLatest]);
 
   const bubbles = topClusters.map((cluster, index) => ({
     ...cluster,
@@ -301,6 +455,49 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
       text: `<strong>${recommendedTopic}</strong>에서 파생되는 세부 개념을 더 정리하면 학습 흐름이 자연스럽게 이어져요.`
     }
   ];
+  const reportInsightItems = useMemo<HomeInsightItem[] | null>(() => {
+    if (!insightReport || insightLatest?.state === "FAILED") return null;
+    const items: HomeInsightItem[] = [];
+    const summaryText = insightText(insightReport.summary);
+    if (summaryText) {
+      items.push({
+        color: "rgb(var(--accent))",
+        tag: "AI 요약",
+        text: summaryText,
+      });
+    }
+
+    const gaps = (insightReport.knowledgeGaps ?? [])
+      .map(insightText)
+      .filter(Boolean)
+      .slice(0, 3);
+    for (const [index, gap] of gaps.entries()) {
+      items.push({
+        color: index === 0 ? "rgb(249 115 22)" : "rgb(245 158 11)",
+        tag: index === 0 ? "지식 공백" : "추가 공백",
+        text: gap,
+      });
+    }
+
+    const recommendations = (insightReport.recommendations ?? [])
+      .map(recommendationText)
+      .filter(Boolean)
+      .slice(0, Math.max(1, 4 - items.length));
+    for (const [index, recommendation] of recommendations.entries()) {
+      items.push({
+        color: index === 0 ? "rgb(16 185 129)" : "rgb(var(--primary))",
+        tag: index === 0 ? "추천 액션" : "다음 액션",
+        text: recommendation,
+      });
+    }
+
+    return items.length > 0 ? items : null;
+  }, [insightLatest?.state, insightReport]);
+  const visibleInsightItems: HomeInsightItem[] = reportInsightItems ?? insights.map((insight) => ({
+    color: insight.color,
+    tag: insight.tag,
+    html: insight.text,
+  }));
 
   return (
     <>
@@ -335,8 +532,19 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
               </div>
               <span className="text-[16px] font-semibold text-txt">나의 지식 인사이트</span>
             </div>
-            <button className="flex items-center gap-1 text-[11px] text-txt3 hover:text-txt">
-              개인 리포트 <Icon name="chevR" size={12} />
+            <button
+              type="button"
+              disabled={aiInsightButtonDisabled}
+              onClick={requestAiInsightReport}
+              className={cx(
+                "inline-flex h-7 items-center gap-1.5 rounded-[0.4rem] px-2.5 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                insightStatus === "generating"
+                  ? "bg-orange-500/15 text-orange-500"
+                  : "bg-accent text-white hover:bg-accent/90"
+              )}
+            >
+              <Icon name={insightStatus === "generating" ? "refresh" : "sparkle"} size={12} />
+              {insightStatus === "generating" ? "생성 중" : insightActionLabel}
             </button>
           </div>
           <div className="flex-1 p-5">
@@ -346,6 +554,25 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
                 __html: `현재 <strong>${totalNotes}개 노트</strong>와 <strong>${totalLinks}개 연결</strong>이 실제 Workspace 데이터와 동기화되어 있어요.${recentActivityTitle ? ` 최근에 업데이트된 노트는 <strong>"${recentActivityTitle}"</strong>입니다.` : ""}`
               }}
             />
+            <div className="mb-4 rounded-[0.4rem] border border-line/60 bg-surface2/40 px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-[12px] font-semibold text-txt">{insightStateMessage.title}</div>
+                <div className="rounded-[0.4rem] bg-txt/5 px-2 py-0.5 text-[10px] font-medium text-txt3">
+                  {insightLatest?.state ?? "LOCAL"} · 분석 가능 {insightLatest?.searchableNoteCount ?? aiClusterUsableNoteCount}개
+                </div>
+              </div>
+              <div className="mt-1 text-[11.5px] leading-5 text-txt3">{insightStateMessage.body}</div>
+              {insightLatest?.state === "STALE" ? (
+                <div className="mt-2 rounded-[0.4rem] border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-200">
+                  노트가 변경됨 · 최신 리포트 생성 필요
+                </div>
+              ) : null}
+              {insightError ? (
+                <div className="mt-2 rounded-[0.4rem] border border-red-400/30 bg-red-400/10 px-2.5 py-1.5 text-[11px] font-medium text-red-700 dark:text-red-200">
+                  {insightError}
+                </div>
+              ) : null}
+            </div>
             <div className="mb-4 flex flex-wrap gap-1.5">
               {topClusters.map((cluster, i) => (
                 <span
@@ -390,18 +617,22 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
               </div>
               <span className="text-[16px] font-semibold text-txt">인사이트 요약</span>
             </div>
-            <button className="flex items-center gap-1 text-[11px] text-txt3 hover:text-txt">
-              활동에서 관찰한 패턴 <Icon name="chevR" size={12} />
-            </button>
+            <div className="flex items-center gap-1 text-[11px] text-txt3">
+              {reportInsightItems ? "AI 리포트 기반" : "활동에서 관찰한 패턴"} <Icon name="chevR" size={12} />
+            </div>
           </div>
 
           <div className="flex-1 flex flex-col justify-start">
-            {insights.map((insight, index) => (
+            {visibleInsightItems.map((insight, index) => (
               <div key={index} className="flex items-stretch gap-3 border-b border-line/40 bg-surface/60 p-4 transition-colors hover:bg-surface cursor-default last:border-b-0">
                 <div className="w-[3px] shrink-0 rounded-full" style={{ background: insight.color }} />
                 <div className="flex-1">
                   <div className="mb-1 text-[15px] font-semibold uppercase tracking-wider" style={{ color: insight.color }}>{insight.tag}</div>
-                  <div className="text-[13px] leading-relaxed text-txt2" dangerouslySetInnerHTML={{ __html: insight.text }} />
+                  {insight.html ? (
+                    <div className="text-[13px] leading-relaxed text-txt2" dangerouslySetInnerHTML={{ __html: insight.html }} />
+                  ) : (
+                    <div className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-txt2">{insight.text}</div>
+                  )}
                 </div>
               </div>
             ))}
