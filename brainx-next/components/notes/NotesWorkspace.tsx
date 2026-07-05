@@ -2,6 +2,14 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { WikiLinkContext, resolveWikiLinkTitle, type WikiLinkContextValue } from "./WikiLinkContext";
+import { renameWikiLinkReferencesInContent, contentHasWikiLinkTo, ensureWikiLinkPresent } from "@/lib/wiki-links";
+import {
+  addPendingCreatedNote,
+  clearPendingCreatedNotes,
+  removePendingCreatedNoteByNoteId,
+  updatePendingCreatedNoteId,
+  updatePendingCreatedNoteTitle,
+} from "@/lib/notes/pending-created-note-cache";
 import { AlertCircle, Check, ChevronLeft, Download, Link2, LoaderCircle, MoreHorizontal, PanelRightClose, PanelRight, RotateCcw, Save, Upload } from "lucide-react";
 import { cx } from "@/lib/utils";
 import { MockFolder, MockNote, PaneNode, PaneTabsState, Tab, NotesWorkspaceSession, DragPayload } from "@/lib/notes/noteTypes";
@@ -90,6 +98,34 @@ async function saveNoteContentWithVersionRetry(note: MockNote) {
       typeof error.details?.serverVersion === "number" ? error.details.serverVersion : (await getNote(note.id)).version;
     return await updateWorkspaceNoteContent({ ...note, version: serverVersion });
   }
+}
+
+/** 위키링크 새 노트 생성 흐름의 저장/링크 생성은 대부분 `.catch(() => {})`로 조용히 실패를
+    삼킨다(사용자 흐름을 막지 않기 위한 best-effort) — 그러나 그러면 개발 중에는 왜 링크나
+    그래프 edge가 안 보이는지 원인을 알 수 없다. 프로덕션 사용자 경험은 그대로 두고, 개발
+    환경 콘솔에서만 실패를 확인할 수 있게 한다. */
+function warnWikiLinkFailure(context: string, error: unknown) {
+  if (process.env.NODE_ENV === "production") return;
+  console.warn(`[wiki-link] ${context}`, error);
+}
+
+/** 노트가 "지금 활성 탭인 동안만" 저장되는 effect(draft autosave/수동 저장)에 기대지 않고,
+    주어진 노트 스냅샷을 지금 이 순간 best-effort로 서버에 반영한다. 위키링크로 새 노트를
+    만들면서 탭을 즉시 전환하는 경우처럼, activeNote가 바뀌는 순간 그 note를 대상으로 하던
+    디바운스 타이머(draftAutosaveTimerRef)가 cleanup으로 취소돼버려 방금 넣은 내용이 서버에
+    한 번도 저장되지 못하는 경로를 우회하기 위한 함수다. 반환값 true는 "저장을 시도했다"는
+    뜻이고, false는 note가 아직 로컬(local) id라 서버에 저장할 방법이 없어 스킵했다는 뜻이다
+    (draft id 발급 전 — 호출부가 id 확정 시점에 다시 시도하도록 책임진다). */
+async function persistNoteBestEffort(note: MockNote): Promise<boolean> {
+  if (note.persisted) {
+    await saveNoteContentWithVersionRetry(note);
+    return true;
+  }
+  if (note.id.startsWith("note_")) {
+    await saveWorkspaceNoteDraft(note);
+    return true;
+  }
+  return false;
 }
 
 const SAVE_BUTTON_TITLE: Record<SaveStatus, string> = {
@@ -252,6 +288,8 @@ function normalizeEmptyWorkspaceSession(session: NotesWorkspaceSession): NotesWo
     paneTabs: fresh.paneTabs,
     notes: session.notes,
     folders: session.folders,
+    // 트리 자체가 새로 만들어지므로(새 pane id) 이전 pane에 매인 줌 값은 더 이상 의미가 없다.
+    paneFontScale: {},
   };
 }
 
@@ -407,6 +445,10 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     activeId: init.activeId,
   }));
   const [paneTabs, setPaneTabs] = useState<Record<string, PaneTabsState>>(() => init.paneTabs);
+  /* pane(분할 패널)별 Ctrl+Wheel 에디터 뷰 줌(%, 기본 100) — 노트 문서의 typography(서식 패널)와
+     완전히 분리된 UI 전용 상태다. key는 PaneLeaf.id라 split 생성/삭제/이동에도 각 패널 고유의
+     값으로 자연히 유지되고, 새로 생긴 pane은 그냥 이 맵에 없는 상태(= 기본 100%)로 시작한다. */
+  const [paneFontScale, setPaneFontScale] = useState<Record<string, number>>({});
   const [dragPayload, setDragPayload] = useState<DragPayload | null>(null);
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [contextOpen, setContextOpen] = useState(true);
@@ -518,6 +560,17 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const draftSaveStatusTimerRef = useRef<number | null>(null);
   const draftAutosaveTimerRef = useRef<number | null>(null);
   const draftDirtyNoteIdsRef = useRef<Set<string>>(new Set());
+  /* 위키링크로 새 노트를 만들 때, 소스 노트가 아직 draft id 발급 전(local id)이라 그 자리에서
+     바로 저장하지 못한 경우 여기(local id 기준)에 표시해둔다 — createNote의 draft id 확정
+     시점(.then)에서 이 목록을 확인해 그때 다시 한번 저장을 시도한다. */
+  const pendingWikiLinkFlushRef = useRef<Set<string>>(new Set());
+  /* 위키링크로 새 노트(target)를 만들었는데 그 시점에 소스 노트가 아직 local id라 서버
+     NoteLink(그래프 edge)를 못 만든 경우, 소스의 local id를 key로 여기 등록해둔다. createNote가
+     그 소스 노트 자신의 draft id를 확정 짓는 순간(다른 createNote 호출의 .then일 수도 있다) 이
+     맵을 확인해 실제 sourceNoteId로 링크 생성을 재시도한다. 탭 전환/페이지 이동에도 이 ref는
+     컴포넌트가 마운트된 채로 남아있는 한(같은 (app)/notes 레이아웃 안에서는 리마운트되지 않음)
+     세션 동안 유지된다. */
+  const pendingWikiLinkEdgeRef = useRef<Map<string, { targetNoteId: string; targetTitle: string }>>(new Map());
   // persistKey(prop)는 "brainx_notes_workspace_v1" 같은 고정 베이스고, 실제로 읽고 쓰는 키는
   // 여기서 actor(guest/user)별로 한 번 더 갈라진다 — resolveActorPersistKey 참고. 마운트
   // 시점에 1회 계산(이 시점에 이미 guest->user 1회 승계도 처리됨), 이후 로그인/로그아웃 등으로
@@ -559,8 +612,13 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const panelCount = countLeaves(state.root);
   const hasSplitPanels = panelCount > 1;
   const primaryPaneId = useMemo(() => resolveVisiblePaneId(state.root, state.activeId), [state.root, state.activeId]);
+  // 열려 있는 노트가 하나(탭 1개)뿐이어도 분할은 허용된다 — handleSplitTab은 그 탭의 노트를
+  // "복제"해 새 패널에 열 뿐 원래 패널의 탭은 그대로 두므로(같은 노트를 여러 패널에 여는 기존
+  // 동작과 동일한 방식), 탭이 1개뿐이라고 막을 기술적 이유가 없다. 예전에 `> 1`로 막아둔 탓에
+  // 노트를 하나만 연 가장 흔한 상태에서 "우측 분할"/"하단 분할" 메뉴가 계속 비활성으로 보여
+  // 분할 기능 자체가 고장난 것처럼 보였다.
   const canSplitPane = useCallback(
-    (paneId: string) => hasSplitPanels || (paneTabs[paneId]?.tabs.length ?? 0) > 1,
+    (paneId: string) => hasSplitPanels || (paneTabs[paneId]?.tabs.length ?? 0) >= 1,
     [hasSplitPanels, paneTabs]
   );
   /* 워크스페이스 전체 기준으로 열린 노트가 0개인지 — 실제 트리에 있는 leaf만 기준으로 판정한다.
@@ -807,10 +865,70 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       pushToast("이미 같은 이름의 노트가 있습니다.", "err");
       return;
     }
+    const oldTitle = note.title;
     draftDirtyNoteIdsRef.current.add(noteId);
+
+    // 새 노트가 "새 노트"/"새 노트1" 같은 기본 제목으로 만들어지는 순간 graph optimistic
+    // 캐시(pending-created-note-cache.ts)에도 그 제목이 그대로 기록된다 — 사용자가 곧바로
+    // 제목을 바꾸고 서버 저장/그래프 새로고침을 기다리지 않은 채 /graph로 이동하면, optimistic
+    // 노드가 옛 제목으로 보이는 원인이었다. 제목이 실제로 바뀔 때마다 캐시도 함께 갱신해
+    // notes[] state와 어긋나지 않게 한다. 위키링크로 만든 노트(A→B)든 일반 새 노트든 구분 없이
+    // 적용되고, 이 노트가 다른 pending 항목의 위키링크 소스였다면 그 sourceTitle도 함께
+    // 맞춰준다(현재 edge 합성 자체는 id 기준이라 동작에 영향은 없지만 캐시 내용을 일관되게
+    // 유지한다).
+    if (!USE_MOCK_NOTES && newTitle !== oldTitle) {
+      updatePendingCreatedNoteTitle(noteId, newTitle);
+    }
+
+    // 제목이 실제로 바뀐 경우에만, 그 이름을 가리키던 다른 노트의 위키링크를 새 제목으로
+    // 갱신한다 — 그래야 노트1에 남은 `[[이전제목]]`이 이름 변경 뒤에도 그대로 A를
+    // 가리키고(에디터 링크/그래프 모두 title 문자열 매칭으로 존재 여부를 판단하므로), 이름이
+    // 바뀐 순간 "존재하지 않는 노트" 상태로 끊어져 보이는 문제가 생기지 않는다. 영향받는
+    // 노트 목록을 먼저(state 갱신 전에) 계산해둬야 백그라운드 저장 대상을 알 수 있다.
+    const relinked = oldTitle === newTitle
+      ? []
+      : notes
+          .filter((n) => n.id !== noteId && n.content)
+          .map((n) => ({ note: n, result: renameWikiLinkReferencesInContent(n.content, oldTitle, newTitle) }))
+          .filter((entry) => entry.result.changed);
+
+    if (relinked.length > 0) {
+      for (const entry of relinked) draftDirtyNoteIdsRef.current.add(entry.note.id);
+    }
+
     setNotes((prev) =>
-      prev.map((n) => (n.id === noteId ? { ...n, title: newTitle, updatedAt: Date.now() } : n))
+      prev.map((n) => {
+        if (n.id === noteId) return { ...n, title: newTitle, updatedAt: Date.now() };
+        const entry = relinked.find((e) => e.note.id === n.id);
+        if (!entry) return n;
+        return { ...n, content: entry.result.content, updatedAt: Date.now() };
+      })
     );
+
+    if (relinked.length > 0 && !USE_MOCK_NOTES) {
+      // 위키링크가 갱신된 다른 노트들도 최소한 한 번은 백그라운드로 저장해야, 그래프/마인드맵처럼
+      // 서버에서 새로 노트를 읽어오는 화면에서도 이름 변경이 반영된다(로컬 state만 바꾸면 이번
+      // 세션의 에디터 화면에는 바로 보이지만, 서버에는 예전 텍스트가 그대로 남는다). 실패해도
+      // 사용자가 그 노트를 열어 직접 저장하면 되는 best-effort 보강이라 조용히 무시한다.
+      void Promise.allSettled(
+        relinked.map(({ note: target, result }) => {
+          const updated = { ...target, content: result.content };
+          if (!target.persisted && target.id.startsWith("note_")) {
+            return saveWorkspaceNoteDraft(updated).then(() => {
+              draftDirtyNoteIdsRef.current.delete(target.id);
+            });
+          }
+          if (target.persisted) {
+            return saveNoteContentWithVersionRetry(updated).then(() => {
+              draftDirtyNoteIdsRef.current.delete(target.id);
+            });
+          }
+          return Promise.resolve();
+        })
+      ).then(() => {
+        window.dispatchEvent(new CustomEvent("brainx:notes-refresh", { detail: { noteId } }));
+      });
+    }
   }, [notes, checkNoteDuplicate, pushToast]);
 
   /* 노트 본문 변경(에디터 onUpdate 디바운스) → notes 상태 갱신, 탭 전환 후에도 내용 유지 */
@@ -835,6 +953,12 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setNotes((prev) =>
       prev.map((n) => (n.id === noteId ? { ...n, typography: next, updatedAt: Date.now() } : n))
     );
+  }, []);
+
+  /* pane(분할 패널) 단위 Ctrl+Wheel 에디터 뷰 줌 — handleTypographyChange(노트 문서 자체의
+     서식, notes[]에 저장)와 별개로 paneFontScale(세션 UI 상태)만 갱신한다. */
+  const handlePaneFontScaleChange = useCallback((paneId: string, next: number) => {
+    setPaneFontScale((prev) => (prev[paneId] === next ? prev : { ...prev, [paneId]: next }));
   }, []);
 
   /* D&D drop → 분할이 허용된 상태에서만 새 패널에 탭 1개로 초기화한다.
@@ -990,6 +1114,25 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     if (favorite) newNote.favorite = true;
     const localNoteId = newNote.id;
     const newTabId = uid();
+
+    // 위키링크로 만들었든(linkFromNoteId 있음) 일반 "+ 새 노트"/우클릭 새 노트든(linkFromNoteId
+    // 없음) 관계없이, 아직 draft id도 없는 이 순간(local id) sessionStorage에 optimistic 기록을
+    // 남긴다 — /notes에서 만든 노트가 서버 저장을 기다리지 않고도 별도로 새로 마운트되는
+    // /graph에 즉시 반영되게 하기 위함이다(lib/notes/pending-created-note-cache.ts 참고).
+    // linkFromNoteId가 있으면 sourceNoteId/sourceTitle도 함께 기록해 graph-screen이 optimistic
+    // edge(노트1→A 연결선)까지 합성할 수 있게 한다 — 없으면(일반 새 노트) node만 optimistic
+    // 처리된다.
+    if (!USE_MOCK_NOTES) {
+      addPendingCreatedNote({
+        localKey: localNoteId,
+        noteId: localNoteId,
+        title: noteTitle,
+        sourceNoteId: linkFromNoteId,
+        sourceTitle: linkFromNoteId ? notes.find((n) => n.id === linkFromNoteId)?.title : undefined,
+        createdAt: Date.now(),
+      });
+    }
+
     setNotes((prev) => [newNote, ...prev]);
     setPaneTabs((prev) => {
       const current = prev[paneId];
@@ -1028,16 +1171,80 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
           draftDirtyNoteIdsRef.current.add(draft.noteId);
           prevActiveNoteIdRef.current = draft.noteId;
           onActiveNoteChange?.(draft.noteId);
+          // 이 노트가 위키링크 optimistic 캐시(sessionStorage)에 local id로 기록돼 있었다면
+          // 실제 noteId로 갱신한다 — 위키링크와 무관한 일반 새 노트 생성에서는 아무 항목도
+          // 찾지 못해 조용히 no-op이다.
+          updatePendingCreatedNoteId(localNoteId, draft.noteId);
 
-          // 소스 노트가 아직 로컬(미확정) id면 그 노트 자체가 생성 중이라는 뜻 — 드문 케이스라
-          // 범위 밖으로 두고 조용히 스킵한다(전체 저장 시 위키링크 재동기화 파이프라인은 이번
-          // 작업 범위 밖).
-          if (linkFromNoteId && linkFromNoteId.startsWith("note_")) {
-            void createWorkspaceNoteLink(linkFromNoteId, {
-              targetNoteId: draft.noteId,
-              targetTitle: noteTitle,
+          // 이 노트(방금 draft id가 확정된 노트) 자체가, 조금 전 위키링크로 다른 노트를 만들 때
+          // "아직 local id라 바로 저장하지 못한 소스 노트"였을 수 있다 — 그랬다면 pending 표시가
+          // 남아있을 테니, 이제 실제 noteId가 생겼으니 최신 본문으로 한 번 더 저장을 시도한다.
+          if (pendingWikiLinkFlushRef.current.has(localNoteId)) {
+            pendingWikiLinkFlushRef.current.delete(localNoteId);
+            const latestNote = latestSessionRef.current.notes.find((n) => n.id === draft.noteId);
+            if (latestNote) {
+              void persistNoteBestEffort(latestNote)
+                .then((persisted) => {
+                  if (persisted) draftDirtyNoteIdsRef.current.delete(draft.noteId);
+                })
+                .catch((error) => warnWikiLinkFailure("pending source note 저장 재시도 실패", error));
+            }
+          }
+
+          // 이 노트 자신이 위키링크로 방금 만들어진 새 노트(target)라면, "지금 활성 탭인 동안만"
+          // 저장하는 draft autosave effect에 기대지 않고 title/content를 즉시 독립적으로
+          // 저장한다 — 안 그러면 사용자가 이 탭이 열리자마자 바로 다른 곳으로 이동했을 때 이
+          // 노트가 draft id만 발급받고 실제 내용은 서버에 한 번도 저장되지 못한 채(제목도 빈
+          // 상태로) 남아 "사라진 것처럼" 보이거나 그래프에도 나타나지 않는다. 서버 NoteLink(그래프
+          // edge) 생성은 이 저장이 끝난(또는 실패한) 뒤에 시도해, 최소한 이 노트가 실제로 존재하는
+          // 상태에서 링크를 걸도록 순서를 맞춘다.
+          const createdNoteSnapshot = { ...newNote, id: draft.noteId };
+          const persistCreatedNote = USE_MOCK_NOTES
+            ? Promise.resolve(true)
+            : persistNoteBestEffort(createdNoteSnapshot)
+                .then((persisted) => {
+                  if (persisted) draftDirtyNoteIdsRef.current.delete(draft.noteId);
+                  return persisted;
+                })
+                .catch((error) => {
+                  warnWikiLinkFailure("새로 만든 노트 저장 실패", error);
+                  return false;
+                });
+
+          void persistCreatedNote.then(() => {
+            // 소스 노트가 아직 로컬(미확정) id면 그 노트 자체가 생성 중이라는 뜻이다 — 그 노트의
+            // local id를 key로 pending 등록해두면, 그 노트가 자기 draft id를 확정 짓는 순간(바로
+            // 아래 pendingWikiLinkEdgeRef 확인 블록)에 실제 sourceNoteId로 링크 생성을 재시도한다.
+            if (linkFromNoteId && linkFromNoteId.startsWith("note_")) {
+              void createWorkspaceNoteLink(linkFromNoteId, {
+                targetNoteId: draft.noteId,
+                targetTitle: noteTitle,
+                createIfMissing: false,
+              })
+                .then(() => removePendingCreatedNoteByNoteId(draft.noteId))
+                .catch((error) => warnWikiLinkFailure("NoteLink 생성 실패(source/target 모두 확정된 경로)", error));
+            } else if (linkFromNoteId) {
+              pendingWikiLinkEdgeRef.current.set(linkFromNoteId, {
+                targetNoteId: draft.noteId,
+                targetTitle: noteTitle,
+              });
+            }
+          });
+
+          // 이 노트(방금 draft id가 확정된 노트) 자신이 "아직 local id라 링크를 못 걸었던
+          // 소스 노트"로 pending 등록돼 있었다면, 이제 실제 sourceNoteId가 생겼으니 링크 생성을
+          // 재시도한다. source/target 어느 쪽이 늦게 확정되든 항상 이 두 지점(위/아래) 중
+          // 하나에서 잡힌다.
+          if (pendingWikiLinkEdgeRef.current.has(localNoteId)) {
+            const edge = pendingWikiLinkEdgeRef.current.get(localNoteId)!;
+            pendingWikiLinkEdgeRef.current.delete(localNoteId);
+            void createWorkspaceNoteLink(draft.noteId, {
+              targetNoteId: edge.targetNoteId,
+              targetTitle: edge.targetTitle,
               createIfMissing: false,
-            }).catch(() => {});
+            })
+              .then(() => removePendingCreatedNoteByNoteId(edge.targetNoteId))
+              .catch((error) => warnWikiLinkFailure("NoteLink 생성 실패(pending edge 재시도 경로)", error));
           }
 
           // 즐겨찾기 영역에서 직접 만든 루트 노트는 자동 즐겨찾기 — draft id가 확정된 뒤에야
@@ -1132,18 +1339,34 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setDragPayload({ kind: "tab", paneId, tabId, noteId });
   }, []);
 
-  /* 방어적 안전망: 드롭이 어떤 onDrop 핸들러에도 닿지 않거나(예: 패널 바깥/사이드바로 도로 드롭)
-     onDragEnd가 누락되는 경우에도 dragPayload가 영구히 남아 본문 위 DnD 오버레이가 계속 클릭을
-     가로채는 일이 없도록 전역 dragend/drop에서 한 번 더 정리한다. */
+  /* 방어적 안전망: 드롭이 어떤 onDrop 핸들러에도 닿지 않거나(예: 패널 바깥/사이드바로 도로 드롭,
+     같은 자리로의 no-op 이동처럼 브라우저가 dragend를 안정적으로 쏘지 않는 경로) dragPayload가
+     영구히 남으면 본문 위 DnD 오버레이가 사라지지 않은 채 계속 클릭을 가로챈다 — 에디터를 한
+     번 클릭해도 그 첫 클릭이 오버레이에 막혀 아무 반응이 없고, 두 번째 클릭(더블클릭)에야
+     실제 에디터에 닿아 포커스가 잡히는 것처럼 보이는 원인이다. dragend/drop 외에 blur/tab
+     전환에서도 한 번 더 정리한다.
+     주의: pointerup/pointercancel은 여기 넣으면 안 된다 — 탭/사이드바 노트의 네이티브 HTML5
+     드래그가 시작되는 순간(dragstart) 브라우저가 그 포인터의 캡처를 OS 레벨 드래그로 넘기며
+     pointercancel을 쏘는 게 표준 동작이다(드래그 "실패"가 아니라 "시작" 신호). 이 리스너가
+     있으면 dragPayload가 set되자마자(다음 tick 전에) 곧바로 null로 리셋돼, 본문 위 분할/교체
+     오버레이가 뜨기도 전에 사라져서 드롭이 오버레이의 onDrop이 아니라 에디터
+     contentEditable의 브라우저 기본 텍스트 드롭으로 새어 들어갔다 — 탭을 에디터로 드래그하면
+     화면분할 대신 noteId 텍스트가 그대로 삽입되던 회귀의 원인이었다. */
   useEffect(() => {
+    if (!dragPayload) return;
     const clear = () => setDragPayload(null);
+    const onVisibility = () => { if (document.hidden) clear(); };
     window.addEventListener("dragend", clear);
     window.addEventListener("drop", clear);
+    window.addEventListener("blur", clear);
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       window.removeEventListener("dragend", clear);
       window.removeEventListener("drop", clear);
+      window.removeEventListener("blur", clear);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, []);
+  }, [dragPayload]);
 
   /* "파일로 이동하기" / Ctrl+O */
   const requestQuickSwitcher = useCallback((paneId: string, tabId: string) => {
@@ -1429,7 +1652,13 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     handleTitleChange(noteId, newTitle);
   }, [notes, checkNoteDuplicate, handleTitleChange, pushToast]);
 
-  /* 노트 탐색기 드래그앤드랍 — 노트를 폴더/루트로 이동, 또는 같은 레벨에서 순서 변경. */
+  /* 노트 탐색기 드래그앤드랍 — 노트를 폴더/루트로 이동, 또는 같은 레벨에서 순서 변경.
+     폴더 이동(handleMoveFolderToParent)과 달리 이 핸들러는 로컬 notes state만 갱신하고 서버에는
+     반영하지 않아서, 게스트 상태에서 노트를 폴더 안으로 옮긴 뒤(내용은 더 안 건드리고) 새로고침
+     하거나 로그인/claim하면 서버(Redis draft/Postgres)에는 이동 전 folderId가 그대로 남아있어
+     루트로(또는 원래 폴더로) 되돌아가 보이는 버그가 있었다 — draft autosave effect는 activeNote의
+     title/content 변화에만 반응해(2073번째 줄 근처 deps) folderId만 바뀐 백그라운드 노트는 절대
+     저장 신호를 못 받는다. 폴더 이동과 동일하게 이동 즉시 best-effort로 서버에도 반영한다. */
   const handleMoveNoteToFolder = useCallback((noteId: string, targetFolderId: string | null) => {
     const note = notes.find((n) => n.id === noteId);
     if (note) {
@@ -1442,6 +1671,18 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       }
     }
     setNotes((prev) => moveNoteIntoFolder(prev, noteId, targetFolderId));
+    if (USE_MOCK_NOTES || !note) return;
+    const movedNote = { ...note, folderId: targetFolderId ?? undefined };
+    const persistMove = movedNote.persisted
+      ? updateWorkspaceNoteMetadata(movedNote)
+      : movedNote.id.startsWith("note_")
+        ? saveWorkspaceNoteDraft(movedNote)
+        : null;
+    if (persistMove) {
+      void persistMove.catch((error) => {
+        pushToast(error instanceof Error ? error.message : "노트 이동을 저장하지 못했습니다.", "err");
+      });
+    }
   }, [notes, pushToast]);
 
   const handleReorderNote = useCallback((noteId: string, referenceNoteId: string, position: "before" | "after") => {
@@ -1501,6 +1742,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setState({ root: fresh.root, activeId: fresh.activeId });
     setPaneTabs(fresh.paneTabs);
     setTabMode({});
+    setPaneFontScale({});
     editorHandlesRef.current = {};
     setEditorHandleRevision((current) => current + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1535,6 +1777,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       setState({ root: fresh.root, activeId: fresh.activeId });
       setPaneTabs(fresh.paneTabs);
       setTabMode({});
+      setPaneFontScale({});
     };
     const saved = readSession(key);
     if (!saved) {
@@ -1592,6 +1835,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setPaneTabs(nextPaneTabs);
     setNotes(saved.notes);
     setFolders(saved.folders);
+    // 옛 세션에는 이 필드가 없을 수 있으므로 기본값(빈 맵 = 모든 pane 100%)으로 fallback한다.
+    setPaneFontScale(saved.paneFontScale ?? {});
     hydratedRef.current = true;
   }, []);
 
@@ -1605,9 +1850,17 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     if (USE_MOCK_NOTES) return;
     let active = true;
 
-    function loadFromServer(openNoteId?: string, isInitialLoad = false) {
+    // attachInitialTab=false는 applyHydration의 같은 이름 파라미터와 동일한 의도다 — actor(guest/
+    // user) 전환 직후에는 resolveActorPersistKey가 claim mapping으로 이미 pane tree/tabs를
+    // 올바르게 복원해뒀으므로, "URL의 initialTab을 다시 열거나, 그 노트를 못 찾으면 첫 번째
+    // 노트로 대체"하는 이 함수 자신의 폴백을 또 타면 안 된다. 예전에는 이 폴백이 isInitialLoad와
+    // 무관하게 `initialTab.kind === "note"`(로그인 전 특정 노트 URL을 보고 있었던 경우)만으로도
+    // 발동해, claim 직후 activeId가 가리키는 pane(3분할 중 하나)이 방금 복원된 정상 노트 대신
+    // "그 시점에 서버가 아직 못 찾은 초기 노트 → nextNotes[0](엉뚱한 첫 번째 노트)"로 갈아끼워지는
+    // 회귀가 있었다.
+    function loadFromServer(openNoteId?: string, isInitialLoad = false, attachInitialTab = true) {
       setLoadError(null);
-      const targetNoteId = openNoteId ?? (initialTab.kind === "note" ? initialTab.noteId : null);
+      const targetNoteId = openNoteId ?? (attachInitialTab && initialTab.kind === "note" ? initialTab.noteId : null);
       return Promise.all([
         listNotes(),
         listFolders(),
@@ -1679,7 +1932,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
             handleReplaceActiveTab(livePaneId, targetNoteId);
             return;
           }
-          if (!openNoteId && nextNotes.length > 0 && (initialTab.kind === "note" || isInitialLoad)) {
+          if (attachInitialTab && !openNoteId && nextNotes.length > 0 && (initialTab.kind === "note" || isInitialLoad)) {
             const firstNoteId =
               initialTab.kind === "note" && nextNotes.some((note) => note.id === initialTab.noteId)
                 ? initialTab.noteId
@@ -1728,8 +1981,17 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         applyHydration(nextKey, false);
         setTabMode({});
         draftDirtyNoteIdsRef.current.clear();
+        // actor(guest/user)가 바뀌면 이전 actor의 local id는 더 이상 어떤 노트로도 확정되지
+        // 않으므로, 그 id를 key로 건 pending 표시도 함께 비운다(그대로 둬도 다시 매치될 일은
+        // 없지만, 다음 actor 세션에서 우연히 같은 값이 재사용될 여지를 만들지 않기 위함).
+        pendingWikiLinkFlushRef.current.clear();
+        pendingWikiLinkEdgeRef.current.clear();
+        clearPendingCreatedNotes();
       }
-      void loadFromServer(detail?.noteId);
+      // resetWorkspace(actor 전환)면 applyHydration이 이미 claim mapping까지 반영해 pane
+      // tree/tabs를 복원해뒀으므로, 이 새로고침 자체는 attachInitialTab=false로 호출해 그
+      // 복원 결과를 initialTab 폴백으로 덮어쓰지 않는다.
+      void loadFromServer(detail?.noteId, false, !detail?.resetWorkspace);
     }
     window.addEventListener("brainx:notes-refresh", handleExternalRefresh);
 
@@ -1805,14 +2067,14 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       try {
         writeSession(
           effectivePersistKey,
-          normalizeEmptyWorkspaceSession({ root: state.root, activeId: state.activeId, paneTabs, notes, folders })
+          normalizeEmptyWorkspaceSession({ root: state.root, activeId: state.activeId, paneTabs, notes, folders, paneFontScale })
         );
       } catch {
         // 백그라운드 자동저장 실패는 무시
       }
     }, delay);
     return () => window.clearTimeout(handle);
-  }, [effectivePersistKey, state, paneTabs, notes, folders]);
+  }, [effectivePersistKey, state, paneTabs, notes, folders, paneFontScale]);
 
   // Ctrl+S가 항상 최신 세션을 즉시 기록할 수 있도록 매 변경마다 ref에 스냅샷 보관
   useEffect(() => {
@@ -1822,8 +2084,9 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       paneTabs,
       notes,
       folders,
+      paneFontScale,
     });
-  }, [state, paneTabs, notes, folders]);
+  }, [state, paneTabs, notes, folders, paneFontScale]);
 
   useEffect(() => {
     if (USE_MOCK_NOTES || !hydratedRef.current || !activeNote) return;
@@ -2034,16 +2297,79 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         const found = resolveWikiLinkTitle(wikiLinkNoteRefs, title);
         if (found) handleNoteClick(found.id);
       },
-      onCreate: (title) => {
-        // 위키링크 자동완성이 방금 삽입한 [[title]]은 400ms 디바운스 타이머로만 동기화가
+      onCreate: (title, sourceHtml) => {
+        const sourceNoteId = activeNoteId;
+        const sourceNote = sourceNoteId ? notes.find((n) => n.id === sourceNoteId) : undefined;
+
+        // 1) 위키링크 자동완성이 방금 삽입한 [[title]]은 400ms 디바운스 타이머로만 동기화가
         // 예약된 상태다 — createNote가 탭을 새 노트로 즉시 전환하면 그 타이머가 flush 없이
         // clear되어 원본 노트에 방금 넣은 링크가 유실된다(되돌아오면 예전 텍스트가 보이는 원인).
-        // 탭을 전환하기 전에 현재 활성 에디터의 대기 중인 저장을 먼저 흘려보낸다.
+        // 탭을 전환하기 전에 현재 활성 에디터의 대기 중인 저장을 먼저 notes[] state로 흘려보낸다.
         activeEditorHandle?.flushPendingSave();
-        createNote(undefined, primaryPaneId, title, activeNoteId ?? undefined);
+
+        if (sourceNote) {
+          // 2) notes[] state로의 반영은 setState 배치 때문에 이 시점에 아직 이 클로저의 `notes`에
+          // 보이지 않을 수 있다 — 그래서 state 갱신을 기다리지 않고 지금 이 순간의 실제 에디터
+          // 내용을 직접 읽는다. sourceHtml(WikiLinkAutocomplete가 .run() 직후 같은 동기 실행
+          // 안에서 읽어 넘긴 값)이 있으면 그 값을 최우선으로 신뢰한다 — activeEditorHandle을
+          // 통해 다시 읽으면 그 사이 리렌더/탭 전환이 끼어들 여지가 있다.
+          let latestContent = sourceHtml ?? activeEditorHandle?.getHTML() ?? sourceNote.content;
+
+          // 방어적 검증/보정 — 라이브에딧(atom↔텍스트) 전환 타이밍 등으로 방금 넣은 [[title]]에
+          // 닫는 ]]가 아직 안 붙었거나([[title 상태), title이 빈 채로 남았다면([[]]) 그 자리에서
+          // 바로 고친다(본문 끝에 새로 덧붙이면 깨진 조각과 새 링크가 중복으로 남는다).
+          if (!contentHasWikiLinkTo(latestContent, title)) {
+            if (process.env.NODE_ENV !== "production") {
+              console.warn(
+                `[wiki-link] "${title}" 링크가 문서에서 닫힌 상태로 확인되지 않아 보정합니다.`,
+                { sourceNoteId: sourceNote.id }
+              );
+            }
+            latestContent = ensureWikiLinkPresent(latestContent, title);
+          }
+
+          if (latestContent !== sourceNote.content) {
+            const correctedContent = latestContent;
+            setNotes((prev) =>
+              prev.map((n) => (n.id === sourceNote.id ? { ...n, content: correctedContent, updatedAt: Date.now() } : n))
+            );
+            draftDirtyNoteIdsRef.current.add(sourceNote.id);
+          }
+
+          // 3) activeNote가 바뀌는 순간 취소되는 draft autosave effect(1500ms 디바운스, activeNote
+          // 기준)에 기대지 않고, 지금 이 순간 독립적인 네트워크 요청으로 소스 노트를 저장한다 —
+          // 바로 다음 줄에서 탭을 A로 전환해도 이미 시작된 이 요청은 취소되지 않고 끝까지
+          // 진행된다. 이게 이번에 고치는 race condition의 핵심이다.
+          if (!USE_MOCK_NOTES) {
+            const noteToPersist = { ...sourceNote, content: latestContent };
+            void persistNoteBestEffort(noteToPersist)
+              .then((persisted) => {
+                if (persisted) {
+                  draftDirtyNoteIdsRef.current.delete(sourceNote.id);
+                } else {
+                  // 소스 노트 자신이 아직 draft id 발급 전(local id)이라 지금은 저장할 방법이
+                  // 없다 — 그 노트의 draft id가 확정되는 시점(createNote의 issueWorkspaceNoteDraftId
+                  // .then)에 한 번 더 저장을 시도하도록 표시해둔다. 그동안에도 notes[] state와
+                  // 화면(에디터 재방문)에는 [[title]]이 이미 반영돼 있어 이번 세션 안에서 유실되지
+                  // 않는다.
+                  pendingWikiLinkFlushRef.current.add(sourceNote.id);
+                }
+              })
+              .catch((error) => {
+                // best-effort — 실패해도 draftDirtyNoteIdsRef에 여전히 남아 있어 다음 저장 기회
+                // (수동 저장/그 노트 재방문 시 draft autosave)에 다시 시도된다.
+                warnWikiLinkFailure("source note 즉시 저장 실패", error);
+              });
+          }
+        }
+
+        // 4) 그 다음에 새 노트를 만들고 A 탭으로 이동한다. createNote 자체가(위키링크 여부와
+        // 무관하게 모든 새 노트 생성에서) sessionStorage optimistic 기록을 남긴다 — linkFromNoteId를
+        // 넘기면 그래프가 optimistic edge까지 합성한다.
+        createNote(undefined, primaryPaneId, title, sourceNoteId ?? undefined);
       },
     }),
-    [wikiLinkNoteRefs, wikiLinkFolderRefs, handleNoteClick, createNote, primaryPaneId, activeEditorHandle, activeNoteId]
+    [wikiLinkNoteRefs, wikiLinkFolderRefs, handleNoteClick, createNote, primaryPaneId, activeEditorHandle, activeNoteId, notes]
   );
 
   // 노트/탭/패널 데이터 초기화가 끝나기 전에는 워크스페이스 전체를 로딩 상태로 대체한다 —
@@ -2060,6 +2386,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       dragPayload={dragPayload}
       tabMode={tabMode}
       paneTabs={paneTabs}
+      paneFontScale={paneFontScale}
+      onPaneFontScaleChange={handlePaneFontScaleChange}
       quickSwitcher={quickSwitcher}
       saveSignal={saveSignal}
       scrollToHeadingSignal={scrollToHeadingSignal}

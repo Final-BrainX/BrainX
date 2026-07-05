@@ -18,6 +18,8 @@
 - `note-chunking.md`: note chunking과 search/vector indexing 메모
 - `sample-notes-rag-cli.md`: 로컬 RAG 샘플 CLI 메모
 - `vectorstore-embedding-model.md`: Qdrant와 Voyage embedding 메모
+- `llm-quality-evaluation-report-2026-07-04.md`: StyleProfile LLM 품질 평가 요약
+- `llm-quality-evaluations/style-profile-quality-evaluation-2026-07-04.md`: StyleProfile 문체 설정 상세 평가 보고서
 - `consumed-event-contract-alignment.md`: Kafka 계약 정합성 포인터
 - `consumed-events-implementation-checkpoints.md`: Kafka 구현 체크리스트
 

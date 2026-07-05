@@ -89,7 +89,11 @@ export function WikiLinkAutocomplete({ editor }: { editor: Editor }) {
         .deleteRange({ from: range.from, to: range.to })
         .insertWikiLink({ title: candidate.title })
         .run();
-      if (candidate.kind === "create") ctx?.onCreate(candidate.title);
+      // .run()은 동기적으로 트랜잭션(WikiLinkLiveEdit의 appendTransaction 포함)까지 전부
+      // 반영한다 — 바로 이 자리에서 editor.getHTML()을 읽어 onCreate에 넘기면, NotesWorkspace의
+      // onCreate가 나중에(리렌더/탭 전환을 거친 뒤) activeEditorHandle.getHTML()을 다시 읽을 때
+      // 생길 수 있는 시간차 없이 "방금 삽입된 직후"의 본문을 그대로 신뢰할 수 있다.
+      if (candidate.kind === "create") ctx?.onCreate(candidate.title, editor.getHTML());
     },
     [editor, range, ctx]
   );

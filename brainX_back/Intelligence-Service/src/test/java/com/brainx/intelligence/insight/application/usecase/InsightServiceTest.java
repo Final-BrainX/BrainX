@@ -118,9 +118,10 @@ class InsightServiceTest {
         assertThat(report.recommendations().getFirst().type()).isEqualTo("CONNECT");
         assertThat(chatPort.lastRequest.modelId()).isEqualTo("gpt-user");
         assertThat(chatPort.lastRequest.messages().getFirst().content())
-            .contains("User writing style profile")
-            .contains("- formality: business")
-            .doesNotContain("User conversation tone profile");
+            .contains("Mandatory user style instructions")
+            .contains("every final generated or edited user-facing text segment")
+            .contains("Use this formality/tone: business")
+            .doesNotContain("every final user-facing conversational sentence");
         assertThat(entitlementPort.lastRequest.capability()).isEqualTo("INSIGHT_REPORT");
         assertThat(tokenUsagePort.records).hasSize(1);
         assertThat(tokenUsagePort.records.getFirst().featureId()).isEqualTo("insight-report-chat");

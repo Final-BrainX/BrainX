@@ -1,12 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clusterById, type BrainXNote } from "@/lib/brainx-data";
 import { useBrainX } from "@/components/brainx-provider";
 import { Btn, Card, Icon } from "@/components/brainx-ui";
-import { readAuthSession } from "@/lib/auth-api";
+import { isDevAuthSession, readAuthSession } from "@/lib/auth-api";
 import { getMyProfile } from "@/lib/user-api";
+import {
+  AI_CLUSTER_MAX_CLUSTERS,
+  AI_CLUSTER_MAX_NOTES,
+  AI_CLUSTER_MIN_NOTES,
+  DEFAULT_DOCUMENT_GROUP_ID,
+  UNASSIGNED_CLUSTER_ID,
+  applyAiClustersToNotes,
+  isAiFeatureReadyNote,
+  resolveAiCluster,
+  type AiClusterMeta,
+  type AiClusterStatus,
+} from "@/lib/ai-cluster-projection";
+import { getLatestClusterJob, requestClusterJob, type ClusterJobLatestData } from "@/lib/intelligence-api";
 import { getMyWorkspaceStats, type WorkspaceUserStatsData } from "@/lib/workspace-api";
 import { summarizeWorkspaceNotes } from "@/lib/workspace-note-stats";
 import { cx } from "@/lib/utils";
@@ -17,45 +30,196 @@ function userNameFromSession() {
   return session?.nickname?.trim() || session?.email?.split("@")[0] || "사용자";
 }
 
-function topicLabel(note: BrainXNote) {
+function topicLabel(note: BrainXNote, clusterMetaById?: Map<string, AiClusterMeta>) {
+  if (clusterMetaById?.has(note.cluster)) {
+    return resolveAiCluster(note.cluster, clusterMetaById).label;
+  }
   return note.tags[0] || clusterById(note.cluster).label;
 }
 
 function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; workspaceStats: WorkspaceUserStatsData | null }) {
   const router = useRouter();
+  const { pushToast } = useBrainX();
   const [topicView, setTopicView] = useState<"bubble" | "trend">("bubble");
+  const [clusterLatest, setClusterLatest] = useState<ClusterJobLatestData | null>(null);
+  const [clusterStatus, setClusterStatus] = useState<AiClusterStatus>("idle");
+  const [clusterError, setClusterError] = useState<string | null>(null);
+  const clusterRequestIdRef = useRef(0);
   const summary = useMemo(() => summarizeWorkspaceNotes(notes), [notes]);
   const totalNotes = workspaceStats?.noteCount ?? summary.totalNotes;
   const totalLinks = summary.totalLinks;
   const totalWords = summary.totalWords;
   const recentActivityTitle = workspaceStats?.activities?.[0]?.title?.trim() || null;
+  const currentSession = readAuthSession();
+  const aiClusterPanelEnabled = !!currentSession?.accessToken && !isDevAuthSession(currentSession);
+  const aiClusterProjection = useMemo(
+    () => aiClusterPanelEnabled ? applyAiClustersToNotes(notes, clusterLatest) : { notes, clusters: null },
+    [aiClusterPanelEnabled, clusterLatest, notes]
+  );
+  const topicNotes = aiClusterProjection.clusters ? aiClusterProjection.notes : notes;
+  const topicClusters = aiClusterProjection.clusters;
+  const clusterMetaById = useMemo(() => {
+    const values = new Map<string, AiClusterMeta>();
+    for (const cluster of topicClusters ?? []) {
+      values.set(cluster.id, cluster);
+    }
+    return values;
+  }, [topicClusters]);
+  const aiClusterUsableNoteCount = useMemo(
+    () => notes.filter(isAiFeatureReadyNote).length,
+    [notes]
+  );
+  const noteIndexStatusUnavailable = notes.some((note) => note.indexStatusUnavailable);
 
   const topClusters = useMemo(() => {
     const grouped = new Map<string, { label: string; color: string; count: number; words: number; links: number }>();
-    for (const note of notes) {
-      const cluster = clusterById(note.cluster);
+    for (const note of topicNotes) {
+      const cluster = topicClusters ? resolveAiCluster(note.cluster, clusterMetaById) : clusterById(note.cluster);
       const current = grouped.get(note.cluster) ?? { label: cluster.label, color: cluster.color, count: 0, words: 0, links: 0 };
       current.count += 1;
       current.words += note.words;
       current.links += note.links.length;
       grouped.set(note.cluster, current);
     }
-    return [...grouped.entries()]
+    const sortedClusters = [...grouped.entries()]
       .map(([id, value]) => ({ id, ...value }))
-      .sort((a, b) => b.count - a.count || b.links - a.links)
-      .slice(0, 5);
-  }, [notes]);
+      .sort((a, b) => b.count - a.count || b.links - a.links);
+    const visibleClusters = sortedClusters.slice(0, 5);
+    const unassignedCluster = topicClusters ? sortedClusters.find((cluster) => cluster.id === UNASSIGNED_CLUSTER_ID) : undefined;
+    if (unassignedCluster && !visibleClusters.some((cluster) => cluster.id === UNASSIGNED_CLUSTER_ID)) {
+      return [...visibleClusters.slice(0, 4), unassignedCluster];
+    }
+    return visibleClusters;
+  }, [clusterMetaById, topicClusters, topicNotes]);
 
   const dormantNote = useMemo(
-    () => [...notes].sort((a, b) => a.links.length - b.links.length || a.words - b.words)[0] ?? null,
-    [notes]
+    () => [...topicNotes].sort((a, b) => a.links.length - b.links.length || a.words - b.words)[0] ?? null,
+    [topicNotes]
   );
   const focusNote = useMemo(
-    () => [...notes].sort((a, b) => b.links.length - a.links.length || b.words - a.words)[0] ?? null,
-    [notes]
+    () => [...topicNotes].sort((a, b) => b.links.length - a.links.length || b.words - a.words)[0] ?? null,
+    [topicNotes]
   );
 
   const recommendedTopic = topClusters[0]?.label ?? "새로운 주제";
+  const aiClusterButtonDisabled =
+    !aiClusterPanelEnabled ||
+    clusterStatus === "loading" ||
+    clusterStatus === "analyzing" ||
+    aiClusterUsableNoteCount < AI_CLUSTER_MIN_NOTES;
+  const clusterActionLabel = clusterLatest?.state === "FRESH" ? "다시 분석" : "AI 클러스터링";
+  const clusterStateMessage = (() => {
+    if (!aiClusterPanelEnabled) {
+      return { title: "기본 분류", body: "로그인된 실제 워크스페이스에서 AI 클러스터링을 실행할 수 있어요." };
+    }
+    if (clusterStatus === "loading") {
+      return { title: "상태 확인 중", body: "최근 AI 클러스터 결과를 불러오고 있어요." };
+    }
+    if (clusterStatus === "analyzing") {
+      return { title: "AI 분석 중", body: "현재 노트 스냅샷을 주제별로 묶고 있어요." };
+    }
+    if (clusterLatest?.state === "NO_SOURCE_NOTES") {
+      return { title: "분석 대상 없음", body: "색인된 노트가 생기면 AI 클러스터를 만들 수 있어요." };
+    }
+    if (aiClusterUsableNoteCount < AI_CLUSTER_MIN_NOTES) {
+      return { title: "노트 부족", body: `분석 가능한 노트가 ${AI_CLUSTER_MIN_NOTES}개 이상 필요해요.` };
+    }
+    if (clusterLatest?.state === "NOT_ANALYZED") {
+      return { title: "AI 분석 전", body: "버튼을 누르면 현재 노트 기준의 주제 지도를 만들어요." };
+    }
+    if (clusterLatest?.state === "STALE") {
+      return { title: "노트가 변경됨", body: "마지막 AI 결과를 표시 중이에요. 다시 분석해 최신화하세요." };
+    }
+    if (clusterLatest?.state === "FAILED") {
+      return { title: "최근 분석 실패", body: clusterLatest.job?.failureMessage ?? "다시 분석을 실행해 주세요." };
+    }
+    if (clusterLatest?.state === "FRESH") {
+      return { title: "AI 클러스터 적용", body: "현재 색인된 노트 스냅샷과 일치하는 주제 지도예요." };
+    }
+    if (clusterError) {
+      return { title: "상태 확인 실패", body: clusterError };
+    }
+    return { title: "기본 분류", body: "아직 AI 클러스터 결과가 없어 기존 분류로 표시하고 있어요." };
+  })();
+
+  const refreshClusterLatest = useCallback(
+    async ({ showError = false }: { showError?: boolean } = {}) => {
+      if (!aiClusterPanelEnabled) {
+        setClusterLatest(null);
+        setClusterError(null);
+        setClusterStatus("idle");
+        return null;
+      }
+
+      const requestId = clusterRequestIdRef.current + 1;
+      clusterRequestIdRef.current = requestId;
+      setClusterStatus((current) => current === "analyzing" ? current : "loading");
+
+      try {
+        const latest = await getLatestClusterJob({ documentGroupId: DEFAULT_DOCUMENT_GROUP_ID });
+        if (requestId !== clusterRequestIdRef.current) return null;
+        setClusterLatest(latest);
+        setClusterError(null);
+        setClusterStatus("idle");
+        return latest;
+      } catch (error) {
+        if (requestId !== clusterRequestIdRef.current) return null;
+        const message = error instanceof Error ? error.message : "AI 클러스터 상태를 불러오지 못했습니다.";
+        setClusterError(message);
+        setClusterStatus("error");
+        if (showError) pushToast(message, "err");
+        return null;
+      }
+    },
+    [aiClusterPanelEnabled, pushToast]
+  );
+
+  const requestAiClusterAnalysis = useCallback(async () => {
+    if (aiClusterButtonDisabled) return;
+    const requestId = clusterRequestIdRef.current + 1;
+    clusterRequestIdRef.current = requestId;
+    setClusterStatus("analyzing");
+    setClusterError(null);
+
+    try {
+      const job = await requestClusterJob({
+        scope: {
+          documentGroupId: DEFAULT_DOCUMENT_GROUP_ID,
+          maxNotes: AI_CLUSTER_MAX_NOTES,
+        },
+        algorithmOptions: {
+          maxClusters: AI_CLUSTER_MAX_CLUSTERS,
+        },
+      });
+      if (requestId !== clusterRequestIdRef.current) return;
+      setClusterLatest((current) => ({
+        documentGroupId: job.documentGroupId,
+        searchableNoteCount: current?.searchableNoteCount ?? aiClusterUsableNoteCount,
+        latestNoteUpdatedAt: current?.latestNoteUpdatedAt ?? null,
+        state: job.status === "FAILED" ? "FAILED" : "FRESH",
+        job,
+      }));
+      pushToast(job.status === "FAILED" ? "AI 클러스터 분석이 실패했습니다." : "AI 클러스터 분석이 완료되었습니다.", job.status === "FAILED" ? "err" : "ok");
+      await refreshClusterLatest({ showError: false });
+    } catch (error) {
+      if (requestId !== clusterRequestIdRef.current) return;
+      const message = error instanceof Error ? error.message : "AI 클러스터 분석을 시작하지 못했습니다.";
+      setClusterError(message);
+      setClusterStatus("error");
+      pushToast(message, "err");
+    }
+  }, [aiClusterButtonDisabled, aiClusterUsableNoteCount, pushToast, refreshClusterLatest]);
+
+  useEffect(() => {
+    let active = true;
+    refreshClusterLatest({ showError: false }).finally(() => {
+      if (!active) return;
+    });
+    return () => {
+      active = false;
+      clusterRequestIdRef.current += 1;
+    };
+  }, [refreshClusterLatest]);
 
   const bubbles = topClusters.map((cluster, index) => ({
     ...cluster,
@@ -115,7 +279,7 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
       color: "rgb(var(--accent))",
       tag: "그래프 허브",
       text: focusNote
-        ? `${topicLabel(focusNote)} 쪽 노트가 가장 많이 연결되어 있어요. 특히 <strong>"${focusNote.title}"</strong>가 여러 주제를 잇고 있어요.`
+        ? `${topicLabel(focusNote, clusterMetaById)} 쪽 노트가 가장 많이 연결되어 있어요. 특히 <strong>"${focusNote.title}"</strong>가 여러 주제를 잇고 있어요.`
         : "아직 집중해서 볼 노트가 충분하지 않아요."
     },
     {
@@ -253,14 +417,54 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
               </div>
               <span className="text-[16px] font-semibold text-txt">주제 지도</span>
             </div>
-            <div className="flex items-center gap-1 text-[11px] text-txt3">
-              <button onClick={() => setTopicView("bubble")} className={cx("hover:text-txt transition-colors", topicView === "bubble" && "text-txt font-semibold")}>버블</button>
-              <span>·</span>
-              <button onClick={() => setTopicView("trend")} className={cx("hover:text-txt transition-colors", topicView === "trend" && "text-txt font-semibold")}>추이</button>
-              <Icon name="chevR" size={12} className="ml-1" />
+            <div className="flex flex-wrap items-center justify-end gap-2 text-[11px] text-txt3">
+              <button
+                type="button"
+                disabled={aiClusterButtonDisabled}
+                onClick={requestAiClusterAnalysis}
+                className={cx(
+                  "inline-flex h-7 items-center gap-1.5 rounded-[0.4rem] px-2.5 font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                  clusterStatus === "analyzing"
+                    ? "bg-primary/15 text-primary"
+                    : "bg-primary text-white hover:bg-primary/90"
+                )}
+              >
+                <Icon name={clusterStatus === "analyzing" ? "refresh" : "sparkle"} size={12} />
+                {clusterStatus === "analyzing" ? "분석 중" : clusterActionLabel}
+              </button>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setTopicView("bubble")} className={cx("hover:text-txt transition-colors", topicView === "bubble" && "text-txt font-semibold")}>버블</button>
+                <span>·</span>
+                <button onClick={() => setTopicView("trend")} className={cx("hover:text-txt transition-colors", topicView === "trend" && "text-txt font-semibold")}>추이</button>
+                <Icon name="chevR" size={12} className="ml-1" />
+              </div>
             </div>
           </div>
           <div className="p-4 flex-1 flex flex-col justify-center">
+            <div className="mb-3 rounded-[0.4rem] border border-line/60 bg-surface2/40 px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-[12px] font-semibold text-txt">{clusterStateMessage.title}</div>
+                <div className="rounded-[0.4rem] bg-txt/5 px-2 py-0.5 text-[10px] font-medium text-txt3">
+                  {topicClusters ? "AI 클러스터" : "기본 분류"} · 분석 가능 {aiClusterUsableNoteCount}개
+                </div>
+              </div>
+              <div className="mt-1 text-[11.5px] leading-5 text-txt3">{clusterStateMessage.body}</div>
+              {noteIndexStatusUnavailable ? (
+                <div className="mt-2 rounded-[0.4rem] border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-200">
+                  색인 상태를 확인하지 못해 기존 기준을 함께 사용합니다.
+                </div>
+              ) : null}
+              {clusterLatest?.state === "STALE" ? (
+                <div className="mt-2 rounded-[0.4rem] border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-200">
+                  노트가 변경됨 · 다시 분석 필요
+                </div>
+              ) : null}
+              {clusterError ? (
+                <div className="mt-2 rounded-[0.4rem] border border-red-400/30 bg-red-400/10 px-2.5 py-1.5 text-[11px] font-medium text-red-700 dark:text-red-200">
+                  {clusterError}
+                </div>
+              ) : null}
+            </div>
             {topClusters.length === 0 ? (
               <div className="flex items-start gap-3 rounded-[0.4rem] border border-emerald-500/20 bg-emerald-500/5 p-4">
                 <div className="mt-0.5 text-emerald-500"><Icon name="link" size={18} /></div>

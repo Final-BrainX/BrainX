@@ -363,7 +363,8 @@ public class ImportService {
                     case PPTX -> {
                         assetService.ensureContentType(asset, "application/vnd.openxmlformats-officedocument.presentationml.presentation");
                         int slideCount = pptxSlideService.getSlideCount(bytes);
-                        yield buildPptEmbedHtml(asset.getAssetId(), asset.getFileName(), slideCount);
+                        java.util.Set<Integer> videoSlides = pptxSlideService.getVideoSlideMap(bytes).keySet();
+                        yield buildPptEmbedHtml(asset.getAssetId(), asset.getFileName(), slideCount, videoSlides);
                     }
                     case NONE -> contentConverter.convertSingleFile(asset.getFileName(), asset.getContentType(), bytes);
                 };
@@ -414,10 +415,14 @@ public class ImportService {
                 + "\" data-file-name=\"" + escapeHtml(fileName) + "\"></div>";
     }
 
-    private String buildPptEmbedHtml(String assetId, String fileName, int slideCount) {
+    private String buildPptEmbedHtml(String assetId, String fileName, int slideCount, java.util.Set<Integer> videoSlides) {
+        String videoAttr = (videoSlides == null || videoSlides.isEmpty()) ? "" :
+                " data-video-slides=\"" + videoSlides.stream().sorted()
+                        .map(String::valueOf).collect(java.util.stream.Collectors.joining(",")) + "\"";
         return "<div data-ppt-block=\"true\" data-asset-id=\"" + assetId
                 + "\" data-file-name=\"" + escapeHtml(fileName)
-                + "\" data-slide-count=\"" + slideCount + "\"></div>";
+                + "\" data-slide-count=\"" + slideCount + "\""
+                + videoAttr + "></div>";
     }
 
     /** ZIP 항목 하나를 노트 본문으로 변환한다. PDF/이미지/HTML은 먼저 파생 자산으로
@@ -436,9 +441,10 @@ public class ImportService {
             case PPTX -> {
                 try {
                     int slideCount = pptxSlideService.getSlideCount(entry.embedBytes());
-                    yield buildPptEmbedHtml(assetId, entry.fullFileName(), slideCount);
+                    java.util.Set<Integer> videoSlides = pptxSlideService.getVideoSlideMap(entry.embedBytes()).keySet();
+                    yield buildPptEmbedHtml(assetId, entry.fullFileName(), slideCount, videoSlides);
                 } catch (Exception e) {
-                    yield buildPptEmbedHtml(assetId, entry.fullFileName(), 0);
+                    yield buildPptEmbedHtml(assetId, entry.fullFileName(), 0, java.util.Set.of());
                 }
             }
             case NONE -> entry.markdown();

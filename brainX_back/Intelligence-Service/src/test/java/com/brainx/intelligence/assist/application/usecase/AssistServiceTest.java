@@ -119,9 +119,10 @@ class AssistServiceTest {
             .contains("Before and After are immutable reference context only")
             .contains("return only a replacement for Selected")
             .contains("Never include, paraphrase, move, summarize, or rewrite Before/After")
-            .contains("User writing style profile")
-            .contains("- formality: business")
-            .doesNotContain("User conversation tone profile");
+            .contains("Mandatory user style instructions")
+            .contains("every final generated or edited user-facing text segment")
+            .contains("Use this formality/tone: business")
+            .doesNotContain("every final user-facing conversational sentence");
         assertThat(chatPort.lastRequest.messages().get(1).content())
             .contains("Action: REWRITE")
             .contains("Language: en")

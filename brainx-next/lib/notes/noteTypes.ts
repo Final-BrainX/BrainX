@@ -192,4 +192,8 @@ export interface NotesWorkspaceSession {
   paneTabs: Record<string, PaneTabsState>;
   notes: MockNote[];
   folders: MockFolder[];
+  /** pane(분할 패널) id별 Ctrl+Wheel 에디터 뷰 줌(%, 기본 100) — 노트 문서 자체(typography)와는
+      별개의 "보기" UI 상태다. 옛 세션에는 이 필드가 없을 수 있어 항상 옵셔널로 두고, 읽는
+      쪽에서 `paneFontScale?.[paneId] ?? 100`으로 기본값을 fallback한다. */
+  paneFontScale?: Record<string, number>;
 }

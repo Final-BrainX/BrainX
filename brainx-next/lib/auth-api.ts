@@ -547,12 +547,23 @@ export async function loginLocal(email: string, password: string) {
 
 export async function logout() {
   const session = readAuthSession();
+  const refreshTokenValue = session?.refreshToken?.trim();
   try {
-    await request<null>("/api/v1/auth/logout", {
-      method: "POST",
-      headers: await buildAuthHeaders(),
-      body: JSON.stringify({ refreshToken: session?.refreshToken ?? "" })
-    });
+    // refreshToken이 없으면(세션이 이미 만료/정리됐거나 2FA 대기 등으로 애초에 발급되지
+    // 않은 경우) 서버는 LogoutRequest.refreshToken @NotBlank 검증에 걸려 항상 400을
+    // 반환한다 — 이 경우 네트워크 요청 자체를 생략하고 로컬 세션만 정리한다.
+    if (refreshTokenValue) {
+      await request<null>("/api/v1/auth/logout", {
+        method: "POST",
+        headers: await buildAuthHeaders(),
+        body: JSON.stringify({ refreshToken: refreshTokenValue })
+      });
+    }
+  } catch (error) {
+    // 서버 로그아웃이 실패해도(토큰이 이미 만료/폐기된 경우 등) 사용자 입장에서는 로컬
+    // 세션 정리만으로 로그아웃이 끝나야 한다 — 호출자에게 에러를 던지면 이미 로그아웃된
+    // 상태인데도 "로그아웃 실패" 토스트가 뜨는 등 UX가 어긋난다.
+    console.warn("Server logout failed; continuing with local session cleanup.", error);
   } finally {
     clearAuthSession();
   }
