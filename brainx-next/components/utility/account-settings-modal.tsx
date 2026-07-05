@@ -879,9 +879,21 @@ export function AccountSettingsModal({
     try {
       await logout();
       pushToast("로그아웃되었습니다.", "ok");
-      router.replace("/");
     } catch (error) {
       pushToast(error instanceof Error ? error.message : "로그아웃에 실패했습니다.", "err");
+    } finally {
+      // onClose()로 모달을 먼저 닫고 나서 이동하면 "모달이 닫히는 화면"이 한 프레임이라도
+      // 사용자에게 보인다 — 그 중간 상태 없이 바로 페이지를 떠나야 하므로 onClose()는 호출하지
+      // 않는다(페이지 자체가 통째로 교체되므로 모달을 따로 닫을 필요가 없다). 클라이언트
+      // 라우터(router.replace) 대신 하드 네비게이션을 쓰는 이유: logout()의 clearAuthSession()이
+      // 쏘는 "brainx:notes-refresh"(resetWorkspace)를 NotesWorkspace가 받아 activeNoteId를
+      // 바꾸면 layout의 onActiveNoteChange가 거의 같은 틱에 router.replace("/notes"...)를
+      // 호출해 이 redirect와 경합했다 — 이 경합에서 진 첫 클릭은 "/"로 안 가고 "/notes"에 남아,
+      // 두 번째 클릭에야(그땐 세션이 이미 비어있어 resetWorkspace가 다시 안 쏘아져 경합이 없다)
+      // 이동하는 것처럼 보였다. 전체 페이지 이동은 이후 어떤 SPA 라우터 호출과도 경합하지 않는다.
+      // replace(href 아님)를 써서 로그아웃 직전의 보호된 페이지가 history에 남지 않게 하고,
+      // 뒤로가기를 눌러도 그 페이지로 돌아가지 못하게 한다.
+      window.location.replace("/");
     }
   };
   const saveLanguage = async (nextLanguage: LanguageCode) => {
@@ -1141,6 +1153,16 @@ function ProfilePanel({
       </section>
 
       <section className="mb-9">
+        <SectionLabel>세션</SectionLabel>
+        <AccountRow
+          className="px-4"
+          title="현재 세션"
+          desc="현재 로그인된 기기에서 로그아웃합니다."
+          action={<ModalButton danger onClick={onLogout}>로그아웃</ModalButton>}
+        />
+      </section>
+
+      <section className="mb-9">
         <SectionLabel>계정 보안</SectionLabel>
         <AccountRow title="이메일" desc={<a className="text-[#4a36aa] underline">{email}</a>} action={<span className="text-[12px] text-[#8c877f]">변경 API 없음</span>} />
         {canChangePassword ? (
@@ -1176,16 +1198,6 @@ function ProfilePanel({
             </div>
           );
         })}
-      </section>
-
-      <section className="mb-9">
-        <SectionLabel>세션</SectionLabel>
-        <AccountRow
-          className="px-4"
-          title="로그아웃"
-          desc="현재 로그인된 기기에서 로그아웃합니다."
-          action={<ModalButton danger onClick={onLogout}>로그아웃</ModalButton>}
-        />
       </section>
 
       <section>

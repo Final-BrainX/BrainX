@@ -818,6 +818,25 @@ npx --yes http-server . -p 18081 -a 127.0.0.1
   - 위키링크 edge(`pendingWikiLinkEntryToEdge`)는 매 렌더 `edges` useMemo에서 최신 pending 항목으로 다시 계산되므로, 캐시 title이 갱신되면 edge의 표시 라벨도 별도 처리 없이 최신 제목을 반영한다 — 연결(id 기준) 자체는 원래도 안정적이라 A→B 리네임에도 그대로 유지된다.
   - 일반 새 노트/위키링크 새 노트 모두 같은 `updatePendingCreatedNoteTitle` 호출 하나로 커버된다(분기 없음).
 
+- **(2026-07-05 버그 수정 9차 보완) 게스트→로그인 claim 후 화면분할 pane-노트 매핑 꼬임, 프로필 로그아웃 UI/redirect**:
+  - 분석 대상: `brainx-next/components/notes/NotesWorkspace.tsx`, `components/utility/account-settings-modal.tsx`, `lib/auth-api.ts`.
+  - 원인(화면분할): `resolveActorPersistKey`가 claim mapping(`{from,to}`)으로 guest 세션의 `root`/`paneTabs`를 이미 올바르게 치환해뒀는데도, 뒤이어 실행되는 `loadFromServer`에는 `applyHydration`과 달리 "actor 전환 직후에는 URL의 initialTab을 다시 붙이지 않는다"는 가드가 없었다 — `initialTab.kind === "note"`(로그인 전 특정 노트를 보고 있던 경우)면 무조건 활성 pane을 그 노트(또는 서버가 못 찾으면 `nextNotes[0]`)로 갈아끼우는 폴백이 그대로 실행돼, 방금 복원된 pane 중 하나(예: pane3)의 노트가 엉뚱한 노트로 덮어써졌다.
+  - 수정: `loadFromServer`에 `applyHydration`과 동일한 의도의 `attachInitialTab` 매개변수(기본값 `true`)를 추가해 `targetNoteId` 계산과 "첫 번째 노트로 대체" 폴백 양쪽을 이 플래그로 감쌌다. `handleExternalRefresh`의 호출부는 `void loadFromServer(detail?.noteId, false, !detail?.resetWorkspace)`로 바꿔, `resetWorkspace`(actor 전환) 이벤트에서는 `attachInitialTab=false`로 호출해 claim mapping 복원 결과를 덮어쓰지 않게 했다. 일반 URL 직접 진입(비-actor-전환) 경로는 `attachInitialTab`이 기본 `true`라 기존 동작(초기 노트 자동 첨부) 그대로 유지된다.
+  - `resolveActorPersistKey`/`replaceNoteIdInNode`/`replaceNoteIdInTabs`는 이미 root tree와 paneTabs 양쪽의 noteId를 mapping대로 일관되게 치환하고 있어 별도 수정이 필요 없었고, `paneFontScale`은 pane id(노트 id 아님) 기준이라 객체 스프레드로 그대로 보존됨을 코드 경로 확인만으로 검증했다(mapping 실패 시 임의 폴백 없이 기존 tab을 유지하는 정책도 이번 수정으로 함께 확보됨).
+  - 원인(로그아웃 UI): 프로필 팝업(`ProfilePanel`)에서 "세션(로그아웃)" 섹션이 "계정 연동" 섹션 뒤에 있어 "2단계 인증" 바로 아래에 위치해야 한다는 요구와 어긋났다. `handleLogout`은 `logout()` 성공 시에만 `router.replace("/")`를 호출해, 실패 시(과거 400 재발 등) redirect가 누락될 수 있는 구조였다.
+  - 수정: "세션" `<section>`을 "계정 보안"(2단계 인증 포함) 섹션 바로 뒤, "계정 연동" 섹션 앞으로 이동했고, 행 제목을 "로그아웃"에서 "현재 세션"으로 바꿔 버튼(로그아웃)과 구분했다. `handleLogout`은 `router.replace("/")`를 `finally` 블록으로 옮겨 `logout()` 성공/실패와 무관하게 항상 `/`로 이동하도록 했다 — `auth-api.ts`의 `logout()`이 이미 네트워크 실패를 삼키고 항상 `clearAuthSession()`을 호출하도록 고쳐져 있어(이전 라운드 수정) 로컬 세션 정리 자체는 always 보장되고, 이번 수정은 UI 쪽 redirect 누락 가능성까지 방어적으로 제거한 것이다. `mypage-screen.tsx`의 `handleLogout`은 이미 `router.replace("/")`가 try/catch 바깥에서 무조건 실행되는 구조라 별도 수정이 필요 없었다.
+
+- **(2026-07-05 버그 수정 10차 보완) 로그아웃 1클릭 redirect, 세션&로그아웃 UI 재배치, 게스트 폴더 노트 claim 시 루트로 풀리는 버그**:
+  - 분석 대상: `brainx-next/components/utility/account-settings-modal.tsx`, `components/utility/mypage-screen.tsx`, `components/notes/NotesWorkspace.tsx`, `app/(app)/notes/layout.tsx`, `lib/auth-api.ts`, 백엔드 `Workspace-Service`의 `NoteDraftPersistenceService`/`WorkspaceService.reassignGuestFolders`.
+  - 원인 1(로그아웃 2클릭): `logout()`의 `clearAuthSession()`은 `"brainx:notes-refresh"`(`resetWorkspace:true`)를 쏘는데, `/notes` 페이지에 `NotesWorkspace`가 살아있는 상태에서 이걸 받으면 게스트로 되돌아간 워크스페이스의 `activeNoteId`가 바뀌면서 `app/(app)/notes/layout.tsx`의 `onActiveNoteChange` 콜백이 `router.replace("/notes"...)`를 호출한다 — 이게 `handleLogout`의 `router.replace("/")`와 같은 틱 근처에서 경합해, 첫 클릭은 `/notes`에 남고(경합에서 짐) 세션이 이미 비어 `resetWorkspace`가 다시 안 쏘아지는 두 번째 클릭에서야 `/`로 이동하는 것처럼 보였다.
+  - 수정 1: `account-settings-modal.tsx`/`mypage-screen.tsx`의 `handleLogout`에서 `router.replace("/")` 대신 `window.location.replace("/")`(하드 네비게이션)를 쓴다 — 전체 페이지 이동은 이후 어떤 SPA 라우터 호출과도 경합하지 않는다. `replace`를 써서 로그아웃 직전 페이지가 history에 남지 않게 해 뒤로가기로 세션이 복구된 것처럼 보이는 화면에 못 돌아가게 했다.
+  - 후속 수정(2026-07-05): 처음엔 `account-settings-modal.tsx`에서 이동 직전 `onClose()`도 호출했으나, 이 경우 "모달이 닫히는 화면"이 한 프레임 보인 뒤 이동하는 게 사용자에게 보였다 — 페이지 자체가 통째로 교체되는 하드 네비게이션이라 모달을 따로 닫을 필요가 없다는 점에 착안해 `onClose()` 호출을 제거하고 `window.location.href` 대신 `window.location.replace`로 바꿔, 모달 닫힘 화면 없이 즉시 `/`로 이동하면서 history도 남기지 않도록 정리했다.
+  - 원인 2(UI 위치): "세션(현재 세션/로그아웃)" 섹션이 "계정 보안"보다 아래(정확히는 "계정 연동" 뒤)에 있어, "프로필 사진 변경 바로 아래, 계정 보안보다 위" 요구와 어긋났다.
+  - 수정 2: "세션" 섹션을 "계정"(프로필 사진) 섹션 바로 뒤, "계정 보안" 섹션 앞으로 옮겼다. 다른 탭("일반" 패널)의 별도 세션/로그아웃 행은 2단계 인증과 무관한 별개 탭이라 그대로 두었다.
+  - 원인 3(폴더 claim): `handleMoveNoteToFolder`(노트 탐색기 드래그앤드랍)가 로컬 `notes` state만 갱신하고 서버에는 전혀 반영하지 않았다 — `handleMoveFolderToParent`(폴더 이동)와 달리 대응하는 PATCH/PUT 호출이 없었다. draft autosave effect는 `activeNote`의 title/content 변화에만 반응해(folderId 변화는 deps에 없음) 백그라운드에서 폴더로 옮긴 노트는 저장 신호를 받을 방법이 없었다. 그 결과 게스트 상태에서 노트를 폴더 안으로 드래그만 하고 내용은 안 건드리면 Redis draft/Postgres에는 이동 전 folderId(주로 루트)가 그대로 남고, 로그인 claim은 그 낡은 값을 그대로 승계해 "일부만 루트로 풀리는" 현상으로 나타났다. 백엔드 `reassignGuestFolders`/`persistDraft`는 폴더 id 자체를 바꾸지 않고(소유자 필드만 변경) `draft.folderId()`를 그대로 복사하므로 claim 로직 자체에는 결함이 없었다.
+  - 수정 3: `handleMoveNoteToFolder`에 이동 직후 best-effort 서버 반영을 추가했다 — persisted 노트는 `updateWorkspaceNoteMetadata`(PATCH metadata, OCC 불필요), 아직 draft인 게스트 노트(`note_` 접두 id)는 `saveWorkspaceNoteDraft`(PUT draft)를 호출해 옮긴 폴더로 즉시 저장한다. 실패해도 토스트만 띄우고 로컬 상태는 유지한다(폴더 생성/이동과 동일한 정책).
+  - claim 시 화면분할/탭 noteId mapping(9차 보완) 회귀는 없다 — 이번 수정은 폴더 이동 저장 경로만 건드렸다.
+
 - **(2026-07-02 UX 정리) 마이페이지 로그아웃, 위키 자동완성 키 충돌, 그래프 hover 대비 조정**:
   - 마이페이지 프로필 메뉴에 로그아웃 버튼을 회원탈퇴 영역 위로 옮기고, 로그아웃 후에는 `/`(landing)으로 돌아가도록 정리했다.
   - `WikiLinkAutocomplete`는 동일한 제목의 노트가 여러 개 있어도 `note.id` 기반 key를 써서 React 경고가 나지 않도록 보정했다.

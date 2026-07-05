@@ -1652,7 +1652,13 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     handleTitleChange(noteId, newTitle);
   }, [notes, checkNoteDuplicate, handleTitleChange, pushToast]);
 
-  /* 노트 탐색기 드래그앤드랍 — 노트를 폴더/루트로 이동, 또는 같은 레벨에서 순서 변경. */
+  /* 노트 탐색기 드래그앤드랍 — 노트를 폴더/루트로 이동, 또는 같은 레벨에서 순서 변경.
+     폴더 이동(handleMoveFolderToParent)과 달리 이 핸들러는 로컬 notes state만 갱신하고 서버에는
+     반영하지 않아서, 게스트 상태에서 노트를 폴더 안으로 옮긴 뒤(내용은 더 안 건드리고) 새로고침
+     하거나 로그인/claim하면 서버(Redis draft/Postgres)에는 이동 전 folderId가 그대로 남아있어
+     루트로(또는 원래 폴더로) 되돌아가 보이는 버그가 있었다 — draft autosave effect는 activeNote의
+     title/content 변화에만 반응해(2073번째 줄 근처 deps) folderId만 바뀐 백그라운드 노트는 절대
+     저장 신호를 못 받는다. 폴더 이동과 동일하게 이동 즉시 best-effort로 서버에도 반영한다. */
   const handleMoveNoteToFolder = useCallback((noteId: string, targetFolderId: string | null) => {
     const note = notes.find((n) => n.id === noteId);
     if (note) {
@@ -1665,6 +1671,18 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       }
     }
     setNotes((prev) => moveNoteIntoFolder(prev, noteId, targetFolderId));
+    if (USE_MOCK_NOTES || !note) return;
+    const movedNote = { ...note, folderId: targetFolderId ?? undefined };
+    const persistMove = movedNote.persisted
+      ? updateWorkspaceNoteMetadata(movedNote)
+      : movedNote.id.startsWith("note_")
+        ? saveWorkspaceNoteDraft(movedNote)
+        : null;
+    if (persistMove) {
+      void persistMove.catch((error) => {
+        pushToast(error instanceof Error ? error.message : "노트 이동을 저장하지 못했습니다.", "err");
+      });
+    }
   }, [notes, pushToast]);
 
   const handleReorderNote = useCallback((noteId: string, referenceNoteId: string, position: "before" | "after") => {
@@ -1832,9 +1850,17 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     if (USE_MOCK_NOTES) return;
     let active = true;
 
-    function loadFromServer(openNoteId?: string, isInitialLoad = false) {
+    // attachInitialTab=false는 applyHydration의 같은 이름 파라미터와 동일한 의도다 — actor(guest/
+    // user) 전환 직후에는 resolveActorPersistKey가 claim mapping으로 이미 pane tree/tabs를
+    // 올바르게 복원해뒀으므로, "URL의 initialTab을 다시 열거나, 그 노트를 못 찾으면 첫 번째
+    // 노트로 대체"하는 이 함수 자신의 폴백을 또 타면 안 된다. 예전에는 이 폴백이 isInitialLoad와
+    // 무관하게 `initialTab.kind === "note"`(로그인 전 특정 노트 URL을 보고 있었던 경우)만으로도
+    // 발동해, claim 직후 activeId가 가리키는 pane(3분할 중 하나)이 방금 복원된 정상 노트 대신
+    // "그 시점에 서버가 아직 못 찾은 초기 노트 → nextNotes[0](엉뚱한 첫 번째 노트)"로 갈아끼워지는
+    // 회귀가 있었다.
+    function loadFromServer(openNoteId?: string, isInitialLoad = false, attachInitialTab = true) {
       setLoadError(null);
-      const targetNoteId = openNoteId ?? (initialTab.kind === "note" ? initialTab.noteId : null);
+      const targetNoteId = openNoteId ?? (attachInitialTab && initialTab.kind === "note" ? initialTab.noteId : null);
       return Promise.all([
         listNotes(),
         listFolders(),
@@ -1906,7 +1932,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
             handleReplaceActiveTab(livePaneId, targetNoteId);
             return;
           }
-          if (!openNoteId && nextNotes.length > 0 && (initialTab.kind === "note" || isInitialLoad)) {
+          if (attachInitialTab && !openNoteId && nextNotes.length > 0 && (initialTab.kind === "note" || isInitialLoad)) {
             const firstNoteId =
               initialTab.kind === "note" && nextNotes.some((note) => note.id === initialTab.noteId)
                 ? initialTab.noteId
@@ -1962,7 +1988,10 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         pendingWikiLinkEdgeRef.current.clear();
         clearPendingCreatedNotes();
       }
-      void loadFromServer(detail?.noteId);
+      // resetWorkspace(actor 전환)면 applyHydration이 이미 claim mapping까지 반영해 pane
+      // tree/tabs를 복원해뒀으므로, 이 새로고침 자체는 attachInitialTab=false로 호출해 그
+      // 복원 결과를 initialTab 폴백으로 덮어쓰지 않는다.
+      void loadFromServer(detail?.noteId, false, !detail?.resetWorkspace);
     }
     window.addEventListener("brainx:notes-refresh", handleExternalRefresh);
 
