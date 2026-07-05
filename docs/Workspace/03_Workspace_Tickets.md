@@ -557,6 +557,53 @@ Ticket 11
 
 ---
 
+# Ticket 12.5
+
+## Workspace 수동 전환 UI
+
+Status
+
+🟩 Done
+
+Priority
+
+Medium
+
+Owner
+
+Codex
+
+Reviewer
+
+Claude Code
+
+Depends On
+
+Ticket 12
+
+### 목표
+
+기존 Workspace 목록에서 다른 Workspace로 수동 전환하는 selector UI를 추가한다.
+
+### 구현
+
+- TopBar Selector
+- Workspace 목록 드롭다운
+- switchWorkspace(documentGroupId) 호출
+- Guest/loading/empty 처리
+
+### 제외
+
+- Home/Notes 데이터 재조회
+- Welcome Board 초기화
+- split/tabs 초기화
+
+### 완료 조건
+
+Selector 클릭으로 currentWorkspaceId가 정상적으로 바뀐다.
+
+---
+
 # Ticket 13
 
 ## Home Workspace
@@ -579,7 +626,7 @@ Claude Code
 
 Depends On
 
-Ticket 12
+Ticket 12.5
 
 ### 구현
 
@@ -807,6 +854,10 @@ Ticket11
 ↓
 
 Ticket12
+
+↓
+
+Ticket12.5
 
 ↓
 

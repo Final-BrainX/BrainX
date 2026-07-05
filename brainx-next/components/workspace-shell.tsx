@@ -9,6 +9,8 @@ import { useBrainX } from "@/components/brainx-provider";
 import { Avatar, Badge, Btn, Icon, ThemeToggle } from "@/components/brainx-ui";
 import { BrandLogo } from "@/components/brand-logo";
 import { AccountSettingsModal } from "@/components/utility/account-settings-modal";
+import CreateWorkspaceModal from "@/components/notes/CreateWorkspaceModal";
+import WorkspaceSwitcher from "@/components/notes/WorkspaceSwitcher";
 import { PanelLeftClose, PanelLeft } from "lucide-react";
 import type { BrainXNote } from "@/lib/brainx-data";
 import { addPopupResultListener } from "@/lib/desktop-bridge";
@@ -913,7 +915,7 @@ function formatNotificationTime(value: string) {
 }
 
 function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => void }) {
-  const { pushToast, t } = useBrainX();
+  const { t } = useBrainX();
   const router = useRouter();
   const pathname = usePathname();
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -924,6 +926,7 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [notifications, setNotifications] = useState<MyNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const isGuest = !session?.accessToken;
 
   useEffect(() => {
@@ -1071,6 +1074,7 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
     "pointer-events-none absolute top-[calc(100%+12px)] left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-[6px] bg-txt px-2.5 py-1.5 text-[12px] font-medium text-bg2 opacity-0 shadow-md transition-opacity duration-200 group-hover:opacity-100";
 
   return (
+    <>
     <header className="relative z-[100] border-b border-line/50 bg-bg2/30 backdrop-blur-xl">
       <div className="flex flex-col gap-3 px-4 py-3 md:h-[50px] md:flex-row md:items-center md:gap-2.5 md:pl-0 md:pr-4 md:py-0">
         <div className="hidden h-full w-[50px] shrink-0 items-center justify-center border-r border-line/50 md:flex">
@@ -1086,14 +1090,23 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
           <SearchBar />
         </div>
         <div className="flex items-center justify-between gap-2 md:ml-auto md:justify-end">
-          <div className="tutorial-target-darkmode group relative [&>button]:h-8 [&>button]:w-8 [&>button]:rounded-lg [&_svg]:h-[15px] [&_svg]:w-[15px]">
+          {!isGuest ? (
+            <WorkspaceSwitcher
+              onCreateWorkspace={() => {
+                setNotificationOpen(false);
+                setGuestMenuOpen(false);
+                setCreateWorkspaceOpen(true);
+              }}
+            />
+          ) : null}
+          <div className="tutorial-target-darkmode group relative shrink-0 [&>button]:h-8 [&>button]:w-8 [&>button]:rounded-lg [&_svg]:h-[15px] [&_svg]:w-[15px]">
             <ThemeToggle />
             <span className={topTooltipClass}>
               테마 변경
               <div className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt" style={{ zIndex: -1 }} />
             </span>
           </div>
-          <div className="relative">
+          <div className="relative shrink-0">
             <button
               type="button"
               onClick={() => {
@@ -1156,7 +1169,7 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
             ) : null}
           </div>
           <div className="mx-1 hidden h-6 w-px bg-line/60 md:block" />
-          <div className="relative">
+          <div className="relative shrink-0">
             <button
               type="button"
               onClick={() => {
@@ -1225,6 +1238,10 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
         </div>
       </div>
     </header>
+    {createWorkspaceOpen ? (
+      <CreateWorkspaceModal onClose={() => setCreateWorkspaceOpen(false)} />
+    ) : null}
+    </>
   );
 }
 

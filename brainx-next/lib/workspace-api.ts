@@ -434,6 +434,15 @@ export async function listWorkspaces(): Promise<WorkspaceListData> {
   return authedRequest<WorkspaceListData>("/api/v1/workspaces");
 }
 
+/** 새 Workspace(documentGroup) 생성 — Ticket12(Workspace 생성 UI)의 기반 API다. 응답 모양이
+    listWorkspaces()의 항목(WorkspaceSummaryData)과 동일해 별도 타입을 만들지 않는다. */
+export async function createWorkspace(name: string): Promise<WorkspaceSummaryData> {
+  return authedRequest<WorkspaceSummaryData>("/api/v1/workspaces", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
 export async function createWorkspaceFolder(name: string, parentFolderId: string | null) {
   if (await shouldUseDesktopVault()) {
     const created = await createDesktopVaultFolder(name, parentFolderId);
