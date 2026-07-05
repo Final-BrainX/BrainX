@@ -40,6 +40,10 @@ public class WorkspaceService {
     private static final Pattern HTML_WIKI_LINK_PATTERN = Pattern.compile("<span\\b[^>]*data-wiki-link[^>]*>.*?</span>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final Pattern RAW_WIKI_LINK_PATTERN = Pattern.compile("\\[\\[([^\\[\\]]+)]]");
     private static final Pattern HTML_ATTRIBUTE_PATTERN = Pattern.compile("([\\w:-]+)\\s*=\\s*([\"'])(.*?)\\2", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    // Gateway-Service(JwtAuthenticationGlobalFilter)가 발급/검증하는 guest id 형식과 동일하다
+    // (gst_[A-Za-z0-9_-]{16,80}). Guest는 Workspace를 가지면 안 되므로 이 prefix로 식별되는
+    // userId에 대해서는 default Workspace 자동 생성을 절대 트리거하지 않는다.
+    private static final String GUEST_ID_PREFIX = "gst_";
 
     private final NoteRepository noteRepository;
     private final NoteVersionRepository noteVersionRepository;
@@ -172,7 +176,10 @@ public class WorkspaceService {
     public NoteCreatedData createNote(String userId, NoteCreateRequest request) {
         Instant now = Instant.now();
         String title = dedupeNoteTitle(userId, request.folderId(), request.title(), null);
+        requireOwnedWorkspaceIfProvided(userId, request.documentGroupId());
         String documentGroupId = resolveDocumentGroupId(userId, request.documentGroupId());
+        requireFolderInWorkspace(userId, request.folderId(), documentGroupId,
+                "FOLDER_WORKSPACE_MISMATCH", "Folder does not belong to the target Workspace.");
         Note note = new Note(Ids.note(), userId, documentGroupId, title, request.markdown(), request.folderId(), request.tags(), now);
         noteRepository.save(note);
         syncWikiLinksForNote(note, now);
@@ -293,6 +300,13 @@ public class WorkspaceService {
         String targetFolderId = request.folderId() != null
                 ? (request.folderId().isBlank() ? null : request.folderId())
                 : note.getFolderId();
+        // documentGroupId 자체는 이 patch로 바꿀 수 없다(요청 스키마에 필드가 없음 — Workspace
+        // 간 이동은 Ticket10). 여기서는 folderId가 바뀌는 경우 그 대상 폴더가 노트의 기존
+        // documentGroupId와 같은 Workspace에 속하는지만 확인한다.
+        if (request.folderId() != null && targetFolderId != null) {
+            requireFolderInWorkspace(userId, targetFolderId, note.getDocumentGroupId(),
+                    "FOLDER_WORKSPACE_MISMATCH", "Folder does not belong to the note's Workspace.");
+        }
         String desiredTitle = (request.title() != null && !request.title().isBlank()) ? request.title() : note.getTitle();
         String finalTitle = dedupeNoteTitle(userId, targetFolderId, desiredTitle, noteId);
         note.patchMetadata(finalTitle, request.folderId(), request.tags(), request.archived(), typographyJson(request.typography()), now);
@@ -396,7 +410,10 @@ public class WorkspaceService {
     public FolderData createFolder(String userId, FolderCreateRequest request) {
         Instant now = Instant.now();
         String name = dedupeFolderName(userId, request.parentFolderId(), request.name(), null);
+        requireOwnedWorkspaceIfProvided(userId, request.documentGroupId());
         String documentGroupId = resolveDocumentGroupId(userId, request.documentGroupId());
+        requireFolderInWorkspace(userId, request.parentFolderId(), documentGroupId,
+                "PARENT_FOLDER_WORKSPACE_MISMATCH", "Parent folder does not belong to the target Workspace.");
         Folder folder = new Folder(Ids.folder(), userId, documentGroupId, name, request.parentFolderId(), now);
         folderRepository.save(folder);
         eventPublisher.publish("FolderCreated", userId, payload(
@@ -417,6 +434,17 @@ public class WorkspaceService {
         String targetParentFolderId = request.parentFolderId() != null
                 ? (request.parentFolderId().isBlank() ? null : request.parentFolderId())
                 : folder.getParentFolderId();
+        // parentFolderId가 바뀌는 경우: 자기 자신/하위 폴더로의 순환 이동을 먼저 막고, 그 다음
+        // 대상 부모가 이 폴더와 같은 Workspace에 속하는지 확인한다. Workspace 간 폴더 이동은
+        // 정책상 미지원(2차)이라 요청 스키마 자체에 documentGroupId 필드가 없다.
+        if (request.parentFolderId() != null && targetParentFolderId != null) {
+            if (collectDescendantFolderIds(userId, folderId).contains(targetParentFolderId)) {
+                throw new WorkspaceException(HttpStatus.CONFLICT, "FOLDER_CYCLE_NOT_ALLOWED",
+                        "Cannot move a folder into itself or one of its own descendants.");
+            }
+            requireFolderInWorkspace(userId, targetParentFolderId, folder.getDocumentGroupId(),
+                    "PARENT_FOLDER_WORKSPACE_MISMATCH", "Parent folder does not belong to the folder's Workspace.");
+        }
         String desiredName = (request.name() != null && !request.name().isBlank()) ? request.name() : folder.getName();
         String finalName = dedupeFolderName(userId, targetParentFolderId, desiredName, folderId);
         folder.patch(finalName, request.parentFolderId(), Instant.now());
@@ -1135,7 +1163,41 @@ public class WorkspaceService {
         if (normalized != null) {
             return normalized;
         }
+        if (isGuestUserId(userId)) {
+            // Guest는 Workspace를 가지지 않는다 — documentGroupId를 생략했다고 해서
+            // Guest 세션 id로 default Workspace를 만들어서는 안 된다. Guest가 만든
+            // Folder/Note는 documentGroupId=null로 남는다(레거시 데이터와 동일하게 취급).
+            return null;
+        }
         return getOrCreateDefaultWorkspace(userId).documentGroupId();
+    }
+
+    private boolean isGuestUserId(String userId) {
+        return userId != null && userId.startsWith(GUEST_ID_PREFIX);
+    }
+
+    /** documentGroupId가 요청에 명시적으로 왔을 때만 호출자 소유인지 확인한다(404).
+        생략된 경우(null/blank)는 resolveDocumentGroupId의 기본값/Guest 처리에 맡긴다. */
+    private void requireOwnedWorkspaceIfProvided(String userId, String requestedDocumentGroupId) {
+        String normalized = trimToNull(requestedDocumentGroupId);
+        if (normalized != null) {
+            workspace(userId, normalized);
+        }
+    }
+
+    /** targetFolderId가 있을 때만, 그 폴더가 호출자 소유이고(404) documentGroupId가 일치하는지
+        확인한다. 대상 폴더 또는 기준 documentGroupId 중 하나라도 null이면(레거시 데이터) 비교를
+        건너뛰어 기존 동작을 깨지 않는다. */
+    private void requireFolderInWorkspace(String userId, String folderId, String documentGroupId,
+                                          String mismatchCode, String mismatchMessage) {
+        if (folderId == null || folderId.isBlank()) {
+            return;
+        }
+        Folder target = folder(userId, folderId);
+        String targetDocumentGroupId = target.getDocumentGroupId();
+        if (targetDocumentGroupId != null && documentGroupId != null && !targetDocumentGroupId.equals(documentGroupId)) {
+            throw new WorkspaceException(HttpStatus.BAD_REQUEST, mismatchCode, mismatchMessage);
+        }
     }
 
     private String requireWorkspaceName(String name) {
