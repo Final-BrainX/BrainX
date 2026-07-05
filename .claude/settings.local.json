@@ -5,7 +5,10 @@
       "Read(//proc/1/**)",
       "Bash(docker exec *)",
       "Bash(npx tsc *)",
-      "Bash(./gradlew clean *)"
+      "Bash(./gradlew clean *)",
+      "Bash(./gradlew bootJar -x test)",
+      "Bash(docker compose *)",
+      "PowerShell(Invoke-WebRequest -Uri \"http://localhost:8083/api/v1/assets/06e0bb9e-4829-4cc0-8dba-252c9a28d868/slides/1/video\" -Method Head -ErrorAction SilentlyContinue | Select-Object StatusCode, @{N='ContentType';E={$_.Headers['Content-Type']}}, @{N='Size';E={$_.Headers['Content-Length']}})"
     ]
   }
 }
