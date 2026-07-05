@@ -19,6 +19,7 @@ import {
   buildAuthPath,
   clearAuthSession,
   isDevAuthSession,
+  isSameAuthSession,
   readAuthSession,
   type AuthSession,
 } from "@/lib/auth-api";
@@ -926,8 +927,11 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
   const isGuest = !session?.accessToken;
 
   useEffect(() => {
-    setSession(readAuthSession());
-    const syncSession = () => setSession(readAuthSession());
+    const syncSession = () => {
+      const nextSession = readAuthSession();
+      setSession((prev) => (isSameAuthSession(prev, nextSession) ? prev : nextSession));
+    };
+    syncSession();
     window.addEventListener("brainx-auth-session-changed", syncSession);
     return () =>
       window.removeEventListener("brainx-auth-session-changed", syncSession);

@@ -1632,7 +1632,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
               // 아님) undefined가 아니라 null도 유효한 값(루트)으로 그대로 반영한다.
               folderId: draft.folderId ?? undefined,
               updatedAt: draftSavedAt,
-              version: draft.baseVersion ?? persisted.version,
+              // version은 draft.baseVersion을 절대 쓰지 않는다 — Redis draft autosave(1.5초
+              // 디바운스, note.id.startsWith("note_")면 persisted 여부와 무관하게 계속 돈다)는
+              // Ctrl+S 실제 저장 후에도 지워지거나 갱신되지 않아, 여기서 draft.baseVersion을
+              // 반영하면 방금 올라간 persisted.version(Postgres 진짜 버전)을 그 전 스냅샷 값으로
+              // 되돌려버린다. 그 상태로 다음 Ctrl+S가 나가면 항상 409(NOTE_VERSION_CONFLICT)가
+              // 나고, 저장 성공 → notes-refresh → 이 merge → version 롤백 → 다음 저장 409 가
+              // 무한 반복된다(claim 직후처럼 notes-refresh가 잦으면 특히 잘 드러남). content/
+              // title/folderId와 달리 version은 "다음 저장의 낙관적 동시성 토큰"이므로 항상
+              // persisted.version(서버의 실제 최신 값)을 그대로 써야 한다.
+              version: persisted.version,
               persisted: true,
             };
           });

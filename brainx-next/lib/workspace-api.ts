@@ -1,5 +1,6 @@
 "use client";
 import { clearAuthSession, isDevAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { getLocalStoredValue, setLocalStoredValue } from "@/lib/client-storage";
 import { getBrainxDesktopConfig, isElectronDesktop } from "@/lib/desktop-bridge";
 import {
   createDesktopVaultFolder,
@@ -17,6 +18,7 @@ import type { MockFolder, MockNote, NoteTypography } from "@/lib/notes/noteTypes
 
 const WORKSPACE_API_BASE_URL = process.env.NEXT_PUBLIC_WORKSPACE_API_BASE_URL ?? "http://localhost:8082";
 export const USE_MOCK_NOTES = process.env.NEXT_PUBLIC_NOTES_USE_MOCK !== "false";
+const GUEST_SESSION_ID_KEY = "brainx_workspace_guest_id_v1";
 
 export type NoteDetail = {
   noteId: string;
@@ -231,28 +233,61 @@ export function hasWorkspaceUserIdentity(): boolean {
   return useAuthenticatedSession || Boolean(WORKSPACE_DEV_USER_ID);
 }
 
+function getWorkspaceGuestId(): string | null {
+  if (typeof window === "undefined") return null;
+  const existing = getLocalStoredValue(GUEST_SESSION_ID_KEY)?.trim();
+  if (existing) return existing;
+  const nextId =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `guest-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+  setLocalStoredValue(GUEST_SESSION_ID_KEY, nextId);
+  return nextId;
+}
+
 async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const session = readAuthSession();
   const useAuthenticatedSession = Boolean(session?.accessToken) && !isDevAuthSession(session);
   const useDevUserHeader = Boolean(WORKSPACE_DEV_USER_ID) && !useAuthenticatedSession;
-
-  // session이 없으면(비회원) Authorization 헤더 없이 호출한다 — Gateway가 guest cookie/
-  // X-Guest-Id를 발급해 Workspace-Service가 GUEST actor로 처리한다.
-  const response = await fetch(`${WORKSPACE_API_BASE_URL}${path}`, {
+  const isGuestRequest = !useAuthenticatedSession && !useDevUserHeader;
+  const guestSessionId = isGuestRequest ? getWorkspaceGuestId() : null;
+  const requestInit: RequestInit = {
     ...init,
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      ...(guestSessionId ? { "X-Guest-Id": guestSessionId } : {}),
       ...(useDevUserHeader ? { "X-User-Id": WORKSPACE_DEV_USER_ID } : {}),
       ...(useAuthenticatedSession ? { Authorization: `${session?.tokenType ?? "Bearer"} ${session?.accessToken}` } : {}),
       ...(init?.headers ?? {})
     }
-  });
+  };
+
+  const sendRequest = () => fetch(`${WORKSPACE_API_BASE_URL}${path}`, requestInit);
+
+  // session이 없으면(비회원) Authorization 헤더 없이 호출한다 — Gateway가 guest cookie/
+  // X-Guest-Id를 발급해 Workspace-Service가 GUEST actor로 처리한다.
+  let response = await sendRequest();
+  // guestSessionAuth 계약의 첫 요청에서 게이트웨이가 세션 쿠키를 막 발급하는 타이밍이면
+  // 초기 401/403 뒤 재시도 1회에서 정상화될 수 있다. 로그인 사용자의 세션 만료 경로와 섞이지
+  // 않도록 "실제 인증 세션이 없는 순수 guest 요청"에만 한 번 적용한다.
+  if (isGuestRequest && (response.status === 401 || response.status === 403)) {
+    response = await sendRequest();
+  }
 
   const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
-  if (response.status === 401) {
-    clearAuthSession();
-    throw new Error("로그인이 만료되었습니다. 다시 로그인해 주세요.");
+  const shouldClearSession = useAuthenticatedSession && Boolean(session?.accessToken);
+  if (response.status === 401 || response.status === 403) {
+    if (shouldClearSession) {
+      clearAuthSession();
+      throw new Error("로그인이 만료되었습니다. 다시 로그인해 주세요.");
+    }
+    throw new WorkspaceApiError(
+      messageFromResponse(payload ?? { success: false, data: null }, "요청 처리에 실패했습니다."),
+      response.status,
+      payload?.error?.code,
+      payload?.error?.details
+    );
   }
   if (!payload) {
     throw new Error("서버 응답을 읽을 수 없습니다.");
@@ -328,15 +363,18 @@ function parseFavoriteSyncItem(item: unknown): { targetType: FavoriteTargetType;
   return { targetType: inferredType, targetId, enabled };
 }
 
-const DEFAULT_DOCUMENT_GROUP_ID = "default";
-
 /** 노트/폴더 즐겨찾기 초기 상태 조회 — 노트/폴더 단건 조회에는 즐겨찾기 여부가 없어(SSOT에
     isFavorite류 필드 없음) 워크스페이스 sync 응답의 favorites 배열이 유일한 조회 경로다. 데스크톱
-    vault 모드는 Workspace-Service 자체를 안 쓰므로 빈 값을 돌려준다. */
-export async function getWorkspaceFavorites(documentGroupId: string = DEFAULT_DOCUMENT_GROUP_ID): Promise<{ noteIds: Set<string>; folderIds: Set<string> }> {
+    vault 모드는 Workspace-Service 자체를 안 쓰므로 빈 값을 돌려준다.
+    실제 구현/Gateway 라우트는 아직 `/api/v1/workspace/sync`(단수, documentGroupId 없음)만 있고
+    SSOT의 `/api/v1/workspaces/{documentGroupId}/sync`(복수)는 매치되는 라우트가 없어 항상 404였다
+    — guest/로그인 모두 새로고침 후 즐겨찾기가 사라지던 원인. Workspace-Service의 syncWorkspace는
+    guest actor(X-Guest-Id/쿠키)도 currentUser.userId() 그대로 받아 처리하므로 guest도 그대로
+    사용한다. */
+export async function getWorkspaceFavorites(): Promise<{ noteIds: Set<string>; folderIds: Set<string> }> {
   const empty = { noteIds: new Set<string>(), folderIds: new Set<string>() };
   if (await shouldUseDesktopVault()) return empty;
-  const data = await authedRequest<{ favorites?: unknown[] }>(`/api/v1/workspaces/${documentGroupId}/sync`);
+  const data = await authedRequest<{ favorites?: unknown[] }>("/api/v1/workspace/sync");
   const noteIds = new Set<string>();
   const folderIds = new Set<string>();
   for (const raw of data.favorites ?? []) {
@@ -359,15 +397,18 @@ export async function putFavorite(targetType: FavoriteTargetType, targetId: stri
 }
 
 export async function getMyWorkspaceStats() {
+  const emptyStats: WorkspaceUserStatsData = {
+    noteCount: 0,
+    storageBytes: 0,
+    activities: [],
+  };
   if (await shouldUseDesktopVault()) {
-    return (
-      (await getDesktopVaultWorkspaceStats()) ?? {
-        noteCount: 0,
-        storageBytes: 0,
-        activities: [],
-      }
-    );
+    return (await getDesktopVaultWorkspaceStats()) ?? emptyStats;
   }
+  // SSOT와 백엔드 구현 모두 `/api/v1/workspace/me/stats`를 인증 사용자 전용으로 취급한다.
+  // guest는 draft 기반 체험 모드만 유지하면 되므로, 여기서 조용히 기본 통계값으로 fallback해
+  // /home, 설정 모달이 user-only stats endpoint를 치지 않게 한다.
+  if (!hasWorkspaceUserIdentity()) return emptyStats;
   return authedRequest<WorkspaceUserStatsData>("/api/v1/workspace/me/stats");
 }
 
