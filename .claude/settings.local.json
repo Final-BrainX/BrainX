@@ -5,7 +5,8 @@
       "Read(//proc/1/**)",
       "Bash(docker exec *)",
       "Bash(npx tsc *)",
-      "Bash(./gradlew clean *)"
+      "Bash(./gradlew clean *)",
+      "Bash(ls -la \"C:\\\\Edu\\\\Final_Project\\\\BrainX\\\\\" | head -20)"
     ]
   }
 }

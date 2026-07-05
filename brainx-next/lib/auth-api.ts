@@ -93,6 +93,9 @@ type NoteDraftClaimData = {
 export type ClaimedNoteIdMapping = { from: string; to: string };
 
 const AUTH_SESSION_KEY = "brainx_auth_session_v1";
+// lib/workspace-api.ts의 GUEST_SESSION_ID_KEY와 반드시 같은 값이어야 한다 — claim 요청이
+// 실제로 guest 데이터를 만든 것과 같은 guestId를 X-Guest-Id로 실어 보내야 하기 때문이다.
+const WORKSPACE_GUEST_SESSION_ID_KEY = "brainx_workspace_guest_id_v1";
 const LAST_SOCIAL_LOGIN_KEY = "brainx_last_social_login_provider_v1";
 const WORKSPACE_SESSION_KEY = "brainx_notes_workspace_v1";
 const PENDING_NOTE_CLAIM_KEY = "brainx_pending_note_claim_v1";
@@ -103,6 +106,11 @@ const WORKSPACE_API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
   "";
 const DEV_AUTH_BYPASS = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true";
+// 이 값은 X-User-Id 헤더 전송(NEXT_PUBLIC_ENABLE_DEV_USER, lib/dev-user.ts)과는 별개의 스위치
+// (NEXT_PUBLIC_DEV_AUTH_BYPASS)로만 게이팅된다 — DEV_AUTH_BYPASS는 완전히 가짜 로그인 세션 객체를
+// 만드는 기능이라, 그 세션의 표시용 userId 라벨로만 이 값을 재사용한다. ENABLE_DEV_USER가 꺼져
+// 있어도(진짜 게스트 요청에 X-User-Id를 안 붙이는 것과 무관하게) DEV_AUTH_BYPASS가 켜져 있으면
+// 이 라벨은 그대로 쓴다.
 const DEV_AUTH_USER_ID = process.env.NEXT_PUBLIC_WORKSPACE_DEV_USER_ID?.trim() || "dev-test-user";
 export const DEMO_AUTH_SESSION: AuthSession = {
   accessToken: "demo-access-token",
@@ -279,6 +287,13 @@ export function consumeOAuthReturnTo(): string {
 async function claimGuestDraftsAfterAuth(session: AuthSession) {
   if (!session.accessToken) return null;
 
+  // lib/workspace-api.ts의 authedRequest는 게스트 요청마다 이 localStorage 값을 X-Guest-Id로
+  // 실어 보낸다 — 로그인 직전까지의 노트/폴더/즐겨찾기가 실제로 이 guestId 소유로 저장돼 있으므로,
+  // claim 요청도 같은 값을 보내야 Workspace-Service가 승계할 대상을 찾는다. 이 헤더가 빠지면
+  // 백엔드가 400(GUEST_ID_REQUIRED)을 던지고 claim이 항상 조용히 스킵된다. 값이 없으면(이 브라우저가
+  // 게스트로 아무 요청도 한 적 없음) 승계할 것도 없으므로 헤더 없이 스킵되는 기존 동작을 그대로 둔다.
+  const guestId = getLocalStoredValue(WORKSPACE_GUEST_SESSION_ID_KEY)?.trim() || null;
+
   let claimed: NoteDraftClaimData | null = null;
   try {
     const response = await fetch(`${WORKSPACE_API_BASE_URL}/api/v1/notes/drafts/claim`, {
@@ -287,6 +302,7 @@ async function claimGuestDraftsAfterAuth(session: AuthSession) {
       headers: {
         Authorization: `${session.tokenType ?? "Bearer"} ${session.accessToken}`,
         "Content-Type": "application/json",
+        ...(guestId ? { "X-Guest-Id": guestId } : {}),
       },
     });
 
@@ -342,6 +358,38 @@ export function saveAuthSession(session: Partial<AuthSession>) {
   window.dispatchEvent(new Event("brainx-auth-session-changed"));
 }
 
+function normalizeSessionForCompare(session: AuthSession | null | undefined) {
+  if (!session) return null;
+  return {
+    accessToken: session.accessToken ?? null,
+    refreshToken: session.refreshToken ?? null,
+    tokenType: session.tokenType ?? "Bearer",
+    provider: session.provider ?? null,
+    userId: session.userId ?? null,
+    email: session.email ?? null,
+    nickname: session.nickname ?? null,
+    profileImageUrl: session.profileImageUrl ?? null,
+    role: session.role ?? null,
+    requires2fa: session.requires2fa ?? false,
+    onboardingToken: session.onboardingToken ?? null,
+    next: session.next ?? null,
+  };
+}
+
+export function isSameAuthSession(
+  left: AuthSession | null | undefined,
+  right: AuthSession | null | undefined
+) {
+  return JSON.stringify(normalizeSessionForCompare(left)) === JSON.stringify(normalizeSessionForCompare(right));
+}
+
+export function getAuthIdentityKey(session: AuthSession | null | undefined = readAuthSession()) {
+  const normalized = normalizeSessionForCompare(session);
+  return normalized
+    ? `${normalized.userId ?? ""}|${normalized.accessToken ?? ""}|${normalized.refreshToken ?? ""}|${normalized.provider ?? ""}|${normalized.role ?? ""}`
+    : "guest";
+}
+
 export function isDevAuthSession(session: AuthSession | null | undefined) {
   return session?.accessToken === DEMO_AUTH_SESSION.accessToken;
 }
@@ -366,13 +414,24 @@ export function ensureDevAuthSession() {
 
 export function clearAuthSession() {
   if (typeof window === "undefined") return;
+  const prevSession = readAuthSession();
+  const hadStoredAuthSession = getLocalStoredValue(AUTH_SESSION_KEY) != null;
+  const hadWorkspaceSession = getLocalStoredValue(WORKSPACE_SESSION_KEY) != null;
   removeLocalStoredValue(AUTH_SESSION_KEY);
   removeLocalStoredValue(WORKSPACE_SESSION_KEY);
-  window.dispatchEvent(new Event("brainx-auth-session-changed"));
+  const nextSession = readAuthSession();
+  const authSessionChanged = !isSameAuthSession(prevSession, nextSession);
+  const workspaceChanged = hadWorkspaceSession;
+  if (!hadStoredAuthSession && !workspaceChanged && !authSessionChanged) return;
+  if (authSessionChanged) {
+    window.dispatchEvent(new Event("brainx-auth-session-changed"));
+  }
   // localStorage는 지워도 NotesWorkspace가 같은 탭에서 리마운트 없이 계속 떠 있으면(예: /notes를
   // 벗어나지 않고 로그아웃) 메모리에 남은 이전 계정의 notes/탭 상태는 그대로다 — claim 이후와
   // 동일하게 워크스페이스를 비우고 새 actor(로그아웃했으면 게스트) 기준으로 다시 불러온다.
-  window.dispatchEvent(new CustomEvent("brainx:notes-refresh", { detail: { resetWorkspace: true } }));
+  if (authSessionChanged || workspaceChanged) {
+    window.dispatchEvent(new CustomEvent("brainx:notes-refresh", { detail: { resetWorkspace: true } }));
+  }
 }
 
 export function readRecentSocialLoginProvider() {

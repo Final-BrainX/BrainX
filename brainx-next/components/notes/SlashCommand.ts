@@ -28,6 +28,13 @@ export const SlashCommandSuggestion = Extension.create({
           init: () => INACTIVE,
           apply(tr, prev): SlashCommandState {
             if (tr.getMeta(SlashCommandKey) === "close") return INACTIVE;
+            // Split View에서 같은 노트를 두 패널에 열어두면, 한쪽에서 타이핑한 내용이 디바운스
+            // 뒤 다른(포커스 없는) 쪽 에디터에 setContent({emitUpdate:false})로 반영된다 — 이
+            // setContent가 만드는 트랜잭션은 tiptap이 자동으로 'preventUpdate' meta를 단다.
+            // 이 트랜잭션에서 매핑된 커서 위치가 우연히 "/…" 패턴 뒤에 놓이면, 사용자가 그
+            // 패널에서 타이핑한 적이 없는데도 슬래시 메뉴가 함께 뜨는 버그가 있었다 — 그
+            // 패널에 포커스가 없는 동안 벌어진 외부 동기화 트랜잭션은 트리거 판정에서 제외한다.
+            if (tr.getMeta("preventUpdate")) return INACTIVE;
 
             const { selection } = tr;
             if (!selection.empty) return INACTIVE;

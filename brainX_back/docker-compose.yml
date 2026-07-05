@@ -369,7 +369,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: ["sh", "/docker-entrypoint-initdb.d/01-create-service-databases.sh"]
+    command:
+      ["sh", "/docker-entrypoint-initdb.d/01-create-service-databases.sh"]
 
   postgres:
     image: postgres:16-alpine

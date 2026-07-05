@@ -9,7 +9,7 @@ import { CLUSTERS, deriveGraphEdges, noteById, clusterById, type BrainXNote, typ
 import { deriveDraftWikiLinkEdges, draftsToBrainXNotes, getGraph, graphEdgesForFlow, graphToBrainXNotes, USE_MOCK_GRAPH, USE_MOCK_GRAPH_CLUSTERS } from "@/lib/graph-api";
 import { createBridgeConcepts, createLinkSuggestions, getLatestClusterJob, requestClusterJob, type BridgeConceptsData, type ClusterJobData, type ClusterJobLatestData, type LinkSuggestionsData } from "@/lib/intelligence-api";
 import { mergeNoteIndexStatuses } from "@/lib/note-index-statuses";
-import { createWorkspaceNote, createWorkspaceNoteLink, listWorkspaceNoteDrafts, type NoteCreated } from "@/lib/workspace-api";
+import { createWorkspaceNote, createWorkspaceNoteLink, hasWorkspaceUserIdentity, listWorkspaceNoteDrafts, type NoteCreated } from "@/lib/workspace-api";
 import { useBrainX } from "@/components/brainx-provider";
 import { Avatar, Badge, Btn, Card, Icon } from "@/components/brainx-ui";
 import { cx } from "@/lib/utils";
@@ -1651,7 +1651,12 @@ function GraphScreenInner() {
       showError?: boolean;
     } = {}) => {
       const session = readAuthSession();
-      const hasRealLogin = !!session?.accessToken && !isDevAuthSession(session);
+      // 데이터 로딩 경로 분기는 JWT 유무만이 아니라, 이 요청이 Workspace-Service에 실제로
+      // "식별된 사용자"로 도착하는지(hasWorkspaceUserIdentity — 로컬의 X-User-Id dev override
+      // 포함)를 기준으로 삼는다. JWT만 보면, 로컬 개발에서 NEXT_PUBLIC_WORKSPACE_DEV_USER_ID가
+      // 설정된 경우 실제로는 USER로 저장된 데이터를 GUEST draft 경로로 잘못 읽어 새로고침 후
+      // 사라진 것처럼 보이는 불일치가 생긴다.
+      const hasWorkspaceIdentity = hasWorkspaceUserIdentity();
       const requestId = graphRequestIdRef.current + 1;
       graphRequestIdRef.current = requestId;
 
@@ -1665,7 +1670,7 @@ function GraphScreenInner() {
         return;
       }
 
-      if (!hasRealLogin) {
+      if (!hasWorkspaceIdentity) {
         setLiveNotes([]);
         setLiveEdges([]);
         try {

@@ -322,6 +322,32 @@ public class WorkspaceService {
         return folders.size();
     }
 
+    /** guest draft claim 시 즐겨찾기도 함께 승계한다 — putFavorite은 USER/GUEST를 가리지 않고
+        actor id를 그대로 favoriteId/userId에 써서 저장하므로(WorkspaceController.putFavorite),
+        claim이 note/folder만 옮기고 즐겨찾기는 그대로 guestId 소유로 남아있던 gap을 메운다.
+        favoriteId가 userId를 포함해 만들어지므로(Ids.favorite) 단순 소유자 필드 변경이 아니라
+        새 id로 재생성한다 — 이미 같은 대상으로 회원 즐겨찾기가 있으면(드물지만) 회원 쪽을 그대로
+        두고 guest 쪽만 지운다. */
+    @Transactional
+    public int reassignGuestFavorites(String fromUserId, String toUserId) {
+        List<Favorite> guestFavorites = favoriteRepository.findByUserId(fromUserId);
+        Instant now = Instant.now();
+        int migrated = 0;
+        for (Favorite favorite : guestFavorites) {
+            boolean alreadyExists = favoriteRepository
+                    .findByUserIdAndTargetTypeAndTargetId(toUserId, favorite.getTargetType(), favorite.getTargetId())
+                    .isPresent();
+            if (!alreadyExists) {
+                favoriteRepository.save(new Favorite(
+                        Ids.favorite(toUserId, favorite.getTargetType(), favorite.getTargetId()),
+                        toUserId, favorite.getTargetType(), favorite.getTargetId(), favorite.isEnabled(), now));
+                migrated++;
+            }
+            favoriteRepository.delete(favorite);
+        }
+        return migrated;
+    }
+
     public FolderData createFolder(String userId, FolderCreateRequest request) {
         Instant now = Instant.now();
         String name = dedupeFolderName(userId, request.parentFolderId(), request.name(), null);

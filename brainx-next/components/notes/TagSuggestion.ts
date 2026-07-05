@@ -43,6 +43,10 @@ export const TagSuggestion = Extension.create({
 
             // 명시적 닫기(Escape 등) 메타가 있으면 즉시 비활성화
             if (tr.getMeta(TagSuggestionKey) === "close") return INACTIVE;
+            // Split View의 다른(포커스 없는) 패널이 sync를 위해 setContent({emitUpdate:false})를
+            // 호출할 때 tiptap이 자동으로 다는 'preventUpdate' meta — SlashCommand.ts/
+            // WikiLinkSuggestion.ts와 동일한 이유로 트리거 판정에서 제외한다.
+            if (tr.getMeta("preventUpdate")) return INACTIVE;
 
             const { selection } = tr;
             if (!selection.empty) return INACTIVE;

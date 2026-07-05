@@ -32,6 +32,9 @@ public class NoteDraftPersistenceService {
         // 폴더 생성은 guest도 막혀있지 않아 Postgres에 guestId 소유로 남아있을 수 있다 — note
         // draft 승계와 같은 트랜잭션에서 폴더 소유권도 함께 옮긴다.
         workspaceService.reassignGuestFolders(guestId, userId);
+        // 즐겨찾기도 폴더와 마찬가지로 guest 상태에서 바로 Postgres에 저장되므로(Redis draft가
+        // 아님) 같은 트랜잭션에서 함께 승계한다.
+        workspaceService.reassignGuestFavorites(guestId, userId);
         List<ClaimedNoteDraft> claimed = new ArrayList<>();
         try {
             for (NoteDraftData draft : noteDraftService.listDrafts(guest).drafts()) {

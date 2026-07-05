@@ -36,14 +36,36 @@ export function useWikiLinkContext() {
   return useContext(WikiLinkContext);
 }
 
+export function normalizeWikiLinkText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeWikiLinkText(item)).join(" ").trim();
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    if ("title" in record) return normalizeWikiLinkText(record.title);
+    if ("text" in record) return normalizeWikiLinkText(record.text);
+    if ("value" in record) return normalizeWikiLinkText(record.value);
+  }
+  return "";
+}
+
+export function normalizeOptionalWikiLinkText(value: unknown): string | null {
+  const normalized = normalizeWikiLinkText(value).trim();
+  return normalized || null;
+}
+
 /** 정확히 일치 → 부분 일치(유일할 때만) 순서로 찾는다. 공유 로직이라 Context value를 만드는
     쪽(NotesWorkspace)과 자동완성 쪽(WikiLinkAutocomplete) 모두 이 함수를 쓴다. */
-export function resolveWikiLinkTitle(notes: WikiLinkNoteRef[], title: string): WikiLinkNoteRef | null {
-  const needle = title.trim().toLowerCase();
+export function resolveWikiLinkTitle(notes: WikiLinkNoteRef[], title: unknown): WikiLinkNoteRef | null {
+  const needle = normalizeWikiLinkText(title).trim().toLowerCase();
   if (!needle) return null;
-  const exact = notes.find((n) => n.title.toLowerCase() === needle);
+  const exact = notes.find((n) => normalizeWikiLinkText(n.title).trim().toLowerCase() === needle);
   if (exact) return exact;
-  const partial = notes.filter((n) => n.title.toLowerCase().includes(needle));
+  const partial = notes.filter((n) => normalizeWikiLinkText(n.title).trim().toLowerCase().includes(needle));
   return partial.length === 1 ? partial[0] : null;
 }
 

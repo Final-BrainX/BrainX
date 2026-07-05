@@ -30,14 +30,20 @@ public class CurrentActor {
             return new Actor(ActorType.USER, userId);
         }
 
-        String guestId = request.getHeader(GUEST_ID_HEADER);
-        if (hasText(guestId)) {
-            return new Actor(ActorType.GUEST, guestId);
-        }
-
+        // JWT 인증을 X-Guest-Id보다 먼저 확인한다 — guest draft claim(POST
+        // /api/v1/notes/drafts/claim)은 "지금 로그인한 회원"과 "승계할 guest"를 동시에 식별해야
+        // 해서 Authorization Bearer JWT와 X-Guest-Id를 한 요청에 같이 실어 보낸다. 이 순서가
+        // 바뀌면(X-Guest-Id를 먼저 보면) 로그인 사용자의 claim 요청이 GUEST actor로 잘못
+        // 판정되어 memberUserId()가 403을 던진다 — 다른 엔드포인트는 두 헤더를 동시에 보내지
+        // 않으므로 이 순서 변경이 기존 동작에 영향을 주지 않는다.
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication != null && authentication.getPrincipal() instanceof AuthenticatedUser user) {
             return new Actor(ActorType.USER, user.userId());
+        }
+
+        String guestId = request.getHeader(GUEST_ID_HEADER);
+        if (hasText(guestId)) {
+            return new Actor(ActorType.GUEST, guestId);
         }
 
         // brainx.workspace.dev-fallback-enabled는 기본 false다 — 로컬 개발에서 Gateway를 거치지

@@ -4,13 +4,13 @@ import { clearAuthSession, isDevAuthSession, readAuthSession, type ApiResponse }
 import { CLUSTERS, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
 import { getBrainxDesktopConfig, isElectronDesktop } from "@/lib/desktop-bridge";
 import { getDesktopVaultSnapshot } from "@/lib/desktop-vault";
+import { DEV_USER_ID as WORKSPACE_DEV_USER_ID } from "@/lib/dev-user";
 import { extractWikiLinkTargets, resolveWikiLinkByTitle } from "@/lib/wiki-links";
 import type { NoteDraftData } from "@/lib/workspace-api";
 
 const WORKSPACE_API_BASE_URL = process.env.NEXT_PUBLIC_WORKSPACE_API_BASE_URL ?? "http://localhost:8082";
 export const USE_MOCK_GRAPH = process.env.NEXT_PUBLIC_GRAPH_USE_MOCK !== "false";
 export const USE_MOCK_GRAPH_CLUSTERS = process.env.NEXT_PUBLIC_GRAPH_CLUSTERS_USE_MOCK !== "false";
-const WORKSPACE_DEV_USER_ID = process.env.NEXT_PUBLIC_WORKSPACE_DEV_USER_ID?.trim();
 
 export type GraphNodeData = {
   id: string;
