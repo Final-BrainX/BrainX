@@ -2,6 +2,165 @@ export function normalizeWikiLinkTarget(value: string) {
   return value.split("|")[0]?.split("#")[0]?.trim().toLowerCase() ?? "";
 }
 
+/** 노트 제목이 바뀔 때(A → B) 그 제목을 가리키던 다른 노트의 저장된 위키링크를 갱신한다.
+    WikiLinkNode(components/notes/WikiLinkNode.tsx)의 renderHTML이 만드는
+    `<span data-wiki-link="true" data-title="...">[[...]]</span>` 형태만 대상으로 하며, 노트
+    본문 나머지 부분은 건드리지 않는다(DOM 전체를 다시 직렬화하면 표/코드블록 같은 복잡한
+    구조가 미묘하게 바뀔 위험이 있어, 일치하는 span의 outerHTML만 문자열 치환한다). alias가
+    있는 링크는 사용자가 직접 지정한 표시 텍스트이므로 alias는 그대로 두고 data-title만
+    갱신한다(클릭 시 이동 대상은 바뀌지만 화면에 보이는 별칭 문구는 유지). 브라우저 환경이
+    아니거나(SSR) 일치하는 링크가 없으면 원본을 그대로 돌려준다. */
+export function renameWikiLinkReferencesInHtml(
+  html: string,
+  oldTitle: string,
+  newTitle: string
+): { html: string; changed: boolean } {
+  const trimmedOld = oldTitle.trim();
+  const trimmedNew = newTitle.trim();
+  if (typeof window === "undefined" || !html || !trimmedOld || trimmedOld === trimmedNew) {
+    return { html, changed: false };
+  }
+  if (!html.includes("data-wiki-link")) return { html, changed: false };
+
+  let doc: Document;
+  try {
+    doc = new DOMParser().parseFromString(html, "text/html");
+  } catch {
+    return { html, changed: false };
+  }
+
+  const needle = trimmedOld.toLowerCase();
+  let next = html;
+  let changed = false;
+  doc.querySelectorAll('span[data-wiki-link="true"]').forEach((el) => {
+    const title = (el.getAttribute("data-title") ?? "").trim();
+    if (title.toLowerCase() !== needle) return;
+    const before = el.outerHTML;
+    el.setAttribute("data-title", trimmedNew);
+    if (!el.getAttribute("data-alias")) {
+      el.textContent = `[[${trimmedNew}]]`;
+    }
+    const after = el.outerHTML;
+    if (before !== after && next.includes(before)) {
+      next = next.replace(before, after);
+      changed = true;
+    }
+  });
+
+  return changed ? { html: next, changed: true } : { html, changed: false };
+}
+
+/** HTML로 아직 변환되지 않은 순수 마크다운 본문(예: 한 번도 에디터로 연 적 없는 시드/가져오기
+    노트)의 `[[title]]` / `[[title#heading]]` / `[[title|alias]]` / `[[title#heading|alias]]`
+    표기를 그대로 문자열 치환한다. heading/alias 구간은 보존하고 title만 바꾼다. */
+export function renameWikiLinkReferencesInMarkdown(
+  markdown: string,
+  oldTitle: string,
+  newTitle: string
+): { markdown: string; changed: boolean } {
+  const trimmedOld = oldTitle.trim();
+  const trimmedNew = newTitle.trim();
+  if (!markdown || !trimmedOld || trimmedOld === trimmedNew) {
+    return { markdown, changed: false };
+  }
+  const needle = trimmedOld.toLowerCase();
+  let changed = false;
+  const next = markdown.replace(/\[\[([^[\]]+)\]\]/g, (match, body: string) => {
+    const [titleAndHeading, aliasPart] = body.split("|");
+    const [title, heading] = titleAndHeading.split("#");
+    if (title.trim().toLowerCase() !== needle) return match;
+    changed = true;
+    const rebuilt = `${trimmedNew}${heading ? `#${heading}` : ""}${aliasPart ? `|${aliasPart}` : ""}`;
+    return `[[${rebuilt}]]`;
+  });
+  return changed ? { markdown: next, changed: true } : { markdown, changed: false };
+}
+
+/** 노트 본문이 HTML로 저장돼 있든(에디터가 한 번이라도 저장한 경우) 순수 마크다운이든
+    (시드/가져오기 등 아직 편집기를 거치지 않은 경우) 관계없이 위키링크 제목 변경을 반영한다.
+    형식 판별은 NoteEditor.tsx의 resolveEditorHtml과 동일한 규칙("<"로 시작하면 HTML)을 쓴다. */
+export function renameWikiLinkReferencesInContent(
+  content: string,
+  oldTitle: string,
+  newTitle: string
+): { content: string; changed: boolean } {
+  if (!content) return { content, changed: false };
+  if (content.trim().startsWith("<") || content.includes("data-wiki-link")) {
+    const result = renameWikiLinkReferencesInHtml(content, oldTitle, newTitle);
+    return { content: result.html, changed: result.changed };
+  }
+  const result = renameWikiLinkReferencesInMarkdown(content, oldTitle, newTitle);
+  return { content: result.markdown, changed: result.changed };
+}
+
+/** 저장 직전 방어적 검증 — HTML의 `data-title="title"` span이든, 아직 마크다운 텍스트 상태인
+    `[[title]]`(heading/alias 포함 가능) 표기든 "닫는 `]]`까지 완결된" 형태만 "실제로 링크가
+    남아있다"로 인정한다. 반드시 닫는 대괄호까지 확인해야 한다 — 예전에는 `[[title` 뒤에
+    아무 문자도 없이 문서가 끝나는 경우(자동완성 트리거 텍스트가 아직 실제 링크로 변환되지
+    않은, 닫히지 않은 상태)까지 "링크가 있다"로 잘못 판단해, 정작 `]]`가 없는 `[[A` 상태를
+    보정하지 않고 그대로 저장하는 버그가 있었다. */
+export function contentHasWikiLinkTo(content: string, title: string): boolean {
+  const trimmed = title.trim();
+  if (!content || !trimmed) return false;
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const needle = trimmed.toLowerCase();
+  if (content.includes("data-wiki-link")) {
+    const spanRe = /<span\b([^>]*)>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = spanRe.exec(content))) {
+      const attrs = match[1];
+      if (!/data-wiki-link="true"/.test(attrs)) continue;
+      const titleMatch = /data-title="([^"]*)"/.exec(attrs);
+      if (titleMatch && titleMatch[1].trim().toLowerCase() === needle) return true;
+    }
+  }
+  // 닫는 ]]까지 있어야만 인정한다 — [[title, [[title#heading, [[title]처럼 아직 안 닫힌 상태는
+  // 여기서 걸러지고 ensureWikiLinkPresent가 보정한다.
+  return new RegExp(`\\[\\[\\s*${escaped}(?:[|#][^\\]]*)?\\]\\]`, "i").test(content);
+}
+
+/** contentHasWikiLinkTo가 false를 돌려줄 때(라이브에딧 전환 타이밍 등으로 닫는 `]]`가 아직
+    안 붙었거나 title이 빈 채로 깨진 경우) 이미 문서에 남아있는 흔적을 "그 자리에서" 고쳐
+    닫는다 — 본문 끝에 새 `[[title]]`을 무작정 덧붙이면 깨진 `[[title` 텍스트와 새로 붙인
+    `[[title]]`이 중복으로 남기 때문이다. 우선순위:
+    1) 닫히지 않은 `[[title`(같은 title로 시작하고 아직 `]]`가 없는 부분) → 그 자리에서 `]]`로 닫는다.
+    2) 빈 `[[]]` → 마지막 occurrence를 `[[title]]`로 채운다.
+    3) 문서에서 흔적 자체가 사라졌다면(둘 다 없음) 최후의 수단으로 본문 끝에 `[[title]]`을 추가한다. */
+export function ensureWikiLinkPresent(content: string, title: string): string {
+  const trimmed = title.trim();
+  if (!trimmed) return content;
+  if (contentHasWikiLinkTo(content, trimmed)) return content;
+
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  const openRe = new RegExp(`\\[\\[\\s*${escaped}\\b`, "i");
+  const openMatch = openRe.exec(content);
+  if (openMatch) {
+    const insertAt = openMatch.index + openMatch[0].length;
+    return `${content.slice(0, insertAt)}]]${content.slice(insertAt)}`;
+  }
+
+  const emptyMatches = [...content.matchAll(/\[\[\s*\]\]/g)];
+  if (emptyMatches.length > 0) {
+    const last = emptyMatches[emptyMatches.length - 1];
+    const start = last.index ?? 0;
+    return `${content.slice(0, start)}[[${trimmed}]]${content.slice(start + last[0].length)}`;
+  }
+
+  return ensureWikiLinkAppended(content, trimmed);
+}
+
+/** ensureWikiLinkPresent의 최후 수단(위 두 경우 모두 아닐 때) — 본문 끝에 `[[title]]`을
+    명시적으로 덧붙인다. 사용자가 직접 쓴 다른 내용은 건드리지 않는다. */
+export function ensureWikiLinkAppended(content: string, title: string): string {
+  const trimmed = title.trim();
+  if (!trimmed) return content;
+  const suffix = `[[${trimmed}]]`;
+  if (!content || !content.trim()) return suffix;
+  if (content.trim().startsWith("<")) return `${content}<p>${suffix}</p>`;
+  return `${content}\n\n${suffix}`;
+}
+
 export function extractWikiLinkTargets(markdown: string) {
   const matches = markdown.match(/\[\[([^\]]+)\]\]/g) ?? [];
   return matches.map((match) => match.slice(2, -2)).filter(Boolean);

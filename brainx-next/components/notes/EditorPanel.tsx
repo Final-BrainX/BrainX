@@ -26,6 +26,9 @@ interface Props {
   isActive: boolean;
   dragPayload: DragPayload | null;
   mode: EditMode;
+  /** 이 pane의 Ctrl+Wheel 에디터 뷰 줌(%, 기본 100) — 노트 문서 자체의 typography와는 별개다. */
+  fontScale: number;
+  onFontScaleChange: (next: number) => void;
   saveSignal: number;
   scrollToHeadingSignal: { nonce: number; index: number } | null;
   onModeChange: (tabId: string, mode: EditMode) => void;
@@ -72,6 +75,8 @@ export default function EditorPanel({
   isActive,
   dragPayload,
   mode,
+  fontScale,
+  onFontScaleChange,
   saveSignal,
   scrollToHeadingSignal,
   onModeChange,
@@ -111,6 +116,9 @@ export default function EditorPanel({
   const overlayRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<NoteEditorHandle | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  /* 탭 바와 제목 사이에 Ctrl+F 검색창이 포털로 꽂혀 들어갈 자리 — DOM 노드가 실제로 만들어진
+     뒤에야 NoteEditor에 넘길 수 있어 state로 들고 있는다(ref는 그 시점을 알려주지 않는다). */
+  const [searchAnchorEl, setSearchAnchorEl] = useState<HTMLDivElement | null>(null);
 
   const scrollToHeading = useCallback((text: string) => {
     const container = scrollContainerRef.current;
@@ -142,16 +150,13 @@ export default function EditorPanel({
 
   const setNoteEditorRef = useCallback((handle: NoteEditorHandle | null) => {
     editorRef.current = handle;
-    if (onEditorHandleChange && activeTab.kind === "note" && note && isActive) {
-      onEditorHandleChange(node.id, activeTabId, handle);
-    }
-  }, [activeTab.kind, activeTabId, isActive, node.id, note?.id, onEditorHandleChange]);
+  }, []);
 
   useEffect(() => {
     if (!onEditorHandleChange || activeTab.kind !== "note" || !note || !isActive) return;
     onEditorHandleChange(node.id, activeTabId, editorRef.current);
     return () => onEditorHandleChange(node.id, activeTabId, null);
-  }, [activeTab.kind, activeTabId, isActive, mode, node.id, note?.id, onEditorHandleChange]);
+  }, [activeTab.kind, activeTabId, isActive, node.id, note?.id, onEditorHandleChange]);
 
   /* titleDragGuard 해제 안전망 — 제목 input 자신의 onMouseUp은 stopPropagation 되어 있어
      (아래 input 참고) 드래그가 input 경계를 벗어나 다른 곳에서 끝나도 가드를 반드시 꺼야
@@ -167,11 +172,15 @@ export default function EditorPanel({
     return () => window.removeEventListener("mouseup", reset, true);
   }, []);
 
-  /* Ctrl+마우스휠로 노트 전체 글씨 크기 조절(VS Code의 Mouse Wheel Zoom과 동일한 UX) — 툴바의
-     "서식" 패널이 이미 note.typography.scalePercent로 본문/H1/H2/H3 크기를 함께 조절하므로,
-     같은 상태를 그대로 재사용해 휠 조작과 툴바가 항상 같은 값을 보게 만든다(별도 상태를 두면
-     서로 어긋날 수 있음). 휠 이벤트는 마우스가 올라가 있는 패널의 DOM에만 발생하므로, 분할
-     화면에서 패널별로 분리되는 동작은 추가 처리 없이 자연히 보장된다.
+  /* Ctrl+마우스휠로 이 pane(분할 패널)의 "보기" 줌을 조절한다(VS Code의 Mouse Wheel Zoom과
+     동일한 UX). 예전에는 이 값을 note.typography.scalePercent(서식 패널이 조절하는, 노트
+     문서 자체에 저장되는 값)와 공유했는데 — 그러면 (1) 줌이 문서 서식으로 영구 저장돼버려서
+     같은 노트를 다른 pane/기기에서 열어도 줌이 따라오고, (2) pane마다 독립적으로 줌을 유지할
+     수 없었다(같은 노트를 두 pane에 열면 한쪽만 확대할 수 없음). 이제 줌은 pane id를 key로 한
+     세션 전용 UI 상태(paneFontScale, NotesWorkspace)로 완전히 분리했고, 서식 패널의
+     typography.scalePercent는 그대로 문서 자체의 서식으로 남아 회귀 없이 동작한다. 휠 이벤트는
+     마우스가 올라가 있는 패널의 DOM에만 발생하므로, 분할 화면에서 패널별로 분리되는 동작은
+     추가 처리 없이 자연히 보장된다.
      React 19의 onWheel은 루트에 passive 리스너로 등록되어 JSX onWheel 안에서 preventDefault가
      무시된다("Unable to preventDefault inside passive event listener" 경고와 함께 브라우저
      자체 페이지 확대가 같이 동작해버림) — 그래서 ref + addEventListener("wheel", ..., { passive:
@@ -182,16 +191,15 @@ export default function EditorPanel({
     const handler = (event: WheelEvent) => {
       if (!event.ctrlKey || !note) return;
       event.preventDefault();
-      const current = note.typography?.scalePercent ?? 100;
       const next = Math.min(
         TYPOGRAPHY_SCALE_MAX,
-        Math.max(TYPOGRAPHY_SCALE_MIN, current + (event.deltaY < 0 ? 5 : -5))
+        Math.max(TYPOGRAPHY_SCALE_MIN, fontScale + (event.deltaY < 0 ? 5 : -5))
       );
-      if (next !== current) onTypographyChange(note.id, { ...note.typography, scalePercent: next });
+      if (next !== fontScale) onFontScaleChange(next);
     };
     el.addEventListener("wheel", handler, { passive: false });
     return () => el.removeEventListener("wheel", handler);
-  }, [note, onTypographyChange]);
+  }, [note, fontScale, onFontScaleChange]);
 
   /* ── 제목 편집 상태 ── */
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -329,6 +337,13 @@ export default function EditorPanel({
         contextOpen={contextOpen}
       />
 
+      {/* Ctrl+F 검색창 앵커 — 탭 바와 스크롤 영역 사이에서 자체 크기는 0(패딩/높이 없음)이라
+          탭과 노트 사이에 별도 공간을 만들지 않는다. InNoteSearch가 이 안에 절대 위치로 검색창을
+          그리므로(이 앵커가 position:relative 기준점), 검색창은 노트 영역 상단에 겹쳐서
+          오른쪽 정렬로 뜨고 — 스크롤 영역(scrollContainerRef) 바깥에 있어 스크롤해도 같은
+          위치에 고정된다. */}
+      {note && <div ref={setSearchAnchorEl} className="relative z-30" />}
+
       {/* ── 콘텐츠 — 탭이 가리키는 노트를 찾을 수 없을 때(삭제된 노트 등)는 복구용으로
           Welcome 화면과 동일한 컴포넌트를 보여준다. 탭이 0개인 진짜 Welcome 상태는
           NotesWorkspace 최상위에서 처리하므로 여기서는 일어나지 않는다. */}
@@ -363,6 +378,14 @@ export default function EditorPanel({
               editorRef.current?.focusEnd();
             }
           }}
+          onContextMenu={(e) => {
+            // 텍스트/이미지/표 위의 우클릭은 NoteEditor.tsx의 onContextMenu가 stopPropagation으로
+            // 이미 처리해 여기까지 오지 않는다 — 여기 닿는다는 건 아직 글이 없는 빈 여백이라는 뜻.
+            if (isEdit && e.target === e.currentTarget && !titleDragGuard.active) {
+              e.preventDefault();
+              editorRef.current?.openContextMenu(e.clientX, e.clientY);
+            }
+          }}
         >
           {/* Obsidian처럼 본문을 패널 중앙의 적당한 폭으로 제한한다 — 텍스트 자체의 정렬은 그대로
               좌측 정렬(.ProseMirror 기본값)이고, 이 wrapper의 좌우 여백만 중앙 정렬된다. 분할
@@ -375,6 +398,10 @@ export default function EditorPanel({
               셋 다 항상 같은 컬럼 기준을 따른다. */}
           <div
             className="mx-auto max-w-[680px] px-8 py-7"
+            // Ctrl+Wheel pane 줌 — CSS zoom은 폰트 크기뿐 아니라 이 wrapper의 레이아웃 박스
+            // 전체(max-w 컬럼 폭 포함)를 함께 확대/축소해 "화면을 당겨서 보는" 느낌을 주고,
+            // 문서 content(HTML)나 note.typography는 전혀 건드리지 않는다 — 100%면 no-op.
+            style={fontScale !== 100 ? { zoom: `${fontScale}%` } : undefined}
             onClick={(e) => {
               if (
                 isEdit &&
@@ -383,6 +410,12 @@ export default function EditorPanel({
                 !titleDragGuard.active
               ) {
                 editorRef.current?.focusEnd();
+              }
+            }}
+            onContextMenu={(e) => {
+              if (isEdit && e.target === e.currentTarget && !titleDragGuard.active) {
+                e.preventDefault();
+                editorRef.current?.openContextMenu(e.clientX, e.clientY);
               }
             }}
           >
@@ -493,6 +526,7 @@ export default function EditorPanel({
               onContentChange={onContentChange}
               onAiAction={onAiAction}
               allTags={Array.from(new Set(allNotes.flatMap((n) => n.tags ?? [])))}
+              searchAnchorEl={searchAnchorEl}
             />
           </div>
         </div>
@@ -512,6 +546,13 @@ export default function EditorPanel({
           ref={overlayRef}
           className="absolute inset-0 z-10"
           style={{ top: 36 }}
+          onClick={() => {
+            // 방어적 안전망: 실제 HTML5 드래그 중이라면 이 오버레이 위에서 'click'이 발생하지
+            // 않는다(드래그는 dragover/drop만 발생, click은 억제됨) — 그런데도 click이 여기 닿았다는
+            // 건 dragPayload가 실제 드래그 없이 남아있는 상태(dragend/drop을 놓친 경우)라는 뜻이다.
+            // 오버레이가 본문 클릭/타이핑을 계속 가로채지 않도록 즉시 정리한다.
+            onTabDragEnd();
+          }}
           onDragOver={(e) => {
             if (dragPayload.kind === "tab" && !canSplitWorkspace) {
               e.dataTransfer.dropEffect = "none";

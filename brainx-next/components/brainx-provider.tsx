@@ -20,7 +20,7 @@ import {
   updateNoteDerived
 } from "@/lib/brainx-data";
 import { getLocalStoredValue, setLocalStoredValue } from "@/lib/client-storage";
-import { ensureDevAuthSession, readAuthSession } from "@/lib/auth-api";
+import { ensureDevAuthSession, getAuthIdentityKey, readAuthSession } from "@/lib/auth-api";
 import { translate, type I18nKey, type LanguageCode } from "@/lib/i18n";
 import { USE_MOCK_NOTES } from "@/lib/workspace-api";
 import { loadWorkspaceBrainXNotes } from "@/lib/workspace-live-notes";
@@ -119,6 +119,7 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const notesRef = useRef(notes);
+  const [authIdentityKey, setAuthIdentityKey] = useState(() => getAuthIdentityKey(readAuthSession()));
 
   useEffect(() => {
     notesRef.current = notes;
@@ -142,42 +143,56 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
     const handle = window.setTimeout(() => {
       try {
         writeJson(NOTES_KEY, notes);
-        setSaveStatus("saved");
+        setSaveStatus((prev) => (prev === "saved" ? prev : "saved"));
       } catch {
-        setSaveStatus("error");
+        setSaveStatus((prev) => (prev === "error" ? prev : "error"));
       }
     }, 350);
-    setSaveStatus("saving");
+    setSaveStatus((prev) => (prev === "saving" ? prev : "saving"));
     return () => window.clearTimeout(handle);
   }, [hydrated, notes]);
 
   useEffect(() => {
     if (!hydrated || USE_MOCK_NOTES) return;
+    const syncAuthIdentity = () => {
+      const nextSession = readAuthSession();
+      const nextIdentityKey = getAuthIdentityKey(nextSession);
+      setAuthIdentityKey((prev) => (prev === nextIdentityKey ? prev : nextIdentityKey));
+    };
+    window.addEventListener("brainx-auth-session-changed", syncAuthIdentity);
+    return () => {
+      window.removeEventListener("brainx-auth-session-changed", syncAuthIdentity);
+    };
+  }, [hydrated]);
+
+  useEffect(() => {
+    if (!hydrated || USE_MOCK_NOTES) return;
     let active = true;
+    let requestNonce = 0;
 
     const loadLiveNotes = () => {
-      setSaveStatus("saving");
+      const nextNonce = requestNonce + 1;
+      requestNonce = nextNonce;
+      setSaveStatus((prev) => (prev === "saving" ? prev : "saving"));
       loadWorkspaceBrainXNotes()
         .then((nextNotes) => {
-          if (!active) return;
+          if (!active || requestNonce !== nextNonce) return;
           setNotes(nextNotes);
-          setSaveStatus("saved");
+          setSaveStatus((prev) => (prev === "saved" ? prev : "saved"));
         })
         .catch(() => {
-          if (!active) return;
-          setSaveStatus("error");
+          if (!active || requestNonce !== nextNonce) return;
+          setSaveStatus((prev) => (prev === "error" ? prev : "error"));
         });
     };
 
     loadLiveNotes();
-    window.addEventListener("brainx-auth-session-changed", loadLiveNotes);
     window.addEventListener("brainx:notes-refresh", loadLiveNotes);
     return () => {
       active = false;
-      window.removeEventListener("brainx-auth-session-changed", loadLiveNotes);
       window.removeEventListener("brainx:notes-refresh", loadLiveNotes);
     };
-  }, [hydrated]);
+  }, [authIdentityKey, hydrated]);
 
   useEffect(() => {
     if (!hydrated) return;

@@ -4,13 +4,13 @@ import { clearAuthSession, isDevAuthSession, readAuthSession, type ApiResponse }
 import { CLUSTERS, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
 import { getBrainxDesktopConfig, isElectronDesktop } from "@/lib/desktop-bridge";
 import { getDesktopVaultSnapshot } from "@/lib/desktop-vault";
+import { DEV_USER_ID as WORKSPACE_DEV_USER_ID } from "@/lib/dev-user";
 import { extractWikiLinkTargets, resolveWikiLinkByTitle } from "@/lib/wiki-links";
 import type { NoteDraftData } from "@/lib/workspace-api";
 
 const WORKSPACE_API_BASE_URL = process.env.NEXT_PUBLIC_WORKSPACE_API_BASE_URL ?? "http://localhost:8082";
 export const USE_MOCK_GRAPH = process.env.NEXT_PUBLIC_GRAPH_USE_MOCK !== "false";
 export const USE_MOCK_GRAPH_CLUSTERS = process.env.NEXT_PUBLIC_GRAPH_CLUSTERS_USE_MOCK !== "false";
-const WORKSPACE_DEV_USER_ID = process.env.NEXT_PUBLIC_WORKSPACE_DEV_USER_ID?.trim();
 
 export type GraphNodeData = {
   id: string;
@@ -209,6 +209,63 @@ export function draftsToBrainXNotes(drafts: NoteDraftData[]): BrainXNote[] {
       version: draft.baseVersion ?? 1
     };
   });
+}
+
+/** 방금 만든 노트(lib/notes/pending-created-note-cache.ts — 위키링크로 만든 노트뿐 아니라
+    일반 "+ 새 노트"/우클릭 새 노트도 전부 포함)를 서버 응답이 아직 없어도 그래프에
+    optimistic하게 보여주기 위한 최소 placeholder. markdown은 비워둔다 — 위키링크로 만든
+    경우라면 이 노드 자체의 본문이 아니라, 소스 노트 쪽에 이미 저장된 `[[title]]` 텍스트가
+    deriveGraphEdges의 제목 매칭으로 이 노드를 찾아 연결선을 만들어줄 수 있고(그래도 안 잡히는
+    타이밍은 아래 pendingWikiLinkEntryToEdge가 보강한다), 일반 새 노트라면 애초에 edge가
+    필요 없으므로 markdown 내용 자체는 중요하지 않다. */
+export function pendingCreatedNoteToBrainXNote(entry: {
+  noteId: string;
+  title: string;
+  createdAt: number;
+}): BrainXNote {
+  const fallbackCluster = CLUSTERS[0].id;
+  const createdAt = new Date(entry.createdAt).toISOString();
+  return {
+    id: entry.noteId,
+    title: entry.title,
+    markdown: "",
+    folderId: fallbackCluster,
+    cluster: fallbackCluster,
+    summary: "",
+    tags: [],
+    links: [],
+    searchIndexStatus: "UNKNOWN",
+    availableForAiFeatures: false,
+    indexedAt: null,
+    updated: "just now",
+    words: 0,
+    isFavorite: false,
+    createdAt,
+    updatedAt: createdAt,
+    version: 1
+  };
+}
+
+/** pending wikilink 항목(sourceNoteId → noteId)을 optimistic edge로 직접 만든다. 소스 노트의
+    저장된 markdown에서 `[[title]]`을 찾아 제목 매칭으로 연결선을 만드는 deriveGraphEdges/
+    deriveDraftWikiLinkEdges에 기대지 않는 이유: 그 방식은 소스 노트 자신의 서버 저장(콘텐츠
+    PUT/draft 저장)까지 끝나야 하는데, 그 저장도 비동기라 그래프 새 마운트 시점에는 아직 안
+    끝났을 수 있다 — 노드(A)는 optimistic하게 보이는데 edge만 안 보이는 정확히 그 증상의
+    원인이었다. edge는 어느 쪽 저장 상태와도 무관하게, pending 항목 자체(생성 시점에 이미
+    알고 있는 source/target)만으로 즉시 만든다. */
+export function pendingWikiLinkEntryToEdge(entry: {
+  sourceNoteId: string;
+  noteId: string;
+  title: string;
+}) {
+  return {
+    source: entry.sourceNoteId,
+    target: entry.noteId,
+    type: "REFERENCE" as const,
+    weight: 0.95,
+    reason: `${entry.sourceNoteId} 노트의 위키링크가 "${entry.title}"를 참조합니다(optimistic).`,
+    bridge: false
+  };
 }
 
 /** 게스트는 Postgres NoteLink가 없어(구조상 의도된 정책 — graph-api 자체를 안 씀) 서버 그래프를
