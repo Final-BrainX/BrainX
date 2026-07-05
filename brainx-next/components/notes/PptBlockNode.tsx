@@ -5,30 +5,34 @@ import { Node, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { Presentation, ChevronLeft, ChevronRight, ExternalLink, Maximize2, Minimize2 } from "lucide-react";
 import { cx } from "@/lib/utils";
-import { getPptSlideUrl, getAssetFileUrl } from "@/lib/ingestion-api";
+import { getPptSlideUrl, getPptSlideVideoUrl, getAssetFileUrl } from "@/lib/ingestion-api";
 import { startBlockDrag } from "./DragHandleExtension";
 
 function decodeHtmlEntities(s: string) {
   return s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 }
 
-export function parsePptOnlyNote(content: string): { assetId: string; fileName: string; slideCount: number } | null {
+export function parsePptOnlyNote(content: string): { assetId: string; fileName: string; slideCount: number; videoSlides: number[] } | null {
   const trimmed = content.trim();
-  const match = /^<div data-ppt-block="true" data-asset-id="([^"]+)" data-file-name="([^"]*)" data-slide-count="(\d+)"><\/div>$/.exec(trimmed);
+  const match = /^<div data-ppt-block="true" data-asset-id="([^"]+)" data-file-name="([^"]*)" data-slide-count="(\d+)"(?: data-video-slides="([^"]*)")?><\/div>$/.exec(trimmed);
   if (!match) return null;
-  return { assetId: match[1], fileName: decodeHtmlEntities(match[2]), slideCount: parseInt(match[3], 10) };
+  const videoSlides = match[4] ? match[4].split(",").map(Number).filter((n) => !isNaN(n)) : [];
+  return { assetId: match[1], fileName: decodeHtmlEntities(match[2]), slideCount: parseInt(match[3], 10), videoSlides };
 }
 
 function PptBlockView({ node, selected, getPos, editor }: NodeViewProps) {
   const assetId = (node.attrs.assetId as string) ?? "";
   const fileName = (node.attrs.fileName as string) ?? "presentation.pptx";
   const slideCount = (node.attrs.slideCount as number) ?? 1;
+  const videoSlideSet = new Set<number>((node.attrs.videoSlides as number[]) ?? []);
 
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const slideUrl = assetId ? getPptSlideUrl(assetId, currentSlide) : "";
+  const isVideoSlide = videoSlideSet.has(currentSlide);
+  const slideUrl = assetId && !isVideoSlide ? getPptSlideUrl(assetId, currentSlide) : "";
+  const slideVideoUrl = assetId && isVideoSlide ? getPptSlideVideoUrl(assetId, currentSlide) : "";
   const downloadUrl = assetId ? getAssetFileUrl(assetId) : "";
 
   const prev = () => setCurrentSlide((s) => Math.max(0, s - 1));
@@ -119,9 +123,17 @@ function PptBlockView({ node, selected, getPos, editor }: NodeViewProps) {
           </div>
         </div>
 
-        {/* 슬라이드 이미지 */}
+        {/* 슬라이드 */}
         <div className={cx("relative bg-black flex items-center justify-center", isFullscreen ? "flex-1" : "h-[70vh]")}>
-          {slideUrl ? (
+          {isVideoSlide && slideVideoUrl ? (
+            <video
+              key={slideVideoUrl}
+              src={slideVideoUrl}
+              controls
+              className="max-h-full max-w-full"
+              draggable={false}
+            />
+          ) : slideUrl ? (
             <img
               key={slideUrl}
               src={slideUrl}
@@ -224,6 +236,18 @@ export const PptBlock = Node.create({
         default: 1,
         parseHTML: (el) => parseInt(el.getAttribute("data-slide-count") ?? "1", 10),
         renderHTML: (attrs) => ({ "data-slide-count": String(attrs.slideCount ?? 1) }),
+      },
+      videoSlides: {
+        default: [] as number[],
+        parseHTML: (el) => {
+          const raw = el.getAttribute("data-video-slides");
+          if (!raw) return [];
+          return raw.split(",").map(Number).filter((n) => !isNaN(n));
+        },
+        renderHTML: (attrs) => {
+          const vs = attrs.videoSlides as number[];
+          return vs && vs.length > 0 ? { "data-video-slides": vs.join(",") } : {};
+        },
       },
     };
   },

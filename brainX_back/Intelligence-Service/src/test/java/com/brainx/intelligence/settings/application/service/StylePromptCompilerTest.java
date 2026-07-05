@@ -23,8 +23,9 @@ class StylePromptCompilerTest {
     void conversationToneInstructionsIncludeOnlyAllowedKeys() {
         styleProfilePort.profile = profile(
             Map.of(
+                "speechLevel", "친근한 해요체",
                 "directness", "high",
-                "verbosity", "concise",
+                "verbosity", "차갑고 짧게",
                 "unknownKey", "ignore me",
                 "assistanceStyle", "legacy"
             ),
@@ -34,9 +35,12 @@ class StylePromptCompilerTest {
         String instructions = compiler.conversationToneInstructions("user-1");
 
         assertThat(instructions)
-            .contains("User conversation tone profile")
-            .contains("- directness: high")
-            .contains("- verbosity: concise")
+            .contains("Mandatory user style instructions")
+            .contains("every final user-facing conversational sentence")
+            .contains("Use this speech level and sentence-ending style consistently: 친근한 해요체")
+            .contains("Keep the directness level: high")
+            .contains("Keep the response length/detail level: 차갑고 짧게")
+            .contains("Do not mention the user's style profile")
             .doesNotContain("unknownKey")
             .doesNotContain("assistanceStyle");
     }
@@ -46,8 +50,9 @@ class StylePromptCompilerTest {
         styleProfilePort.profile = profile(
             Map.of(),
             new LinkedHashMap<>(Map.of(
-                "formality", "business",
-                "sentenceLength", "short",
+                "speechLevel", "음슴체",
+                "formality", "담백한 업무 문체",
+                "sentenceLength", "짧고 리듬감 있게",
                 "avoid", List.of("emoji", "overpromising"),
                 "nested", Map.of("ignored", true)
             ))
@@ -56,10 +61,15 @@ class StylePromptCompilerTest {
         String instructions = compiler.writingStyleInstructions("user-1");
 
         assertThat(instructions)
-            .contains("User writing style profile")
-            .contains("- formality: business")
-            .contains("- sentenceLength: short")
-            .contains("- avoid: emoji, overpromising")
+            .contains("Mandatory user style instructions")
+            .contains("every final generated or edited user-facing text segment")
+            .contains("Use this speech level and sentence-ending style consistently: 음슴체")
+            .contains("prefer terse eumsseum-style endings")
+            .contains("\"함\", \"임\", \"됨\", \"있음\", and \"없음\"")
+            .contains("Avoid polite/formal Korean endings")
+            .contains("Use this formality/tone: 담백한 업무 문체")
+            .contains("Use this sentence length/rhythm: 짧고 리듬감 있게")
+            .contains("Avoid these expressions in the final output: emoji, overpromising")
             .doesNotContain("nested");
     }
 

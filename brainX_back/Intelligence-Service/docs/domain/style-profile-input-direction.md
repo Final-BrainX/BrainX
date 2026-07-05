@@ -9,7 +9,11 @@
 | 축 | 적용 대상 | 예시 key |
 | --- | --- | --- |
 | `conversationTone` | AI가 사용자에게 직접 설명하거나 이유를 말하는 대화형 응답 | `speechLevel`, `warmth`, `directness`, `verbosity`, `emoji` |
-| `writingStyle` | AI가 생성하거나 수정하는 결과물 자체의 문체 | `defaultAudience`, `defaultPurpose`, `formality`, `informationDensity`, `sentenceLength`, `avoid` |
+| `writingStyle` | AI가 생성하거나 수정하는 결과물 자체의 문체 | `speechLevel`, `defaultAudience`, `defaultPurpose`, `formality`, `informationDensity`, `sentenceLength`, `avoid` |
+
+각 key의 값은 preset enum이 아니라 사용자가 입력한 자유 문자열이다. 예를 들어 `해요체`, `음슴체`, `친근하게`, `차갑고 짧게`, `브랜드 톤`, `논문 초록처럼` 같은 표현을 그대로 저장하고 prompt compiler에서 짧게 sanitize한 뒤 LLM instruction에 반영한다.
+
+prompt compiler는 값을 단순 metadata가 아니라 `Mandatory user style instructions`로 변환한다. 최종 사용자-facing 문장에는 이 문체를 강하게 적용하되, 안전성, 사실성, 근거 제한, 요구 출력 schema/format, target language, source context, 사용자의 명시 지시가 충돌하면 해당 상위 지시가 우선한다. `writingStyle.speechLevel`에 `음슴체`가 들어오면 한국어 결과물에서 `함`, `임`, `됨` 같은 음슴체 종결을 선호하고 `-요`, `-습니다`, `-합니다` 종결을 피하도록 명시한다.
 
 `assistanceStyle`은 제거한다. 질문 빈도, 선제적 제안, 반박 수준 같은 도움 방식은 실제 기능별 UX/정책과 강하게 결합되어 있는데, 독립 설정으로 남겨두면 사용하지 않는 가정 때문에 기능별 prompt와 API 부채가 늘어난다. 필요해지기 전까지는 두 축으로 충분하다.
 
@@ -28,18 +32,19 @@ REST API의 `StyleProfileData`와 `StyleProfilePutRequest`는 다음 두 propert
 ```json
 {
   "conversationTone": {
-    "speechLevel": "haeyo",
-    "warmth": "low",
-    "directness": "high",
-    "verbosity": "short",
-    "emoji": "off"
+    "speechLevel": "해요체",
+    "warmth": "따뜻하지만 과하지 않게",
+    "directness": "핵심부터 바로 말하기",
+    "verbosity": "짧은 한 단락",
+    "emoji": "거의 쓰지 않기"
   },
   "writingStyle": {
-    "defaultAudience": "general_professional",
-    "defaultPurpose": "explain",
-    "formality": "business",
-    "informationDensity": "balanced",
-    "sentenceLength": "short_to_medium",
+    "speechLevel": "합니다체",
+    "defaultAudience": "팀 리드",
+    "defaultPurpose": "상태 공유",
+    "formality": "담백한 업무 보고 톤",
+    "informationDensity": "핵심만 균형 있게",
+    "sentenceLength": "짧은 문장 위주",
     "avoid": [
       "과장 표현",
       "불필요한 감탄"

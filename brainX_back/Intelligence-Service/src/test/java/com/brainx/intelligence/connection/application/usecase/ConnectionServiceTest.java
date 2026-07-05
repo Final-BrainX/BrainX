@@ -149,9 +149,10 @@ class ConnectionServiceTest {
         String systemPrompt = aiChatPort.lastRequest.messages().getFirst().content();
         assertThat(systemPrompt)
             .contains("including both required wiki links exactly as [[title]]")
-            .contains("User conversation tone profile")
-            .contains("- directness: high")
-            .doesNotContain("User writing style profile");
+            .contains("Mandatory user style instructions")
+            .contains("every final user-facing conversational sentence")
+            .contains("Keep the directness level: high")
+            .doesNotContain("every final generated or edited user-facing text segment");
         String prompt = aiChatPort.lastRequest.messages().get(1).content();
         assertThat(prompt).contains("Java", "backend", "Database", "sql", "[[Java]]", "[[Database]]");
         assertThat(prompt).doesNotContain("markdown body");
