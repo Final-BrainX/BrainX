@@ -164,6 +164,18 @@ export type WorkspaceUserStatsData = {
   activities: WorkspaceUserActivityData[];
 };
 
+export type WorkspaceSummaryData = {
+  documentGroupId: string;
+  name: string;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type WorkspaceListData = {
+  workspaces: WorkspaceSummaryData[];
+};
+
 async function shouldUseDesktopVault() {
   if (!isElectronDesktop()) return false;
   const config = await getBrainxDesktopConfig();
@@ -410,6 +422,16 @@ export async function getMyWorkspaceStats() {
   // /home, 설정 모달이 user-only stats endpoint를 치지 않게 한다.
   if (!hasWorkspaceUserIdentity()) return emptyStats;
   return authedRequest<WorkspaceUserStatsData>("/api/v1/workspace/me/stats");
+}
+
+/** 다중 Workspace(documentGroup) 목록 조회 — Ticket11(Workspace Context)의 기반 API다.
+    데스크톱 vault 모드는 Workspace-Service 자체를 안 쓰고(README 참고), guest/비로그인은
+    Workspace를 가지지 않으므로(docs/Workspace 정책) 둘 다 빈 목록으로 조용히 처리한다. */
+export async function listWorkspaces(): Promise<WorkspaceListData> {
+  const empty: WorkspaceListData = { workspaces: [] };
+  if (await shouldUseDesktopVault()) return empty;
+  if (!hasWorkspaceUserIdentity()) return empty;
+  return authedRequest<WorkspaceListData>("/api/v1/workspaces");
 }
 
 export async function createWorkspaceFolder(name: string, parentFolderId: string | null) {
