@@ -132,7 +132,7 @@ export function ImportScreen() {
     startImport(files[0]);
   };
 
-  const openFilePicker = async (accept = ".zip,.csv,.pdf,.txt,.md,.html,.docx,.epub") => {
+  const openFilePicker = async (accept = ".zip,.csv,.pdf,.txt,.md,.html,.docx,.epub,.pptx") => {
     const file = await pickFile({ accept, title: "Import File" });
     if (!file) return;
     startImport(file);
