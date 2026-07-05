@@ -1,6 +1,8 @@
 "use client";
 import { clearAuthSession, isDevAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { getWorkspaceApiBaseUrl } from "@/lib/api-base";
 import { getLocalStoredValue, setLocalStoredValue } from "@/lib/client-storage";
+import { requestDesktopApiJson } from "@/lib/desktop-api-request";
 import { getBrainxDesktopConfig, isElectronDesktop } from "@/lib/desktop-bridge";
 import {
   createDesktopVaultFolder,
@@ -16,7 +18,6 @@ import {
 import { DEV_USER_ID as WORKSPACE_DEV_USER_ID } from "@/lib/dev-user";
 import type { MockFolder, MockNote, NoteTypography } from "@/lib/notes/noteTypes";
 
-const WORKSPACE_API_BASE_URL = process.env.NEXT_PUBLIC_WORKSPACE_API_BASE_URL ?? "http://localhost:8082";
 export const USE_MOCK_NOTES = process.env.NEXT_PUBLIC_NOTES_USE_MOCK !== "false";
 const GUEST_SESSION_ID_KEY = "brainx_workspace_guest_id_v1";
 
@@ -263,7 +264,24 @@ async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
     }
   };
 
-  const sendRequest = () => fetch(`${WORKSPACE_API_BASE_URL}${path}`, requestInit);
+  const sendRequest = async () => {
+    const desktopResponse = await requestDesktopApiJson<ApiResponse<T>>(path, requestInit);
+    if (desktopResponse) {
+      return {
+        ok: desktopResponse.ok,
+        status: desktopResponse.status,
+        payload: desktopResponse.payload,
+      };
+    }
+
+    const response = await fetch(`${getWorkspaceApiBaseUrl()}${path}`, requestInit);
+    const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
+    return {
+      ok: response.ok,
+      status: response.status,
+      payload,
+    };
+  };
 
   // session이 없으면(비회원) Authorization 헤더 없이 호출한다 — Gateway가 guest cookie/
   // X-Guest-Id를 발급해 Workspace-Service가 GUEST actor로 처리한다.
@@ -275,7 +293,7 @@ async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
     response = await sendRequest();
   }
 
-  const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
+  const payload = response.payload;
   const shouldClearSession = useAuthenticatedSession && Boolean(session?.accessToken);
   if (response.status === 401 || response.status === 403) {
     if (shouldClearSession) {
@@ -680,7 +698,7 @@ export async function revokeShareLink(shareId: string): Promise<ShareLinkData> {
 }
 
 export async function getPublicShareLinkForNote(noteId: string): Promise<ShareLinkData | null> {
-  const response = await fetch(`${WORKSPACE_API_BASE_URL}/api/v1/share-links/by-note/${encodeURIComponent(noteId)}`);
+  const response = await fetch(`${getWorkspaceApiBaseUrl()}/api/v1/share-links/by-note/${encodeURIComponent(noteId)}`);
   if (!response.ok) return null;
   const payload = (await response.json().catch(() => null)) as { success: boolean; data?: ShareLinkData } | null;
   return payload?.success && payload.data ? payload.data : null;
@@ -688,7 +706,7 @@ export async function getPublicShareLinkForNote(noteId: string): Promise<ShareLi
 
 export async function getLinkedNote(shareId: string, noteId: string): Promise<PublicSharedNoteData> {
   const response = await fetch(
-    `${WORKSPACE_API_BASE_URL}/api/v1/share-links/${encodeURIComponent(shareId)}/linked-note/${encodeURIComponent(noteId)}`
+    `${getWorkspaceApiBaseUrl()}/api/v1/share-links/${encodeURIComponent(shareId)}/linked-note/${encodeURIComponent(noteId)}`
   );
   const payload = (await response.json().catch(() => null)) as { success: boolean; data?: PublicSharedNoteData; error?: { code?: string; message?: string } } | null;
   if (response.status === 410 || payload?.error?.code === "SHARE_LINK_EXPIRED") throw new Error("GONE");
@@ -697,7 +715,7 @@ export async function getLinkedNote(shareId: string, noteId: string): Promise<Pu
 }
 
 export async function getPublicSharedNote(shareId: string): Promise<PublicSharedNoteData> {
-  const response = await fetch(`${WORKSPACE_API_BASE_URL}/api/v1/share-links/${encodeURIComponent(shareId)}`);
+  const response = await fetch(`${getWorkspaceApiBaseUrl()}/api/v1/share-links/${encodeURIComponent(shareId)}`);
   const payload = (await response.json().catch(() => null)) as { success: boolean; data?: PublicSharedNoteData; error?: { code?: string; message?: string } } | null;
   if (response.status === 410 || payload?.error?.code === "SHARE_LINK_EXPIRED") {
     throw new Error("GONE");

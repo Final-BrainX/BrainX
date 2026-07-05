@@ -92,6 +92,8 @@ Windows PowerShell 기준:
 
 배포 환경에서 Workspace 이벤트를 소비해 note projection을 만들려면 `BRAINX_EVENTS_CONSUMER_ENABLED=true`, `KAFKA_BOOTSTRAP_SERVERS`, `SPRING_KAFKA_BOOTSTRAP_SERVERS`, `BRAINX_WORKSPACE_BASE_URL`, `BRAINX_WORKSPACE_SERVICE_TOKEN`이 필요합니다. Workspace internal snapshot API는 `X-Service-Token` 헤더를 사용하므로 `BRAINX_WORKSPACE_SERVICE_TOKEN`은 Workspace-Service의 `SERVICE_TOKEN`과 같아야 합니다.
 
+Redis 클라이언트는 `REDIS_HOST`, `REDIS_PORT`, `REDIS_TIMEOUT` 설정을 사용하며, Docker 개발 환경에서는 compose의 `redis` 서비스에 연결합니다. Redis health check는 기본 local 실행을 깨지 않도록 `BRAINX_REDIS_HEALTH_ENABLED`로 켭니다.
+
 운영 DB schema는 Flyway가 `src/main/resources/db/migration`의 migration으로 적용하고, Hibernate는 기본 `ddl-auto=validate`로 entity/schema 불일치만 검증합니다. 로컬 H2 기반 `local`, `test`, `dev-ui` profile은 기존처럼 `create-drop`을 사용하며 Flyway를 끕니다. 운영 DDL 기준과 수동 점검 절차는 `docs/technical/intelligence-operational-db-ddl.md`를 따릅니다.
 운영 PostgreSQL에서 `@Lob`/JSON converter 컬럼은 Hibernate legacy `oid`가 아니라 `text`로 유지합니다. 기존 DB에 `oid` drift가 남아 있으면 Flyway repair migration이 large object를 `text`로 복구한 뒤 `ddl-auto=validate`를 통과해야 합니다.
 

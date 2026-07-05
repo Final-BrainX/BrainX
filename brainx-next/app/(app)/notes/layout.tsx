@@ -157,13 +157,13 @@ export default function NotesLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <>
+    <div className="flex h-full flex-col">
       <NotesWorkspace
         initialTab={initialTab}
         persistKey="brainx_notes_workspace_v1"
         onActiveNoteChange={(noteId) => router.replace(noteId ? `/notes/${noteId}` : "/notes")}
       />
       {children}
-    </>
+    </div>
   );
 }

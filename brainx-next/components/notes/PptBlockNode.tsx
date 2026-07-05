@@ -1,15 +1,17 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Node, mergeAttributes } from "@tiptap/core";
-import { ReactNodeViewRenderer, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
-import { Presentation, ChevronLeft, ChevronRight, ExternalLink, Maximize2, Minimize2 } from "lucide-react";
+import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
+import { ChevronLeft, ChevronRight, ExternalLink, Maximize2, Minimize2, Presentation } from "lucide-react";
+import { isElectronDesktop } from "@/lib/desktop-bridge";
+import { openDesktopVaultAsset } from "@/lib/desktop-vault";
+import { getAssetFileUrl, getPptSlideUrl, getPptSlideVideoUrl, isDesktopVaultAssetId } from "@/lib/ingestion-api";
 import { cx } from "@/lib/utils";
-import { getPptSlideUrl, getPptSlideVideoUrl, getAssetFileUrl } from "@/lib/ingestion-api";
 import { startBlockDrag } from "./DragHandleExtension";
 
-function decodeHtmlEntities(s: string) {
-  return s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+function decodeHtmlEntities(value: string) {
+  return value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 }
 
 export function parsePptOnlyNote(content: string): { assetId: string; fileName: string; slideCount: number; videoSlides: number[] } | null {
@@ -31,24 +33,34 @@ function PptBlockView({ node, selected, getPos, editor }: NodeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const isVideoSlide = videoSlideSet.has(currentSlide);
+  const isLocalVaultAsset = assetId ? isDesktopVaultAssetId(assetId) : false;
   const slideUrl = assetId && !isVideoSlide ? getPptSlideUrl(assetId, currentSlide) : "";
   const slideVideoUrl = assetId && isVideoSlide ? getPptSlideVideoUrl(assetId, currentSlide) : "";
   const downloadUrl = assetId ? getAssetFileUrl(assetId) : "";
 
-  const prev = () => setCurrentSlide((s) => Math.max(0, s - 1));
-  const next = () => setCurrentSlide((s) => Math.min(slideCount - 1, s + 1));
+  const prev = () => setCurrentSlide((value) => Math.max(0, value - 1));
+  const next = () => setCurrentSlide((value) => Math.min(slideCount - 1, value + 1));
+
+  const openExternal = useCallback(async () => {
+    if (isElectronDesktop() && isLocalVaultAsset) {
+      await openDesktopVaultAsset(assetId);
+      return;
+    }
+    if (!downloadUrl) return;
+    window.open(downloadUrl, "_blank", "noopener,noreferrer");
+  }, [assetId, downloadUrl, isLocalVaultAsset]);
 
   const toggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
       containerRef.current?.requestFullscreen();
     } else {
-      document.exitFullscreen();
+      void document.exitFullscreen();
     }
   }, []);
 
   useEffect(() => {
     const onFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
+      setIsFullscreen(document.fullscreenElement === containerRef.current);
     };
     document.addEventListener("fullscreenchange", onFullscreenChange);
     return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
@@ -56,13 +68,19 @@ function PptBlockView({ node, selected, getPos, editor }: NodeViewProps) {
 
   useEffect(() => {
     if (!isFullscreen) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); prev(); }
-      if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); next(); }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+        event.preventDefault();
+        prev();
+      }
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+        event.preventDefault();
+        next();
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [isFullscreen, currentSlide, slideCount]);
+  }, [isFullscreen, slideCount]);
 
   return (
     <NodeViewWrapper className="split-ppt-block my-3">
@@ -74,13 +92,11 @@ function PptBlockView({ node, selected, getPos, editor }: NodeViewProps) {
           isFullscreen && "flex flex-col bg-black"
         )}
       >
-        {/* 헤더 */}
         <div
           className={cx(
-            "flex items-center justify-between gap-2 border-b px-3 py-2 shrink-0",
-            isFullscreen
-              ? "border-white/10 bg-black/80 cursor-default"
-              : "border-line/40 bg-surface2/40 cursor-grab"
+            "shrink-0 border-b px-3 py-2",
+            "flex items-center justify-between gap-2",
+            isFullscreen ? "border-white/10 bg-black/80 cursor-default" : "border-line/40 bg-surface2/40 cursor-grab"
           )}
           onMouseDown={(event) => {
             if (isFullscreen) return;
@@ -100,14 +116,14 @@ function PptBlockView({ node, selected, getPos, editor }: NodeViewProps) {
           </div>
           <div className="flex shrink-0 items-center gap-3">
             {downloadUrl && !isFullscreen && (
-              <a
-                href={downloadUrl}
-                download={fileName}
+              <button
+                type="button"
+                onClick={() => void openExternal()}
                 className="flex items-center gap-1 text-[12px] text-txt3 hover:text-txt"
               >
-                다운로드
+                Open externally
                 <ExternalLink size={12} />
-              </a>
+              </button>
             )}
             <button
               type="button"
@@ -117,7 +133,7 @@ function PptBlockView({ node, selected, getPos, editor }: NodeViewProps) {
                 isFullscreen ? "text-white/70 hover:text-white" : "text-txt3 hover:text-txt"
               )}
             >
-              {isFullscreen ? "전체화면 종료" : "전체화면"}
+              {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
               {isFullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
             </button>
           </div>
@@ -137,16 +153,32 @@ function PptBlockView({ node, selected, getPos, editor }: NodeViewProps) {
             <img
               key={slideUrl}
               src={slideUrl}
-              alt={`슬라이드 ${currentSlide + 1}`}
+              alt={`Slide ${currentSlide + 1}`}
               className="max-h-full max-w-full object-contain"
               draggable={false}
             />
+          ) : isLocalVaultAsset ? (
+            <div className="flex max-w-[380px] flex-col items-center gap-3 px-6 text-center">
+              <Presentation size={28} className="text-white/60" />
+              <div className="text-[13px] font-medium text-white/80">
+                Local vault PPT files do not have generated slide previews yet.
+              </div>
+              <div className="text-[12px] leading-5 text-white/45">
+                Open the presentation in a desktop viewer to inspect or edit it.
+              </div>
+              <button
+                type="button"
+                onClick={() => void openExternal()}
+                className="rounded-full border border-white/20 px-3 py-1.5 text-[12px] font-medium text-white/80 transition hover:border-white/35 hover:text-white"
+              >
+                Open presentation
+              </button>
+            </div>
           ) : (
-            <div className="text-[13px] text-txt3">슬라이드를 불러올 수 없습니다.</div>
+            <div className="text-[13px] text-txt3">Unable to load slide preview.</div>
           )}
 
-          {/* 이전/다음 버튼 */}
-          {slideCount > 1 && (
+          {slideUrl && slideCount > 1 && (
             <>
               <button
                 type="button"
@@ -167,34 +199,33 @@ function PptBlockView({ node, selected, getPos, editor }: NodeViewProps) {
             </>
           )}
 
-          {/* 전체화면에서 ESC 안내 */}
           {isFullscreen && (
-            <div className="absolute bottom-16 left-1/2 -translate-x-1/2 rounded bg-black/50 px-3 py-1 text-[11px] text-white/40 pointer-events-none select-none">
-              ESC 또는 버튼으로 전체화면 종료
+            <div className="pointer-events-none absolute bottom-16 left-1/2 -translate-x-1/2 select-none rounded bg-black/50 px-3 py-1 text-[11px] text-white/40">
+              Press ESC or use the button to exit fullscreen
             </div>
           )}
         </div>
 
-        {/* 하단 슬라이드 카운터 */}
         <div
           className={cx(
-            "flex items-center justify-center gap-3 border-t px-3 py-1.5 shrink-0",
+            "shrink-0 border-t px-3 py-1.5",
+            "flex items-center justify-center gap-3",
             isFullscreen ? "border-white/10 bg-black/80" : "border-line/40 bg-surface2/40"
           )}
         >
           <span className={cx("text-[12px]", isFullscreen ? "text-white/60" : "text-txt3")}>
-            {currentSlide + 1} / {slideCount}
+            {Math.min(currentSlide + 1, slideCount)} / {slideCount}
           </span>
-          {slideCount > 1 && (
+          {slideUrl && slideCount > 1 && (
             <div className="flex gap-1">
-              {Array.from({ length: Math.min(slideCount, 10) }, (_, i) => (
+              {Array.from({ length: Math.min(slideCount, 10) }, (_, index) => (
                 <button
-                  key={i}
+                  key={index}
                   type="button"
-                  onClick={() => setCurrentSlide(i)}
+                  onClick={() => setCurrentSlide(index)}
                   className={cx(
                     "h-1.5 rounded-full transition-all",
-                    i === currentSlide
+                    index === currentSlide
                       ? "w-4 bg-primary"
                       : isFullscreen
                         ? "w-1.5 bg-white/20 hover:bg-white/50"
@@ -203,7 +234,7 @@ function PptBlockView({ node, selected, getPos, editor }: NodeViewProps) {
                 />
               ))}
               {slideCount > 10 && (
-                <span className={cx("text-[11px] self-center", isFullscreen ? "text-white/40" : "text-txt3")}>...</span>
+                <span className={cx("self-center text-[11px]", isFullscreen ? "text-white/40" : "text-txt3")}>...</span>
               )}
             </div>
           )}
@@ -224,18 +255,18 @@ export const PptBlock = Node.create({
     return {
       assetId: {
         default: null,
-        parseHTML: (el) => el.getAttribute("data-asset-id"),
-        renderHTML: (attrs) => (attrs.assetId ? { "data-asset-id": String(attrs.assetId) } : {}),
+        parseHTML: (element) => element.getAttribute("data-asset-id"),
+        renderHTML: (attributes) => (attributes.assetId ? { "data-asset-id": String(attributes.assetId) } : {}),
       },
       fileName: {
         default: null,
-        parseHTML: (el) => el.getAttribute("data-file-name"),
-        renderHTML: (attrs) => (attrs.fileName ? { "data-file-name": String(attrs.fileName) } : {}),
+        parseHTML: (element) => element.getAttribute("data-file-name"),
+        renderHTML: (attributes) => (attributes.fileName ? { "data-file-name": String(attributes.fileName) } : {}),
       },
       slideCount: {
         default: 1,
-        parseHTML: (el) => parseInt(el.getAttribute("data-slide-count") ?? "1", 10),
-        renderHTML: (attrs) => ({ "data-slide-count": String(attrs.slideCount ?? 1) }),
+        parseHTML: (element) => parseInt(element.getAttribute("data-slide-count") ?? "1", 10),
+        renderHTML: (attributes) => ({ "data-slide-count": String(attributes.slideCount ?? 1) }),
       },
       videoSlides: {
         default: [] as number[],

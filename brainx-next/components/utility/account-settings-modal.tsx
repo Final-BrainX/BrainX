@@ -14,6 +14,7 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { useBrainX } from "@/components/brainx-provider";
 import { Icon, type IconName } from "@/components/brainx-ui";
+import { DesktopVaultSyncStatusSection } from "@/components/utility/desktop-vault-sync-status-section";
 import { ImportScreen } from "@/components/utility/import-screen";
 import { McpApiKeysPanel } from "@/components/utility/mcp-api-keys-panel";
 import { getOAuthAuthorization, logout, readAuthSession, type OAuthProvider } from "@/lib/auth-api";
@@ -1332,6 +1333,9 @@ function DesktopVaultSyncSection() {
     setManualSyncing(true);
     try {
       const job = await requestDesktopVaultManualSync();
+      if (typeof window !== "undefined" && (job.status === "COMPLETED" || job.status === "CONFLICT" || job.status === "SKIPPED")) {
+        window.dispatchEvent(new CustomEvent("brainx:notes-refresh", { detail: { syncRefresh: true } }));
+      }
       pushToast(job.message, job.status === "QUEUED" ? "ok" : "info");
       const policy = await getDesktopVaultSyncPolicy();
       setSyncPolicy(policy);
@@ -1345,7 +1349,7 @@ function DesktopVaultSyncSection() {
   return (
     <section className="mt-5 rounded-[12px] border border-[#e5e0d8] px-4 py-4">
       <div className="mb-3">
-        <h2 className="text-[14px] font-bold text-[#2f2d2a]">Desktop Vault Sync</h2>
+        <h2 className="text-[14px] font-bold text-[#2f2d2a]">데스크톱 볼트 동기화</h2>
         <p className="mt-1 text-[12px] leading-5 text-[#6d6861]">
           현재 vault는 <strong>{vaultName}</strong> 기준으로 동작합니다. 로컬 전용과 수동 동기화를 분리해 둘 수 있습니다.
         </p>
@@ -1357,14 +1361,14 @@ function DesktopVaultSyncSection() {
           disabled={savingMode !== null}
           onClick={() => void updateMode("local-only")}
         >
-          Local Only
+          로컬 전용
         </ModalButton>
         <ModalButton
           primary={syncPolicy.mode === "manual-cloud"}
           disabled={savingMode !== null}
           onClick={() => void updateMode("manual-cloud")}
         >
-          Manual Cloud Sync
+          수동 클라우드 동기화
         </ModalButton>
       </div>
 
@@ -1436,7 +1440,7 @@ function GeneralSettingsPanel({
           action={<ConsentButton checked={consents.behaviorAnalyticsOptional} disabled={savingConsent === "behaviorAnalyticsOptional"} onChange={(value) => onConsentChange("behaviorAnalyticsOptional", value)} />}
         />
       </section>
-      <DesktopVaultSyncSection />
+      <DesktopVaultSyncStatusSection />
     </>
   );
 }

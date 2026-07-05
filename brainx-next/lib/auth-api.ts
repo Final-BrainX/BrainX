@@ -8,6 +8,8 @@ import {
   setLocalStoredValue,
   setSessionStoredValue,
 } from "@/lib/client-storage";
+import { getPublicApiBaseUrl, getWorkspaceApiBaseUrl } from "@/lib/api-base";
+import { requestDesktopApiJson } from "@/lib/desktop-api-request";
 
 export type EmailVerificationPurpose = "SIGNUP" | "PASSWORD_CHANGE";
 export type OAuthProvider = "kakao" | "google" | "apple" | "naver";
@@ -38,6 +40,8 @@ export type AuthSession = {
   onboardingToken?: string | null;
   next?: string | null;
 };
+
+export type AuthSessionPersistence = "local" | "session";
 
 export type SignupConsents = {
   termsRequired: boolean;
@@ -93,6 +97,7 @@ type NoteDraftClaimData = {
 export type ClaimedNoteIdMapping = { from: string; to: string };
 
 const AUTH_SESSION_KEY = "brainx_auth_session_v1";
+const AUTH_PERSISTENCE_KEY = "brainx_auth_persistence_v1";
 // lib/workspace-api.ts의 GUEST_SESSION_ID_KEY와 반드시 같은 값이어야 한다 — claim 요청이
 // 실제로 guest 데이터를 만든 것과 같은 guestId를 X-Guest-Id로 실어 보내야 하기 때문이다.
 const WORKSPACE_GUEST_SESSION_ID_KEY = "brainx_workspace_guest_id_v1";
@@ -100,11 +105,7 @@ const LAST_SOCIAL_LOGIN_KEY = "brainx_last_social_login_provider_v1";
 const WORKSPACE_SESSION_KEY = "brainx_notes_workspace_v1";
 const PENDING_NOTE_CLAIM_KEY = "brainx_pending_note_claim_v1";
 const OAUTH_RETURN_TO_KEY = "brainx_oauth_return_to_v1";
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
-const WORKSPACE_API_BASE_URL =
-  process.env.NEXT_PUBLIC_WORKSPACE_API_BASE_URL ??
-  process.env.NEXT_PUBLIC_API_BASE_URL ??
-  "";
+const HOSTED_WEB_ORIGIN = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 const DEV_AUTH_BYPASS = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true";
 // 이 값은 X-User-Id 헤더 전송(NEXT_PUBLIC_ENABLE_DEV_USER, lib/dev-user.ts)과는 별개의 스위치
 // (NEXT_PUBLIC_DEV_AUTH_BYPASS)로만 게이팅된다 — DEV_AUTH_BYPASS는 완전히 가짜 로그인 세션 객체를
@@ -134,6 +135,14 @@ const DEV_AUTH_SESSION: AuthSession = {
   provider: "email",
 };
 let clientLocationPromise: Promise<string | null> | null = null;
+
+function isDesktopRuntime() {
+  return typeof window !== "undefined" && !!window.brainxDesktop;
+}
+
+function canUseDevAuthBypass() {
+  return DEV_AUTH_BYPASS && !isDesktopRuntime();
+}
 
 async function resolveClientLocation() {
   if (typeof window === "undefined") {
@@ -183,13 +192,39 @@ function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const desktopResponse = await requestDesktopApiJson<ApiResponse<T>>(path, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      ...(init?.headers ?? {})
-    }
+      ...(init?.headers ?? {}),
+    },
   });
+  if (desktopResponse) {
+    const payload = desktopResponse.payload;
+    if (!payload) {
+      throw new Error("서버 응답을 읽을 수 없습니다.");
+    }
+    if (!desktopResponse.ok || !payload.success) {
+      throw new Error(messageFromResponse(payload, "요청 처리에 실패했습니다."));
+    }
+    return payload.data as T;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${getPublicApiBaseUrl()}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {})
+      }
+    });
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error("BrainX 서버에 연결하지 못했습니다. 네트워크 상태와 앱 최신 빌드를 확인한 뒤 다시 시도해주세요.");
+    }
+    throw error;
+  }
 
   const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
   if (!payload) {
@@ -277,6 +312,16 @@ export function stashOAuthReturnTo(returnTo: string) {
   setSessionStoredValue(OAUTH_RETURN_TO_KEY, returnTo);
 }
 
+export function getHostedWebOrigin() {
+  if (HOSTED_WEB_ORIGIN) {
+    return HOSTED_WEB_ORIGIN.replace(/\/$/, "");
+  }
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
+  return "https://brainx.p-e.kr";
+}
+
 export function consumeOAuthReturnTo(): string {
   if (typeof window === "undefined") return "/home";
   const value = getSessionStoredValue(OAUTH_RETURN_TO_KEY);
@@ -296,17 +341,31 @@ async function claimGuestDraftsAfterAuth(session: AuthSession) {
 
   let claimed: NoteDraftClaimData | null = null;
   try {
-    const response = await fetch(`${WORKSPACE_API_BASE_URL}/api/v1/notes/drafts/claim`, {
+    const desktopResponse = await requestDesktopApiJson<ApiResponse<NoteDraftClaimData>>("/api/v1/notes/drafts/claim", {
       method: "POST",
-      credentials: "include",
       headers: {
         Authorization: `${session.tokenType ?? "Bearer"} ${session.accessToken}`,
         "Content-Type": "application/json",
         ...(guestId ? { "X-Guest-Id": guestId } : {}),
       },
     });
-
-    const payload = (await response.json().catch(() => null)) as ApiResponse<NoteDraftClaimData> | null;
+    const response = desktopResponse
+      ? ({
+          ok: desktopResponse.ok,
+          status: desktopResponse.status,
+        } as Pick<Response, "ok" | "status">)
+      : await fetch(`${getWorkspaceApiBaseUrl()}/api/v1/notes/drafts/claim`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            Authorization: `${session.tokenType ?? "Bearer"} ${session.accessToken}`,
+            "Content-Type": "application/json",
+            ...(guestId ? { "X-Guest-Id": guestId } : {}),
+          },
+        });
+    const payload = desktopResponse
+      ? desktopResponse.payload
+      : ((await (response as Response).json().catch(() => null)) as ApiResponse<NoteDraftClaimData> | null);
     if (!response.ok || !payload?.success) {
       console.warn("Guest draft claim skipped after auth.", payload?.error?.code ?? response.status);
       return null;
@@ -351,11 +410,28 @@ export function saveAuthSession(session: Partial<AuthSession>) {
     onboardingToken: session.onboardingToken ?? null,
     next: session.next ?? null
   };
-  setLocalStoredValue(AUTH_SESSION_KEY, JSON.stringify(normalized));
+  const persistence = readAuthSessionPersistence();
+  if (persistence === "session") {
+    removeLocalStoredValue(AUTH_SESSION_KEY);
+    setSessionStoredValue(AUTH_SESSION_KEY, JSON.stringify(normalized));
+  } else {
+    removeSessionStoredValue(AUTH_SESSION_KEY);
+    setLocalStoredValue(AUTH_SESSION_KEY, JSON.stringify(normalized));
+  }
   if (normalized.provider === "google" || normalized.provider === "kakao" || normalized.provider === "naver") {
     setLocalStoredValue(LAST_SOCIAL_LOGIN_KEY, normalized.provider);
   }
   window.dispatchEvent(new Event("brainx-auth-session-changed"));
+}
+
+export function setAuthSessionPersistence(persistence: AuthSessionPersistence) {
+  if (typeof window === "undefined") return;
+  setLocalStoredValue(AUTH_PERSISTENCE_KEY, persistence);
+}
+
+export function readAuthSessionPersistence(): AuthSessionPersistence {
+  if (typeof window === "undefined") return "local";
+  return getLocalStoredValue(AUTH_PERSISTENCE_KEY) === "session" ? "session" : "local";
 }
 
 function normalizeSessionForCompare(session: AuthSession | null | undefined) {
@@ -397,15 +473,15 @@ export function isDevAuthSession(session: AuthSession | null | undefined) {
 export function readAuthSession() {
   if (typeof window === "undefined") return null;
   try {
-    const raw = getLocalStoredValue(AUTH_SESSION_KEY);
-    return raw ? (JSON.parse(raw) as AuthSession) : DEV_AUTH_BYPASS ? DEV_AUTH_SESSION : null;
+    const raw = getLocalStoredValue(AUTH_SESSION_KEY) ?? getSessionStoredValue(AUTH_SESSION_KEY);
+    return raw ? (JSON.parse(raw) as AuthSession) : canUseDevAuthBypass() ? DEV_AUTH_SESSION : null;
   } catch {
-    return DEV_AUTH_BYPASS ? DEV_AUTH_SESSION : null;
+    return canUseDevAuthBypass() ? DEV_AUTH_SESSION : null;
   }
 }
 
 export function ensureDevAuthSession() {
-  if (typeof window === "undefined" || !DEV_AUTH_BYPASS) return null;
+  if (typeof window === "undefined" || !canUseDevAuthBypass()) return null;
   const session = readAuthSession();
   if (session?.accessToken) return session;
   saveAuthSession(DEV_AUTH_SESSION);
@@ -415,9 +491,11 @@ export function ensureDevAuthSession() {
 export function clearAuthSession() {
   if (typeof window === "undefined") return;
   const prevSession = readAuthSession();
-  const hadStoredAuthSession = getLocalStoredValue(AUTH_SESSION_KEY) != null;
+  const hadStoredAuthSession =
+    getLocalStoredValue(AUTH_SESSION_KEY) != null || getSessionStoredValue(AUTH_SESSION_KEY) != null;
   const hadWorkspaceSession = getLocalStoredValue(WORKSPACE_SESSION_KEY) != null;
   removeLocalStoredValue(AUTH_SESSION_KEY);
+  removeSessionStoredValue(AUTH_SESSION_KEY);
   removeLocalStoredValue(WORKSPACE_SESSION_KEY);
   const nextSession = readAuthSession();
   const authSessionChanged = !isSameAuthSession(prevSession, nextSession);
