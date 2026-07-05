@@ -26,6 +26,9 @@ interface Props {
   isActive: boolean;
   dragPayload: DragPayload | null;
   mode: EditMode;
+  /** 이 pane의 Ctrl+Wheel 에디터 뷰 줌(%, 기본 100) — 노트 문서 자체의 typography와는 별개다. */
+  fontScale: number;
+  onFontScaleChange: (next: number) => void;
   saveSignal: number;
   scrollToHeadingSignal: { nonce: number; index: number } | null;
   onModeChange: (tabId: string, mode: EditMode) => void;
@@ -72,6 +75,8 @@ export default function EditorPanel({
   isActive,
   dragPayload,
   mode,
+  fontScale,
+  onFontScaleChange,
   saveSignal,
   scrollToHeadingSignal,
   onModeChange,
@@ -167,11 +172,15 @@ export default function EditorPanel({
     return () => window.removeEventListener("mouseup", reset, true);
   }, []);
 
-  /* Ctrl+마우스휠로 노트 전체 글씨 크기 조절(VS Code의 Mouse Wheel Zoom과 동일한 UX) — 툴바의
-     "서식" 패널이 이미 note.typography.scalePercent로 본문/H1/H2/H3 크기를 함께 조절하므로,
-     같은 상태를 그대로 재사용해 휠 조작과 툴바가 항상 같은 값을 보게 만든다(별도 상태를 두면
-     서로 어긋날 수 있음). 휠 이벤트는 마우스가 올라가 있는 패널의 DOM에만 발생하므로, 분할
-     화면에서 패널별로 분리되는 동작은 추가 처리 없이 자연히 보장된다.
+  /* Ctrl+마우스휠로 이 pane(분할 패널)의 "보기" 줌을 조절한다(VS Code의 Mouse Wheel Zoom과
+     동일한 UX). 예전에는 이 값을 note.typography.scalePercent(서식 패널이 조절하는, 노트
+     문서 자체에 저장되는 값)와 공유했는데 — 그러면 (1) 줌이 문서 서식으로 영구 저장돼버려서
+     같은 노트를 다른 pane/기기에서 열어도 줌이 따라오고, (2) pane마다 독립적으로 줌을 유지할
+     수 없었다(같은 노트를 두 pane에 열면 한쪽만 확대할 수 없음). 이제 줌은 pane id를 key로 한
+     세션 전용 UI 상태(paneFontScale, NotesWorkspace)로 완전히 분리했고, 서식 패널의
+     typography.scalePercent는 그대로 문서 자체의 서식으로 남아 회귀 없이 동작한다. 휠 이벤트는
+     마우스가 올라가 있는 패널의 DOM에만 발생하므로, 분할 화면에서 패널별로 분리되는 동작은
+     추가 처리 없이 자연히 보장된다.
      React 19의 onWheel은 루트에 passive 리스너로 등록되어 JSX onWheel 안에서 preventDefault가
      무시된다("Unable to preventDefault inside passive event listener" 경고와 함께 브라우저
      자체 페이지 확대가 같이 동작해버림) — 그래서 ref + addEventListener("wheel", ..., { passive:
@@ -182,16 +191,15 @@ export default function EditorPanel({
     const handler = (event: WheelEvent) => {
       if (!event.ctrlKey || !note) return;
       event.preventDefault();
-      const current = note.typography?.scalePercent ?? 100;
       const next = Math.min(
         TYPOGRAPHY_SCALE_MAX,
-        Math.max(TYPOGRAPHY_SCALE_MIN, current + (event.deltaY < 0 ? 5 : -5))
+        Math.max(TYPOGRAPHY_SCALE_MIN, fontScale + (event.deltaY < 0 ? 5 : -5))
       );
-      if (next !== current) onTypographyChange(note.id, { ...note.typography, scalePercent: next });
+      if (next !== fontScale) onFontScaleChange(next);
     };
     el.addEventListener("wheel", handler, { passive: false });
     return () => el.removeEventListener("wheel", handler);
-  }, [note, onTypographyChange]);
+  }, [note, fontScale, onFontScaleChange]);
 
   /* ── 제목 편집 상태 ── */
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -390,6 +398,10 @@ export default function EditorPanel({
               셋 다 항상 같은 컬럼 기준을 따른다. */}
           <div
             className="mx-auto max-w-[680px] px-8 py-7"
+            // Ctrl+Wheel pane 줌 — CSS zoom은 폰트 크기뿐 아니라 이 wrapper의 레이아웃 박스
+            // 전체(max-w 컬럼 폭 포함)를 함께 확대/축소해 "화면을 당겨서 보는" 느낌을 주고,
+            // 문서 content(HTML)나 note.typography는 전혀 건드리지 않는다 — 100%면 no-op.
+            style={fontScale !== 100 ? { zoom: `${fontScale}%` } : undefined}
             onClick={(e) => {
               if (
                 isEdit &&

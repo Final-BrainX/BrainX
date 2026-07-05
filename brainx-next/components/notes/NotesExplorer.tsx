@@ -169,12 +169,14 @@ function FavNoteRow({
       ) : (
         <span className="flex-1 truncate">{note.title}</span>
       )}
+      {/* 별표/더보기를 일반 트리 행(FolderTree NoteRow)과 동일하게 하나의 gap-0.5 그룹으로
+          묶는다 — 예전에는 별표(span)와 더보기(div)가 행의 gap-1을 그대로 쓰는 별개의 자식
+          이라 더보기와의 간격이 일반 트리보다 넓었고, 그만큼 별표 위치도 어긋나 보였다. */}
       {!renaming && (
-        <Star size={10} className="mr-0.5 shrink-0 fill-yellow-400 text-yellow-400" />
-      )}
-
-      {!renaming && (
-        <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div className="relative flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+          <span className="grid h-5 w-5 shrink-0 place-items-center">
+            <Star size={11} className="shrink-0 fill-yellow-400 text-yellow-400" />
+          </span>
           <button
             type="button"
             onClick={() => { setMenuAnchor(null); setMenuOpen((v) => !v); }}
@@ -303,12 +305,13 @@ function SearchNoteRow({
       ) : (
         <span className="flex-1 truncate">{note.title}</span>
       )}
-      {isFavorite && !renaming && (
-        <Star size={10} className="mr-0.5 shrink-0 fill-yellow-400 text-yellow-400" />
-      )}
-
       {!renaming && (
-        <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div className="relative flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+          {isFavorite && (
+            <span className="grid h-5 w-5 shrink-0 place-items-center">
+              <Star size={11} className="shrink-0 fill-yellow-400 text-yellow-400" />
+            </span>
+          )}
           <button
             type="button"
             onClick={() => { setMenuAnchor(null); setMenuOpen((v) => !v); }}
@@ -608,7 +611,8 @@ function FavFolderTreeNode({
           <span className="flex-1 truncate">{folder.name}</span>
         )}
         {/* 아이콘 순서: 노트 생성 → 폴더 생성 → 즐겨찾기 → 더보기(...) — 일반 트리와 동일하게
-            통일한다. 즐겨찾기 아이콘은 이미 즐겨찾기된 상태면 hover와 무관하게 항상 보인다. */}
+            통일한다. 즐겨찾기/더보기는(일반 트리와 동일한 이유로 별 위치가 흔들리지 않도록)
+            hover 여부와 무관하게 항상 마운트해두고 opacity만 토글한다. */}
         {(hovered || menuOpen) && !renaming && (
           <div className="relative flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
             <button
@@ -627,11 +631,18 @@ function FavFolderTreeNode({
             >
               <FolderPlus size={11} />
             </button>
+          </div>
+        )}
+        {!renaming && (
+          <div className="relative flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
               onClick={() => onToggleFavorite(folder.id)}
               title={folder.favorite ? "즐겨찾기 해제" : "즐겨찾기 추가"}
-              className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-yellow-400"
+              className={cx(
+                "grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-yellow-400",
+                !hovered && !menuOpen && !folder.favorite && "opacity-0 group-hover:opacity-100"
+              )}
             >
               <Star size={11} className={cx("shrink-0", folder.favorite && "fill-yellow-400 text-yellow-400")} />
             </button>
@@ -639,7 +650,10 @@ function FavFolderTreeNode({
               type="button"
               onClick={() => { setMenuAnchor(null); setMenuOpen((v) => !v); }}
               title="더보기"
-              className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-primary"
+              className={cx(
+                "grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-primary",
+                !hovered && !menuOpen && "opacity-0 group-hover:opacity-100"
+              )}
             >
               <MoreHorizontal size={11} />
             </button>
@@ -659,9 +673,6 @@ function FavFolderTreeNode({
               />
             )}
           </div>
-        )}
-        {!(hovered || menuOpen) && folder.favorite && !renaming && (
-          <Star size={11} className="mr-0.5 shrink-0 fill-yellow-400 text-yellow-400" />
         )}
 
         <HoverInfoCard anchorRef={rowRef} hovered={hovered && !renaming && !menuOpen}>
@@ -1163,22 +1174,6 @@ export default function NotesExplorer({
     if (creatingRootFolder) rootFolderInputRef.current?.focus();
   }, [creatingRootFolder]);
 
-  /* 즐겨찾기 영역 루트에서 직접 만드는 폴더 — 정책: 여기서 만든 루트 폴더는 자동 즐겨찾기. */
-  const [creatingFavRootFolder, setCreatingFavRootFolder] = useState(false);
-  const [favRootFolderName, setFavRootFolderName] = useState("");
-  const favRootFolderInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (creatingFavRootFolder) favRootFolderInputRef.current?.focus();
-  }, [creatingFavRootFolder]);
-
-  const commitFavRootFolder = useCallback(() => {
-    const name = favRootFolderName.trim();
-    if (name) onCreateFolder(null, name, true);
-    setFavRootFolderName("");
-    setCreatingFavRootFolder(false);
-  }, [favRootFolderName, onCreateFolder]);
-
   const commitRootFolder = useCallback(() => {
     const name = rootFolderName.trim();
     if (name) onCreateFolder(null, name);
@@ -1500,57 +1495,21 @@ export default function NotesExplorer({
           </div>
         ) : (
           <>
-            {(favNotes.length > 0 || favFolders.length > 0 || creatingFavRootFolder) && (
-              <div className="group/favhead mb-1 px-2">
-                <div className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-surface2/40">
-                  <button
-                    type="button"
-                    onClick={() => setFavExpanded((v) => !v)}
-                    className="flex flex-1 items-center gap-1.5 overflow-hidden text-left"
-                  >
-                    <CollapseChevron expanded={favExpanded} size={11} />
-                    <Star size={11} className="shrink-0 fill-yellow-400 text-yellow-400" />
-                    <span className="flex-1 truncate text-[13px] font-bold text-txt">즐겨찾기</span>
-                    <span className="shrink-0 text-[10px] text-txt3">{favNotes.length + favFolders.length}</span>
-                  </button>
-                  {/* 즐겨찾기 영역 루트에서 직접 생성 — 여기서 만들면 자동 즐겨찾기(정책). */}
-                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/favhead:opacity-100">
-                    <button
-                      type="button"
-                      onClick={() => { onCreateNote(undefined, true); setFavExpanded(true); }}
-                      title="즐겨찾기 루트에 새 노트 생성"
-                      className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-primary/15 hover:text-primary"
-                    >
-                      <FilePlus size={11} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setCreatingFavRootFolder(true); setFavExpanded(true); }}
-                      title="즐겨찾기 루트에 새 폴더 생성"
-                      className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-txt2"
-                    >
-                      <FolderPlus size={11} />
-                    </button>
-                  </div>
-                </div>
-
-                {creatingFavRootFolder && (
-                  <div className="flex h-7 items-center gap-1.5 pl-6">
-                    <Folder size={13} className="shrink-0 text-yellow-400/60" />
-                    <input
-                      ref={favRootFolderInputRef}
-                      value={favRootFolderName}
-                      onChange={(e) => setFavRootFolderName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") commitFavRootFolder();
-                        if (e.key === "Escape") { setCreatingFavRootFolder(false); setFavRootFolderName(""); }
-                      }}
-                      onBlur={commitFavRootFolder}
-                      placeholder="폴더 이름..."
-                      className="flex-1 rounded border border-primary/40 bg-surface px-1.5 py-0.5 text-[12px] text-txt outline-none"
-                    />
-                  </div>
-                )}
+            {(favNotes.length > 0 || favFolders.length > 0) && (
+              <div className="mb-1 px-2">
+                {/* 단순 섹션 헤더(인덱스) — 일반 트리의 폴더/노트 행과 달리 노트/폴더 생성
+                    버튼을 두지 않는다. 즐겨찾기 루트에 새로 만들고 싶으면 탐색기 상단의
+                    "+ 새 노트"/일반 트리에서 만든 뒤 별표로 즐겨찾기하면 된다. */}
+                <button
+                  type="button"
+                  onClick={() => setFavExpanded((v) => !v)}
+                  className="flex w-full items-center gap-1.5 overflow-hidden rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-surface2/40"
+                >
+                  <CollapseChevron expanded={favExpanded} size={11} />
+                  <Star size={11} className="shrink-0 fill-yellow-400 text-yellow-400" />
+                  <span className="flex-1 truncate text-[13px] font-bold text-txt">즐겨찾기</span>
+                  <span className="shrink-0 text-[10px] text-txt3">{favNotes.length + favFolders.length}</span>
+                </button>
 
                 {favExpanded && (
                   <div className="mt-0.5 pl-3">
@@ -1614,7 +1573,9 @@ export default function NotesExplorer({
               <div className="mx-3 my-2 border-t border-line/30" />
             )}
 
-            {/* 새 폴더(루트) */}
+            {/* 일반 트리 섹션 헤더 — 즐겨찾기 헤더와 같은 톤의 단순 섹션 인덱스(레이블 + 루트에
+                새 폴더 생성 아이콘)로 통일한다. 예전에는 행 전체가 "새 폴더 생성" 버튼이라
+                레이블 자체가 "새 폴더 (루트)"처럼 헤더가 아니라 액션처럼 보였다. */}
             <div className="px-2 pb-1">
               {creatingRootFolder ? (
                 <div className="flex h-7 items-center gap-1.5 px-1.5">
@@ -1633,14 +1594,17 @@ export default function NotesExplorer({
                   />
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => setCreatingRootFolder(true)}
-                  className="flex h-7 w-full items-center gap-1.5 rounded-md px-1.5 text-[13px] font-bold text-txt3 transition-colors hover:bg-surface2/40 hover:text-txt2"
-                >
-                  <FolderPlus size={12} className="shrink-0" />
-                  <span>새 폴더 (루트)</span>
-                </button>
+                <div className="group/treehead flex h-7 w-full items-center gap-1.5 rounded-md px-1.5 text-[13px] font-bold text-txt3">
+                  <span className="flex-1 truncate text-left">전체 노트</span>
+                  <button
+                    type="button"
+                    onClick={() => setCreatingRootFolder(true)}
+                    title="루트에 새 폴더 생성"
+                    className="grid h-5 w-5 shrink-0 place-items-center rounded text-txt3 opacity-0 transition-opacity hover:bg-surface2/80 hover:text-txt2 group-hover/treehead:opacity-100"
+                  >
+                    <FolderPlus size={12} />
+                  </button>
+                </div>
               )}
             </div>
 

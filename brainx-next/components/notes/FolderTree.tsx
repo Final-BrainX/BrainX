@@ -826,9 +826,13 @@ function FolderNode({
           </span>
         )}
 
-        {/* 아이콘 순서: 노트 생성 → 폴더 생성 → 즐겨찾기 → 더보기(...). 즐겨찾기 아이콘은 이미
-            즐겨찾기된 상태면 hover와 무관하게 항상 보이고, 아니면 hover 전에는 공간을 차지하지
-            않다가 hover 시에만 나타난다(노트 생성/폴더 생성/더보기와 동일하게 hover 전용). */}
+        {/* 아이콘 순서: 노트 생성 → 폴더 생성 → 즐겨찾기 → 더보기(...). 노트 생성/폴더 생성은
+            hover 전용으로 마운트되어 공간을 차지하지 않는다. 즐겨찾기/더보기는(트리 전체와
+            즐겨찾기 영역에서 별 위치가 항상 같은 세로선에 오도록) hover 여부와 무관하게 항상
+            마운트된 채로 두고 opacity만 토글한다 — 마운트 자체를 껐다 켜면 그 앞뒤 형제 요소의
+            폭에 따라 별 위치가 좌우로 흔들린다(이 그룹이 행의 마지막 자식이라 이름의 flex-1이
+            남는 공간을 모두 흡수해주는 덕에, 이 그룹 자체 폭만 고정하면 hover 여부와 상관없이
+            행 오른쪽 끝에 고정된다). */}
         {(hovered || menuOpen) && !renaming && (
           <div className="relative flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
             <button
@@ -847,11 +851,18 @@ function FolderNode({
             >
               <FolderPlus size={11} />
             </button>
+          </div>
+        )}
+        {!renaming && (
+          <div className="relative flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
               onClick={() => onToggleFolderFavorite(item.folder.id)}
               title={item.folder.favorite ? "즐겨찾기 해제" : "즐겨찾기 추가"}
-              className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-yellow-400"
+              className={cx(
+                "grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-yellow-400",
+                !hovered && !menuOpen && !item.folder.favorite && "opacity-0 group-hover:opacity-100"
+              )}
             >
               <Star size={11} className={cx("shrink-0", item.folder.favorite && "fill-yellow-400 text-yellow-400")} />
             </button>
@@ -859,7 +870,10 @@ function FolderNode({
               type="button"
               onClick={() => { captureDeleteSnapshot(); setMenuAnchor(null); setMenuOpen((v) => !v); }}
               title="더보기"
-              className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-primary"
+              className={cx(
+                "grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-primary",
+                !hovered && !menuOpen && "opacity-0 group-hover:opacity-100"
+              )}
             >
               <MoreHorizontal size={11} />
             </button>
@@ -879,11 +893,6 @@ function FolderNode({
               />
             )}
           </div>
-        )}
-        {/* hover도 메뉴도 아니지만 즐겨찾기 상태라면, 위 hover 그룹과 동일한 자리(더보기 바로
-            왼쪽)에 별만 계속 보여준다. */}
-        {!(hovered || menuOpen) && item.folder.favorite && !renaming && (
-          <Star size={11} className="mr-0.5 shrink-0 fill-yellow-400 text-yellow-400" />
         )}
 
         <HoverInfoCard anchorRef={rowRef} hovered={hovered && !renaming && !menuOpen && !isBeingDragged}>
@@ -1059,6 +1068,31 @@ function NoteRow({
   const isBeingDragged = activeDrag?.dragType === "note" && activeDrag.id === note.id;
   const indicator = overIndicator && overIndicator.targetId === note.id ? overIndicator : null;
 
+  /* 방어적 안전망: 네이티브 HTML5 드래그(draggable + onDragStart/onDragEnd)는 dnd-kit의
+     activeDrag(위 handleDragEnd/handleDragCancel)와 달리 dragend 안전망이 없다 — 드롭이
+     실패하거나 같은 위치로의 no-op 이동 등 일부 경로에서 브라우저가 dragend를 안정적으로
+     쏘지 않으면 dragging이 true로 영구히 남아 이 행의 제목이 opacity-40로 흐릿하게 고정되고,
+     새로고침해야만 풀린다. window blur/tab 전환 시점에 한 번 더 강제로 정리한다.
+     주의: pointerup/pointercancel은 여기 넣으면 안 된다 — 네이티브 HTML5 드래그가 시작되는
+     순간 브라우저가 그 포인터의 캡처를 OS 레벨 드래그로 넘기면서 시작하자마자 pointercancel을
+     쏘는 게 표준 동작이라(드래그 "실패"가 아니라 "시작" 신호), 그 리스너가 있으면 드래그를
+     시작하자마자 dragging이 즉시 false로 리셋되어 버린다 — 실제로 탭/사이드바 노트를 에디터로
+     드래그했을 때 오버레이가 못 뜨고 브라우저 기본 텍스트 드롭(예: noteId 삽입)으로 새는
+     회귀의 원인이었다(같은 이유로 NotesWorkspace.tsx의 dragPayload 안전망도 동일하게 고쳤다). */
+  useEffect(() => {
+    if (!dragging) return;
+    const clear = () => setDragging(false);
+    const onVisibility = () => { if (document.hidden) clear(); };
+    window.addEventListener("dragend", clear);
+    window.addEventListener("blur", clear);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("dragend", clear);
+      window.removeEventListener("blur", clear);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [dragging]);
+
   const { attributes, listeners, setNodeRef: setDragRef } = useDraggable({
     id: dndId,
     data: { dragType: "note", id: note.id, title: note.title } satisfies DragActiveData,
@@ -1179,15 +1213,18 @@ function NoteRow({
       ) : (
         <span className="flex-1 truncate">{note.title}</span>
       )}
-      {/* 아이콘 순서: 즐겨찾기 → 더보기(...). 즐겨찾기 아이콘은 이미 즐겨찾기된 상태면 hover와
-          무관하게 항상 보이고, 아니면 hover 전에는 공간을 차지하지 않다가 hover 시에만 나타난다. */}
-      {(hovered || menuOpen) && !renaming && (
+      {/* 아이콘 순서: 즐겨찾기 → 더보기(...). 트리 전체에서 별 위치가 흔들리지 않도록(폴더 행과
+          동일한 이유) hover 여부와 무관하게 항상 마운트해두고 opacity만 토글한다. */}
+      {!renaming && (
         <div className="relative flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
             onClick={() => onToggleFavorite?.()}
             title={isFavorite ? "즐겨찾기 해제" : "즐겨찾기 추가"}
-            className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-yellow-400"
+            className={cx(
+              "grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-yellow-400",
+              !hovered && !menuOpen && !isFavorite && "opacity-0 group-hover:opacity-100"
+            )}
           >
             <Star size={11} className={cx("shrink-0", isFavorite && "fill-yellow-400 text-yellow-400")} />
           </button>
@@ -1195,7 +1232,10 @@ function NoteRow({
             type="button"
             onClick={() => { captureDeleteSnapshot(); setMenuAnchor(null); setMenuOpen((v) => !v); }}
             title="더보기"
-            className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-primary"
+            className={cx(
+              "grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-primary",
+              !hovered && !menuOpen && "opacity-0 group-hover:opacity-100"
+            )}
           >
             <MoreHorizontal size={11} />
           </button>
@@ -1213,9 +1253,6 @@ function NoteRow({
             />
           )}
         </div>
-      )}
-      {!(hovered || menuOpen) && isFavorite && !renaming && (
-        <Star size={11} className="mr-0.5 shrink-0 fill-yellow-400 text-yellow-400" />
       )}
 
       <HoverInfoCard anchorRef={rowRef} hovered={hovered && !dragging && !renaming && !menuOpen}>
