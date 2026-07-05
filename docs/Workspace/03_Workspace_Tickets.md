@@ -610,7 +610,7 @@ Selector 클릭으로 currentWorkspaceId가 정상적으로 바뀐다.
 
 Status
 
-⬜ Planned
+🟩 Done
 
 Priority
 
@@ -630,11 +630,20 @@ Ticket 12.5
 
 ### 구현
 
-Workspace 변경
+- Home이 useWorkspace() 구독
+- 현재 Workspace 이름 표시
+- currentWorkspaceId 변경 시 통계 재조회 트리거
 
-↓
+### 제한
 
-Home 갱신
+getMyWorkspaceStats()(`/api/v1/workspaces/me/stats`)는 전체 Workspace 합산 통계라
+documentGroupId로 필터링되지 않는다. Workspace별 실제 통계/최근 활동을 보여주려면
+SSOT에 이미 정의된 `GET /api/v1/workspaces/{documentGroupId}/sync` 라우트를
+Backend가 실제로 노출해야 한다(후속 Backend Ticket 필요).
+
+### 완료 조건
+
+Workspace 전환 시 Home에 현재 Workspace 이름이 반영된다.
 
 ---
 

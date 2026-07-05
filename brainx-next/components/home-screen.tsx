@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { clusterById, type BrainXNote } from "@/lib/brainx-data";
 import { useBrainX } from "@/components/brainx-provider";
 import { Btn, Card, Icon } from "@/components/brainx-ui";
+import { useWorkspace } from "@/components/workspace-provider";
 import { readAuthSession } from "@/lib/auth-api";
 import { getMyProfile } from "@/lib/user-api";
 import { getMyWorkspaceStats, type WorkspaceUserStatsData } from "@/lib/workspace-api";
@@ -378,8 +379,10 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
 export function HomeScreen() {
   const router = useRouter();
   const { notes } = useBrainX();
+  const { workspaces, currentWorkspaceId } = useWorkspace();
   const [displayName, setDisplayName] = useState("사용자");
   const [workspaceStats, setWorkspaceStats] = useState<WorkspaceUserStatsData | null>(null);
+  const currentWorkspace = workspaces.find((workspace) => workspace.documentGroupId === currentWorkspaceId) ?? null;
 
   useEffect(() => {
     let active = true;
@@ -399,6 +402,14 @@ export function HomeScreen() {
     };
   }, []);
 
+  /** Ticket13: Workspace 전환(currentWorkspaceId 변경) 시에도 Home 통계를 다시 불러온다.
+      단, getMyWorkspaceStats()(`/api/v1/workspaces/me/stats`)는 SSOT 설명대로 "인증된 사용자
+      본인의 전체 Workspace(documentGroup) 기준" 합산값이라 documentGroupId로 필터링되지 않는다
+      — 지금은 어떤 Workspace를 선택해도 같은 값이 돌아온다. 실제로 선택한 Workspace만의 노트 수/
+      최근 활동을 보여주려면 Backend가 documentGroupId로 스코프된 통계 API를 새로 노출해야 하고,
+      그 전까지는 여기서 클라이언트가 노트 목록을 documentGroupId로 걸러 흉내내지 않는다(Note
+      목록 응답에 documentGroupId가 아직 없어 어차피 불가능하고, 억지로 다른 값을 만들면 실제
+      데이터와 어긋난 숫자를 보여주게 된다). */
   useEffect(() => {
     let active = true;
     const loadStats = () => {
@@ -418,13 +429,21 @@ export function HomeScreen() {
       active = false;
       window.removeEventListener("brainx:notes-refresh", loadStats);
     };
-  }, []);
+  }, [currentWorkspaceId]);
 
   return (
     <div data-route className="mx-auto max-w-[1100px] px-6 py-6 md:px-8 lg:py-8">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4 border-b border-line/60 pb-5">
         <div>
-          <p className="mb-1.5 text-[11px] font-medium tracking-wide text-txt3">{new Intl.DateTimeFormat('ko-KR', { dateStyle: 'full' }).format(new Date())} · 오전</p>
+          <p className="mb-1.5 flex flex-wrap items-center gap-2 text-[11px] font-medium tracking-wide text-txt3">
+            <span>{new Intl.DateTimeFormat('ko-KR', { dateStyle: 'full' }).format(new Date())} · 오전</span>
+            {currentWorkspace ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-line/60 bg-surface2/50 px-2 py-0.5 text-[10px] font-semibold text-txt2">
+                <Icon name="folder" size={10} />
+                {currentWorkspace.name}
+              </span>
+            ) : null}
+          </p>
           <h1 className="text-[30px] font-semibold tracking-tight text-txt">
             좋은 아침이에요,<br />
             <span className="text-accent">{displayName}</span>님 🌿
@@ -433,6 +452,9 @@ export function HomeScreen() {
             {workspaceStats
               ? `지금 ${workspaceStats.noteCount.toLocaleString("ko-KR")}개의 실제 노트가 동기화되어 있고, 가장 최근 활동은 "${workspaceStats.activities[0]?.title ?? "노트"}"예요.`
               : `지금 ${notes.length.toLocaleString("ko-KR")}개의 노트를 기준으로 인사이트를 계산하고 있어요.`}
+            {currentWorkspace && workspaces.length > 1
+              ? " (통계는 아직 계정 전체 Workspace 합산 기준이에요)"
+              : ""}
           </p>
         </div>
         <div className="flex items-center gap-2 rounded-xl border border-accent/30 bg-accent/10 px-4 py-2.5 text-[12px] font-medium text-accent">
