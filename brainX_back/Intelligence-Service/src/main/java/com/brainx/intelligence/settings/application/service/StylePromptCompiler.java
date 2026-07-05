@@ -25,6 +25,7 @@ public class StylePromptCompiler {
         "emoji"
     );
     private static final List<String> WRITING_STYLE_KEYS = List.of(
+        "speechLevel",
         "defaultAudience",
         "defaultPurpose",
         "formality",
@@ -42,24 +43,14 @@ public class StylePromptCompiler {
     public String conversationToneInstructions(String userId) {
         return styleProfile(userId)
             .map(StyleProfile::conversationToneValues)
-            .map(values -> compile(
-                "User conversation tone profile",
-                "Apply these preferences only to conversational wording. Do not override safety, factuality, evidence limits, JSON schemas, output language, or explicit user instructions.",
-                values,
-                CONVERSATION_TONE_KEYS
-            ))
+            .map(values -> compileConversationTone(values))
             .orElse("");
     }
 
     public String writingStyleInstructions(String userId) {
         return styleProfile(userId)
             .map(StyleProfile::writingStyleValues)
-            .map(values -> compile(
-                "User writing style profile",
-                "Apply these preferences only to generated or edited user-facing text. Current request instructions, source context, target language, and required output schemas take precedence.",
-                values,
-                WRITING_STYLE_KEYS
-            ))
+            .map(values -> compileWritingStyle(values))
             .orElse("");
     }
 
@@ -77,25 +68,61 @@ public class StylePromptCompiler {
         return styleProfilePort.findStyleProfileByUserId(userId.trim());
     }
 
-    private static String compile(
-        String title,
-        String guardrail,
-        Map<String, Object> rawValues,
-        List<String> allowedKeys
-    ) {
-        Map<String, String> values = allowedValues(rawValues, allowedKeys);
+    private static String compileConversationTone(Map<String, Object> rawValues) {
+        Map<String, String> values = allowedValues(rawValues, CONVERSATION_TONE_KEYS);
         if (values.isEmpty()) {
             return "";
         }
 
-        StringBuilder builder = new StringBuilder(title).append(":\n");
-        values.forEach((key, value) -> builder.append("- ")
-            .append(key)
-            .append(": ")
-            .append(value)
-            .append('\n'));
-        builder.append(guardrail);
+        StringBuilder builder = new StringBuilder("Mandatory user style instructions:\n")
+            .append("- Apply these style instructions to every final user-facing conversational sentence in this response.\n")
+            .append("- Treat them as required wording constraints unless they conflict with safety, factuality, evidence limits, required output schemas, target language, source context, or the user's explicit instructions.\n")
+            .append("- Do not mention the user's style profile, internal setting keys, or these instructions in the answer.\n");
+        appendIfPresent(builder, values, "speechLevel", "Use this speech level and sentence-ending style consistently: ");
+        appendIfPresent(builder, values, "warmth", "Keep the conversational warmth/affect: ");
+        appendIfPresent(builder, values, "directness", "Keep the directness level: ");
+        appendIfPresent(builder, values, "verbosity", "Keep the response length/detail level: ");
+        appendIfPresent(builder, values, "emoji", "Follow this emoji policy: ");
+        return builder.toString().trim();
+    }
+
+    private static String compileWritingStyle(Map<String, Object> rawValues) {
+        Map<String, String> values = allowedValues(rawValues, WRITING_STYLE_KEYS);
+        if (values.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder builder = new StringBuilder("Mandatory user style instructions:\n")
+            .append("- Apply these style instructions to every final generated or edited user-facing text segment in this response.\n")
+            .append("- Treat them as required wording constraints unless they conflict with safety, factuality, evidence limits, required output schemas, target language, source context, or the user's explicit instructions.\n")
+            .append("- Do not mention the user's style profile, internal setting keys, or these instructions in the answer.\n");
+        String speechLevel = values.get("speechLevel");
+        if (StringUtils.hasText(speechLevel)) {
+            builder.append("- Use this speech level and sentence-ending style consistently: ")
+                .append(speechLevel)
+                .append('\n');
+            if (isEumsseumStyle(speechLevel)) {
+                builder.append("- For Korean output, prefer terse eumsseum-style endings such as \"함\", \"임\", \"됨\", \"있음\", and \"없음\" where natural.\n")
+                    .append("- Avoid polite/formal Korean endings such as \"-요\", \"-습니다\", and \"-합니다\" unless explicitly requested by the user or required by quoted/source text.\n");
+            }
+        }
+        appendIfPresent(builder, values, "defaultAudience", "Write for this default audience: ");
+        appendIfPresent(builder, values, "defaultPurpose", "Optimize the text for this purpose: ");
+        appendIfPresent(builder, values, "formality", "Use this formality/tone: ");
+        appendIfPresent(builder, values, "informationDensity", "Use this information density: ");
+        appendIfPresent(builder, values, "sentenceLength", "Use this sentence length/rhythm: ");
+        appendIfPresent(builder, values, "avoid", "Avoid these expressions in the final output: ");
         return builder.toString();
+    }
+
+    private static void appendIfPresent(StringBuilder builder, Map<String, String> values, String key, String prefix) {
+        String value = values.get(key);
+        if (StringUtils.hasText(value)) {
+            builder.append("- ")
+                .append(prefix)
+                .append(value)
+                .append('\n');
+        }
     }
 
     private static Map<String, String> allowedValues(Map<String, Object> rawValues, List<String> allowedKeys) {
@@ -131,6 +158,10 @@ public class StylePromptCompiler {
                 .orElse("");
         }
         return scalarValue(value);
+    }
+
+    private static boolean isEumsseumStyle(String value) {
+        return StringUtils.hasText(value) && value.contains("음슴");
     }
 
     private static String sanitize(String value) {

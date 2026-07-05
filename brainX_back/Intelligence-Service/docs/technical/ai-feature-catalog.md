@@ -127,6 +127,7 @@ OpenAI chat은 Spring AI `ChatClient`를 통해 호출한다. OpenAI audio/image
 ## StyleProfile Prompt Mapping
 
 `StyleProfile`은 `conversationTone`과 `writingStyle` 두 축만 사용한다. `assistanceStyle`은 적용 범위가 불명확하고 실제 prompt 적용 없이 가정만 남기는 YAGNI 부채라 제거했다.
+두 축의 세부 값은 preset enum이 아니라 사용자 자유 입력 문자열이다. compiler는 이를 강한 `Mandatory user style instructions`로 변환한다. 최종 사용자-facing 문장에는 문체를 반드시 적용하되, safety/factuality/evidence limit/required output format/explicit user instruction이 충돌하면 그 지시가 우선한다. `writingStyle`도 `speechLevel`을 지원해 초안/수정/리포트 결과물의 말투를 대화형 답변 말투와 별도로 조정하며, `음슴체`는 한국어 결과물에서 음슴체 종결을 선호하도록 별도 보강한다.
 
 | 기능/흐름 | 적용 축 | 적용 위치 | 비고 |
 | --- | --- | --- | --- |

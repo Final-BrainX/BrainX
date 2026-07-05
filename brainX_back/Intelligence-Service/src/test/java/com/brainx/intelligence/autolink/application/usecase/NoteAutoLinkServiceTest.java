@@ -91,9 +91,10 @@ class NoteAutoLinkServiceTest {
         assertThat(strategy.suggestions()).hasSize(1);
         assertThat(strategy.suggestions().getFirst().anchor().matchedText()).isEqualTo("Knowledge Graphs");
         assertThat(aiChatPort.requests.getFirst().messages().getFirst().content())
-            .contains("User conversation tone profile")
-            .contains("- directness: high")
-            .doesNotContain("User writing style profile");
+            .contains("Mandatory user style instructions")
+            .contains("every final user-facing conversational sentence")
+            .contains("Keep the directness level: high")
+            .doesNotContain("every final generated or edited user-facing text segment");
         assertThat(strategy.filteredInvalidAnchorCount()).isEqualTo(1);
         assertThat(strategy.filteredQualityCount()).isZero();
         assertThat(strategy.usageRecords()).hasSize(2);
@@ -404,10 +405,12 @@ class NoteAutoLinkServiceTest {
         assertThat(strategy.usageRecords()).extracting("featureId")
             .contains("note-auto-link-relation-verifier-chat");
         assertThat(aiChatPort.requests.getFirst().messages().getFirst().content())
-            .contains("User conversation tone profile");
+            .contains("Mandatory user style instructions")
+            .contains("every final user-facing conversational sentence");
         assertThat(aiChatPort.requests.get(1).messages().getFirst().content())
-            .doesNotContain("User conversation tone profile")
-            .doesNotContain("User writing style profile");
+            .doesNotContain("Mandatory user style instructions")
+            .doesNotContain("every final user-facing conversational sentence")
+            .doesNotContain("every final generated or edited user-facing text segment");
         assertThat(strategy.usageSummary().inputTokens()).isEqualTo(30);
     }
 

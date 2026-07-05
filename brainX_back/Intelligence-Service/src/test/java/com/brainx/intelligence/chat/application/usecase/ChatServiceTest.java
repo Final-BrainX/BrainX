@@ -620,9 +620,10 @@ class ChatServiceTest {
         assertThat(retrievalPort.lastQuery.scope()).isEqualTo(SearchScope.USER);
         assertThat(retrievalPort.lastQuery.documentGroupId()).isNull();
         assertThat(aiChatPort.lastRequest.messages().getFirst().content())
-            .contains("User conversation tone profile")
-            .contains("- directness: high")
-            .doesNotContain("User writing style profile");
+            .contains("Mandatory user style instructions")
+            .contains("every final user-facing conversational sentence")
+            .contains("Keep the directness level: high")
+            .doesNotContain("every final generated or edited user-facing text segment");
         assertThat(aiChatPort.lastRequest.messages().getLast().content()).contains("workspace context");
         assertThat(persistencePort.messages.get(1).citations().getFirst().documentGroupId()).isEqualTo("group-2");
     }
@@ -650,9 +651,10 @@ class ChatServiceTest {
             .contains("level-1 Markdown heading")
             .contains("\"# <title>\"")
             .contains("personal note-taking tone")
-            .contains("User writing style profile")
-            .contains("- formality: business")
-            .doesNotContain("User conversation tone profile");
+            .contains("Mandatory user style instructions")
+            .contains("every final generated or edited user-facing text segment")
+            .contains("Use this formality/tone: business")
+            .doesNotContain("every final user-facing conversational sentence");
         assertThat(aiChatPort.lastRequest.messages().getLast().content()).contains("Request:");
     }
 
@@ -680,9 +682,10 @@ class ChatServiceTest {
             .contains("level-1 Markdown heading")
             .contains("\"# <title>\"")
             .contains("personal note-taking tone")
-            .contains("User writing style profile")
-            .contains("- formality: business")
-            .doesNotContain("User conversation tone profile");
+            .contains("Mandatory user style instructions")
+            .contains("every final generated or edited user-facing text segment")
+            .contains("Use this formality/tone: business")
+            .doesNotContain("every final user-facing conversational sentence");
     }
 
     @Test
@@ -716,12 +719,13 @@ class ChatServiceTest {
 
         assertThat(aiChatPort.lastRequest.messages().getFirst().content())
             .contains("RAG chat assistant")
-            .contains("User conversation tone profile")
-            .contains("- directness: high")
+            .contains("Mandatory user style instructions")
+            .contains("every final user-facing conversational sentence")
+            .contains("Keep the directness level: high")
             .doesNotContain("level-1 Markdown heading")
             .doesNotContain("\"# <title>\"")
             .doesNotContain("personal note-taking tone")
-            .doesNotContain("User writing style profile");
+            .doesNotContain("every final generated or edited user-facing text segment");
     }
 
     @Test
