@@ -1,8 +1,7 @@
 "use client";
 
+import { getPublicApiBaseUrl } from "@/lib/api-base";
 import { clearAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 export type McpOAuthAuthorizationRequest = {
   clientId: string;
@@ -36,7 +35,7 @@ export async function createMcpOAuthAuthorization(payload: McpOAuthAuthorization
     throw new McpOAuthAuthRequiredError("로그인이 필요합니다.");
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/v1/oauth/authorizations`, {
+  const response = await fetch(`${getPublicApiBaseUrl()}/api/v1/oauth/authorizations`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

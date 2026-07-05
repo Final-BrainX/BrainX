@@ -1,13 +1,13 @@
 x-desktop-popup-bridge:
-  description: Browser popup callbacks may use window.postMessage, while Electron desktop clients may deliver the same callback payload through preload/IPC renderer events.
+  description: Browser popup callbacks may use window.postMessage, while Electron desktop clients may deliver the same callback payload through preload/IPC renderer events or through a custom-protocol deep link that returns external-browser OAuth completion into the renderer callback route.
 x-desktop-file-session-bridge:
-  description: Electron desktop clients may back renderer auth/session persistence and file open-save flows with preload IPC bridges while Web clients continue to use browser storage and download behavior.
+  description: Electron desktop clients may back renderer auth/session persistence, login-OAuth API fallback requests, and file open-save flows with preload IPC bridges while Web clients continue to use browser storage and download behavior.
 x-desktop-bundled-renderer:
-  description: Packaged Electron desktop clients may serve a bundled local Next standalone renderer from unpacked app resources and fall back to the remote web deployment only as a desktop runtime fallback.
+  description: Packaged Electron desktop clients may serve a bundled local Next standalone renderer from unpacked app resources, prefer same-origin Next proxy routes for renderer-to-public-API calls so desktop auth does not depend on cross-origin browser CORS, carry branded desktop icon resources for the executable-installer shell, and fall back to the remote web deployment only as a desktop runtime fallback.
 x-desktop-local-vault:
-  description: Electron desktop clients may persist local vault metadata in app user-data storage, normalize user-selected vault folders into notes/assets/exports plus .brainx workspace descriptors, store local vault note and folder indexes separately from future cloud sync policy, and keep import-export plus graph-home statistics bound to the active vault.
+  description: Electron desktop clients may persist local vault metadata in app user-data storage, normalize user-selected vault folders into notes/assets/exports plus .brainx workspace descriptors, store local vault note and folder indexes separately from future cloud sync policy, keep import-export plus graph-home statistics bound to the active vault, and let local-only PPT assets open through the desktop shell when remote slide preview endpoints are unavailable.
 x-desktop-manual-sync:
-  description: Electron desktop clients may expose preload IPC helpers for vault sync mode selection and manual sync job requests while remote workspace synchronization remains a separate follow-up worker implementation.
+  description: Electron desktop clients may expose preload IPC helpers for vault sync mode selection and manual sync job requests, execute authenticated manual-cloud sync jobs for vault note and folder metadata plus mirrored asset references, upload local vault assets through `/api/v1/assets/upload-sessions*`, pull remote image/PDF/HTML binaries into the active vault when needed, persist note/folder/asset sync mappings under `.brainx/sync-state.json`, store the latest manual sync result under the active vault for restart-safe desktop status recovery, write divergent local-vs-remote conflict reports under `.brainx/conflicts/` without auto-merging, let renderer conflict summaries open detailed report payloads through preload IPC, and surface recent sync status plus conflict summaries in the desktop renderer settings, home, and notes UI.
 
 openapi: 3.0.3
 info:

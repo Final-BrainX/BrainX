@@ -2,6 +2,7 @@
 
 import {
   isElectronDesktop,
+  type BrainxDesktopManualSyncConflictReport,
   type BrainxDesktopVaultAsset,
   type BrainxDesktopVaultFolder,
   type BrainxDesktopVaultNote,
@@ -123,6 +124,24 @@ export async function writeDesktopVaultAsset(options: {
   return window.brainxDesktop.writeVaultAsset(options);
 }
 
+export async function openDesktopVaultAsset(assetId: string) {
+  if (!isElectronDesktop() || !window.brainxDesktop?.openVaultAsset) {
+    return false;
+  }
+  return window.brainxDesktop.openVaultAsset(assetId);
+}
+
+export async function importDesktopVaultZip(options: {
+  fileName: string;
+  dataBase64: string;
+  targetFolderId?: string | null;
+}) {
+  if (!isElectronDesktop() || !window.brainxDesktop?.importVaultZip) {
+    throw new Error("Desktop vault ZIP import API is unavailable.");
+  }
+  return window.brainxDesktop.importVaultZip(options);
+}
+
 export async function saveDesktopVaultExport(options: {
   fileName: string;
   mimeType: string;
@@ -163,4 +182,18 @@ export async function requestDesktopVaultManualSync(): Promise<BrainxDesktopManu
     throw new Error("Desktop vault manual sync API is unavailable.");
   }
   return window.brainxDesktop.requestManualSync();
+}
+
+export async function getLatestDesktopVaultManualSyncJob(): Promise<BrainxDesktopManualSyncJob | null> {
+  if (!isElectronDesktop() || !window.brainxDesktop?.getLatestManualSyncJob) {
+    return null;
+  }
+  return window.brainxDesktop.getLatestManualSyncJob();
+}
+
+export async function getDesktopVaultManualSyncConflictReport(jobId: string): Promise<BrainxDesktopManualSyncConflictReport | null> {
+  if (!isElectronDesktop() || !window.brainxDesktop?.getManualSyncConflictReport) {
+    return null;
+  }
+  return window.brainxDesktop.getManualSyncConflictReport(jobId);
 }

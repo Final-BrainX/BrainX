@@ -1,18 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Globe, ExternalLink, Maximize2, Minimize2 } from "lucide-react";
+import { ExternalLink, Globe, Maximize2, Minimize2 } from "lucide-react";
+import { isElectronDesktop } from "@/lib/desktop-bridge";
+import { openDesktopVaultAsset } from "@/lib/desktop-vault";
+import { getAssetFileUrl, isDesktopVaultAssetId } from "@/lib/ingestion-api";
 import { cx } from "@/lib/utils";
-import { getAssetFileUrl } from "@/lib/ingestion-api";
 
 interface Props {
   assetId: string;
   fileName: string;
 }
 
-/** Tiptap 노트 에디터를 전혀 띄우지 않는, HTML 전용 화면. 파일 가져오기로 만들어진 노트의
-    본문이 HTML 임베드 블록 하나뿐이면(parseHtmlOnlyNote) EditorPanel이 NoteEditor 대신
-    이 컴포넌트를 패널 전체 높이로 렌더링한다(PdfViewerPanel과 동일한 패턴). */
 export default function HtmlViewerPanel({ assetId, fileName }: Props) {
   const url = getAssetFileUrl(assetId);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -32,6 +31,14 @@ export default function HtmlViewerPanel({ assetId, fileName }: Props) {
     }
   };
 
+  const openExternal = async () => {
+    if (isElectronDesktop() && isDesktopVaultAssetId(assetId)) {
+      await openDesktopVaultAsset(assetId);
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
   return (
     <div ref={frameRef} className="flex h-full flex-1 flex-col bg-surface">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line/40 bg-surface2/40 px-4 py-2.5">
@@ -41,22 +48,21 @@ export default function HtmlViewerPanel({ assetId, fileName }: Props) {
         </div>
         <div className="flex shrink-0 items-center gap-3">
           {!isFullscreen && (
-            <a
-              href={url}
-              target="_blank"
-              rel="noreferrer"
+            <button
+              type="button"
+              onClick={() => void openExternal()}
               className="flex items-center gap-1 text-[12px] text-txt3 hover:text-txt"
             >
-              새 탭에서 열기
+              Open externally
               <ExternalLink size={12} />
-            </a>
+            </button>
           )}
           <button
             type="button"
             onClick={toggleFullscreen}
             className="flex items-center gap-1 text-[12px] text-txt3 hover:text-txt"
           >
-            {isFullscreen ? "전체화면 종료" : "큰 화면으로 보기"}
+            {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
             {isFullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
           </button>
         </div>

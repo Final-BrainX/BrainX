@@ -1,5 +1,6 @@
 "use client";
 
+import { getIngestionApiBaseUrl, getPublicApiBaseUrl } from "@/lib/api-base";
 import {
   getLocalStoredValue,
   getSessionStoredValue,
@@ -9,19 +10,25 @@ import {
   setSessionStoredValue,
 } from "@/lib/client-storage";
 import { clearAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { requestDesktopApiJson } from "@/lib/desktop-api-request";
 import { getBrainxDesktopConfig, isElectronDesktop } from "@/lib/desktop-bridge";
-import { createDesktopVaultNote, writeDesktopVaultAsset } from "@/lib/desktop-vault";
+import { createDesktopVaultNote, importDesktopVaultZip, writeDesktopVaultAsset } from "@/lib/desktop-vault";
 
-const INGESTION_API_BASE_URL = process.env.NEXT_PUBLIC_INGESTION_API_BASE_URL ?? "http://localhost:8083";
+export function isDesktopVaultAssetId(assetId: string) {
+  return assetId.startsWith("vault_asset_");
+}
 
 /** 노트 안에 임베드된 PDF 뷰어(PdfBlockNode)가 iframe src로 사용하는 원본 파일 URL. */
 export function getAssetFileUrl(assetId: string) {
-  return `${INGESTION_API_BASE_URL}/api/v1/assets/${assetId}/file`;
+  if (typeof window !== "undefined" && isElectronDesktop() && isDesktopVaultAssetId(assetId)) {
+    return `brainx-asset://vault/${encodeURIComponent(assetId)}`;
+  }
+  return `${getIngestionApiBaseUrl()}/api/v1/assets/${assetId}/file`;
 }
 
 /** PPTX 슬라이드 이미지 URL. slideIndex는 0-based. */
 export function getPptSlideUrl(assetId: string, slideIndex: number) {
-  return `${INGESTION_API_BASE_URL}/api/v1/assets/${assetId}/slides/${slideIndex}`;
+  return `${getIngestionApiBaseUrl()}/api/v1/assets/${assetId}/slides/${slideIndex}`;
 }
 
 /** PPTX 슬라이드에 삽입된 영상 URL. 영상이 없는 슬라이드는 404를 반환한다. */
@@ -35,7 +42,7 @@ export function getPptSlideVideoUrl(assetId: string, slideIndex: number) {
 export async function fetchImageViaProxy(url: string): Promise<Blob> {
   const session = readAuthSession();
   const response = await fetch(
-    `${INGESTION_API_BASE_URL}/api/v1/assets/proxy-image?url=${encodeURIComponent(url)}`,
+    `${getIngestionApiBaseUrl()}/api/v1/assets/proxy-image?url=${encodeURIComponent(url)}`,
     {
       headers: session?.accessToken
         ? { Authorization: `${session.tokenType ?? "Bearer"} ${session.accessToken}` }
@@ -139,7 +146,19 @@ function isTextLikeFile(file: File) {
 
 async function importDesktopVaultFile(file: File, targetFolderId?: string): Promise<ImportJobData> {
   if (isZipFile(file)) {
-    throw new Error("ZIP import into a local vault is not wired yet. Please extract it first and import the files directly.");
+    const dataBase64 = toBase64FromArrayBuffer(await file.arrayBuffer());
+    const result = await importDesktopVaultZip({
+      fileName: file.name,
+      dataBase64,
+      targetFolderId: targetFolderId ?? null,
+    });
+    return {
+      importJobId: result.jobId,
+      status: result.status,
+      createdNotes: result.createdNotes ?? [],
+      failedFiles: result.failedFiles ?? [],
+      conflicts: result.conflicts ?? [],
+    };
   }
 
   let createdNotes: LocalImportResult[] = [];
@@ -158,17 +177,25 @@ async function importDesktopVaultFile(file: File, targetFolderId?: string): Prom
       mimeType: inferFileMimeType(file),
       dataBase64,
     });
+    const lowerName = file.name.toLowerCase();
+    const markdown = file.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(lowerName)
+      ? `<div data-image-block="true" data-asset-id="${asset.assetId}" data-file-name="${asset.fileName}"></div>`
+      : lowerName.endsWith(".pdf")
+        ? `<div data-pdf-block="true" data-asset-id="${asset.assetId}" data-file-name="${asset.fileName}"></div>`
+        : lowerName.endsWith(".html") || lowerName.endsWith(".htm")
+          ? `<div data-html-block="true" data-asset-id="${asset.assetId}" data-file-name="${asset.fileName}"></div>`
+          : [
+              `# ${fileNameWithoutExtension(file.name)}`,
+              "",
+              `- Imported asset: ${asset.fileName}`,
+              `- Vault path: assets/${asset.relativePath}`,
+              `- MIME type: ${asset.mimeType}`,
+              `- Size: ${asset.size} bytes`,
+            ].join("\n");
     const note = await createDesktopVaultNote({
       title: fileNameWithoutExtension(file.name),
       folderId: targetFolderId ?? null,
-      markdown: [
-        `# ${fileNameWithoutExtension(file.name)}`,
-        "",
-        `- Imported asset: ${asset.fileName}`,
-        `- Vault path: assets/${asset.relativePath}`,
-        `- MIME type: ${asset.mimeType}`,
-        `- Size: ${asset.size} bytes`,
-      ].join("\n"),
+      markdown,
       tags: ["imported-asset"],
     });
     createdNotes = [{ noteId: note.noteId, title: note.title }];
@@ -185,17 +212,21 @@ async function importDesktopVaultFile(file: File, targetFolderId?: string): Prom
 
 async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const session = readAuthSession();
-
-  const response = await fetch(`${INGESTION_API_BASE_URL}${path}`, {
+  const requestInit: RequestInit = {
     ...init,
     headers: {
       "Content-Type": "application/json",
       ...(session?.accessToken ? { Authorization: `${session.tokenType ?? "Bearer"} ${session.accessToken}` } : {}),
       ...(init?.headers ?? {})
     }
-  });
-
-  const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
+  };
+  const desktopResponse = await requestDesktopApiJson<ApiResponse<T>>(path, requestInit);
+  const response = desktopResponse
+    ? { ok: desktopResponse.ok, status: desktopResponse.status }
+    : await fetch(`${getPublicApiBaseUrl()}${path}`, requestInit);
+  const payload = desktopResponse
+    ? desktopResponse.payload
+    : ((await (response as Response).json().catch(() => null)) as ApiResponse<T> | null);
   if (response.status === 401 || response.status === 403) {
     clearAuthSession();
     throw new Error("로그인이 만료되었습니다. 다시 로그인해 주세요.");
@@ -215,7 +246,7 @@ async function authedUpload(path: string, file: File): Promise<void> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(`${INGESTION_API_BASE_URL}${path}`, {
+  const response = await fetch(`${getPublicApiBaseUrl()}${path}`, {
     method: "PUT",
     body: formData,
     headers: session?.accessToken ? { Authorization: `${session.tokenType ?? "Bearer"} ${session.accessToken}` } : {}

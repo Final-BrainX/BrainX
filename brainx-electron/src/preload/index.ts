@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  BrainxDesktopApiRequestOptions,
+  BrainxDesktopApiResponse,
   BrainxDesktopApi,
   BrainxDesktopConfig,
   BrainxDesktopCreateVaultOptions,
@@ -7,9 +9,11 @@ import type {
   BrainxDesktopCreateVaultNoteOptions,
   BrainxDesktopDeleteVaultFolderOptions,
   BrainxDesktopDeleteVaultNoteOptions,
+  BrainxDesktopImportVaultZipOptions,
   BrainxDesktopOpenFileOptions,
   BrainxDesktopOpenFileResult,
   BrainxDesktopManualSyncJob,
+  BrainxDesktopManualSyncConflictReport,
   BrainxDesktopPatchVaultFolderOptions,
   BrainxDesktopPopupHandle,
   BrainxDesktopPopupOptions,
@@ -45,6 +49,8 @@ const api: BrainxDesktopApi = {
   removeStoredValue: (area: BrainxDesktopStorageArea, key: string) => {
     ipcRenderer.sendSync("brainx-desktop:remove-stored-value", area, key);
   },
+  requestApi: (options: BrainxDesktopApiRequestOptions) =>
+    ipcRenderer.invoke("brainx-desktop:request-api", options) as Promise<BrainxDesktopApiResponse>,
   openFile: (options?: BrainxDesktopOpenFileOptions) =>
     ipcRenderer.invoke("brainx-desktop:open-file", options) as Promise<BrainxDesktopOpenFileResult | null>,
   saveFile: (options: BrainxDesktopSaveFileOptions) =>
@@ -72,6 +78,10 @@ const api: BrainxDesktopApi = {
     ipcRenderer.invoke("brainx-desktop:delete-vault-note", options) as Promise<{ noteId: string; deletedAt: string; purgeAt: string | null }>,
   writeVaultAsset: (options: BrainxDesktopWriteVaultAssetOptions) =>
     ipcRenderer.invoke("brainx-desktop:write-vault-asset", options) as Promise<BrainxDesktopVaultAsset>,
+  openVaultAsset: (assetId: string) =>
+    ipcRenderer.invoke("brainx-desktop:open-vault-asset", assetId) as Promise<boolean>,
+  importVaultZip: (options: BrainxDesktopImportVaultZipOptions) =>
+    ipcRenderer.invoke("brainx-desktop:import-vault-zip", options) as Promise<BrainxDesktopManualSyncJob>,
   saveVaultExport: (options: BrainxDesktopSaveVaultExportOptions) =>
     ipcRenderer.invoke("brainx-desktop:save-vault-export", options) as Promise<{ saved: boolean; filePath: string }>,
   getVaultWorkspaceStats: () =>
@@ -82,6 +92,10 @@ const api: BrainxDesktopApi = {
     ipcRenderer.invoke("brainx-desktop:set-vault-sync-policy", policy) as Promise<BrainxDesktopVaultSyncPolicy>,
   requestManualSync: () =>
     ipcRenderer.invoke("brainx-desktop:request-manual-sync") as Promise<BrainxDesktopManualSyncJob>,
+  getLatestManualSyncJob: () =>
+    ipcRenderer.invoke("brainx-desktop:get-latest-manual-sync-job") as Promise<BrainxDesktopManualSyncJob | null>,
+  getManualSyncConflictReport: (jobId: string) =>
+    ipcRenderer.invoke("brainx-desktop:get-manual-sync-conflict-report", jobId) as Promise<BrainxDesktopManualSyncConflictReport | null>,
 };
 
 contextBridge.exposeInMainWorld("brainxDesktop", api);
