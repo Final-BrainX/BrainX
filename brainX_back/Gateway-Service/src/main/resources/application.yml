@@ -304,6 +304,8 @@ brainx:
         - /api/v1/plans
         - /api/v1/plans/**
         - /api/v1/assets/*/file
+        - /api/v1/assets/*/slides/*
+        - /api/v1/assets/*/slides/*/video
         - /api/v1/assets/proxy-image
         - /api/v1/mcp/**
         - /mcp
