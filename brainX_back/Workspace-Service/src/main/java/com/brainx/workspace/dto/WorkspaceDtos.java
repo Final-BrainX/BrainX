@@ -217,6 +217,16 @@ public final class WorkspaceDtos {
     ) {
     }
 
+    public record InternalDefaultWorkspaceData(
+            String documentGroupId,
+            String userId,
+            String name,
+            Boolean isDefault,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+    }
+
     public record InternalWorkspaceActivityDto(
             String activityId,
             String userId,

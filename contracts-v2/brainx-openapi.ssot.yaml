@@ -369,7 +369,7 @@ paths:
       - ConsentRecorded
       x-internal-sync-calls: []
       x-async-boundary: false
-      description: 회원 생성과 JWT 발급은 동기 처리. 기본 플랜/기본 워크스페이스(documentGroup)/웰컴 메일은 이벤트 기반 후처리.
+      description: 회원 생성과 JWT 발급은 동기 처리. 기본 워크스페이스(documentGroup)는 현재 internal API best-effort 후처리로 연결하며, 기본 플랜/웰컴 메일과 UserRegistered 이벤트 기반 확장은 후속 enablement 범위다.
       parameters:
       - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:

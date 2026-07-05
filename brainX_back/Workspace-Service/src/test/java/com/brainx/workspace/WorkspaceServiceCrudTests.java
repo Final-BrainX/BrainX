@@ -52,6 +52,8 @@ class WorkspaceServiceCrudTests {
     @Autowired
     NoteRepository noteRepository;
     @Autowired
+    WorkspaceRepository workspaceRepository;
+    @Autowired
     ObjectMapper objectMapper;
 
     @BeforeEach
@@ -65,6 +67,7 @@ class WorkspaceServiceCrudTests {
         eventOutboxRepository.deleteAll();
         folderRepository.deleteAll();
         noteRepository.deleteAll();
+        workspaceRepository.deleteAll();
         if (neo4jDriver != null) {
             try (var session = neo4jDriver.session()) {
                 session.executeWrite(tx -> tx.run("MATCH (n) DETACH DELETE n").consume());
@@ -231,6 +234,18 @@ class WorkspaceServiceCrudTests {
         // 다른 폴더에서는 같은 제목을 허용한다.
         NoteCreatedData noteInOtherFolder = workspaceService.createNote(USER_ID, new NoteCreateRequest("노트", "", second.folderId(), List.of()));
         assertThat(noteInOtherFolder.title()).isEqualTo("노트");
+    }
+
+    @Test
+    void getOrCreateDefaultWorkspaceIsIdempotent() {
+        InternalDefaultWorkspaceData first = workspaceService.getOrCreateDefaultWorkspace(USER_ID);
+        InternalDefaultWorkspaceData second = workspaceService.getOrCreateDefaultWorkspace(USER_ID);
+
+        assertThat(first.documentGroupId()).isEqualTo("dgrp_default_" + USER_ID);
+        assertThat(second.documentGroupId()).isEqualTo(first.documentGroupId());
+        assertThat(first.name()).isEqualTo("Default");
+        assertThat(Boolean.TRUE.equals(first.isDefault())).isTrue();
+        assertThat(workspaceRepository.findDefaultWorkspacesByUserId(USER_ID)).hasSize(1);
     }
 
     @Test

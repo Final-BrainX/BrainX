@@ -33,6 +33,11 @@ public class InternalWorkspaceController {
         return ApiResponse.success(workspaceService.getUserWorkspaceStats(userId));
     }
 
+    @PostMapping("/internal/v1/workspace/users/{userId}/default-workspace")
+    public ApiResponse<InternalDefaultWorkspaceData> getOrCreateDefaultWorkspaceInternal(@PathVariable String userId) {
+        return ApiResponse.success(workspaceService.getOrCreateDefaultWorkspace(userId));
+    }
+
     @GetMapping("/internal/v1/workspace/monitoring/summary")
     public ApiResponse<InternalWorkspaceMonitoringSummaryData> getWorkspaceMonitoringSummaryInternal() {
         return ApiResponse.success(workspaceService.getWorkspaceMonitoringSummary());

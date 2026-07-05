@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -43,6 +44,7 @@ public class WorkspaceService {
     private final NoteRepository noteRepository;
     private final NoteVersionRepository noteVersionRepository;
     private final FolderRepository folderRepository;
+    private final WorkspaceRepository workspaceRepository;
     private final NoteLinkRepository noteLinkRepository;
     private final FavoriteRepository favoriteRepository;
     private final RecentActivityRepository recentActivityRepository;
@@ -775,6 +777,38 @@ public class WorkspaceService {
         );
     }
 
+    public InternalDefaultWorkspaceData getOrCreateDefaultWorkspace(String userId) {
+        String normalizedUserId = trimToNull(userId);
+        if (normalizedUserId == null) {
+            throw new WorkspaceException(HttpStatus.BAD_REQUEST, "USER_ID_REQUIRED", "User id is required.");
+        }
+
+        Workspace existingDefault = workspaceRepository.findDefaultWorkspacesByUserId(normalizedUserId).stream()
+                .findFirst()
+                .orElse(null);
+        if (existingDefault != null) {
+            return defaultWorkspaceData(existingDefault);
+        }
+
+        String documentGroupId = defaultDocumentGroupId(normalizedUserId);
+        Workspace existingById = workspaceRepository.findById(documentGroupId).orElse(null);
+        if (existingById != null) {
+            return defaultWorkspaceData(existingById);
+        }
+
+        Instant now = Instant.now();
+        try {
+            Workspace created = workspaceRepository.save(new Workspace(documentGroupId, normalizedUserId, "Default", true, now));
+            return defaultWorkspaceData(created);
+        } catch (DataIntegrityViolationException exception) {
+            Workspace recovered = workspaceRepository.findById(documentGroupId)
+                    .orElseGet(() -> workspaceRepository.findDefaultWorkspacesByUserId(normalizedUserId).stream()
+                            .findFirst()
+                            .orElseThrow(() -> exception));
+            return defaultWorkspaceData(recovered);
+        }
+    }
+
     public NoteContentSaveData patchContentInternal(String noteId, InternalNoteContentPatchRequest request) {
         Note note = noteRepository.findById(noteId).orElseThrow(() -> notFound("NOTE_NOT_FOUND", "Note not found."));
         Map<String, Object> patch = request.patch() == null ? Map.of() : request.patch();
@@ -1007,6 +1041,21 @@ public class WorkspaceService {
 
     private FolderData folderData(Folder folder) {
         return new FolderData(folder.getFolderId(), folder.getName(), folder.getParentFolderId(), folder.getParentFolderId() == null ? 0 : 1);
+    }
+
+    private InternalDefaultWorkspaceData defaultWorkspaceData(Workspace workspace) {
+        return new InternalDefaultWorkspaceData(
+                workspace.getDocumentGroupId(),
+                workspace.getUserId(),
+                workspace.getName(),
+                workspace.getIsDefault(),
+                workspace.getCreatedAt(),
+                workspace.getUpdatedAt()
+        );
+    }
+
+    private String defaultDocumentGroupId(String userId) {
+        return "dgrp_default_" + userId;
     }
 
     private ShareLinkData shareData(ShareLink share) {

@@ -24,6 +24,7 @@ public class Note {
     private String noteId;
     @Column(nullable = false)
     private String userId;
+    private String documentGroupId;
     @Column(nullable = false)
     private String title;
     @Column(columnDefinition = "text", nullable = false)
@@ -49,8 +50,13 @@ public class Note {
     private Instant lastViewedAt;
 
     public Note(String noteId, String userId, String title, String markdown, String folderId, List<String> tags, Instant now) {
+        this(noteId, userId, null, title, markdown, folderId, tags, now);
+    }
+
+    public Note(String noteId, String userId, String documentGroupId, String title, String markdown, String folderId, List<String> tags, Instant now) {
         this.noteId = noteId;
         this.userId = userId;
+        this.documentGroupId = documentGroupId;
         this.title = title;
         this.markdown = markdown == null ? "" : markdown;
         this.folderId = folderId;

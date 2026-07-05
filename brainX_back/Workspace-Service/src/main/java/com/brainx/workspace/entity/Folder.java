@@ -18,6 +18,7 @@ public class Folder {
     private String folderId;
     @Column(nullable = false)
     private String userId;
+    private String documentGroupId;
     @Column(nullable = false)
     private String name;
     private String parentFolderId;
@@ -27,8 +28,13 @@ public class Folder {
     private Instant updatedAt;
 
     public Folder(String folderId, String userId, String name, String parentFolderId, Instant now) {
+        this(folderId, userId, null, name, parentFolderId, now);
+    }
+
+    public Folder(String folderId, String userId, String documentGroupId, String name, String parentFolderId, Instant now) {
         this.folderId = folderId;
         this.userId = userId;
+        this.documentGroupId = documentGroupId;
         this.name = name;
         this.parentFolderId = parentFolderId;
         this.createdAt = now;

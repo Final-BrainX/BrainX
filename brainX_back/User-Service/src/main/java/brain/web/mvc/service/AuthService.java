@@ -1,5 +1,6 @@
 package brain.web.mvc.service;
 
+import brain.web.mvc.client.WorkspaceServiceClient;
 import brain.web.mvc.dto.request.AuthRequests.ConsentRequest;
 import brain.web.mvc.dto.request.AuthRequests.EmailSignupRequest;
 import brain.web.mvc.dto.request.AuthRequests.LoginRequest;
@@ -25,6 +26,7 @@ import brain.web.mvc.repository.RefreshTokenRepository;
 import brain.web.mvc.repository.UserOnboardingProfileRepository;
 import brain.web.mvc.repository.UserRepository;
 import brain.web.mvc.security.JwtTokenProvider;
+import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
@@ -52,6 +54,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class AuthService {
     private static final Pattern PASSWORD_PATTERN =
@@ -68,6 +71,7 @@ public class AuthService {
     private final EmailVerificationService emailVerificationService;
     private final UserLoginSessionService userLoginSessionService;
     private final RestClient.Builder restClientBuilder;
+    private final WorkspaceServiceClient workspaceServiceClient;
 
     private final Map<String, String> oauthStates = new ConcurrentHashMap<>();
     private final Map<String, PendingOAuthSignup> pendingOAuthSignups = new ConcurrentHashMap<>();
@@ -155,6 +159,7 @@ public class AuthService {
                 .build());
 
         saveConsents(user, request.consents());
+        provisionDefaultWorkspaceBestEffort(user.getUserId());
         return issueFreshAuthTokenResponse(user, null, httpRequest);
     }
 
@@ -399,6 +404,7 @@ public class AuthService {
                 .interests(request.interests() == null ? List.of() : request.interests())
                 .build());
 
+        provisionDefaultWorkspaceBestEffort(user.getUserId());
         return issueFreshAuthTokenResponse(user, null, httpRequest);
     }
 
@@ -461,6 +467,14 @@ public class AuthService {
                 .marketingOptional(consents.marketingOptional())
                 .behaviorAnalyticsOptional(consents.behaviorAnalyticsOptional())
                 .build());
+    }
+
+    private void provisionDefaultWorkspaceBestEffort(String userId) {
+        try {
+            workspaceServiceClient.provisionDefaultWorkspace(userId);
+        } catch (RuntimeException exception) {
+            log.warn("Default workspace provisioning failed for userId={}. Signup/onboarding will continue.", userId, exception);
+        }
     }
 
     private void validatePassword(String password) {

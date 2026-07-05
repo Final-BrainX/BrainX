@@ -1,5 +1,6 @@
 package brain.web.mvc.service;
 
+import brain.web.mvc.client.WorkspaceServiceClient;
 import brain.web.mvc.repository.*;
 import brain.web.mvc.security.JwtTokenProvider;
 import brain.web.mvc.service.EmailVerificationService;
@@ -43,6 +44,7 @@ class AuthServiceOAuthStateLeakTest {
     @Mock private EmailVerificationService emailVerificationService;
     @Mock private UserLoginSessionService userLoginSessionService;
     @Mock private RestClient.Builder restClientBuilder;
+    @Mock private WorkspaceServiceClient workspaceServiceClient;
 
     @BeforeEach
     void setUp() {
@@ -56,7 +58,8 @@ class AuthServiceOAuthStateLeakTest {
                 jwtTokenProvider,
                 emailVerificationService,
                 userLoginSessionService,
-                restClientBuilder
+                restClientBuilder,
+                workspaceServiceClient
         );
 
         // Google OAuth 최소 설정 (빈 값이면 ApiException 발생)
