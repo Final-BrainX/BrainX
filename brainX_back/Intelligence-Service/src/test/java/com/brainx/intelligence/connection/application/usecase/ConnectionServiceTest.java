@@ -16,6 +16,7 @@ import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUse
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkComparison;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkCostEstimate;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkResult;
+import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkSourceCommand;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkStrategyResult;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkSuggestion;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkUsageSummary;
@@ -83,7 +84,7 @@ class ConnectionServiceTest {
     );
 
     @Test
-    void createLinkSuggestionsUsesDefaultDocumentGroupAndFiltersBySourceNote() {
+    void createLinkSuggestionsUsesDefaultDocumentGroupAndSourceOnlyAnalysis() {
         noteSourcePort.source = Optional.of(new ConnectionNoteSource(
             "user-1",
             "default",
@@ -98,10 +99,11 @@ class ConnectionServiceTest {
         var result = service.createLinkSuggestions(new LinkSuggestionsCommand("user-1", "note-1"));
 
         assertThat(noteSourcePort.lastDocumentGroupId).isEqualTo("default");
-        assertThat(autoLinkUseCase.lastCommand.documentGroupId()).isEqualTo("default");
-        assertThat(autoLinkUseCase.lastCommand.strategy()).isEqualTo(NoteAutoLinkStrategy.LLM_ONLY);
-        assertThat(autoLinkUseCase.lastCommand.maxNotes()).isNull();
-        assertThat(autoLinkUseCase.lastCommand.modelId()).isNull();
+        assertThat(autoLinkUseCase.lastCommand).isNull();
+        assertThat(autoLinkUseCase.lastSourceCommand.documentGroupId()).isEqualTo("default");
+        assertThat(autoLinkUseCase.lastSourceCommand.sourceNoteId()).isEqualTo("note-1");
+        assertThat(autoLinkUseCase.lastSourceCommand.maxNotes()).isNull();
+        assertThat(autoLinkUseCase.lastSourceCommand.modelId()).isNull();
         assertThat(entitlementPort.lastRequest.capability()).isEqualTo("LINK_SUGGESTIONS");
         assertThat(result.suggestions()).hasSize(1);
         assertThat(result.suggestions().getFirst().suggestionId()).isEqualTo("suggestion-1");
@@ -331,6 +333,7 @@ class ConnectionServiceTest {
 
         assertThat(entitlementPort.lastRequest).isNull();
         assertThat(autoLinkUseCase.lastCommand).isNull();
+        assertThat(autoLinkUseCase.lastSourceCommand).isNull();
     }
 
     @Test
@@ -344,6 +347,7 @@ class ConnectionServiceTest {
             .hasMessageContaining("QUOTA_EXHAUSTED");
 
         assertThat(autoLinkUseCase.lastCommand).isNull();
+        assertThat(autoLinkUseCase.lastSourceCommand).isNull();
     }
 
     @Test
@@ -493,11 +497,18 @@ class ConnectionServiceTest {
     private static final class FakeAutoLinkUseCase implements NoteAutoLinkUseCase {
 
         private AutoLinkCommand lastCommand;
+        private AutoLinkSourceCommand lastSourceCommand;
         private AutoLinkResult result = completedResult(List.of());
 
         @Override
         public AutoLinkResult analyze(AutoLinkCommand command) {
             lastCommand = command;
+            return result;
+        }
+
+        @Override
+        public AutoLinkResult analyzeSourceLinks(AutoLinkSourceCommand command) {
+            lastSourceCommand = command;
             return result;
         }
     }

@@ -117,17 +117,16 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AutoLinkNo
     @Transactional(readOnly = true)
     public List<AutoLinkNoteSource> findSearchableNoteSources(String userId, String documentGroupId, int limit) {
         return findSearchableByUserIdAndDocumentGroupId(userId, documentGroupId, limit).stream()
-            .map(projection -> new AutoLinkNoteSource(
-                projection.userId(),
-                projection.documentGroupId(),
-                projection.noteId(),
-                projection.title(),
-                projection.tags(),
-                projection.markdownHash(),
-                projection.markdown(),
-                projection.updatedAt()
-            ))
+            .map(NoteProjectionJpaAdapter::toAutoLinkNoteSource)
             .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<AutoLinkNoteSource> findSearchableNoteSource(String userId, String documentGroupId, String noteId) {
+        return findByUserIdAndDocumentGroupIdAndNoteId(userId, documentGroupId, noteId)
+            .filter(NoteProjectionJpaAdapter::canCreateLinkSuggestions)
+            .map(NoteProjectionJpaAdapter::toAutoLinkNoteSource);
     }
 
     @Override
@@ -293,6 +292,19 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AutoLinkNo
 
     private static boolean canAnalyze(NoteProjection projection) {
         return canCreateLinkSuggestions(projection);
+    }
+
+    private static AutoLinkNoteSource toAutoLinkNoteSource(NoteProjection projection) {
+        return new AutoLinkNoteSource(
+            projection.userId(),
+            projection.documentGroupId(),
+            projection.noteId(),
+            projection.title(),
+            projection.tags(),
+            projection.markdownHash(),
+            projection.markdown(),
+            projection.updatedAt()
+        );
     }
 
     private static KnowledgeAnalysisNote toAnalysisNote(NoteProjection projection) {
