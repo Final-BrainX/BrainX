@@ -1048,9 +1048,13 @@ export function MyPageScreen() {
       pushToast("로그아웃되었습니다.", "ok");
     } catch (error) {
       pushToast(error instanceof Error ? error.message : "로그아웃에 실패했습니다.", "err");
-      setLoggingOut(false);
     }
-    router.replace("/");
+    // account-settings-modal.tsx와 동일한 이유로 하드 네비게이션을 쓴다 — logout()의
+    // clearAuthSession()이 쏘는 resetWorkspace 이벤트를 다른 (app) 라우트에서 NotesWorkspace가
+    // 살아있는 채로 받으면 onActiveNoteChange가 router.replace로 이 redirect와 경합할 수 있다.
+    // replace를 써서 로그아웃 직전의 마이페이지가 history에 남지 않게 하고, 뒤로가기로 세션이
+    // 복구된 것처럼 보이는 화면으로 못 돌아가게 한다.
+    window.location.replace("/");
   };
 
   return (
