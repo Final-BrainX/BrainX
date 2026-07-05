@@ -72,7 +72,7 @@
 - `link-suggestions`는 source note와 candidate note들을 비교해 연결 후보를 만든다.
 - `bridge-concepts`는 여러 source note 사이의 missing concept이나 wiki link 후보를 만든다.
 - `NoteAutoLinkService`는 public controller에 직접 노출된 기능은 아니며 dev runner/내부 분석 흐름에서 자동 링크 후보 평가에 사용된다.
-- accepted link는 Intelligence가 직접 graph DB를 수정하지 않고 Workspace link command를 통해 만들어져야 한다. graph/vector는 projection이다.
+- accepted `link-suggestions` 후보는 source note 본문에 `[[...]]` wiki link를 저장하는 Workspace content save 흐름으로 확정한다. graph/vector는 projection이다.
 
 ## 모델과 provider
 

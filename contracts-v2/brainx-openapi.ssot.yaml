@@ -7933,6 +7933,68 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+  /api/v1/ai/insight-reports/latest:
+    get:
+      operationId: getLatestInsightReport
+      summary: Latest AI insight report status
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.home
+        type: frontend
+        description: Home screen AI insight panel
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: documentGroupId
+        in: query
+        required: false
+        schema:
+          type: string
+          default: default
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/InsightReportLatestData'
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
   /api/v1/ai/insight-reports/{reportId}:
     get:
       operationId: getInsightReport
@@ -16221,10 +16283,24 @@ components:
                 type: number
               reason:
                 type: string
+              anchorText:
+                type: string
+                description: Source note markdown text selected as the wiki-link alias.
+              anchorStartOffset:
+                type: integer
+                format: int32
+                description: Zero-based start offset of anchorText in the source note markdown used for this suggestion.
+              anchorEndOffset:
+                type: integer
+                format: int32
+                description: Zero-based exclusive end offset of anchorText in the source note markdown used for this suggestion.
             required:
             - suggestionId
             - targetNoteId
             - score
+            - anchorText
+            - anchorStartOffset
+            - anchorEndOffset
             additionalProperties: false
       required:
       - suggestions
@@ -16373,8 +16449,44 @@ components:
           type: string
           format: date-time
           nullable: true
+        failureMessage:
+          type: string
+          nullable: true
       required:
       - reportId
+      additionalProperties: false
+    InsightReportLatestState:
+      type: string
+      enum:
+      - NO_SOURCE_NOTES
+      - NOT_ANALYZED
+      - FRESH
+      - STALE
+      - FAILED
+    InsightReportLatestData:
+      type: object
+      properties:
+        documentGroupId:
+          type: string
+        searchableNoteCount:
+          type: integer
+          format: int32
+          minimum: 0
+        latestNoteUpdatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        state:
+          $ref: '#/components/schemas/InsightReportLatestState'
+        report:
+          type: object
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/InsightReportData'
+      required:
+      - documentGroupId
+      - searchableNoteCount
+      - state
       additionalProperties: false
     StyleProfileData:
       type: object

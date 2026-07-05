@@ -29,6 +29,9 @@ export type BridgeConceptsData = Schemas["BridgeConceptsData"];
 export type ClusterJobCreateRequest = Schemas["ClusterJobCreateRequest"];
 export type ClusterJobData = Schemas["ClusterJobData"];
 export type ClusterJobLatestData = Schemas["ClusterJobLatestData"];
+export type InsightReportCreateRequest = Schemas["InsightReportCreateRequest"];
+export type InsightReportData = Schemas["InsightReportData"];
+export type InsightReportLatestData = Schemas["InsightReportLatestData"];
 export type AiModelsData = Schemas["AiModelsData"];
 export type AiModelSettingsPutRequest = Schemas["AiModelSettingsPutRequest"];
 export type AiModelSettingsData = Schemas["AiModelSettingsData"];
@@ -430,6 +433,44 @@ export function getLatestClusterJob(
   const query = searchParams.toString();
   return authedRequest<ClusterJobLatestData>(
     `/api/v1/ai/clusters/latest${query ? `?${query}` : ""}`,
+    undefined,
+    options
+  );
+}
+
+export function requestInsightReport(payload: InsightReportCreateRequest, options?: IntelligenceRequestOptions) {
+  return authedRequest<InsightReportData>(
+    "/api/v1/ai/insight-reports",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    options
+  ).then((data) => {
+    notifyTokenUsageChanged();
+    return data;
+  });
+}
+
+export function getInsightReport(reportId: string, options?: IntelligenceRequestOptions) {
+  return authedRequest<InsightReportData>(
+    `/api/v1/ai/insight-reports/${encodeURIComponent(reportId)}`,
+    undefined,
+    options
+  );
+}
+
+export function getLatestInsightReport(
+  params: { documentGroupId?: string } = {},
+  options?: IntelligenceRequestOptions
+) {
+  const searchParams = new URLSearchParams();
+  if (params.documentGroupId) {
+    searchParams.set("documentGroupId", params.documentGroupId);
+  }
+  const query = searchParams.toString();
+  return authedRequest<InsightReportLatestData>(
+    `/api/v1/ai/insight-reports/latest${query ? `?${query}` : ""}`,
     undefined,
     options
   );

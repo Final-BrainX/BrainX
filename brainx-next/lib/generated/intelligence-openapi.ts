@@ -314,6 +314,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai/insight-reports/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Latest AI insight report status */
+        get: operations["getLatestInsightReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ai/insight-reports/{reportId}": {
         parameters: {
             query?: never;
@@ -632,6 +649,18 @@ export interface components {
                 targetTitle?: string;
                 score: number;
                 reason?: string;
+                /** @description Source note markdown text selected as the wiki-link alias. */
+                anchorText: string;
+                /**
+                 * Format: int32
+                 * @description Zero-based start offset of anchorText in the source note markdown used for this suggestion.
+                 */
+                anchorStartOffset: number;
+                /**
+                 * Format: int32
+                 * @description Zero-based exclusive end offset of anchorText in the source note markdown used for this suggestion.
+                 */
+                anchorEndOffset: number;
             }[];
         };
         ClusterJobCreateRequest: {
@@ -692,6 +721,18 @@ export interface components {
             }[];
             /** Format: date-time */
             completedAt?: string | null;
+            failureMessage?: string | null;
+        };
+        /** @enum {string} */
+        InsightReportLatestState: "NO_SOURCE_NOTES" | "NOT_ANALYZED" | "FRESH" | "STALE" | "FAILED";
+        InsightReportLatestData: {
+            documentGroupId: string;
+            /** Format: int32 */
+            searchableNoteCount: number;
+            /** Format: date-time */
+            latestNoteUpdatedAt?: string | null;
+            state: components["schemas"]["InsightReportLatestState"];
+            report?: components["schemas"]["InsightReportData"] | null;
         };
         StyleProfileData: {
             conversationTone: {
@@ -2217,6 +2258,66 @@ export interface operations {
                 };
             };
             /** @description 서버 내부 오류 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    getLatestInsightReport: {
+        parameters: {
+            query?: {
+                documentGroupId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["InsightReportLatestData"];
+                    };
+                };
+            };
+            /** @description bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description server error */
             500: {
                 headers: {
                     [name: string]: unknown;

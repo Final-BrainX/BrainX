@@ -53,7 +53,10 @@ public class ConnectionController {
                     suggestion.targetNoteId(),
                     suggestion.targetTitle(),
                     suggestion.score(),
-                    suggestion.reason()
+                    suggestion.reason(),
+                    suggestion.anchorText(),
+                    suggestion.anchorStartOffset(),
+                    suggestion.anchorEndOffset()
                 ))
                 .toList()
         ));
@@ -106,7 +109,10 @@ public class ConnectionController {
         String targetNoteId,
         String targetTitle,
         double score,
-        String reason
+        String reason,
+        String anchorText,
+        int anchorStartOffset,
+        int anchorEndOffset
     ) {
     }
 

@@ -302,6 +302,9 @@ create index if not exists idx_cluster_jobs_user_idempotency
 create index if not exists idx_insight_reports_user_report
   on intelligence_insight_reports (user_id, report_id);
 
+create index if not exists idx_insight_reports_user_group_created
+  on intelligence_insight_reports (user_id, document_group_id, created_at desc, report_id desc);
+
 create index if not exists idx_insight_reports_user_idempotency
   on intelligence_insight_reports (user_id, idempotency_key)
   where idempotency_key is not null;

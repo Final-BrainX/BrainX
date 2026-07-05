@@ -16,15 +16,20 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.brainx.intelligence.infrastructure.web.ApiSuccessResponse;
 import com.brainx.intelligence.insight.application.port.inbound.GetInsightReportUseCase;
 import com.brainx.intelligence.insight.application.port.inbound.GetInsightReportUseCase.GetInsightReportQuery;
+import com.brainx.intelligence.insight.application.port.inbound.GetLatestInsightReportUseCase;
+import com.brainx.intelligence.insight.application.port.inbound.GetLatestInsightReportUseCase.GetLatestInsightReportQuery;
+import com.brainx.intelligence.insight.application.port.inbound.GetLatestInsightReportUseCase.LatestInsightReport;
 import com.brainx.intelligence.insight.application.port.inbound.RequestInsightReportUseCase;
 import com.brainx.intelligence.insight.application.port.inbound.RequestInsightReportUseCase.InsightReportCommand;
 import com.brainx.intelligence.insight.domain.InsightRecommendation;
 import com.brainx.intelligence.insight.domain.InsightReport;
+import com.brainx.intelligence.insight.domain.InsightReportLatestState;
 import com.brainx.intelligence.insight.domain.InsightReportStatus;
 
 import jakarta.validation.Valid;
@@ -37,13 +42,16 @@ public class InsightController {
 
     private final RequestInsightReportUseCase requestInsightReportUseCase;
     private final GetInsightReportUseCase getInsightReportUseCase;
+    private final GetLatestInsightReportUseCase getLatestInsightReportUseCase;
 
     public InsightController(
         RequestInsightReportUseCase requestInsightReportUseCase,
-        GetInsightReportUseCase getInsightReportUseCase
+        GetInsightReportUseCase getInsightReportUseCase,
+        GetLatestInsightReportUseCase getLatestInsightReportUseCase
     ) {
         this.requestInsightReportUseCase = requestInsightReportUseCase;
         this.getInsightReportUseCase = getInsightReportUseCase;
+        this.getLatestInsightReportUseCase = getLatestInsightReportUseCase;
     }
 
     @PostMapping("/api/v1/ai/insight-reports")
@@ -60,6 +68,18 @@ public class InsightController {
         ));
         return ResponseEntity.status(HttpStatus.ACCEPTED)
             .body(ApiSuccessResponse.ok(toData(report)));
+    }
+
+    @GetMapping("/api/v1/ai/insight-reports/latest")
+    public ApiSuccessResponse<InsightReportLatestData> getLatestInsightReport(
+        Principal principal,
+        @RequestParam(name = "documentGroupId", required = false, defaultValue = "default") String documentGroupId
+    ) {
+        LatestInsightReport latest = getLatestInsightReportUseCase.getLatestInsightReport(new GetLatestInsightReportQuery(
+            userId(principal),
+            documentGroupId
+        ));
+        return ApiSuccessResponse.ok(toLatestData(latest));
     }
 
     @GetMapping("/api/v1/ai/insight-reports/{reportId}")
@@ -83,7 +103,18 @@ public class InsightController {
             report.recommendations().stream()
                 .map(InsightController::toRecommendationMap)
                 .toList(),
-            report.completedAt()
+            report.completedAt(),
+            report.failureMessage()
+        );
+    }
+
+    private static InsightReportLatestData toLatestData(LatestInsightReport latest) {
+        return new InsightReportLatestData(
+            latest.documentGroupId(),
+            latest.searchableNoteCount(),
+            latest.latestNoteUpdatedAt(),
+            latest.state(),
+            latest.report() == null ? null : toData(latest.report())
         );
     }
 
@@ -120,7 +151,17 @@ public class InsightController {
         String summary,
         List<String> knowledgeGaps,
         List<Map<String, Object>> recommendations,
-        Instant completedAt
+        Instant completedAt,
+        String failureMessage
+    ) {
+    }
+
+    record InsightReportLatestData(
+        String documentGroupId,
+        int searchableNoteCount,
+        Instant latestNoteUpdatedAt,
+        InsightReportLatestState state,
+        InsightReportData report
     ) {
     }
 }

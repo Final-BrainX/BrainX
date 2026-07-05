@@ -22,7 +22,8 @@ import {
 } from "@/lib/ai-cluster-projection";
 import { mergeNoteIndexStatuses } from "@/lib/note-index-statuses";
 import { readPendingCreatedNotes, removePendingCreatedNoteByNoteId } from "@/lib/notes/pending-created-note-cache";
-import { createWorkspaceNote, createWorkspaceNoteLink, hasWorkspaceUserIdentity, listWorkspaceNoteDrafts, type NoteCreated } from "@/lib/workspace-api";
+import { createWorkspaceNote, hasWorkspaceUserIdentity, listWorkspaceNoteDrafts, updateWorkspaceNoteContent, WorkspaceApiError, type NoteCreated } from "@/lib/workspace-api";
+import { contentHasWikiLinkTo } from "@/lib/wiki-links";
 import { useBrainX } from "@/components/brainx-provider";
 import { Avatar, Badge, Btn, Card, Icon } from "@/components/brainx-ui";
 import { cx } from "@/lib/utils";
@@ -444,6 +445,9 @@ function linkSuggestionErrorMessage(error: unknown) {
 }
 
 function linkAcceptErrorMessage(error: unknown) {
+  if (error instanceof WorkspaceApiError && error.code === "NOTE_VERSION_CONFLICT") {
+    return "노트가 다른 곳에서 변경됐어요. 새로고침 후 다시 시도해 주세요.";
+  }
   const message = error instanceof Error ? error.message : "";
   if (message.includes("만료") || message.includes("권한")) {
     return "로그인 또는 링크 생성 권한을 확인하고 다시 시도하세요.";
@@ -495,6 +499,73 @@ function normalizeMarkdownText(value: string) {
 function wikiLink(value: string) {
   const title = normalizeMarkdownText(value) || "무제 노트";
   return `[[${title}]]`;
+}
+
+function wikiLinkPart(value: string) {
+  return normalizeMarkdownText(value).replace(/[\[\]|]/g, "").trim();
+}
+
+function suggestionWikiLink(targetTitle: string, anchorText?: string | null) {
+  const title = wikiLinkPart(targetTitle) || "연결 노트";
+  const alias = wikiLinkPart(anchorText ?? "");
+  return alias && alias.toLowerCase() !== title.toLowerCase() ? `[[${title}|${alias}]]` : `[[${title}]]`;
+}
+
+function appendWikiLink(markdown: string, link: string) {
+  return markdown.trim() ? `${markdown}\n\n${link}` : link;
+}
+
+function replaceRange(markdown: string, start: number, end: number, replacement: string) {
+  return `${markdown.slice(0, start)}${replacement}${markdown.slice(end)}`;
+}
+
+function findOffsetAnchorRange(markdown: string, suggestion: LinkSuggestion, anchorText: string) {
+  const start = suggestion.anchorStartOffset;
+  const end = suggestion.anchorEndOffset;
+  const matches = typeof start === "number" &&
+    typeof end === "number" &&
+    Number.isInteger(start) &&
+    Number.isInteger(end) &&
+    start >= 0 &&
+    end > start &&
+    end <= markdown.length &&
+    markdown.slice(start, end) === anchorText;
+  return matches ? { start, end } : null;
+}
+
+function findSingleAnchorRange(markdown: string, anchorText: string) {
+  if (!anchorText) return null;
+  const first = markdown.indexOf(anchorText);
+  if (first < 0) return null;
+  const second = markdown.indexOf(anchorText, first + anchorText.length);
+  if (second >= 0) return null;
+  return { start: first, end: first + anchorText.length };
+}
+
+function applyLinkSuggestionToMarkdown(markdown: string, suggestion: LinkSuggestion, targetTitle: string) {
+  if (contentHasWikiLinkTo(markdown, targetTitle)) {
+    return { markdown, changed: false };
+  }
+
+  const anchorText = suggestion.anchorText ?? "";
+  const link = suggestionWikiLink(targetTitle, anchorText);
+  const offsetAnchor = anchorText ? findOffsetAnchorRange(markdown, suggestion, anchorText) : null;
+  if (offsetAnchor) {
+    return {
+      markdown: replaceRange(markdown, offsetAnchor.start, offsetAnchor.end, link),
+      changed: true
+    };
+  }
+
+  const singleAnchor = findSingleAnchorRange(markdown, anchorText);
+  if (singleAnchor) {
+    return {
+      markdown: replaceRange(markdown, singleAnchor.start, singleAnchor.end, link),
+      changed: true
+    };
+  }
+
+  return { markdown: appendWikiLink(markdown, suggestionWikiLink(targetTitle)), changed: true };
 }
 
 function bridgeSourceNotes(sourceNotes: BrainXNote[]) {
@@ -2023,25 +2094,57 @@ function GraphScreenInner() {
     }));
 
     try {
+      const sourceNote = notes.find((note) => note.id === group.sourceNoteId);
       const targetNote = notes.find((note) => note.id === suggestion.targetNoteId);
-      const created = await createWorkspaceNoteLink(group.sourceNoteId, {
-        targetNoteId: suggestion.targetNoteId,
-        targetTitle: normalizeMarkdownText(suggestion.targetTitle || targetNote?.title || "연결 노트"),
-        createIfMissing: false
-      });
-      addOptimisticLink(created.sourceNoteId, created.targetNoteId);
+      if (!sourceNote) {
+        throw new Error("연결할 원본 노트를 찾을 수 없습니다.");
+      }
+      const targetTitle = normalizeMarkdownText(suggestion.targetTitle || targetNote?.title || "연결 노트");
+      const applied = applyLinkSuggestionToMarkdown(sourceNote.markdown ?? "", suggestion, targetTitle);
+      if (applied.changed) {
+        const saved = await updateWorkspaceNoteContent({
+          id: sourceNote.id,
+          title: sourceNote.title,
+          content: applied.markdown,
+          tags: sourceNote.tags,
+          category: "ai",
+          folderId: sourceNote.folderId,
+          createdAt: Date.parse(sourceNote.createdAt) || Date.now(),
+          updatedAt: Date.now(),
+          version: sourceNote.version,
+          persisted: true
+        });
+        setLiveNotes((current) => {
+          const baseNotes = current ?? notes;
+          return baseNotes.map((note) => note.id === sourceNote.id
+            ? {
+                ...note,
+                markdown: applied.markdown,
+                version: saved.version,
+                updatedAt: saved.savedAt,
+                updated: "today"
+              }
+            : note);
+        });
+      }
+      addOptimisticLink(sourceNote.id, suggestion.targetNoteId);
       setLinkAcceptStates((current) => ({
         ...current,
-        [key]: { status: "saved", linkId: created.linkId }
+        [key]: { status: "saved" }
       }));
       window.dispatchEvent(new CustomEvent("brainx:notes-refresh", {
-        detail: { sourceNoteId: created.sourceNoteId, targetNoteId: created.targetNoteId }
+        detail: { sourceNoteId: sourceNote.id, targetNoteId: suggestion.targetNoteId }
       }));
       if (showToast) {
-        pushToast("AI 연결 후보를 링크로 저장했어요.", "ok");
+        pushToast("AI 연결 후보를 본문 링크로 저장했어요.", "ok");
       }
       return true;
     } catch (error) {
+      if (error instanceof WorkspaceApiError && error.code === "NOTE_VERSION_CONFLICT") {
+        window.dispatchEvent(new CustomEvent("brainx:notes-refresh", {
+          detail: { sourceNoteId: group.sourceNoteId, targetNoteId: suggestion.targetNoteId }
+        }));
+      }
       setLinkAcceptStates((current) => ({
         ...current,
         [key]: { status: "error", error: linkAcceptErrorMessage(error) }
