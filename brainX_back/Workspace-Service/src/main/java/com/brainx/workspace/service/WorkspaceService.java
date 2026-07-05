@@ -373,12 +373,27 @@ public class WorkspaceService {
 
     /** guest draft claim 시 폴더 구조도 함께 승계한다 — 노트와 달리 폴더 생성은 actor 제약이
         없어 guest도 Postgres에 폴더를 만들 수 있는데, claim이 Redis note draft만 옮기고 폴더는
-        그대로 guestId 소유로 남아있던 gap을 메운다. */
+        그대로 guestId 소유(documentGroupId=null)로 남아있던 gap을 메운다. 승계된 폴더는 회원의
+        default Workspace로 귀속시키고, 그 Workspace 안에서 이미 같은 이름이 있으면 Ticket8의
+        dedupeFolderName을 그대로 재사용해 자동 suffix를 적용한다(새 중복 알고리즘을 만들지
+        않는다). 폴더를 하나씩 반영해야 뒤에 처리하는 폴더의 dedupe 조회가 앞서 반영된 형제
+        폴더의 새 이름/documentGroupId를 실제로(오토플러시를 통해) 보고 중복을 정확히 잡는다. */
     @Transactional
     public int reassignGuestFolders(String fromUserId, String toUserId) {
         List<Folder> folders = folderRepository.findByUserIdOrderByNameAsc(fromUserId);
+        if (folders.isEmpty()) {
+            return 0;
+        }
         Instant now = Instant.now();
-        folders.forEach(folder -> folder.reassignOwner(toUserId, now));
+        // toUserId는 항상 로그인된 회원이어야 하지만(claimGuestDrafts가 memberUserId()로 보장),
+        // Guest id로 절대 default Workspace를 만들지 않도록 한 번 더 방어한다.
+        String documentGroupId = isGuestUserId(toUserId) ? null : getOrCreateDefaultWorkspace(toUserId).documentGroupId();
+        for (Folder folder : folders) {
+            String dedupedName = dedupeFolderName(toUserId, documentGroupId, folder.getParentFolderId(),
+                    folder.getName(), folder.getFolderId());
+            folder.patch(dedupedName, null, now);
+            folder.reassignOwner(toUserId, documentGroupId, now);
+        }
         return folders.size();
     }
 
