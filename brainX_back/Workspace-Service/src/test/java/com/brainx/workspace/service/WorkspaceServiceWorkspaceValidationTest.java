@@ -137,7 +137,7 @@ class WorkspaceServiceWorkspaceValidationTest {
         given(folderRepository.findByFolderIdAndUserId("fld_other", USER_ID)).willReturn(Optional.of(otherWorkspaceFolder));
 
         assertThatThrownBy(() -> workspaceService.patchMetadata(USER_ID, "note_1",
-                new NoteMetadataPatchRequest(null, "fld_other", null, null, null, null)))
+                new NoteMetadataPatchRequest(null, null, "fld_other", null, null, null, null)))
                 .isInstanceOfSatisfying(WorkspaceException.class, exception -> {
                     assertThat(exception.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
                     assertThat(exception.getCode()).isEqualTo("FOLDER_WORKSPACE_MISMATCH");
@@ -191,7 +191,7 @@ class WorkspaceServiceWorkspaceValidationTest {
         given(noteRepository.findByNoteIdAndUserId(note.noteId(), USER_ID)).willReturn(Optional.of(persistedNote));
 
         NoteMetadataData metadata = workspaceService.patchMetadata(USER_ID, note.noteId(),
-                new NoteMetadataPatchRequest(null, "fld_b", null, null, null, null));
+                new NoteMetadataPatchRequest(null, null, "fld_b", null, null, null, null));
         assertThat(metadata.folderId()).isEqualTo("fld_b");
 
         FolderData patchedFolder = workspaceService.patchFolder(USER_ID, "fld_b",

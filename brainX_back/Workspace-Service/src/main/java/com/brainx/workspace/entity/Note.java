@@ -118,6 +118,26 @@ public class Note {
         this.updatedAt = now;
     }
 
+    public void moveToFolder(String documentGroupId, String folderId, String title, List<String> tags,
+                             Boolean archived, String typographyJson, Instant now) {
+        this.documentGroupId = documentGroupId;
+        this.folderId = folderId;
+        if (title != null && !title.isBlank()) {
+            this.title = title;
+        }
+        if (tags != null) {
+            this.tags = sanitizeTags(tags);
+        }
+        if (archived != null) {
+            this.archived = archived;
+        }
+        if (typographyJson != null) {
+            this.typographyJson = typographyJson.isBlank() ? null : typographyJson;
+        }
+        this.version++;
+        this.updatedAt = now;
+    }
+
     public void trash(Instant now) {
         this.deleted = true;
         this.deletedAt = now;

@@ -135,14 +135,14 @@ Ticket6
 ## Note Workspace 이동
 
 ```
-PATCH /api/v1/notes/{noteId}/workspace
+PATCH /api/v1/notes/{noteId}/metadata
 ```
 
 ### Request
 
 ```json
 {
-  "targetDocumentGroupId": "..."
+  "documentGroupId": "..."
 }
 ```
 

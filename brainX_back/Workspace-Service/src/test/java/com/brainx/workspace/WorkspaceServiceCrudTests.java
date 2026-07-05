@@ -110,7 +110,7 @@ class WorkspaceServiceCrudTests {
                 });
 
         NoteMetadataData metadata = workspaceService.patchMetadata(USER_ID, first.noteId(),
-                new NoteMetadataPatchRequest("Renamed note", folder.folderId(), List.of("java", "workspace"), false,
+                new NoteMetadataPatchRequest(null, "Renamed note", folder.folderId(), List.of("java", "workspace"), false,
                         new NoteTypography(110, "Pretendard", Map.of("body", 17, "h1", 32)), null));
         assertThat(metadata.documentGroupId()).isEqualTo(defaultDocumentGroupId);
         assertThat(metadata.title()).isEqualTo("Renamed note");
@@ -362,7 +362,7 @@ class WorkspaceServiceCrudTests {
         assertThat(initialGraph.edges()).hasSize(1);
 
         workspaceService.patchMetadata(USER_ID, target.noteId(),
-                new NoteMetadataPatchRequest("Envelope V2", null, List.of("stream"), false, null, null));
+                new NoteMetadataPatchRequest(null, "Envelope V2", null, List.of("stream"), false, null, null));
 
         GraphData afterRename = workspaceService.graph(USER_ID, null, null, LocalDate.now().minusDays(1), LocalDate.now().plusDays(1));
         assertThat(afterRename.nodes()).hasSize(2);

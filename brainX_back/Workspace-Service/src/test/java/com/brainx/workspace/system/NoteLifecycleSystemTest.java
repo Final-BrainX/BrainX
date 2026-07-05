@@ -74,7 +74,7 @@ class NoteLifecycleSystemTest {
 
         // 4. 메타데이터 수정
         NoteMetadataData meta = workspaceService.patchMetadata(USER_ID, created.noteId(),
-                new NoteMetadataPatchRequest("제목 변경됨", null, List.of("backend"), false, null, null));
+                new NoteMetadataPatchRequest(null, "제목 변경됨", null, List.of("backend"), false, null, null));
         assertThat(meta.title()).isEqualTo("제목 변경됨");
         assertThat(meta.tags()).contains("backend");
 

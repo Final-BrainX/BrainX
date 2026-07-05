@@ -2884,6 +2884,7 @@ paths:
         description: 홈, 워크스페이스 동기화, 최근 활동 및 검색 UI
       x-produces-events:
       - NoteMetadataChanged
+      - NotesMoved
       x-internal-sync-calls: []
       x-async-boundary: false
       x-implementation-note: If the title changes, Workspace-Service must rescan existing wiki-link references for both the old and new titles so stale edges are removed and newly satisfiable edges are created in the authoritative note-link ledger and graph projection.

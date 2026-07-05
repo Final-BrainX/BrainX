@@ -108,8 +108,8 @@ public final class WorkspaceDtos {
     public record NoteDraftFlushData(int flushedCount, int skippedCount) {
     }
 
-    public record NoteMetadataPatchRequest(String title, String folderId, List<String> tags, Boolean archived,
-                                           NoteTypography typography, Integer order) {
+    public record NoteMetadataPatchRequest(String documentGroupId, String title, String folderId, List<String> tags,
+                                           Boolean archived, NoteTypography typography, Integer order) {
     }
 
     public record NoteMetadataData(String noteId, String documentGroupId, String title, String folderId,

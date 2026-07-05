@@ -296,39 +296,71 @@ public class WorkspaceService {
         Note note = note(userId, noteId);
         Instant now = Instant.now();
         String previousTitle = note.getTitle();
-        // 제목/폴더 중 바뀌는 쪽만 반영한 "최종" 값 기준으로 같은 폴더 안 중복을 검사해야 한다 —
-        // 폴더만 옮기고 제목은 그대로인 이동도 목적지에서 충돌할 수 있다.
-        String targetFolderId = request.folderId() != null
-                ? (request.folderId().isBlank() ? null : request.folderId())
-                : note.getFolderId();
-        // documentGroupId 자체는 이 patch로 바꿀 수 없다(요청 스키마에 필드가 없음 — Workspace
-        // 간 이동은 Ticket10). 여기서는 folderId가 바뀌는 경우 그 대상 폴더가 노트의 기존
-        // documentGroupId와 같은 Workspace에 속하는지만 확인한다.
-        if (request.folderId() != null && targetFolderId != null) {
-            requireFolderInWorkspace(userId, targetFolderId, note.getDocumentGroupId(),
-                    "FOLDER_WORKSPACE_MISMATCH", "Folder does not belong to the note's Workspace.");
+        String requestedDocumentGroupId = trimToNull(request.documentGroupId());
+        boolean movingAcrossWorkspace = requestedDocumentGroupId != null
+                && !Objects.equals(requestedDocumentGroupId, note.getDocumentGroupId());
+        if (requestedDocumentGroupId != null
+                && !movingAcrossWorkspace
+                && request.title() == null
+                && request.folderId() == null
+                && request.tags() == null
+                && request.archived() == null
+                && request.typography() == null
+                && request.order() == null) {
+            return noteMetadataData(note);
         }
+
         String desiredTitle = (request.title() != null && !request.title().isBlank()) ? request.title() : note.getTitle();
-        String finalTitle = dedupeNoteTitle(userId, note.getDocumentGroupId(), targetFolderId, desiredTitle, noteId);
-        note.patchMetadata(finalTitle, request.folderId(), request.tags(), request.archived(), typographyJson(request.typography()), now);
+        String previousFolderId = note.getFolderId();
+        String targetDocumentGroupId = movingAcrossWorkspace ? requestedDocumentGroupId : note.getDocumentGroupId();
+        String targetFolderId;
+        String finalTitle;
+        if (movingAcrossWorkspace) {
+            workspace(userId, targetDocumentGroupId);
+            targetFolderId = null;
+            finalTitle = dedupeNoteTitle(userId, targetDocumentGroupId, null, desiredTitle, noteId);
+            note.moveToFolder(targetDocumentGroupId, null, finalTitle, request.tags(), request.archived(),
+                    typographyJson(request.typography()), now);
+        } else {
+            // 제목/폴더 중 바뀌는 쪽만 반영한 "최종" 값 기준으로 같은 폴더 안 중복을 검사해야 한다 —
+            // 폴더만 옮기고 제목은 그대로인 이동도 목적지에서 충돌할 수 있다.
+            targetFolderId = request.folderId() != null
+                    ? (request.folderId().isBlank() ? null : request.folderId())
+                    : note.getFolderId();
+            if (request.folderId() != null && targetFolderId != null) {
+                requireFolderInWorkspace(userId, targetFolderId, note.getDocumentGroupId(),
+                        "FOLDER_WORKSPACE_MISMATCH", "Folder does not belong to the note's Workspace.");
+            }
+            finalTitle = dedupeNoteTitle(userId, note.getDocumentGroupId(), targetFolderId, desiredTitle, noteId);
+            note.patchMetadata(finalTitle, request.folderId(), request.tags(), request.archived(), typographyJson(request.typography()), now);
+        }
+
         if (!Objects.equals(previousTitle, note.getTitle())) {
             syncIncomingWikiLinksForTitle(userId, previousTitle, noteId, now);
             syncIncomingWikiLinksForTitle(userId, note.getTitle(), noteId, now);
         }
         snapshot(note, now);
         activity(userId, note, "updated", now);
+        if (movingAcrossWorkspace) {
+            eventPublisher.publish("NotesMoved", userId, payload(
+                    "userId", userId,
+                    "documentGroupId", targetDocumentGroupId,
+                    "noteIds", List.of(noteId),
+                    "sourceFolderId", previousFolderId,
+                    "targetFolderId", null
+            ));
+        }
         eventPublisher.publish("NoteMetadataChanged", userId, payload(
                 "noteId", noteId,
                 "userId", userId,
                 "title", note.getTitle(),
-                "folderId", request.folderId(),
+                "folderId", note.getFolderId(),
                 "tags", request.tags(),
                 "archived", request.archived(),
                 "typography", request.typography(),
                 "version", note.getVersion()
         ));
-        return new NoteMetadataData(noteId, note.getDocumentGroupId(), note.getTitle(), note.getFolderId(), note.getTags(),
-                note.getVersion(), typography(note), null);
+        return noteMetadataData(note);
     }
 
     @Transactional(readOnly = true)
@@ -1137,6 +1169,11 @@ public class WorkspaceService {
     private FolderData folderData(Folder folder) {
         return new FolderData(folder.getFolderId(), folder.getDocumentGroupId(), folder.getName(), folder.getParentFolderId(),
                 folder.getParentFolderId() == null ? 0 : 1);
+    }
+
+    private NoteMetadataData noteMetadataData(Note note) {
+        return new NoteMetadataData(note.getNoteId(), note.getDocumentGroupId(), note.getTitle(), note.getFolderId(), note.getTags(),
+                note.getVersion(), typography(note), null);
     }
 
     private InternalDefaultWorkspaceData defaultWorkspaceData(Workspace workspace) {
