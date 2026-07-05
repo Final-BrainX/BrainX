@@ -30,6 +30,7 @@ function runNextBuild() {
         NEXT_PUBLIC_WORKSPACE_API_BASE_URL: productionOrigin,
         NEXT_PUBLIC_INGESTION_API_BASE_URL: productionOrigin,
         API_SERVER_URL: productionOrigin,
+        INTELLIGENCE_API_BASE_URL: productionOrigin,
       },
       stdio: "inherit",
       shell: true,
