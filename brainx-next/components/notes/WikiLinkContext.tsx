@@ -26,8 +26,12 @@ export interface WikiLinkContextValue {
   resolveTitle: (title: string) => WikiLinkNoteRef | null;
   /** 존재하는 노트로 이동(활성 패널에 연다). */
   onNavigate: (title: string) => void;
-  /** 존재하지 않는 노트를 그 제목으로 즉시 생성하고 연다. */
-  onCreate: (title: string) => void;
+  /** 존재하지 않는 노트를 그 제목으로 즉시 생성하고 연다. sourceHtml을 주면(자동완성이 방금
+      `[[title]]`을 넣은 직후 editor.getHTML()을 그 자리에서 바로 읽은 값) 호출부가 나중에
+      activeEditorHandle.getHTML()을 다시 읽지 않고 이 값을 그대로 신뢰한다 — 삽입과 읽기
+      사이의 시간차(리렌더/탭 전환 등)를 최대한 없애기 위함이다. 없으면(예: 이미 존재하는
+      깨진 링크의 "생성" 클릭처럼 "방금 입력"이 아닌 경우) 기존처럼 활성 에디터에서 다시 읽는다. */
+  onCreate: (title: string, sourceHtml?: string) => void;
 }
 
 export const WikiLinkContext = createContext<WikiLinkContextValue | null>(null);

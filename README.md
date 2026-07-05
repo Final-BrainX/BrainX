@@ -745,6 +745,79 @@ npx --yes http-server . -p 18081 -a 127.0.0.1
   - `resolveWikiLinkTitle()`가 `title.trim()`을 바로 호출해, 직렬화가 꼬인 위키링크 attrs에서 `title`이 문자열이 아닌 값으로 들어오면 `/notes` 에디터가 즉시 `TypeError`로 깨지던 문제를 고쳤다.
   - 위키링크 제목/별칭/헤딩은 이제 렌더링, 자동완성, 이동, 생성 전부 공통 정규화 함수로 문자열화하고 trim한 뒤 사용한다. 덕분에 손상된 `data-title`/TipTap attrs가 섞여도 기존 링크 탐색 기능은 유지되고, 비정상 값은 빈 제목으로만 안전하게 격리된다.
 
+- **(2026-07-05 버그 수정) 위키링크 노트명 변경 전파, 로그아웃 400, 탐색기 별 정렬/드래그 상태**:
+  - 분석 대상: `brainx-next/lib/auth-api.ts`, `brainx-next/lib/wiki-links.ts`, `brainx-next/components/notes/NotesWorkspace.tsx`, `FolderTree.tsx`, `NotesExplorer.tsx`.
+  - 로그아웃: `refreshToken`이 없는 세션에서도 `{"refreshToken":""}` 바디로 서버에 요청을 보내 항상 400(`Refresh Token은 필수입니다`)이 나던 문제를 고쳤다. 이제 refreshToken이 없으면 서버 호출 없이 로컬 세션만 정리하고, 서버 로그아웃이 실패해도(만료된 토큰 등) 로컬 정리는 그대로 진행해 호출부에 "로그아웃 실패"가 잘못 표시되지 않는다.
+  - 위키링크: 노트 제목을 바꾸면(`handleTitleChange`) 그 제목을 참조하던 다른 노트의 `[[이전제목]]`을 `[[새제목]]`으로 갱신한다(`lib/wiki-links.ts`의 `renameWikiLinkReferencesInContent` — HTML로 저장된 위키링크 span과 순수 마크다운 `[[...]]` 표기 모두 처리, alias는 보존). 영향받은 다른 노트는 draft/저장 API로 best-effort 백그라운드 저장 후 `brainx:notes-refresh`를 다시 쏴서 그래프/마인드맵에도 반영한다.
+  - 노트 탐색기 별(즐겨찾기) 아이콘: 이전에는 "hover 중이면 4개 아이콘 그룹의 3번째", "hover 아니면 단독 아이콘"으로 서로 다른 DOM이 마운트/해제되어 hover 전후로 별 위치가 좌우로 흔들렸다. 이제 즐겨찾기/더보기 버튼은 항상 마운트해두고 opacity만 토글해, 노트/하위 노트/폴더/하위 폴더/즐겨찾기 영역 전체에서 별이 같은 세로선에 고정된다.
+  - 드래그 상태 방어: 사이드바 노트의 네이티브 HTML5 드래그(`dragging`)와 본문 위 DnD 오버레이(`dragPayload`)에 dnd-kit 쪽과 동일한 pointerup/pointercancel/blur/visibilitychange 안전망을 추가했다. 드롭 실패/no-op 이동 등에서 브라우저가 dragend를 놓쳐도 탐색기 제목이 흐릿하게 고착되거나, 에디터 첫 클릭이 안 남아 있던 오버레이에 가로채져 더블클릭이 필요하던 문제가 줄어든다.
+  - 보류: 홀드앤드랍 이동 영역을 점 6개 핸들에서 행 전체로 넓히는 것은 이번에 적용하지 않았다 — 행 전체에는 이미 별도 목적(에디터로 드롭해 열기/교체)의 네이티브 HTML5 `draggable`이 걸려 있고, 점 6개에는 dnd-kit 포인터 드래그가 걸려 있어 같은 요소에 두 드래그 시스템을 동시에 걸면 클릭/우클릭/펼치기/즐겨찾기/제목 편집과 충돌할 위험이 크다고 판단했다.
+
+- **(2026-07-05 버그 수정) 위키링크 새 노트 생성 race condition 방지**:
+  - 분석 대상: `brainx-next/components/notes/NotesWorkspace.tsx`, `WikiLinkAutocomplete.tsx`.
+  - 원인: `[[title` 자동완성에서 "새 노트 만들기"를 선택하면 소스 노트의 방금 삽입된 `[[A]]`는 `flushPendingSave()`로 `notes[]` 클라이언트 state에만 반영됐고, 실제 서버 저장은 "지금 활성 탭인 노트만" 저장하는 draft autosave effect(1500ms 디바운스)에 의존했다. `createNote`가 곧바로 새 탭(A)으로 전환하면 그 effect의 대상이 소스 노트에서 A로 바뀌면서 cleanup이 소스 노트의 저장 타이머를 취소해버려, 사용자가 A 탭 이동 직후 다른 곳으로 빠르게 이동하면 소스 노트의 `[[A]]`가 서버에 한 번도 저장되지 못하고 새로고침 시 유실될 수 있었다.
+  - 수정: `onCreate`에서 `flushPendingSave()` 직후 `activeEditorHandle.getHTML()`로 지금 이 순간의 최신 본문을 직접 읽어, `notes[]` state 갱신을 기다리지 않고 소스 노트를 즉시 best-effort로 서버에 저장(`persistNoteBestEffort` — 게스트/미확정 노트는 draft save, 로그인 확정 노트는 content PUT)한 뒤에 새 노트를 만들고 탭을 전환한다. 이 저장 호출은 활성 탭 여부와 무관하게 독립적으로 진행되는 네트워크 요청이라 탭 전환에 취소되지 않는다.
+  - 소스 노트 자신이 아직 draft id 발급 전(local id)이라 즉시 저장할 방법이 없는 드문 경우에는 `pendingWikiLinkFlushRef`에 표시해두고, 그 노트의 draft id가 확정되는 시점(`createNote`의 `issueWorkspaceNoteDraftId().then`)에 한 번 더 저장을 시도한다 — 이 경우에도 `notes[]` state/화면에는 `[[A]]`가 즉시 반영돼 있어 이번 세션 안에서는 유실되지 않는다.
+  - 서버 NoteLink(그래프 edge) 생성은 기존과 동일하게 소스 노트 id가 확정된 이후로 미뤄질 수 있는 범위로 남겨뒀다(게스트/로그인 모두 마크다운 기반 그래프 파생이 있어 새로고침 후에는 연결된다) — 이번 수정은 "링크 텍스트 유실 방지"를 우선했다.
+
+- **(2026-07-05 버그 수정 추가 보완) 위키링크 새 노트(target) 자체의 저장 누락, 그래프 edge 재시도 큐**:
+  - 분석 대상: `brainx-next/components/notes/NotesWorkspace.tsx`, `lib/wiki-links.ts`.
+  - 추가로 남아있던 원인: 위키링크로 만든 새 노트(A) 자신도 "지금 활성 탭인 동안만" 저장하는 draft autosave effect(1500ms 디바운스)에만 의존했다 — `issueWorkspaceNoteDraftId()`가 draft id(빈 레코드)만 예약해줄 뿐, title="A"/본문을 서버에 실제로 반영하는 건 이 effect뿐이었다. 사용자가 A 탭이 열리자마자 바로 다른 곳으로 이동하면 A는 "예약된 id만 있고 제목/본문은 없는" 상태로 남아 사라진 것처럼 보이거나, 서버 NoteLink 생성이 실패하거나, 게스트 그래프(제목 기준 마크다운 매칭)에서 A라는 제목의 노트를 찾지 못해 연결이 보이지 않았다.
+  - 수정: `createNote`의 `issueWorkspaceNoteDraftId().then`에서, draft id가 확정되는 즉시 그 노트(A) 자신의 title/content를 activeNote 여부와 무관하게 `persistNoteBestEffort`로 독립 저장한다. 서버 NoteLink 생성은 이 저장이 끝난(성공/실패 모두) 뒤에 시도해, 최소한 대상 노트가 실제로 존재하는 상태에서 링크를 건다.
+  - `pendingWikiLinkEdgeRef` 큐 추가: 링크 생성 시점에 소스 또는 타깃 중 어느 한쪽이 아직 local id라 즉시 `createWorkspaceNoteLink`를 못 부르면, 소스의 local id를 key로 등록해두고, 그 노트가 나중에(다른 `createNote` 호출에서) 자기 draft id를 확정 짓는 순간 실제 id로 링크 생성을 재시도한다. source/target 어느 쪽이 먼저 확정되든 항상 잡힌다.
+  - `contentHasWikiLinkTo`/`ensureWikiLinkAppended`(`lib/wiki-links.ts`) 추가: 저장 직전에 `[[title]]`이 실제 문서(HTML span 또는 텍스트)에 남아있는지 검증하고, 라이브에딧 전환 타이밍 등으로 비어있거나(`[[]]`) 사라진 경우 본문 끝에 `[[title]]`을 직접 덧붙여 링크 텍스트 자체는 어떤 경우에도 유실되지 않게 하는 최후의 안전망을 추가했다.
+  - actor(guest/user) 전환 시 `pendingWikiLinkFlushRef`/`pendingWikiLinkEdgeRef`도 `draftDirtyNoteIdsRef`와 함께 초기화해, 이전 세션의 local id가 다음 세션에 잘못 매치되지 않게 했다.
+
+- **(2026-07-05 버그 수정 2차 보완) 위키링크 로그인 사용자 `[[A` 미확정 버그, pane별 Ctrl+Wheel 줌**:
+  - 분석 대상: `brainx-next/lib/wiki-links.ts`, `brainx-next/components/notes/NotesWorkspace.tsx`, `EditorPanel.tsx`, `PaneTreeRenderer.tsx`, `lib/notes/noteTypes.ts`.
+  - 원인: 직전 보완에서 추가한 `contentHasWikiLinkTo`의 정규식(`(?:[|#\]]|\s*$)`)이 닫는 `]]` 없이 문서 끝에서 끝나는 `[[A`까지 "링크가 이미 있다"로 잘못 판단했다 — 그래서 라이브에딧 전환 타이밍 등으로 닫는 `]]`가 아직 안 붙은 상태가 나와도 보정 로직(`ensureWikiLinkAppended`)이 아예 호출되지 않고 미완성 `[[A`가 그대로 저장됐다.
+  - 수정: 정규식이 반드시 닫는 `]]`까지 확인하도록 고쳤고(`[[title(#heading)(|alias)]]`만 인정), 실패 시 보정 로직도 `ensureWikiLinkPresent`로 교체했다 — 본문 끝에 무작정 새로 덧붙이던 방식(깨진 `[[A`와 새 `[[A]]`가 중복으로 남을 위험) 대신, 이미 남아있는 미완성 `[[A`를 그 자리에서 `]]`로 닫거나 빈 `[[]]`를 채우고, 흔적이 아예 없을 때만 최후 수단으로 append한다.
+  - 위키링크 저장/링크 생성의 `.catch(() => {})`가 실패를 조용히 삼켜 원인을 알 수 없던 부분에 개발 환경 전용 `console.warn`(`warnWikiLinkFailure`)을 추가해, 프로덕션 동작은 그대로 두고 개발 중에만 실패를 확인할 수 있게 했다.
+  - Ctrl+Wheel 에디터 줌을 `note.typography.scalePercent`(서식 패널, 문서 자체에 저장)와 완전히 분리했다. 새 `paneFontScale`(pane id → %, 기본 100)을 `NotesWorkspaceSession`에 옵셔널 필드로 추가해 기존 localStorage 세션과 호환되게 하고, `EditorPanel`은 이 값을 CSS `zoom`으로만 적용한다(문서 HTML/note.typography는 건드리지 않음) — 서식 패널의 글자 크기 조절 기능은 그대로 유지된다.
+
+- **(2026-07-05 버그 수정 3차 보완) 위키링크 로그인 그래프 fallback, 화면분할 회귀, 즐겨찾기 헤더/정렬 정리**:
+  - 분석 대상: `brainx-next/components/graph-screen.tsx`, `components/notes/WikiLinkAutocomplete.tsx`, `WikiLinkContext.tsx`, `NotesWorkspace.tsx`, `PaneTreeRenderer.tsx`, `NotesExplorer.tsx`.
+  - 위키링크 삽입-읽기 시간차 축소: `WikiLinkAutocomplete.commit()`이 `.run()` 직후(같은 동기 실행 안에서) `editor.getHTML()`을 직접 읽어 `onCreate(title, sourceHtml)`로 넘긴다. `NotesWorkspace.onCreate`는 이 값을 최우선으로 신뢰하고, 없을 때만(기존 깨진 링크 "생성" 클릭 등) `activeEditorHandle.getHTML()`을 다시 읽는다 — 리렌더/탭 전환을 거친 뒤 다시 읽으며 생길 수 있는 시간차를 없앴다.
+  - 로그인 사용자 그래프 fallback: `graph-screen.tsx`의 `edges`가 서버 `liveEdges`를 받으면 그 값만 쓰고 게스트 markdown 파생(`deriveGraphEdges`)은 아예 무시했다 — 그래서 서버 NoteLink 생성/재조회가 늦으면 방금 만든 위키링크 연결이 로그인 사용자 화면에 전혀 안 보였다. 이제 `liveEdges`가 있어도, 그중 없는 REFERENCE(위키링크) 연결만 markdown 기반으로 보강해 합친다(RELATED/SIMILAR 등 서버 고유 의미 관계는 그대로 서버 값만 신뢰해 노이즈를 늘리지 않는다).
+  - 화면분할 회귀: 원인은 `canSplitPane`(`hasSplitPanels || tabs.length > 1`)이 탭이 1개뿐인(가장 흔한) 상태에서 분할을 막고 있던 기존 로직이었다 — pane별 글자 크기 관련 수정과는 무관했다. `tabs.length >= 1`로 완화해 노트를 하나만 열어도 "우측 분할"/"하단 분할"이 정상 동작한다(`NotesWorkspace.tsx`, `PaneTreeRenderer.tsx` 양쪽 동일 기준으로 통일).
+  - 즐겨찾기 섹션 헤더(`⭐ 즐겨찾기 (n)`)에서 hover 시 뜨던 노트/폴더 생성 버튼을 제거해 단순 인덱스 헤더로 정리했다(탐색기 상단 "+ 새 노트"/일반 트리에서 만든 뒤 즐겨찾기하는 기존 경로는 그대로 유효). 즐겨찾기 루트 노트 행의 별표/더보기를 일반 트리 노트 행과 동일한 `gap-0.5` 그룹으로 묶어, 간격/세로 정렬이 일반 트리와 일치하도록 맞췄다.
+
+- **(2026-07-05 버그 수정 4차 보완) 화면분할이 노트 텍스트 드롭으로 새던 회귀, 일반 트리 헤더 정리**:
+  - 분석 대상: `brainx-next/components/notes/NotesWorkspace.tsx`, `FolderTree.tsx`, `NotesExplorer.tsx`.
+  - 원인(화면분할): 3차 보완에서 "에디터 첫 클릭이 막히는 문제"를 고치려고 `dragPayload`/`dragging` 방어 로직에 `pointerup`/`pointercancel` 리스너를 추가했는데, 네이티브 HTML5 드래그(`draggable` 속성)는 `dragstart` 시점에 그 포인터의 캡처를 브라우저가 OS 레벨 드래그로 넘기면서 **표준적으로 `pointercancel`을 쏜다** — 이게 드래그 "실패/취소" 신호가 아니라 드래그 "시작" 신호인데도 같은 리스너로 잡고 있어서, 탭/사이드바 노트를 드래그하자마자 `dragPayload`/`dragging`이 곧바로 `null`/`false`로 리셋됐다. 그 결과 본문 위 분할/교체 오버레이가 뜨지 못했고, 드롭이 오버레이의 `onDrop`이 아니라 에디터 contentEditable의 브라우저 기본 텍스트 드롭으로 새어 들어가 `TabBar`가 `dataTransfer`에 실어둔 `noteId`(`text/plain`)가 그대로 본문에 삽입됐다.
+  - 수정: 두 안전망에서 `pointerup`/`pointercancel` 리스너를 제거하고, 실제로 "드래그가 확실히 끝났거나 컨텍스트가 사라진" 신호(`dragend`/`drop`/`blur`/`visibilitychange`)만 남겼다. dnd-kit(PointerSensor) 기반 안전망(`FolderTree`의 `activeDrag`)은 네이티브 드래그가 아니라 이 문제가 없어 그대로 뒀다.
+  - 일반 트리 섹션 헤더를 즐겨찾기 헤더와 같은 톤으로 정리했다 — 행 전체가 "새 폴더 생성" 버튼이던 것을 "전체 노트" 레이블 + hover 시 나타나는 루트 폴더 생성 아이콘으로 분리해, 헤더가 액션처럼 보이지 않게 했다. 루트 폴더 생성 자체(입력창, 완료 시 `onCreateFolder`)는 그대로 유지.
+  - 위키링크/그래프 항목은 3차 보완(sourceHtml 즉시 전달, REFERENCE edge markdown fallback)에서 코드 경로상 새로운 결함을 추가로 찾지 못했다 — cross-page(그래프 화면과 노트 화면 간) optimistic 캐시는 위험도가 있어 이번엔 설계안만 검토하고 보류했다(본문 참고).
+
+- **(2026-07-05 버그 수정 5차 보완) 위키링크 로그인 사용자 cross-page optimistic 그래프 캐시**:
+  - 분석 대상: `brainx-next/lib/notes/pending-wikilink-cache.ts`(신규), `lib/graph-api.ts`, `components/notes/NotesWorkspace.tsx`, `components/graph-screen.tsx`.
+  - 원인: `/notes`와 `/graph`는 완전히 별도로 마운트되는 페이지라 컴포넌트 상태를 공유하지 않는다 — 로그인 사용자가 위키링크로 A를 만들고 바로 `/graph`로 이동하면, 그 페이지가 새로 마운트되며 서버에서 노트/그래프를 다시 fetch하는데, 그 시점에 A의 서버 저장(draft/`NoteLink` 생성)이 아직 안 끝났으면 A 자체가 안 보였다. 게스트는 마운트 시 항상 draft 목록을 markdown 기반으로 다시 파생해 상대적으로 덜 겪었지만, 로그인 사용자는 서버 `liveNotes`/`liveEdges`가 비어있으면 그대로 빈 그래프였다.
+  - 수정: `lib/notes/pending-wikilink-cache.ts`(sessionStorage, TTL 10분)를 새로 추가해, 위키링크로 새 노트를 만드는 순간(`NotesWorkspace.onCreate`) `{localKey, noteId, title, sourceNoteId, sourceTitle, createdAt}`를 기록하고, draft id가 확정되면(`createNote`의 `issueWorkspaceNoteDraftId().then`) `noteId`를 갱신한다. `graph-screen.tsx`는 기존에 "징검다리 개념" 기능이 쓰던 `optimisticGraphNotesRef`(서버 데이터에 없는 노트를 그래프에 얹었다가, 서버가 같은 id를 내려주면 자동으로 빼는 기존 병합/reconcile 로직)를 그대로 재사용한다 — `refreshGraph`가 호출될 때마다 sessionStorage의 pending 항목을 이 ref에 seed하고, 서버 응답에 같은 id가 나타나면(로그인/게스트 두 경로 모두) ref와 sessionStorage 양쪽에서 함께 제거한다. edge는 따로 합성하지 않는다 — 소스 노트(이미 서버에 저장된 `[[title]]` 텍스트를 가진 실제 노트)와 이 optimistic placeholder가 같은 `notes` 배열에 있으면 기존 `deriveGraphEdges`/`deriveDraftWikiLinkEdges`의 제목 매칭이 알아서 연결선을 만든다.
+  - 서버 `createWorkspaceNoteLink` 성공 시(두 호출 경로 모두) sessionStorage 항목도 함께 제거해, 다음 마운트에서 중복 optimistic 삽입이 일어나지 않게 했다. 실패하면 `.catch`가 `warnWikiLinkFailure`(개발 환경 전용 warn)만 남기고 조용히 넘어가되, sessionStorage 항목은 지우지 않아 다음 그래프 새로고침에서도 계속 optimistic하게 보인다.
+  - actor(guest/user) 전환 시 `clearPendingWikiLinkEntries()`로 이전 세션 기록을 함께 비운다.
+
+- **(2026-07-05 버그 수정 6차 보완) optimistic edge 직접 합성 — 노드는 바로 보이는데 연결선만 안 보이던 문제**:
+  - 분석 대상: `brainx-next/lib/graph-api.ts`, `components/graph-screen.tsx`.
+  - 원인: 5차 보완은 A 노드만 optimistic하게 주입하고, 연결선은 "소스 노트(노트1)의 저장된 markdown에서 `[[A]]`를 찾아 제목 매칭"하는 기존 `deriveGraphEdges`/`deriveDraftWikiLinkEdges`에 그대로 의존했다. 이 매칭은 **노트1 자신의 서버 저장(content PUT/draft 저장)이 끝나야** 노트1의 fetch된 markdown에 `[[A]]`가 반영돼 있다는 전제가 있는데, 그 저장도 비동기라 `/graph`가 막 새로 마운트된 시점에는 아직 안 끝나 있을 수 있었다 — 그래서 A 노드는 바로 보이는데 노트1-A 연결선만 안 보이는 정확히 그 증상이 났다.
+  - 수정: `pendingWikiLinkEntryToEdge()`(`graph-api.ts`)를 추가해, pending 항목이 이미 알고 있는 `sourceNoteId`/`noteId`/`title`만으로 `{source, target, type:"REFERENCE", weight:0.95, reason, bridge:false}` optimistic edge를 **소스 노트의 저장 상태와 무관하게** 직접 합성한다. `graph-screen.tsx`의 `edges` useMemo에서 서버 edge/markdown 파생 edge를 합친 뒤(`base`), 그 `base`에 같은 source-target 쌍이 이미 있으면 optimistic edge를 제외하고, 없을 때만 추가한다(`edgePairKey`로 방향 무관 중복 판정). 소스/타깃 노트 둘 다 현재 `notes` 배열에 실제로 있을 때만 만든다(존재하지 않는 id로 그려지는 고아 edge 방지).
+  - reconcile: 별도 정리 로직이 필요 없다 — optimistic edge는 매 렌더마다 pending 캐시에서 다시 계산되므로, 5차 보완에서 이미 구현한 "서버가 노트를 확인하면 pending 항목을 지운다" 로직이 그대로 동작하면 다음 recompute에서 그 edge도 자동으로 사라진다. 서버 edge가 노트보다 먼저 도착하는 경우(드묾)도 `base`와의 중복 판정으로 즉시 optimistic edge가 걸러진다.
+  - 게스트 경로에도 동일한 로직이 적용된다(분기 없음) — 기존 게스트 동작 위에 방어적으로 얹힌 것이라 회귀 없음.
+
+- **(2026-07-05 버그 수정 7차 보완) optimistic 그래프 반영을 일반 새 노트 생성까지 확장**:
+  - 분석 대상: `brainx-next/lib/notes/pending-created-note-cache.ts`(`pending-wikilink-cache.ts`를 이 이름으로 일반화), `lib/graph-api.ts`, `components/notes/NotesWorkspace.tsx`, `components/graph-screen.tsx`.
+  - 원인: 5~6차 보완의 optimistic 캐시 기록이 `NotesWorkspace.onCreate`(위키링크 전용 콜백)에만 있었다 — "+ 새 노트"/우클릭 새 노트처럼 `linkFromNoteId` 없이 `createNote`를 직접 호출하는 일반 생성 경로는 이 기록을 전혀 타지 않아, 그래프 새 마운트 시점에 서버 저장이 안 끝났으면 새 노트가 그래프에 바로 안 보였다.
+  - 수정: 캐시를 위키링크 전용에서 범용으로 일반화했다 — `PendingWikiLinkEntry`의 `sourceNoteId`/`sourceTitle`을 옵셔널로 바꾸고 `PendingCreatedNoteEntry`로 이름을 바꿨으며(`addPendingCreatedNote`/`updatePendingCreatedNoteId`/`removePendingCreatedNote(ByNoteId)`/`readPendingCreatedNotes`/`clearPendingCreatedNotes`), 기록 지점을 `onCreate`에서 **`createNote` 자신**으로 옮겼다 — 위키링크 여부와 무관하게 `createNote`가 호출되는 모든 새 노트 생성이 local id 발급 즉시 기록되고, `linkFromNoteId`가 있을 때만 `sourceNoteId`/`sourceTitle`을 함께 채워 graph-screen이 optimistic edge(6차 보완)까지 만들 수 있게 유지했다.
+  - `graph-screen.tsx`의 edge 합성(`pendingWikiLinkEntryToEdge`)은 `sourceNoteId`가 있는 항목에만 적용된다 — 일반 새 노트 항목은 자연히 필터링돼 node만 optimistic 처리되고 edge는 만들어지지 않는다(요구사항 그대로).
+  - 서버 `listNotes`/draft 목록에 같은 noteId가 나타나면 5차 보완의 기존 reconcile 로직(`optimisticGraphNotesRef` 병합 + `removePendingCreatedNoteByNoteId`)이 위키링크 여부와 무관하게 동일하게 동작해 중복 없이 정리한다.
+
+- **(2026-07-05 버그 수정 8차 보완) optimistic 캐시 title이 최초 생성 시점 제목으로 박제되던 문제**:
+  - 분석 대상: `brainx-next/lib/notes/pending-created-note-cache.ts`, `components/notes/NotesWorkspace.tsx`, `components/graph-screen.tsx`.
+  - 원인 1(캐시 자체): `pending-created-note-cache.ts`에는 title을 나중에 갱신하는 함수가 없어서, 노트가 "새 노트"/"새 노트1" 같은 기본 제목으로 처음 기록된 뒤 사용자가 곧바로 제목을 바꿔도 캐시의 `title` 필드는 그대로 남아있었다.
+  - 원인 2(graph-screen 쪽 seed 로직): 설령 캐시의 title이 갱신돼도, `refreshGraph`의 seed 루프가 `optimisticGraphNotesRef.current[entry.noteId]`가 **이미 있으면 건너뛰는**(`if (!...)`) 방식이라, 마운트 시점에 한 번 옛 제목으로 seed된 뒤로는 캐시가 갱신돼도 다시 읽어오지 않아 그래프에는 계속 옛 제목이 보였다.
+  - 수정: `updatePendingCreatedNoteTitle(noteId, title)`을 추가해 `NotesWorkspace.handleTitleChange`에서 제목이 실제로 바뀔 때마다 호출한다 — `localKey`/`noteId` 양쪽으로 매칭해 draft id 확정 전(local id로 리네임)/후(real id로 리네임) 어느 시점에 이름을 바꿔도 같은 항목을 찾고, 이 노트가 다른 pending 항목의 위키링크 소스였다면 그 `sourceTitle`도 함께 맞춘다. `graph-screen.tsx`의 seed 루프는 "이미 있으면 건너뛰기"를 없애고 매 `refreshGraph`마다 캐시 내용으로 무조건 덮어쓰도록 바꿨다(노트 id가 전역적으로 고유해 다른 optimistic 기능과 충돌할 일이 없다).
+  - 위키링크 edge(`pendingWikiLinkEntryToEdge`)는 매 렌더 `edges` useMemo에서 최신 pending 항목으로 다시 계산되므로, 캐시 title이 갱신되면 edge의 표시 라벨도 별도 처리 없이 최신 제목을 반영한다 — 연결(id 기준) 자체는 원래도 안정적이라 A→B 리네임에도 그대로 유지된다.
+  - 일반 새 노트/위키링크 새 노트 모두 같은 `updatePendingCreatedNoteTitle` 호출 하나로 커버된다(분기 없음).
+
 - **(2026-07-02 UX 정리) 마이페이지 로그아웃, 위키 자동완성 키 충돌, 그래프 hover 대비 조정**:
   - 마이페이지 프로필 메뉴에 로그아웃 버튼을 회원탈퇴 영역 위로 옮기고, 로그아웃 후에는 `/`(landing)으로 돌아가도록 정리했다.
   - `WikiLinkAutocomplete`는 동일한 제목의 노트가 여러 개 있어도 `note.id` 기반 key를 써서 React 경고가 나지 않도록 보정했다.

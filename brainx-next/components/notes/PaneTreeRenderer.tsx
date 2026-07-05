@@ -20,6 +20,9 @@ interface Props {
   /** 탭(노트 인스턴스) id 기준 읽기/편집 모드 — 패널이 아니라 탭 단위로 독립적으로 유지된다 */
   tabMode: Record<string, EditMode>;
   paneTabs: Record<string, PaneTabsState>;
+  /** pane id별 Ctrl+Wheel 에디터 뷰 줌(%) — 없는 pane은 기본 100%. */
+  paneFontScale: Record<string, number>;
+  onPaneFontScaleChange: (paneId: string, next: number) => void;
   quickSwitcher: QuickSwitcherTarget | null;
   saveSignal: number;
   scrollToHeadingSignal: { nonce: number; index: number } | null;
@@ -62,6 +65,8 @@ export default function PaneTreeRenderer({
   dragPayload,
   tabMode,
   paneTabs,
+  paneFontScale,
+  onPaneFontScaleChange,
   quickSwitcher,
   saveSignal,
   scrollToHeadingSignal,
@@ -110,7 +115,8 @@ export default function PaneTreeRenderer({
     // 노트를 찾지 못하면 notes[0](임의의 다른 노트)로 빠지지 않고 null로 둔다 — EditorPanel은
     // note===null일 때 이미 "노트 없음" 복구 화면을 그리도록 되어 있다.
     const note = activeTab.kind === "note" ? notes.find((n) => n.id === activeTab.noteId) ?? null : null;
-    const canSplitPane = hasSplitPanels || tabs.length > 1;
+    // NotesWorkspace.canSplitPane과 동일한 기준 — 탭이 1개뿐이어도 분할(복제) 가능.
+    const canSplitPane = hasSplitPanels || tabs.length >= 1;
 
     return (
       <EditorPanel
@@ -123,6 +129,8 @@ export default function PaneTreeRenderer({
         isActive={activeId === node.id}
         dragPayload={dragPayload}
         mode={tabMode[activeTabId] ?? "edit"}
+        fontScale={paneFontScale[node.id] ?? 100}
+        onFontScaleChange={(next) => onPaneFontScaleChange(node.id, next)}
         saveSignal={saveSignal}
         scrollToHeadingSignal={scrollToHeadingSignal}
         onModeChange={onModeChange}
@@ -179,6 +187,8 @@ export default function PaneTreeRenderer({
               dragPayload={dragPayload}
               tabMode={tabMode}
               paneTabs={paneTabs}
+              paneFontScale={paneFontScale}
+              onPaneFontScaleChange={onPaneFontScaleChange}
               quickSwitcher={quickSwitcher}
               saveSignal={saveSignal}
               scrollToHeadingSignal={scrollToHeadingSignal}

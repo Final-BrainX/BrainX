@@ -6,9 +6,10 @@ import { useRouter } from "next/navigation";
 import { Compass, FileUp, PencilLine, Pin, PinOff, Sparkles } from "lucide-react";
 import { buildAuthPath, isDevAuthSession, readAuthSession } from "@/lib/auth-api";
 import { CLUSTERS, deriveGraphEdges, noteById, clusterById, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
-import { deriveDraftWikiLinkEdges, draftsToBrainXNotes, getGraph, graphEdgesForFlow, graphToBrainXNotes, USE_MOCK_GRAPH, USE_MOCK_GRAPH_CLUSTERS } from "@/lib/graph-api";
+import { deriveDraftWikiLinkEdges, draftsToBrainXNotes, getGraph, graphEdgesForFlow, graphToBrainXNotes, pendingCreatedNoteToBrainXNote, pendingWikiLinkEntryToEdge, USE_MOCK_GRAPH, USE_MOCK_GRAPH_CLUSTERS } from "@/lib/graph-api";
 import { createBridgeConcepts, createLinkSuggestions, getLatestClusterJob, requestClusterJob, type BridgeConceptsData, type ClusterJobData, type ClusterJobLatestData, type LinkSuggestionsData } from "@/lib/intelligence-api";
 import { mergeNoteIndexStatuses } from "@/lib/note-index-statuses";
+import { readPendingCreatedNotes, removePendingCreatedNoteByNoteId } from "@/lib/notes/pending-created-note-cache";
 import { createWorkspaceNote, createWorkspaceNoteLink, hasWorkspaceUserIdentity, listWorkspaceNoteDrafts, type NoteCreated } from "@/lib/workspace-api";
 import { useBrainX } from "@/components/brainx-provider";
 import { Avatar, Badge, Btn, Card, Icon } from "@/components/brainx-ui";
@@ -1497,6 +1498,13 @@ function TooltipOverlay({
   );
 }
 
+/** source/target 순서와 무관하게 같은 두 노트 쌍을 같은 key로 취급한다(서버 edge와 클라이언트
+    파생 edge가 방향을 다르게 표현할 수 있어, 방향까지 따지면 이미 있는 연결을 중복으로 다시
+    추가할 수 있다). */
+function edgePairKey(a: string, b: string) {
+  return [a, b].sort().join("::");
+}
+
 function GraphScreenInner() {
   const router = useRouter();
   const { notes: mockNotes, pushToast } = useBrainX();
@@ -1543,7 +1551,43 @@ function GraphScreenInner() {
     [aiClusterPanelEnabled, clusterLatest, rawNotes]
   );
   const notes = aiClusterProjection.notes;
-  const edges = useMemo(() => liveEdges ?? deriveGraphEdges(notes), [liveEdges, notes]);
+  // liveEdges가 없으면(게스트, 또는 서버 그래프 자체를 안 쓰는 경로) 지금까지와 동일하게 전부
+  // markdown/제목 기반으로 파생한다. liveEdges가 있으면(로그인, 서버 projection) 그 값을 그대로
+  // 신뢰하되, 방금 위키링크로 새로 연결한 노트처럼 서버 NoteLink 생성/재조회가 아직 따라오지
+  // 못한 REFERENCE(위키링크) 연결만 markdown 기반으로 보충한다 — RELATED/SIMILAR 등 서버 고유의
+  // 의미 관계 추천까지 클라이언트 휴리스틱으로 덧붙이면 서버 그래프와 다른 노이즈가 섞이므로
+  // 위키링크 exact-match 연결만 좁게 보강한다.
+  //
+  // 그 markdown 파생조차도 "소스 노트 자신의 저장"이 끝나야 소스 노트의 markdown에 [[title]]이
+  // 반영돼 있다는 전제가 깔려 있다 — 소스 노트 저장도 비동기라, 그래프가 막 새로 마운트된
+  // 시점에는 그 저장이 아직 안 끝났을 수 있다. 그러면 A 노드는 optimistic하게 보이는데
+  // 노트1-A edge만 안 보이는 정확히 그 증상이 난다. 그래서 pending wikilink 항목 자체
+  // (source/target을 이미 알고 있다 — 어느 쪽 저장 상태와도 무관)로 optimistic edge를
+  // 직접 만들어, 실제 edge(서버 또는 markdown 파생)가 없을 때만 보충한다.
+  const edges = useMemo(() => {
+    const base = (() => {
+      if (!liveEdges) return deriveGraphEdges(notes);
+      const existingPairs = new Set(liveEdges.map((e) => edgePairKey(e.source, e.target)));
+      const missingWikiLinkEdges = deriveGraphEdges(notes).filter(
+        (e) => e.type === "REFERENCE" && !existingPairs.has(edgePairKey(e.source, e.target))
+      );
+      return missingWikiLinkEdges.length > 0 ? [...liveEdges, ...missingWikiLinkEdges] : liveEdges;
+    })();
+
+    const noteIds = new Set(notes.map((n) => n.id));
+    const basePairs = new Set(base.map((e) => edgePairKey(e.source, e.target)));
+    // 위키링크로 만든 항목(sourceNoteId가 있는 것)만 edge 대상이다 — 일반 새 노트 생성은
+    // 연결할 대상이 없으므로 node만 optimistic 처리되고 여기서는 자연히 걸러진다.
+    const optimisticEdges: ReturnType<typeof pendingWikiLinkEntryToEdge>[] = [];
+    for (const entry of readPendingCreatedNotes()) {
+      if (!entry.sourceNoteId) continue;
+      if (!noteIds.has(entry.sourceNoteId) || !noteIds.has(entry.noteId)) continue;
+      if (basePairs.has(edgePairKey(entry.sourceNoteId, entry.noteId))) continue;
+      optimisticEdges.push(pendingWikiLinkEntryToEdge({ sourceNoteId: entry.sourceNoteId, noteId: entry.noteId, title: entry.title }));
+    }
+
+    return optimisticEdges.length > 0 ? [...base, ...optimisticEdges] : base;
+  }, [liveEdges, notes]);
   const clusterListNotes = USE_MOCK_GRAPH_CLUSTERS ? mockNotes : notes;
   const dynamicClusters = useMemo(() => {
     if (aiClusterProjection.clusters) return aiClusterProjection.clusters;
@@ -1663,6 +1707,18 @@ function GraphScreenInner() {
       if (reset) {
         optimisticGraphNotesRef.current = {};
       }
+      // 방금(위키링크든 일반 "+ 새 노트"든) 만든 노트가 노트 화면 세션(sessionStorage)에
+      // 남아있으면, 아직 서버가 안 따라왔더라도 그래프에 optimistic하게 먼저 반영한다 —
+      // /notes에서 새 노트를 만들고 바로 /graph로 넘어오는(완전히 새로 마운트되는) 경로를
+      // 위한 것이다. 매번 최신 캐시 내용으로 다시 씌운다(무조건 덮어쓰기) — "이미 있으면
+      // 건너뛰기"로 하면, 최초 생성 시점의 "새 노트"/"새 노트1" 제목으로 한 번 seed된 뒤
+      // 사용자가 제목을 바꿔도(handleTitleChange가 캐시의 title은 갱신해도) 여기서 다시
+      // 읽어오지 않아 옛 제목이 계속 보이는 문제가 있었다. 이 ref는 노트 id를 key로 쓰고
+      // 노트 id는 전역적으로 고유하므로, 여기서 만든 항목이 다른 optimistic 기능(예: 그래프
+      // 자체의 "징검다리 개념" 생성)의 항목과 같은 id로 충돌할 일은 없다.
+      for (const entry of readPendingCreatedNotes()) {
+        optimisticGraphNotesRef.current[entry.noteId] = pendingCreatedNoteToBrainXNote(entry);
+      }
 
       if (isDevAuthSession(session)) {
         setLiveNotes(null);
@@ -1677,8 +1733,18 @@ function GraphScreenInner() {
           const data = await listWorkspaceNoteDrafts();
           if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
           const draftNotes = draftsToBrainXNotes(data.drafts);
-          setLiveNotes(draftNotes);
-          setLiveEdges(deriveDraftWikiLinkEdges(draftNotes));
+          const draftNoteIds = new Set(draftNotes.map((note) => note.id));
+          const optimisticDraftNotes = Object.values(optimisticGraphNotesRef.current).filter((note) => {
+            if (draftNoteIds.has(note.id)) {
+              delete optimisticGraphNotesRef.current[note.id];
+              removePendingCreatedNoteByNoteId(note.id);
+              return false;
+            }
+            return true;
+          });
+          const nextDraftNotes = optimisticDraftNotes.length > 0 ? [...optimisticDraftNotes, ...draftNotes] : draftNotes;
+          setLiveNotes(nextDraftNotes);
+          setLiveEdges(deriveDraftWikiLinkEdges(nextDraftNotes));
           setGraphDataVersion((version) => version + 1);
         } catch (error) {
           if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
@@ -1712,6 +1778,7 @@ function GraphScreenInner() {
         const optimisticNotes = Object.values(optimisticGraphNotesRef.current).filter((note) => {
           if (serverNoteIds.has(note.id)) {
             delete optimisticGraphNotesRef.current[note.id];
+            removePendingCreatedNoteByNoteId(note.id);
             return false;
           }
           return true;
