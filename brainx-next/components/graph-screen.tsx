@@ -22,7 +22,7 @@ import {
 } from "@/lib/ai-cluster-projection";
 import { mergeNoteIndexStatuses } from "@/lib/note-index-statuses";
 import { readPendingCreatedNotes, removePendingCreatedNoteByNoteId } from "@/lib/notes/pending-created-note-cache";
-import { createWorkspaceNote, hasWorkspaceUserIdentity, listWorkspaceNoteDrafts, updateWorkspaceNoteContent, WorkspaceApiError, type NoteCreated } from "@/lib/workspace-api";
+import { createWorkspaceNote, getNote, getWorkspaceNoteDraft, hasWorkspaceUserIdentity, listWorkspaceNoteDrafts, updateWorkspaceNoteContent, WorkspaceApiError, type NoteCreated } from "@/lib/workspace-api";
 import { contentHasWikiLinkTo } from "@/lib/wiki-links";
 import { useBrainX } from "@/components/brainx-provider";
 import { Avatar, Badge, Btn, Card, Icon } from "@/components/brainx-ui";
@@ -511,12 +511,12 @@ function suggestionWikiLink(targetTitle: string, anchorText?: string | null) {
   return alias && alias.toLowerCase() !== title.toLowerCase() ? `[[${title}|${alias}]]` : `[[${title}]]`;
 }
 
-function appendWikiLink(markdown: string, link: string) {
-  return markdown.trim() ? `${markdown}\n\n${link}` : link;
-}
-
 function replaceRange(markdown: string, start: number, end: number, replacement: string) {
   return `${markdown.slice(0, start)}${replacement}${markdown.slice(end)}`;
+}
+
+function anchorCoversWholeMarkdown(markdown: string, start: number, end: number) {
+  return markdown.slice(0, start).trim() === "" && markdown.slice(end).trim() === "";
 }
 
 function findOffsetAnchorRange(markdown: string, suggestion: LinkSuggestion, anchorText: string) {
@@ -542,15 +542,38 @@ function findSingleAnchorRange(markdown: string, anchorText: string) {
   return { start: first, end: first + anchorText.length };
 }
 
-function applyLinkSuggestionToMarkdown(markdown: string, suggestion: LinkSuggestion, targetTitle: string) {
+type LinkSuggestionApplyResult =
+  | { markdown: string; changed: true; error?: undefined }
+  | { markdown: string; changed: false; error?: string };
+
+function applyLinkSuggestionToMarkdown(
+  markdown: string,
+  suggestion: LinkSuggestion,
+  targetTitle: string
+): LinkSuggestionApplyResult {
   if (contentHasWikiLinkTo(markdown, targetTitle)) {
     return { markdown, changed: false };
   }
 
   const anchorText = suggestion.anchorText ?? "";
+  if (!markdown.trim() || !anchorText.trim()) {
+    return {
+      markdown,
+      changed: false,
+      error: "본문에서 연결할 위치를 찾지 못했어요. 다시 분석한 뒤 시도해 주세요."
+    };
+  }
+
   const link = suggestionWikiLink(targetTitle, anchorText);
   const offsetAnchor = anchorText ? findOffsetAnchorRange(markdown, suggestion, anchorText) : null;
   if (offsetAnchor) {
+    if (anchorCoversWholeMarkdown(markdown, offsetAnchor.start, offsetAnchor.end)) {
+      return {
+        markdown,
+        changed: false,
+        error: "본문 전체가 링크 하나로 바뀔 수 있어 저장하지 않았어요. anchor를 다시 분석해 주세요."
+      };
+    }
     return {
       markdown: replaceRange(markdown, offsetAnchor.start, offsetAnchor.end, link),
       changed: true
@@ -559,13 +582,24 @@ function applyLinkSuggestionToMarkdown(markdown: string, suggestion: LinkSuggest
 
   const singleAnchor = findSingleAnchorRange(markdown, anchorText);
   if (singleAnchor) {
+    if (anchorCoversWholeMarkdown(markdown, singleAnchor.start, singleAnchor.end)) {
+      return {
+        markdown,
+        changed: false,
+        error: "본문 전체가 링크 하나로 바뀔 수 있어 저장하지 않았어요. anchor를 다시 분석해 주세요."
+      };
+    }
     return {
       markdown: replaceRange(markdown, singleAnchor.start, singleAnchor.end, link),
       changed: true
     };
   }
 
-  return { markdown: appendWikiLink(markdown, suggestionWikiLink(targetTitle)), changed: true };
+  return {
+    markdown,
+    changed: false,
+    error: "본문에서 연결할 위치를 정확히 찾지 못했어요. 다시 분석한 뒤 시도해 주세요."
+  };
 }
 
 function bridgeSourceNotes(sourceNotes: BrainXNote[]) {
@@ -2100,18 +2134,24 @@ function GraphScreenInner() {
         throw new Error("연결할 원본 노트를 찾을 수 없습니다.");
       }
       const targetTitle = normalizeMarkdownText(suggestion.targetTitle || targetNote?.title || "연결 노트");
-      const applied = applyLinkSuggestionToMarkdown(sourceNote.markdown ?? "", suggestion, targetTitle);
+      const latestDraft = await getWorkspaceNoteDraft(sourceNote.id).catch(() => null);
+      const latestSource = await getNote(sourceNote.id);
+      const latestMarkdown = latestDraft?.markdown ?? latestSource?.markdown ?? "";
+      const applied = applyLinkSuggestionToMarkdown(latestMarkdown, suggestion, targetTitle);
+      if (applied.error) {
+        throw new Error(applied.error);
+      }
       if (applied.changed) {
         const saved = await updateWorkspaceNoteContent({
           id: sourceNote.id,
-          title: sourceNote.title,
+          title: latestDraft?.title || latestSource?.title || sourceNote.title,
           content: applied.markdown,
-          tags: sourceNote.tags,
+          tags: latestSource?.tags ?? sourceNote.tags,
           category: "ai",
-          folderId: sourceNote.folderId,
-          createdAt: Date.parse(sourceNote.createdAt) || Date.now(),
+          folderId: latestDraft?.folderId ?? latestSource?.folder?.folderId ?? sourceNote.folderId,
+          createdAt: Date.parse(latestSource?.createdAt ?? "") || Date.parse(sourceNote.createdAt) || Date.now(),
           updatedAt: Date.now(),
-          version: sourceNote.version,
+          version: latestSource.version ?? sourceNote.version,
           persisted: true
         });
         setLiveNotes((current) => {
@@ -2119,6 +2159,7 @@ function GraphScreenInner() {
           return baseNotes.map((note) => note.id === sourceNote.id
             ? {
                 ...note,
+                title: latestDraft?.title || latestSource?.title || note.title,
                 markdown: applied.markdown,
                 version: saved.version,
                 updatedAt: saved.savedAt,
@@ -2164,6 +2205,7 @@ function GraphScreenInner() {
       }
       if (savedCount > 0) {
         pushToast(`${savedCount}개 연결을 저장했어요.`, "ok");
+        setLinkMode(false);
       }
     } finally {
       setLinkAcceptAllLoading(false);
@@ -2983,8 +3025,9 @@ function GraphScreenInner() {
                       type="button"
                       disabled={linkAcceptAllLoading || linkAcceptableSuggestions.length === 0}
                       onClick={handleAcceptAllLinkSuggestions}
-                      className="h-7 rounded-lg bg-txt px-2.5 text-[11px] font-semibold text-bg transition-colors hover:bg-txt/90 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-7 items-center justify-center gap-1.5 rounded-lg bg-txt px-2.5 text-[11px] font-semibold text-bg transition-colors hover:bg-txt/90 disabled:cursor-not-allowed disabled:opacity-50"
                     >
+                      {linkAcceptAllLoading ? <Icon name="refresh" size={12} className="animate-spin" /> : null}
                       {linkAcceptAllLoading ? "저장 중" : "전체 수락"}
                     </button>
                   </div>
@@ -3039,12 +3082,15 @@ function GraphScreenInner() {
                                   "min-w-0 truncate text-[11px]",
                                   acceptStatus === "error" ? "text-red-600 dark:text-red-300" : "text-txt3"
                                 )}>
-                                  {isSaved ? "그래프에 연결됨" : acceptStatus === "error" ? acceptState.error : "실제 링크로 저장할 수 있어요"}
+                                  {isSaving ? "본문 링크로 저장 중..." : isSaved ? "그래프에 연결됨" : acceptStatus === "error" ? acceptState.error : "실제 링크로 저장할 수 있어요"}
                                 </span>
                                 <button
                                   type="button"
                                   disabled={isSaving || isSaved || linkAcceptAllLoading}
-                                  onClick={() => acceptLinkSuggestion(group, suggestion)}
+                                  onClick={async () => {
+                                    const saved = await acceptLinkSuggestion(group, suggestion);
+                                    if (saved) setLinkMode(false);
+                                  }}
                                   className={cx(
                                     "inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-60",
                                     isSaved
@@ -3052,7 +3098,7 @@ function GraphScreenInner() {
                                       : "bg-primary text-white hover:bg-primary/90"
                                   )}
                                 >
-                                  <Icon name={isSaving ? "refresh" : isSaved ? "check" : "plus"} size={12} />
+                                  <Icon name={isSaving ? "refresh" : isSaved ? "check" : "plus"} size={12} className={isSaving ? "animate-spin" : undefined} />
                                   {isSaving ? "저장 중" : isSaved ? "수락됨" : "수락"}
                                 </button>
                               </div>

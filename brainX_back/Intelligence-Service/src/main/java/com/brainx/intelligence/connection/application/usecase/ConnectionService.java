@@ -14,8 +14,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase;
-import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkCommand;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkResult;
+import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkSourceCommand;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkStrategyResult;
 import com.brainx.intelligence.autolink.domain.NoteAutoLinkStrategy;
 import com.brainx.intelligence.connection.application.port.inbound.CreateBridgeConceptsUseCase;
@@ -116,10 +116,10 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
             throw new ConnectionForbiddenException("AI capability is not available: " + entitlement.reasonCode());
         }
 
-        AutoLinkResult result = noteAutoLinkUseCase.analyze(new AutoLinkCommand(
+        AutoLinkResult result = noteAutoLinkUseCase.analyzeSourceLinks(new AutoLinkSourceCommand(
             userId,
             documentGroupId,
-            NoteAutoLinkStrategy.LLM_ONLY,
+            noteId,
             null,
             null
         ));

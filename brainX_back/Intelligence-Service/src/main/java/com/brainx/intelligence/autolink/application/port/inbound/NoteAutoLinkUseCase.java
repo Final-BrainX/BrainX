@@ -10,10 +10,21 @@ public interface NoteAutoLinkUseCase {
 
     AutoLinkResult analyze(AutoLinkCommand command);
 
+    AutoLinkResult analyzeSourceLinks(AutoLinkSourceCommand command);
+
     record AutoLinkCommand(
         String userId,
         String documentGroupId,
         NoteAutoLinkStrategy strategy,
+        Integer maxNotes,
+        String modelId
+    ) {
+    }
+
+    record AutoLinkSourceCommand(
+        String userId,
+        String documentGroupId,
+        String sourceNoteId,
         Integer maxNotes,
         String modelId
     ) {

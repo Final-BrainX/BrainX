@@ -7,7 +7,7 @@
 - 분석 범위는 `userId + documentGroupId` 안의 searchable note다.
 - 기본 cap은 50개 note다. cap을 넘으면 provider 호출 없이 `LIMIT_EXCEEDED` 결과를 반환한다.
 - 결과는 source note의 anchor 위치와 target note를 가진 제안이다. 실제 링크 삽입은 frontend 또는 Workspace 저장 흐름에서 처리한다.
-- public `/api/v1/ai/link-suggestions`는 `connection` feature에서 이 내부 use case의 `LLM_ONLY` 전략을 재사용한다. public API의 자세한 계약과 제한은 `docs/technical/connection-api.md`를 기준으로 확인한다.
+- public `/api/v1/ai/link-suggestions`는 `connection` feature에서 source-only `LLM_ONLY` 분석 경로를 사용한다. public API의 자세한 계약과 제한은 `docs/technical/connection-api.md`를 기준으로 확인한다.
 
 ## Markdown Read Model
 
@@ -35,7 +35,7 @@
 - note card는 `noteId`, `title`, `tags`, headings, excerpt로 구성한다.
 - note 수가 많을수록 각 source call의 input token이 커진다.
 - `VECTOR_LLM`과 같은 anchor 검증을 거친다.
-- public 연결 추천의 기본 전략이다. note 수가 많아질수록 token 비용이 커지므로 note cap을 유지한다.
+- 전체 자동 연결과 비교 CLI에서 사용한다. public 연결 추천은 같은 검증/필터를 쓰되 요청 source note 하나만 source로 삼아 최대 1회 호출한다.
 
 두 전략 모두 LLM이 반환한 `anchorText`를 source raw markdown에서 다시 찾는다. 이미 markdown link, wiki link, inline code, fenced code block 안에 있는 anchor는 제외한다.
 
@@ -43,10 +43,10 @@
 
 `autolink`는 내부 분석/CLI/품질 평가 기능이고, `connection`은 public REST API surface다.
 
-- `POST /api/v1/ai/link-suggestions`는 `NoteAutoLinkUseCase`를 호출하되 `LLM_ONLY` 결과 중 요청 source note의 suggestion만 반환한다.
+- `POST /api/v1/ai/link-suggestions`는 `NoteAutoLinkUseCase`의 source-only `LLM_ONLY` 경로를 호출해 요청 source note에서 나가는 suggestion만 계산한다.
 - public response는 `targetNoteId`, `targetTitle`, `score`, `reason`과 함께 raw markdown `anchorText`, `anchorStartOffset`, `anchorEndOffset`을 노출한다.
 - public request에는 아직 `documentGroupId`가 없어서 `ConnectionService`가 `default` group을 사용한다.
-- `/graph` 클라이언트는 suggestion 수락 시 anchor offset을 우선 사용해 source markdown을 `[[targetTitle|anchorText]]`로 수정하고 Workspace content save 흐름으로 wiki link projection을 생성한다.
+- `/graph` 클라이언트는 suggestion 수락 시 최신 source note 본문을 조회한 뒤 anchor offset을 우선 사용해 해당 구간만 `[[targetTitle|anchorText]]`로 수정하고 Workspace content save 흐름으로 wiki link projection을 생성한다. anchor 위치를 확정할 수 없으면 본문을 저장하지 않는다.
 
 ## 품질 필터와 Ranking
 

@@ -25,6 +25,7 @@ import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUse
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkComparison;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkCostEstimate;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkResult;
+import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkSourceCommand;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkStrategyResult;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkSuggestion;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkUsageRecord;
@@ -237,6 +238,77 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
         );
     }
 
+    @Override
+    public AutoLinkResult analyzeSourceLinks(AutoLinkSourceCommand command) {
+        String userId = requireText(command.userId(), "userId");
+        String documentGroupId = DocumentGroups.normalize(command.documentGroupId());
+        String sourceNoteId = requireText(command.sourceNoteId(), "sourceNoteId");
+        int maxNotes = normalizeMaxNotes(command.maxNotes());
+        String modelId = StringUtils.hasText(command.modelId()) ? command.modelId().trim() : properties.getModel();
+
+        Optional<AutoLinkNoteSource> source = noteSourcePort.findSearchableNoteSource(
+            userId,
+            documentGroupId,
+            sourceNoteId
+        );
+        if (source.isEmpty()) {
+            return new AutoLinkResult(
+                userId,
+                documentGroupId,
+                NoteAutoLinkStrategy.LLM_ONLY,
+                STATUS_NO_NOTES,
+                false,
+                maxNotes,
+                0,
+                0,
+                List.of(),
+                new AutoLinkComparison(0, 0, 0)
+            );
+        }
+
+        List<AutoLinkNoteSource> loaded = noteSourcePort.findSearchableNoteSources(
+            userId,
+            documentGroupId,
+            maxNotes + 1
+        );
+        if (loaded.size() > maxNotes) {
+            return new AutoLinkResult(
+                userId,
+                documentGroupId,
+                NoteAutoLinkStrategy.LLM_ONLY,
+                STATUS_LIMIT_EXCEEDED,
+                true,
+                maxNotes,
+                loaded.size(),
+                0,
+                List.of(),
+                new AutoLinkComparison(0, 0, 0)
+            );
+        }
+
+        List<AutoLinkNoteSource> candidates = loaded.stream()
+            .filter(note -> !sourceNoteId.equals(note.noteId()))
+            .sorted(Comparator.comparing(AutoLinkNoteSource::noteId))
+            .toList();
+        AutoLinkStrategyResult strategy = runWithUsageCapture(
+            NoteAutoLinkStrategy.LLM_ONLY,
+            () -> analyzeLlmOnlySource(userId, modelId, source.get(), candidates)
+        );
+        int loadedNoteCount = candidates.size() + 1;
+        return new AutoLinkResult(
+            userId,
+            documentGroupId,
+            NoteAutoLinkStrategy.LLM_ONLY,
+            STATUS_COMPLETED,
+            false,
+            maxNotes,
+            loadedNoteCount,
+            1,
+            List.of(strategy),
+            new AutoLinkComparison(0, 0, 0)
+        );
+    }
+
     private AutoLinkStrategyResult analyzeVectorLlm(
         String userId,
         String documentGroupId,
@@ -359,6 +431,73 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
             filteredQuality,
             filteredDuplicateTitles,
             filteredWeakRelations,
+            ranked.suggestions(),
+            List.of(),
+            startedAt
+        );
+    }
+
+    private AutoLinkStrategyResult analyzeLlmOnlySource(
+        String userId,
+        String modelId,
+        AutoLinkNoteSource source,
+        List<AutoLinkNoteSource> candidates
+    ) {
+        Instant startedAt = Instant.now();
+        List<AutoLinkNoteSource> notes = new ArrayList<>();
+        notes.add(source);
+        notes.addAll(candidates);
+        Map<String, AutoLinkNoteSource> notesById = notesById(notes);
+        List<NoteCard> candidateCards = candidates.stream().map(NoteAutoLinkService::noteCard).toList();
+        if (candidateCards.isEmpty()) {
+            return strategyResult(
+                NoteAutoLinkStrategy.LLM_ONLY,
+                STATUS_COMPLETED,
+                modelId,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                List.of(),
+                List.of(),
+                startedAt
+            );
+        }
+
+        AiChatResponse response = generate(
+            modelId,
+            LLM_ONLY_FEATURE_ID,
+            userId,
+            llmOnlySystemPrompt(),
+            llmOnlyUserPrompt(source, candidateCards)
+        );
+        if (response == null) {
+            return emptyStrategyResult(NoteAutoLinkStrategy.LLM_ONLY, STATUS_AI_UNAVAILABLE, modelId, 1, startedAt);
+        }
+
+        ValidatedSuggestions validated = validateSuggestions(
+            NoteAutoLinkStrategy.LLM_ONLY,
+            source,
+            notesById,
+            modelId,
+            parseLlmSuggestions(response.content()),
+            Map.of()
+        );
+        RankedSuggestions ranked = rankSuggestions(validated.suggestions());
+        return strategyResult(
+            NoteAutoLinkStrategy.LLM_ONLY,
+            STATUS_COMPLETED,
+            modelId,
+            1,
+            1,
+            candidates.size(),
+            validated.filteredInvalidAnchorCount(),
+            validated.filteredQualityCount() + ranked.filteredQualityCount(),
+            validated.filteredDuplicateTitleCount(),
+            validated.filteredWeakRelationCount(),
             ranked.suggestions(),
             List.of(),
             startedAt
