@@ -1582,6 +1582,7 @@ async function bootstrapRendererRuntime() {
       ELECTRON_RUN_AS_NODE: "1",
       PORT: String(bundledRendererPort),
       HOSTNAME: "127.0.0.1",
+      INTELLIGENCE_API_BASE_URL: "https://brainx.p-e.kr",
     },
     stdio: "ignore",
     windowsHide: true,
