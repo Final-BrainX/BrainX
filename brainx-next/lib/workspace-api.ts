@@ -67,6 +67,7 @@ export type WorkspaceNoteCreatePayload = {
   markdown?: string | null;
   folderId?: string | null;
   tags?: string[];
+  documentGroupId?: string | null;
 };
 
 export type WorkspaceNoteLinkCreateRequest = {
@@ -551,7 +552,10 @@ export async function createWorkspaceNoteFromPayload(payload: WorkspaceNoteCreat
       title: payload.title,
       markdown: payload.markdown ?? null,
       folderId: payload.folderId ?? null,
-      tags: payload.tags ?? []
+      tags: payload.tags ?? [],
+      // SSOT NoteCreateRequest.documentGroupId: 생략하면(undefined) 기존처럼 호출자의 default
+      // Workspace로 귀속된다. createWorkspaceFolder/saveWorkspaceNoteDraft와 동일한 패턴.
+      documentGroupId: payload.documentGroupId ?? undefined
     })
   });
 }
@@ -561,7 +565,8 @@ export async function createWorkspaceNote(note: MockNote) {
     title: note.title,
     markdown: note.content,
     folderId: note.folderId ?? null,
-    tags: note.tags
+    tags: note.tags,
+    documentGroupId: note.documentGroupId
   });
 }
 
