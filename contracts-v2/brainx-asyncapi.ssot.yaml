@@ -1,6 +1,8 @@
 asyncapi: 3.0.0
 x-runtime-secret-rotation:
   description: Shared runtime secrets such as RDS credentials may rotate independently of code changes; deployment flows must refresh encrypted parameter material on every run and force-recreate all DB-backed runtime services when the applied RDS credential fingerprint changes so event producers and consumers do not keep stale database passwords in long-lived containers.
+x-desktop-manual-sync:
+  description: Desktop manual-cloud sync remains an explicit user-triggered bridge; local note autosave must stay local to the active vault and must not emit background remote sync events until the user requests a manual sync run, while desktop vault snapshots may rescan visible vault files so Explorer-added files join the local notes workspace without triggering cloud sync by themselves.
 info:
   title: BrainX Async Event SSOT
   version: 1.0.0-revised

@@ -323,6 +323,71 @@ function buildUniqueRelativeFilePath(
   return candidateRelativePath;
 }
 
+function normalizeVaultRelativePath(relativePath: string) {
+  return path.normalize(relativePath).replace(/[\\/]+/g, "/").toLowerCase();
+}
+
+function isVaultTextLikeFile(filePath: string) {
+  return (
+    /\.(md|markdown|txt|html|htm|csv)$/i.test(filePath) ||
+    ["text/plain", "text/markdown", "text/html", "text/csv"].includes(guessMimeType(filePath))
+  );
+}
+
+function toIsoTimestamp(value: Date) {
+  const timestamp = value.getTime();
+  return Number.isFinite(timestamp) && timestamp > 0 ? value.toISOString() : new Date().toISOString();
+}
+
+function createVaultNoteRecordForExistingFile(
+  index: VaultIndexFile,
+  options: {
+    title: string;
+    fileName: string;
+    folderId: string | null;
+    markdown?: string;
+    tags?: string[];
+    createdAt?: string;
+    updatedAt?: string;
+  }
+): BrainxDesktopVaultNote & { fileName: string } {
+  const createdAt = options.createdAt ?? new Date().toISOString();
+  const updatedAt = options.updatedAt ?? createdAt;
+  return {
+    noteId: `vault_note_${crypto.randomUUID()}`,
+    title: ensureUniqueNoteTitle(index.notes, options.title.trim() || "Untitled", options.folderId ?? null),
+    markdown: options.markdown ?? "",
+    folderId: options.folderId ?? null,
+    tags: options.tags ?? [],
+    version: 1,
+    createdAt,
+    updatedAt,
+    typography: null,
+    fileName: options.fileName,
+  };
+}
+
+function createVaultAssetRecordForExistingFile(
+  index: VaultIndexFile,
+  filePath: string,
+  relativePath: string,
+  stats: fs.Stats
+) {
+  const createdAt = toIsoTimestamp(stats.birthtime);
+  const updatedAt = toIsoTimestamp(stats.mtime);
+  const asset: BrainxDesktopVaultAsset = {
+    assetId: `vault_asset_${crypto.randomUUID()}`,
+    fileName: path.basename(filePath),
+    mimeType: guessMimeType(filePath),
+    relativePath,
+    size: stats.size,
+    createdAt,
+    updatedAt,
+  };
+  index.assets.unshift(asset);
+  return asset;
+}
+
 function ensureDirectoryForFile(filePath: string) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
@@ -815,7 +880,7 @@ function deleteVaultNoteFile(vault: BrainxDesktopVaultSummary, fileName: string)
 }
 
 function readVaultSnapshot(vault: BrainxDesktopVaultSummary): BrainxDesktopVaultSnapshot {
-  const index = readVaultIndex(vault);
+  const index = reconcileVaultIndexWithFilesystem(vault, readVaultIndex(vault));
   const syncState = readVaultSyncState(vault);
   return {
     vault,
@@ -1172,17 +1237,107 @@ function ensureVaultFolderPath(
     const segment = rawSegment.trim();
     if (!segment) continue;
     currentPath = currentPath ? `${currentPath}/${segment}` : segment;
-    const existingFolderId = folderNameByPath.get(currentPath);
+    const normalizedCurrentPath = normalizeVaultRelativePath(currentPath);
+    const existingFolderId = folderNameByPath.get(normalizedCurrentPath);
     if (existingFolderId) {
       parentFolderId = existingFolderId;
       continue;
     }
     const folder = createVaultFolderRecord(index, { name: segment, parentFolderId });
     index.folders.push(folder);
-    folderNameByPath.set(currentPath, folder.folderId);
+    folderNameByPath.set(normalizedCurrentPath, folder.folderId);
     parentFolderId = folder.folderId;
   }
   return parentFolderId;
+}
+
+function buildVaultFolderPathMap(index: VaultIndexFile) {
+  const folderIdByPath = new Map<string, string>();
+  for (const folder of index.folders) {
+    const relativePath = buildVaultRelativeDirectory(index, folder.folderId);
+    const normalized = normalizeVaultRelativePath(relativePath);
+    if (normalized) {
+      folderIdByPath.set(normalized, folder.folderId);
+    }
+  }
+  return { folderIdByPath };
+}
+
+function reconcileVaultIndexWithFilesystem(vault: BrainxDesktopVaultSummary, index: VaultIndexFile) {
+  const indexedNotePaths = new Set(index.notes.map((note) => normalizeVaultRelativePath(note.fileName)));
+  const indexedAssetPaths = new Set(index.assets.map((asset) => normalizeVaultRelativePath(asset.relativePath)));
+  const { folderIdByPath } = buildVaultFolderPathMap(index);
+  let changed = false;
+
+  const walk = (directoryPath: string) => {
+    const entries = fs.readdirSync(directoryPath, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name === ".brainx") continue;
+      const fullPath = path.join(directoryPath, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === "notes" || entry.name === "assets" || entry.name === path.basename(vault.exportsPath)) {
+          continue;
+        }
+        walk(fullPath);
+        continue;
+      }
+
+      const relativePath = path.relative(vault.vaultPath, fullPath);
+      if (!relativePath || relativePath.startsWith("..")) continue;
+      const normalizedRelativePath = normalizeVaultRelativePath(relativePath);
+      if (indexedNotePaths.has(normalizedRelativePath) || indexedAssetPaths.has(normalizedRelativePath)) {
+        continue;
+      }
+
+      const relativeSegments = relativePath.split(path.sep);
+      const parentSegments = relativeSegments.slice(0, -1);
+      const parentFolderId =
+        parentSegments.length > 0
+          ? ensureVaultFolderPath(index, folderIdByPath, parentSegments)
+          : null;
+      const stats = fs.statSync(fullPath);
+      const title = path.basename(entry.name, path.extname(entry.name)) || entry.name;
+      const createdAt = toIsoTimestamp(stats.birthtime);
+      const updatedAt = toIsoTimestamp(stats.mtime);
+
+      if (isVaultTextLikeFile(fullPath)) {
+        const markdown = fs.readFileSync(fullPath, "utf8");
+        const note = createVaultNoteRecordForExistingFile(index, {
+          title,
+          fileName: relativePath,
+          folderId: parentFolderId,
+          markdown,
+          createdAt,
+          updatedAt,
+        });
+        index.notes.unshift(note);
+        indexedNotePaths.add(normalizedRelativePath);
+        changed = true;
+        continue;
+      }
+
+      const asset = createVaultAssetRecordForExistingFile(index, fullPath, relativePath, stats);
+      indexedAssetPaths.add(normalizedRelativePath);
+      const note = createVaultNoteRecord(index, {
+        title,
+        markdown: createImportedAssetMarkdown(asset),
+        folderId: parentFolderId,
+        tags: ["imported-asset"],
+      });
+      note.createdAt = createdAt;
+      note.updatedAt = updatedAt;
+      index.notes.unshift(note);
+      writeVaultNoteMarkdown(vault, note.fileName, note.markdown);
+      indexedNotePaths.add(normalizeVaultRelativePath(note.fileName));
+      changed = true;
+    }
+  };
+
+  walk(vault.vaultPath);
+  if (changed) {
+    persistVaultIndex(vault, index);
+  }
+  return index;
 }
 
 async function importExtractedVaultDirectory(
@@ -1472,14 +1627,14 @@ function readConflictReport(vault: BrainxDesktopVaultSummary, jobId: string) {
 async function runManualVaultSync(vault: BrainxDesktopVaultSummary): Promise<BrainxDesktopManualSyncJob> {
   const jobId = `vault_sync_${crypto.randomUUID()}`;
   const startedAt = new Date().toISOString();
-  const index = readVaultIndex(vault);
+  const index = reconcileVaultIndexWithFilesystem(vault, readVaultIndex(vault));
   if (index.syncPolicy.mode !== "manual-cloud") {
     const skippedJob = {
       jobId,
       status: "SKIPPED",
       mode: index.syncPolicy.mode,
       startedAt,
-      message: "Vault sync mode is local-only. Switch to manual-cloud to run sync.",
+      message: "현재 vault 동기화 모드는 로컬 전용입니다. 웹 반영이 필요하면 manual-cloud 모드로 바꾼 뒤 수동 동기화를 실행해 주세요.",
     } satisfies BrainxDesktopManualSyncJob;
     persistLastManualSyncJob(vault, skippedJob);
     return skippedJob;
@@ -1717,8 +1872,8 @@ async function runManualVaultSync(vault: BrainxDesktopVaultSummary): Promise<Bra
       startedAt,
       completedAt: new Date().toISOString(),
       message: conflicts.length > 0
-        ? "Manual sync completed with conflicts. Review .brainx/conflicts for details."
-        : "Manual sync completed.",
+        ? "동기화는 완료됐지만 일부 항목에 충돌이 있습니다. 자세한 내용은 `.brainx/conflicts/`를 확인해 주세요."
+        : "로컬 변경사항의 웹 동기화가 완료되었습니다.",
       createdNotes,
       failedFiles: [],
       conflicts,
@@ -1732,7 +1887,7 @@ async function runManualVaultSync(vault: BrainxDesktopVaultSummary): Promise<Bra
       mode: index.syncPolicy.mode,
       startedAt,
       completedAt: new Date().toISOString(),
-      message: error instanceof Error ? error.message : "Manual sync failed.",
+      message: error instanceof Error ? error.message : "수동 동기화에 실패했습니다.",
       failedFiles: [],
       conflicts: [],
     } satisfies BrainxDesktopManualSyncJob;
