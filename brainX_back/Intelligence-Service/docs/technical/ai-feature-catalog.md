@@ -4,7 +4,7 @@
 
 ## 기준
 
-- 기준일: 2026-07-04
+- 기준일: 2026-07-06
 - 구현 범위: `src/main/java/com/brainx/intelligence`
 - 공개 계약 slice: `src/main/resources/contracts/knowledge-intelligence.openapi.yaml`
 - 생성형 LLM 호출: `AiChatPort` -> `SpringAiAdapter` -> Spring AI `ChatClient`
@@ -24,7 +24,7 @@
 | AI 링크 추천 | `POST /api/v1/ai/link-suggestions` | chat LLM | source note와 연결할 후보 note를 추천하고 이유/anchor 정보를 만든다. |
 | 징검다리 개념 추천 | `POST /api/v1/ai/bridge-concepts` | chat LLM | 여러 source note 사이를 이어줄 개념과 필요한 wiki link 후보를 추천한다. |
 | AI 클러스터링 | `POST /api/v1/ai/clusters`, `GET /api/v1/ai/clusters/latest`, `GET /api/v1/ai/clusters/{clusterJobId}` | chat LLM | note card를 기반으로 주제 cluster를 생성하고 job 결과로 저장한다. GET 계열은 저장된 결과/상태 조회다. |
-| AI 인사이트 리포트 | `POST /api/v1/ai/insight-reports`, `GET /api/v1/ai/insight-reports/{reportId}` | chat LLM | note set에서 insight, knowledge gap, 추천 액션을 생성한다. GET은 저장된 report 조회다. |
+| AI 인사이트 리포트 | `POST /api/v1/ai/insight-reports`, `GET /api/v1/ai/insight-reports/latest`, `GET /api/v1/ai/insight-reports/{reportId}` | chat LLM | note set에서 insight, knowledge gap, 추천 액션을 생성한다. latest/report GET은 저장된 report와 freshness 상태 조회다. |
 | AI 폴더 정리 제안 | `POST /api/v1/ai/folder-organization-proposals` | chat LLM | note card를 보고 proposed folders와 proposed moves를 만든다. 실제 Workspace mutation은 하지 않는다. |
 | AI 모델 설정 | `GET /api/v1/ai/models`, `PUT /api/v1/ai/model-settings` | LLM 호출 없음 | 사용 가능한 model catalog와 사용자별 enabled/default model 설정을 관리한다. |
 | 문체 프로필 | `GET/PUT /api/v1/users/me/style-profile` | LLM 호출 없음 | 사용자의 선호 문체/도움 방식 설정을 저장한다. LLM prompt 입력으로 사용할 수 있는 설정 데이터다. |
@@ -54,6 +54,8 @@
 - `CREATE_NOTE`는 승인 후 Workspace internal bulk-create API를 `INTELLIGENCE_AGENT` source로 호출한다.
 - `APPEND_NOTE_CONTENT`는 승인 후 note projection으로 user/documentGroup ownership을 확인하고, Workspace snapshot의 최신 `version`을 baseVersion으로 사용해 internal content patch `APPEND`를 호출한다.
 - 승인 전에는 Agent가 저장/수정 완료를 말하지 않고 실행 가능한 action card만 제안한다.
+- 현재 Agent는 note 조회/search/read-only tool을 제공하지 않는다. `AgentMessageCreateRequest.clientContext`는 schema와 persistence에 있지만, 현재 planner prompt에는 노트 context로 자동 주입하지 않는다.
+- 현재 노트 context 주입, `READ_NOTE`, `SEARCH_NOTES`, `LIST_RECENT_NOTES` 같은 read-only tool은 후속 v2 후보이며 v1 기능처럼 문서화하지 않는다.
 
 ## 인라인 어시스트 액션
 
@@ -129,6 +131,7 @@ OpenAI chat은 Spring AI `ChatClient`를 통해 호출한다. OpenAI audio/image
 - `docs/technical/frontend-ai-context-management.md`
 - `docs/technical/inline-assist-frontend-stream-lifecycle.md`
 - `docs/technical/connection-api.md`
+- `docs/technical/cross-service-integration-map.md`
 - `docs/technical/knowledge-structure-analysis.md`
 - `docs/technical/insight-reports.md`
 - `docs/technical/note-auto-linking.md`
