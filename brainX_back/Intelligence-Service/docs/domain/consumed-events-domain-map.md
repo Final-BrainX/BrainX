@@ -4,6 +4,8 @@
 
 현재 코드에 모든 Kafka consumer가 구현되어 있다는 뜻은 아니다. 이 문서는 계약상 수신해야 하는 이벤트가 어떤 도메인 반응으로 이어져야 하는지를 설명하는 기준 문서다.
 
+다른 서비스별 source-of-truth, internal REST, outbound port 경계는 `docs/technical/cross-service-integration-map.md`를 함께 본다.
+
 ## 공통 원칙
 
 - 모든 consumer는 `eventId` 기준 idempotent 해야 한다.
@@ -54,6 +56,6 @@ Workspace 외부의 source-of-truth 도메인이 보내는 이벤트도 Intellig
 
 현재 구현은 공통 consumer dispatcher, event idempotency/failed-event store, note projection, Workspace snapshot 기반 note 색인 갱신, capture/link/folder/user deletion projection 갱신까지 붙은 상태다. Kafka listener는 기본 비활성화되어 있으며 `brainx.events.consumer.enabled=true`일 때 dispatcher에 연결된다.
 
-현재 checkpoint상 구현된 추가 consumed event는 `CaptureReceived`, `NoteLinkCreated`, `NoteLinkDeleted`, `FolderCreated`, `FolderChanged`, `FolderDeleted`, `UserDeletionRequested`이다. 남은 후속 작업은 note link graph refresh와 이웃 cache 무효화, folder 하위 경로 전파, user deletion에 따른 AI projection/cache 일괄 정리다.
+현재 checkpoint상 구현된 추가 consumed event는 `CaptureReceived`, `NoteLinkCreated`, `NoteLinkDeleted`, `FolderCreated`, `FolderChanged`, `FolderDeleted`, `UserDeletionRequested`이다. 후속 구현이나 수정은 Workspace 원장, Ingestion capture, User deletion source-of-truth를 직접 소유하지 않고 projection/cache/index 정리로만 반영해야 한다.
 
 이벤트별 구현 체크포인트는 `docs/technical/consumed-events-implementation-checkpoints.md`를 따른다.

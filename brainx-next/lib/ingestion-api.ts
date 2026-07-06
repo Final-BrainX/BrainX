@@ -334,6 +334,30 @@ export async function getImportJobStatus(importJobId: string) {
   return authedRequest<ImportJobData>(`/api/v1/imports/${importJobId}`);
 }
 
+/**
+ * Job이 COMPLETED/FAILED가 될 때까지 폴링한다. 제한 횟수 안에 끝나지 않으면 에러를 던지지 않고
+ * 마지막으로 조회한 상태(PENDING/PROCESSING일 수 있음)를 그대로 반환한다 — 백엔드는 계속
+ * 처리 중일 수 있으므로 호출자가 "아직 진행 중"과 "실패"를 구분해서 안내해야 한다.
+ */
+export async function pollImportJob(
+  importJobId: string,
+  options?: { intervalMs?: number; maxAttempts?: number }
+): Promise<ImportJobData> {
+  const intervalMs = options?.intervalMs ?? 1000;
+  const maxAttempts = options?.maxAttempts ?? 30;
+
+  let job = await getImportJobStatus(importJobId);
+  for (
+    let attempt = 0;
+    attempt < maxAttempts && job.status !== "COMPLETED" && job.status !== "FAILED";
+    attempt += 1
+  ) {
+    await new Promise((resolve) => window.setTimeout(resolve, intervalMs));
+    job = await getImportJobStatus(importJobId);
+  }
+  return job;
+}
+
 // ── 콘텐츠 가져오기 (ZIP/CSV/PDF/Text/Markdown/HTML/Word) ──────────────────
 
 type AssetUploadSessionData = {
@@ -399,17 +423,7 @@ export async function uploadAndImportFile(file: File, targetFolderId?: string) {
     ? await importZipJob(completed.assetId, targetFolderId)
     : await importFileJob(completed.assetId, targetFolderId);
 
-  let status = accepted.status;
-  let job: ImportJobData | null = null;
-  for (let attempt = 0; attempt < 30 && status !== "COMPLETED" && status !== "FAILED"; attempt += 1) {
-    await new Promise((resolve) => window.setTimeout(resolve, 1000));
-    job = await getImportJobStatus(accepted.importJobId);
-    status = job.status;
-  }
-  if (!job) {
-    job = await getImportJobStatus(accepted.importJobId);
-  }
-  return job;
+  return pollImportJob(accepted.importJobId, { intervalMs: 1000, maxAttempts: 30 });
 }
 
 // ── 노트 내보내기 (PDF/TXT/MD) ──────────────────────────────────────────
