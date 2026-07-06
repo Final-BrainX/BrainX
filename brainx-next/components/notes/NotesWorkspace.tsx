@@ -33,6 +33,7 @@ import {
   patchWorkspaceFolder,
   putFavorite,
   saveWorkspaceNoteDraft,
+  shouldUseDesktopVault,
   updateWorkspaceNoteContent,
   updateWorkspaceNoteMetadata,
   workspaceDraftToMock,
@@ -62,6 +63,8 @@ import { markdownToHtml } from "./NoteEditor";
 import { useBrainX } from "@/components/brainx-provider";
 import { useWorkspace } from "@/components/workspace-provider";
 import { consumePendingNoteClaim, readAuthSession } from "@/lib/auth-api";
+import { isElectronDesktop, type BrainxDesktopVaultSyncPolicy } from "@/lib/desktop-bridge";
+import { getDesktopVaultSyncPolicy, requestDesktopVaultManualSync } from "@/lib/desktop-vault";
 
 export type InitialTab = { kind: "note"; noteId: string } | { kind: "start" };
 
@@ -515,6 +518,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   }, [contextPanelSize]);
+
   // MOCK_NOTES를 가변 상태로 복사 → 제목 수정/새 노트 생성 시 사이드바/헤더/컨텍스트 패널 즉시 반영
   const [notes, setNotes] = useState<MockNote[]>(() => {
     if (USE_MOCK_NOTES) return [...MOCK_NOTES];
@@ -554,6 +558,9 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isInitialWorkspaceLoading, setIsInitialWorkspaceLoading] = useState(!USE_MOCK_NOTES);
   const [isSyncRefreshLoading, setIsSyncRefreshLoading] = useState(false);
+  const [usesDesktopVault, setUsesDesktopVault] = useState(false);
+  const [desktopSyncPolicy, setDesktopSyncPolicy] = useState<BrainxDesktopVaultSyncPolicy | null>(null);
+  const [desktopManualSyncing, setDesktopManualSyncing] = useState(false);
   const aiNonceRef = useRef(0);
   const editorHandlesRef = useRef<Record<string, NoteEditorHandle>>({});
   const [editorHandleRevision, setEditorHandleRevision] = useState(0);
@@ -598,6 +605,43 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     const session = readAuthSession();
     return !session?.accessToken;
   }, []);
+  const refreshDesktopSyncPolicy = useCallback(async () => {
+    if (!isElectronDesktop()) {
+      setDesktopSyncPolicy(null);
+      return;
+    }
+    try {
+      setDesktopSyncPolicy(await getDesktopVaultSyncPolicy());
+    } catch {
+      setDesktopSyncPolicy(null);
+    }
+  }, []);
+  useEffect(() => {
+    if (!usesDesktopVault) return;
+    void refreshDesktopSyncPolicy();
+    if (typeof window === "undefined") return;
+    const handleRefresh = () => {
+      void refreshDesktopSyncPolicy();
+    };
+    window.addEventListener("brainx-desktop-sync-updated", handleRefresh);
+    return () => window.removeEventListener("brainx-desktop-sync-updated", handleRefresh);
+  }, [refreshDesktopSyncPolicy, usesDesktopVault]);
+  const handleManualCloudSync = useCallback(async () => {
+    if (!usesDesktopVault || desktopManualSyncing) return;
+    setDesktopManualSyncing(true);
+    try {
+      const job = await requestDesktopVaultManualSync();
+      if (typeof window !== "undefined" && (job.status === "COMPLETED" || job.status === "CONFLICT" || job.status === "SKIPPED")) {
+        window.dispatchEvent(new CustomEvent("brainx:notes-refresh", { detail: { syncRefresh: true } }));
+      }
+      pushToast(job.message, job.status === "FAILED" ? "err" : job.status === "COMPLETED" ? "ok" : "info");
+      await refreshDesktopSyncPolicy();
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : "수동 동기화를 시작하지 못했습니다.", "err");
+    } finally {
+      setDesktopManualSyncing(false);
+    }
+  }, [desktopManualSyncing, pushToast, refreshDesktopSyncPolicy, usesDesktopVault]);
   const currentWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.documentGroupId === currentWorkspaceId) ?? null,
     [workspaces, currentWorkspaceId]
@@ -1185,7 +1229,58 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setState((prev) => ({ ...prev, activeId: paneId }));
     draftDirtyNoteIdsRef.current.add(localNoteId);
 
-    if (!USE_MOCK_NOTES) {
+    if (!USE_MOCK_NOTES && usesDesktopVault) {
+      void createWorkspaceNote(newNote)
+        .then(async (created) => {
+          let nextVersion = created.version;
+          let finalTitle = created.title;
+          const savedId = created.noteId;
+
+          if (newNote.typography) {
+            const metadata = await updateWorkspaceNoteMetadata({ ...newNote, id: savedId, version: nextVersion, persisted: true });
+            nextVersion = metadata.version;
+            finalTitle = metadata.title;
+          }
+
+          setNotes((prev) =>
+            prev.map((item) =>
+              item.id === localNoteId
+                ? {
+                    ...item,
+                    id: savedId,
+                    title: finalTitle,
+                    version: nextVersion,
+                    persisted: true,
+                    updatedAt: Date.parse(created.createdAt) || Date.now(),
+                  }
+                : item
+            )
+          );
+          setState((prev) => ({ ...prev, root: replaceNoteIdInNode(prev.root, localNoteId, savedId) }));
+          setPaneTabs((prev) => replaceNoteIdInTabs(prev, localNoteId, savedId));
+          draftDirtyNoteIdsRef.current.delete(localNoteId);
+          prevActiveNoteIdRef.current = savedId;
+          updatePendingCreatedNoteId(localNoteId, savedId);
+          onActiveNoteChange?.(savedId);
+
+          if (pendingWikiLinkFlushRef.current.has(localNoteId)) {
+            pendingWikiLinkFlushRef.current.delete(localNoteId);
+            const latestNote = latestSessionRef.current.notes.find((n) => n.id === savedId);
+            if (latestNote) {
+              void persistNoteBestEffort(latestNote).catch((error) =>
+                warnWikiLinkFailure("desktop local note persist retry failed", error)
+              );
+            }
+          }
+
+          if (favorite) {
+            void putFavorite("NOTE", savedId, true).catch(() => {});
+          }
+        })
+        .catch((error) => {
+          setLoadError(error instanceof Error ? error.message : "로컬 vault에 노트를 만들지 못했습니다.");
+        });
+    } else if (!USE_MOCK_NOTES) {
       void issueWorkspaceNoteDraftId()
         .then((draft) => {
           setNotes((prev) =>
@@ -1290,7 +1385,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }
 
     return newNote.id;
-  }, [isGuest, notes, checkNoteDuplicate, pushToast, onActiveNoteChange, currentWorkspaceId]);
+  }, [isGuest, notes, checkNoteDuplicate, pushToast, onActiveNoteChange, currentWorkspaceId, usesDesktopVault]);
 
   /* 사이드바 "+ 새 노트" 버튼 → 현재 선택된 폴더 안에, 활성 패널의 새 탭으로 생성.
      favorite=true는 즐겨찾기 영역의 루트 생성 버튼에서만 쓴다(정책: 즐겨찾기 영역에서 직접
@@ -1901,13 +1996,18 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       setLoadError(null);
       const targetNoteId = openNoteId ?? (attachInitialTab && initialTab.kind === "note" ? initialTab.noteId : null);
       return Promise.all([
+        shouldUseDesktopVault(),
         listNotes(),
         listFolders(),
         listWorkspaceNoteDrafts().catch(() => ({ drafts: [] })),
         targetNoteId ? getWorkspaceNoteDraft(targetNoteId).catch(() => null) : Promise.resolve(null),
       ])
-        .then(([noteData, folderData, draftData, targetDraft]) => {
+        .then(([desktopVaultEnabled, noteData, folderData, draftData, targetDraft]) => {
           if (!active) return;
+          setUsesDesktopVault(desktopVaultEnabled);
+          if (desktopVaultEnabled) {
+            void refreshDesktopSyncPolicy();
+          }
           const draftsById = new Map(draftData.drafts.map((draft) => [draft.noteId, draft]));
           if (targetDraft) draftsById.set(targetDraft.noteId, targetDraft);
           const persistedNotes = noteData.notes.map((note) => {
@@ -2647,6 +2747,23 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
             </span>
             <div className="flex-1" />
             {loadError ? <span className="text-[11px] font-medium text-red-400">{loadError}</span> : null}
+            {usesDesktopVault ? (
+              <button
+                type="button"
+                onClick={() => void handleManualCloudSync()}
+                disabled={desktopManualSyncing || desktopSyncPolicy?.mode !== "manual-cloud"}
+                title={desktopSyncPolicy?.mode === "manual-cloud" ? "로컬 변경사항을 웹에 수동 동기화" : "manual-cloud 모드에서만 웹 동기화를 실행할 수 있습니다."}
+                className={cx(
+                  "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                  desktopManualSyncing || desktopSyncPolicy?.mode !== "manual-cloud"
+                    ? "cursor-not-allowed border-line/40 text-txt3/50"
+                    : "border-primary/30 bg-primary/10 text-primary hover:bg-primary/15"
+                )}
+              >
+                {desktopManualSyncing ? <LoaderCircle size={12} className="animate-spin" /> : <Upload size={12} />}
+                <span>{desktopManualSyncing ? "동기화 중" : "웹 동기화"}</span>
+              </button>
+            ) : null}
             <SaveIconButton
               status={combinedSaveStatus}
               disabled={combinedSaveStatus === "saving" || !activeNote}

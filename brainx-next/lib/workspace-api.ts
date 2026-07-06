@@ -548,6 +548,20 @@ export async function createWorkspaceNote(note: MockNote) {
 }
 
 export async function createWorkspaceNoteLink(sourceNoteId: string, request: WorkspaceNoteLinkCreateRequest) {
+  if (await shouldUseDesktopVault()) {
+    return {
+      linkId:
+        typeof globalThis.crypto?.randomUUID === "function"
+          ? `local-link-${globalThis.crypto.randomUUID()}`
+          : `local-link-${Date.now()}`,
+      sourceNoteId,
+      targetNoteId: request.targetNoteId ?? "",
+      targetTitle: request.targetTitle,
+      linkType: "WIKI",
+      anchorText: request.anchorText ?? null,
+      headingAnchor: request.headingAnchor ?? null,
+    };
+  }
   return authedRequest<WorkspaceNoteLinkData>(`/api/v1/notes/${encodeURIComponent(sourceNoteId)}/links`, {
     method: "POST",
     body: JSON.stringify(request)
