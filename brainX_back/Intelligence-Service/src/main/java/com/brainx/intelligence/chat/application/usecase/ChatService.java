@@ -54,11 +54,16 @@ import com.brainx.intelligence.exploration.application.port.outbound.NoteChunkRe
 import com.brainx.intelligence.exploration.domain.NoteChunkSearchResult;
 import com.brainx.intelligence.exploration.domain.SearchScope;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
+import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiExecutionMetadata;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiRole;
+import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTokenUsage;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort.EntitlementRequest;
+import com.brainx.intelligence.llmops.application.service.AiRunRecorder;
+import com.brainx.intelligence.llmops.application.service.PromptRegistryService;
+import com.brainx.intelligence.llmops.application.service.PromptRegistryService.PromptResolution;
 import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator.TokenCostEstimate;
@@ -104,6 +109,8 @@ public class ChatService implements
     private final AiChatPort aiChatPort;
     private final AiTokenUsageCostEstimator usageCostEstimator;
     private final AiUsageRecorder aiUsageRecorder;
+    private final AiRunRecorder aiRunRecorder;
+    private final PromptRegistryService promptRegistryService;
     private final ChatEventPort chatEventPort;
     private final StylePromptCompiler stylePromptCompiler;
 
@@ -117,6 +124,8 @@ public class ChatService implements
         AiChatPort aiChatPort,
         AiTokenUsageCostEstimator usageCostEstimator,
         AiUsageRecorder aiUsageRecorder,
+        AiRunRecorder aiRunRecorder,
+        PromptRegistryService promptRegistryService,
         ChatEventPort chatEventPort,
         StylePromptCompiler stylePromptCompiler
     ) {
@@ -129,6 +138,8 @@ public class ChatService implements
         this.aiChatPort = aiChatPort;
         this.usageCostEstimator = usageCostEstimator;
         this.aiUsageRecorder = aiUsageRecorder;
+        this.aiRunRecorder = aiRunRecorder;
+        this.promptRegistryService = promptRegistryService;
         this.chatEventPort = chatEventPort;
         this.stylePromptCompiler = stylePromptCompiler;
     }
@@ -233,8 +244,13 @@ public class ChatService implements
         List<RagContext> contexts = hasClientContext || !requiresNoteContext(route)
             ? List.of()
             : retrieveContexts(thread, message, route);
+        boolean noteScopedSidebar = isRightSidebarContext(command.clientContext());
+        PromptResolution promptResolution = promptRegistryService.resolve(promptKey(route), systemPrompt(route));
         String systemPrompt = StylePromptCompiler.appendToSystemPrompt(
-            systemPrompt(isRightSidebarContext(command.clientContext()), route),
+            StylePromptCompiler.appendToSystemPrompt(
+                promptResolution.content(),
+                noteScopedSidebarInstructions(noteScopedSidebar)
+            ),
             styleInstructions(userId, route)
         );
         String userPrompt = hasClientContext
@@ -253,7 +269,18 @@ public class ChatService implements
         if (requiresNoteContext(route) && !hasClientContext && contexts.isEmpty()) {
             return withRouteEvent(routeDecision, fixedAnswerStream(thread, userMessage, modelId, NO_CONTEXT_ANSWER));
         }
-        return withRouteEvent(routeDecision, aiStream(thread, userMessage, modelId, systemPrompt, history, userPrompt, contexts));
+        return withRouteEvent(routeDecision, aiStream(
+            thread,
+            userMessage,
+            modelId,
+            systemPrompt,
+            promptResolution.promptKey(),
+            promptResolution.version(),
+            route,
+            history,
+            userPrompt,
+            contexts
+        ));
     }
 
     @Override
@@ -322,6 +349,9 @@ public class ChatService implements
         ChatMessage userMessage,
         String modelId,
         String systemPrompt,
+        String promptKey,
+        String promptVersion,
+        ChatRoute route,
         List<ChatMessage> history,
         String userPrompt,
         List<RagContext> contexts
@@ -329,8 +359,31 @@ public class ChatService implements
         String assistantMessageId = UUID.randomUUID().toString();
         StringBuilder answer = new StringBuilder();
         List<AiChatMessage> promptMessages = promptMessages(systemPrompt, history, userPrompt);
+        AiRunRecorder.RunHandle runHandle = aiRunRecorder.startChatRun(
+            thread.userId(),
+            RAG_CHAT_FEATURE_ID,
+            promptKey,
+            promptVersion,
+            modelId,
+            "CHAT_MESSAGE",
+            assistantMessageId,
+            promptMessages,
+            Map.of("threadId", thread.threadId(), "route", route.name())
+        );
 
-        return aiChatPort.stream(new AiChatRequest(modelId, promptMessages))
+        return aiChatPort.stream(new AiChatRequest(
+                modelId,
+                promptMessages,
+                new AiExecutionMetadata(
+                    thread.userId(),
+                    RAG_CHAT_FEATURE_ID,
+                    promptKey,
+                    promptVersion,
+                    "CHAT_MESSAGE",
+                    assistantMessageId,
+                    Map.of("threadId", thread.threadId(), "route", route.name())
+                )
+            ))
             .filter(chunk -> !chunk.done())
             .map(chunk -> {
                 String delta = chunk.delta() == null ? "" : chunk.delta();
@@ -349,13 +402,18 @@ public class ChatService implements
                     answer.toString(),
                     modelId,
                     contexts.stream().map(RagContext::citation).toList(),
-                    tokenUsage
+                    tokenUsage,
+                    runHandle.llmRunId()
                 );
                 publishMessageSideEffects(thread, assistantMessage, tokenUsage);
                 recordAiStreamUsage(thread.userId(), assistantMessage, tokenUsage);
-                return ChatStreamEvent.done(assistantMessageId);
+                aiRunRecorder.complete(runHandle, modelId, answer.toString(), toAiTokenUsage(tokenUsage));
+                return ChatStreamEvent.done(assistantMessageId, runHandle.llmRunId());
             }))
-            .onErrorResume(exception -> Flux.just(ChatStreamEvent.error("STREAM_ERROR", safeMessage(exception))));
+            .onErrorResume(exception -> {
+                aiRunRecorder.fail(runHandle, exception instanceof Exception checked ? checked : new IllegalStateException(exception));
+                return Flux.just(ChatStreamEvent.error("STREAM_ERROR", safeMessage(exception)));
+            });
     }
 
     private ChatMessage saveAssistantMessage(
@@ -366,6 +424,18 @@ public class ChatService implements
         List<ChatCitation> citations,
         ChatTokenUsage tokenUsage
     ) {
+        return saveAssistantMessage(thread, assistantMessageId, answer, modelId, citations, tokenUsage, null);
+    }
+
+    private ChatMessage saveAssistantMessage(
+        ChatThread thread,
+        String assistantMessageId,
+        String answer,
+        String modelId,
+        List<ChatCitation> citations,
+        ChatTokenUsage tokenUsage,
+        String llmRunId
+    ) {
         return chatPersistencePort.saveMessage(ChatMessage.assistant(
             assistantMessageId,
             thread.threadId(),
@@ -374,6 +444,7 @@ public class ChatService implements
             modelId,
             citations,
             tokenUsage,
+            llmRunId,
             Instant.now()
         ));
     }
@@ -448,8 +519,8 @@ public class ChatService implements
         return text.substring(0, CONTEXT_SNIPPET_LENGTH).trim();
     }
 
-    private static String systemPrompt(boolean noteScopedSidebar, ChatRoute route) {
-        String prompt = switch (route) {
+    private static String systemPrompt(ChatRoute route) {
+        return switch (route) {
             case NOTE_QA, WORKSPACE_SEARCH -> """
                 You are BrainX RAG chat assistant.
                 Answer in Korean using only the provided note context and recent chat history.
@@ -460,6 +531,7 @@ public class ChatService implements
                 You are BrainX writing assistant.
                 Write the requested draft in Korean unless the user asks for another language.
                 If note context is provided, use it as reference. If no context is provided, write a general draft without pretending it came from notes.
+                If the request depends on current external facts and no context is provided, write with cautious wording and do not claim live verification.
                 Return only the requested content unless a short note is necessary.
                 """ + DRAFT_NOTE_FORMAT_INSTRUCTION;
             case NOTE_ACTION -> """
@@ -470,10 +542,13 @@ public class ChatService implements
                 """ + DRAFT_NOTE_FORMAT_INSTRUCTION;
             case OUT_OF_SCOPE -> "";
         };
+    }
+
+    private static String noteScopedSidebarInstructions(boolean noteScopedSidebar) {
         if (!noteScopedSidebar) {
-            return prompt;
+            return "";
         }
-        return prompt + """
+        return """
             This request comes from the note sidebar, so it is note-scoped.
             First decide whether the user's question is about the current note, selected text, or an operation on that note context.
             If the question is unrelated to the provided note context, do not answer the external question.
@@ -678,8 +753,32 @@ public class ChatService implements
         values.put("clientContext", message.clientContext());
         values.put("citations", message.citations().stream().map(ChatCitation::toMap).toList());
         values.put("tokenUsage", message.tokenUsage() == null ? null : message.tokenUsage().toMap());
+        values.put("llmRunId", message.llmRunId());
         values.put("createdAt", message.createdAt());
         return values;
+    }
+
+    private static String promptKey(ChatRoute route) {
+        return switch (route) {
+            case NOTE_QA -> "chat.note-qa";
+            case WORKSPACE_SEARCH -> "chat.workspace-search";
+            case COMPOSE -> "chat.compose";
+            case NOTE_ACTION -> "chat.note-action";
+            case OUT_OF_SCOPE -> "chat.out-of-scope";
+        };
+    }
+
+    private static AiTokenUsage toAiTokenUsage(ChatTokenUsage tokenUsage) {
+        if (tokenUsage == null) {
+            return new AiTokenUsage(null, null, null);
+        }
+        return new AiTokenUsage(
+            tokenUsage.inputTokens(),
+            tokenUsage.outputTokens(),
+            tokenUsage.totalTokens(),
+            tokenUsage.cachedInputTokens(),
+            tokenUsage.reasoningTokens()
+        );
     }
 
     private static ChatThreadResult toThreadResult(ChatThread thread) {

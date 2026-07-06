@@ -36,6 +36,8 @@ import com.brainx.intelligence.chat.domain.ChatThreadStatus;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteChunkRetrievalPort;
 import com.brainx.intelligence.exploration.domain.NoteChunkSearchResult;
 import com.brainx.intelligence.exploration.domain.SearchScope;
+import com.brainx.intelligence.llmops.LlmOpsTestSupport;
+import com.brainx.intelligence.llmops.application.port.outbound.LlmOpsStore;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.application.port.outbound.StyleProfilePort;
 import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
@@ -73,6 +75,7 @@ class ChatServiceTest {
     private final FakeAiModelCatalogPort catalogPort = new FakeAiModelCatalogPort();
     private final AiTokenUsageCostEstimator usageCostEstimator = new AiTokenUsageCostEstimator(catalogPort);
     private final AiUsageRecorder aiUsageRecorder = new AiUsageRecorder(tokenUsagePort, usageCostEstimator);
+    private final LlmOpsStore llmOpsStore = LlmOpsTestSupport.store();
     private final FakeChatEventPort chatEventPort = new FakeChatEventPort();
     private final FakeStyleProfilePort styleProfilePort = new FakeStyleProfilePort();
     private final StylePromptCompiler stylePromptCompiler = new StylePromptCompiler(styleProfilePort);
@@ -92,6 +95,8 @@ class ChatServiceTest {
         aiChatPort,
         usageCostEstimator,
         aiUsageRecorder,
+        LlmOpsTestSupport.runRecorder(llmOpsStore),
+        LlmOpsTestSupport.promptRegistry(llmOpsStore),
         chatEventPort,
         stylePromptCompiler
     );
@@ -629,7 +634,7 @@ class ChatServiceTest {
     }
 
     @Test
-    void composeAllowsGenerationWithoutRetrievedContext() {
+    void composeAllowsCurrentExternalTopicDraftWithoutRetrievedContext() {
         routeDecider.decision = new ChatRouteDecision(ChatRoute.COMPOSE, "write draft", "gpt-5.4-nano");
         ChatThread thread = existingThread();
         persistencePort.saveThread(thread);
@@ -637,7 +642,7 @@ class ChatServiceTest {
         var events = service.sendChatMessage(new SendChatMessageCommand(
             "user-1",
             thread.threadId(),
-            "블로그 초안을 써줘",
+            "최신 홍명보호 월드컵 성적에 대한 문서 작성해줘",
             Map.of(),
             Map.of(),
             "gpt-test"
@@ -648,6 +653,7 @@ class ChatServiceTest {
         assertThat(aiChatPort.calls).isEqualTo(1);
         assertThat(aiChatPort.lastRequest.messages().getFirst().content())
             .contains("writing assistant")
+            .contains("If the request depends on current external facts and no context is provided")
             .contains("level-1 Markdown heading")
             .contains("\"# <title>\"")
             .contains("personal note-taking tone")
@@ -655,7 +661,9 @@ class ChatServiceTest {
             .contains("every final generated or edited user-facing text segment")
             .contains("Use this formality/tone: business")
             .doesNotContain("every final user-facing conversational sentence");
-        assertThat(aiChatPort.lastRequest.messages().getLast().content()).contains("Request:");
+        assertThat(aiChatPort.lastRequest.messages().getLast().content())
+            .contains("Request:")
+            .contains("최신 홍명보호 월드컵 성적에 대한 문서 작성해줘");
     }
 
     @Test

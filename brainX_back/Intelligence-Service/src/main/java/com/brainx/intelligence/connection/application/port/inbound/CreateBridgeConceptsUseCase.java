@@ -13,8 +13,13 @@ public interface CreateBridgeConceptsUseCase {
     }
 
     record BridgeConceptsResult(
+        String llmRunId,
         List<BridgeConceptRecommendation> recommendations
     ) {
+        public BridgeConceptsResult(List<BridgeConceptRecommendation> recommendations) {
+            this(null, recommendations);
+        }
+
         public BridgeConceptsResult {
             recommendations = recommendations == null ? List.of() : List.copyOf(recommendations);
         }

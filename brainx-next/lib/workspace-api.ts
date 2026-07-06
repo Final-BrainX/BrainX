@@ -26,6 +26,7 @@ export type NoteDetail = {
   title: string;
   markdown: string;
   folder: { folderId: string; name: string } | null;
+  documentGroupId: string | null;
   tags: string[];
   version: number;
   createdAt: string;
@@ -38,6 +39,7 @@ export type WorkspaceNoteItem = {
   title: string;
   markdown: string;
   folderId: string | null;
+  documentGroupId: string | null;
   tags: string[];
   version: number;
   createdAt: string;
@@ -49,6 +51,7 @@ export type WorkspaceFolderItem = {
   folderId: string;
   name: string;
   parentFolderId: string | null;
+  documentGroupId: string | null;
 };
 
 export type NoteCreated = {
@@ -165,6 +168,18 @@ export type WorkspaceUserStatsData = {
   activities: WorkspaceUserActivityData[];
 };
 
+export type WorkspaceSummaryData = {
+  documentGroupId: string;
+  name: string;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type WorkspaceListData = {
+  workspaces: WorkspaceSummaryData[];
+};
+
 export async function shouldUseDesktopVault() {
   if (!isElectronDesktop()) return false;
   const config = await getBrainxDesktopConfig();
@@ -179,6 +194,7 @@ async function getDesktopVaultListData(): Promise<NoteListData> {
       title: note.title,
       markdown: note.markdown,
       folderId: note.folderId,
+      documentGroupId: note.documentGroupId ?? null,
       tags: note.tags,
       version: note.version,
       createdAt: note.createdAt,
@@ -196,6 +212,7 @@ async function getDesktopVaultFolderData(): Promise<FolderTreeData> {
       folderId: folder.folderId,
       name: folder.name,
       parentFolderId: folder.parentFolderId,
+      documentGroupId: folder.documentGroupId ?? null,
     })),
   };
 }
@@ -334,6 +351,7 @@ export async function getNote(noteId: string) {
       title: note.title,
       markdown: note.markdown,
       folder: folder ? { folderId: folder.folderId, name: folder.name } : null,
+      documentGroupId: note.documentGroupId ?? null,
       tags: note.tags,
       version: note.version,
       createdAt: note.createdAt,
@@ -430,6 +448,25 @@ export async function getMyWorkspaceStats() {
   return authedRequest<WorkspaceUserStatsData>("/api/v1/workspace/me/stats");
 }
 
+/** 다중 Workspace(documentGroup) 목록 조회 — Ticket11(Workspace Context)의 기반 API다.
+    데스크톱 vault 모드는 Workspace-Service 자체를 안 쓰고(README 참고), guest/비로그인은
+    Workspace를 가지지 않으므로(docs/Workspace 정책) 둘 다 빈 목록으로 조용히 처리한다. */
+export async function listWorkspaces(): Promise<WorkspaceListData> {
+  const empty: WorkspaceListData = { workspaces: [] };
+  if (await shouldUseDesktopVault()) return empty;
+  if (!hasWorkspaceUserIdentity()) return empty;
+  return authedRequest<WorkspaceListData>("/api/v1/workspaces");
+}
+
+/** 새 Workspace(documentGroup) 생성 — Ticket12(Workspace 생성 UI)의 기반 API다. 응답 모양이
+    listWorkspaces()의 항목(WorkspaceSummaryData)과 동일해 별도 타입을 만들지 않는다. */
+export async function createWorkspace(name: string): Promise<WorkspaceSummaryData> {
+  return authedRequest<WorkspaceSummaryData>("/api/v1/workspaces", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
 export async function createWorkspaceFolder(name: string, parentFolderId: string | null) {
   if (await shouldUseDesktopVault()) {
     const created = await createDesktopVaultFolder(name, parentFolderId);
@@ -437,6 +474,7 @@ export async function createWorkspaceFolder(name: string, parentFolderId: string
       folderId: created.folderId,
       name: created.name,
       parentFolderId: created.parentFolderId,
+      documentGroupId: created.documentGroupId ?? null,
     };
   }
   return authedRequest<WorkspaceFolderItem>("/api/v1/folders", {
@@ -579,6 +617,11 @@ export async function saveWorkspaceNoteDraft(note: MockNote) {
   return authedRequest<NoteDraftSaveResult>(`/api/v1/notes/${note.id}/draft`, {
     method: "PUT",
     body: JSON.stringify({
+      // SSOT NoteDraftSaveRequest.documentGroupId: 로그인 사용자가 currentWorkspaceId를 실어
+      // 보내면 그 Workspace로 귀속되고, 생략하면(undefined -> JSON.stringify가 키 자체를
+      // 빼먹음) 기존처럼 호출자의 default Workspace로 귀속된다 — Guest/미선택 상태에서
+      // note.documentGroupId가 없는 경우는 지금까지와 동일하게 생략된다.
+      documentGroupId: note.documentGroupId ?? undefined,
       title: note.title,
       markdown: note.content,
       folderId: note.folderId ?? null,
@@ -622,6 +665,7 @@ export function workspaceNoteToMock(note: WorkspaceNoteItem | NoteDetail): MockN
     tags: note.tags ?? [],
     category: "backend",
     folderId,
+    documentGroupId: note.documentGroupId ?? null,
     createdAt: Date.parse(note.createdAt) || Date.now(),
     updatedAt: Date.parse(note.updatedAt) || Date.now(),
     version: note.version,
@@ -650,7 +694,8 @@ export function workspaceFolderToMock(folder: WorkspaceFolderItem): MockFolder {
   return {
     id: folder.folderId,
     name: folder.name,
-    parentFolderId: folder.parentFolderId
+    parentFolderId: folder.parentFolderId,
+    documentGroupId: folder.documentGroupId ?? null,
   };
 }
 

@@ -19,6 +19,8 @@ import com.brainx.intelligence.assist.application.port.inbound.DecideAiSuggestio
 import com.brainx.intelligence.assist.application.port.outbound.AssistEventPort;
 import com.brainx.intelligence.assist.domain.AiSuggestionDecision;
 import com.brainx.intelligence.assist.domain.InlineAssistAction;
+import com.brainx.intelligence.llmops.LlmOpsTestSupport;
+import com.brainx.intelligence.llmops.application.port.outbound.LlmOpsStore;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
 import com.brainx.intelligence.settings.application.port.outbound.StyleProfilePort;
@@ -61,12 +63,15 @@ class AssistServiceTest {
     private final FakeAssistEventPort assistEventPort = new FakeAssistEventPort();
     private final FakeStyleProfilePort styleProfilePort = new FakeStyleProfilePort();
     private final StylePromptCompiler stylePromptCompiler = new StylePromptCompiler(styleProfilePort);
+    private final LlmOpsStore llmOpsStore = LlmOpsTestSupport.store();
     private final AssistService service = new AssistService(
         properties,
         settingsPort,
         entitlementPort,
         chatPort,
         new AiUsageRecorder(tokenUsagePort, new AiTokenUsageCostEstimator(catalogPort)),
+        LlmOpsTestSupport.runRecorder(llmOpsStore),
+        LlmOpsTestSupport.promptRegistry(llmOpsStore),
         assistEventPort,
         stylePromptCompiler
     );

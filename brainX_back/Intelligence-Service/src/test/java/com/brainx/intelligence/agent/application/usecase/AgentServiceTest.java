@@ -25,6 +25,8 @@ import com.brainx.intelligence.agent.domain.AgentConflictException;
 import com.brainx.intelligence.agent.domain.AgentMessage;
 import com.brainx.intelligence.agent.domain.AgentThread;
 import com.brainx.intelligence.agent.domain.AgentThreadSummary;
+import com.brainx.intelligence.llmops.LlmOpsTestSupport;
+import com.brainx.intelligence.llmops.application.port.outbound.LlmOpsStore;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.domain.AiModel;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
@@ -55,12 +57,15 @@ class AgentServiceTest {
         aiChat = new FakeAiChat();
         workspace = new FakeWorkspace();
         notes = new FakeAgentNoteSourcePort();
+        LlmOpsStore llmOpsStore = LlmOpsTestSupport.store();
         service = new AgentService(
             persistence,
             aiChat,
             request -> new EntitlementDecision(true, null, 10_000),
             new AiUsageRecorder(record -> {
             }, new AiTokenUsageCostEstimator(new EmptyAiModelCatalog())),
+            LlmOpsTestSupport.runRecorder(llmOpsStore),
+            LlmOpsTestSupport.promptRegistry(llmOpsStore),
             workspace,
             notes,
             new ObjectMapper()

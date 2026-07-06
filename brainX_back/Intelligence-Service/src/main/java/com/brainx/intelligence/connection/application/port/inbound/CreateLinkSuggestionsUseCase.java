@@ -13,8 +13,13 @@ public interface CreateLinkSuggestionsUseCase {
     }
 
     record LinkSuggestionsResult(
+        String llmRunId,
         List<LinkSuggestionResult> suggestions
     ) {
+        public LinkSuggestionsResult(List<LinkSuggestionResult> suggestions) {
+            this(null, suggestions);
+        }
+
         public LinkSuggestionsResult {
             suggestions = suggestions == null ? List.of() : List.copyOf(suggestions);
         }

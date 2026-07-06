@@ -21,6 +21,9 @@ interface Props {
   activeTab: Tab;
   note: MockNote | null;
   allNotes: MockNote[];
+  /** Ticket14 후속: 패널 내부 Quick Switcher(Ctrl+O) 전용 — 현재 Workspace 기준으로 걸러진
+      노트 목록. allNotes(탭 콘텐츠/allTags)는 그대로 두고 QuickSwitcher에만 이 목록을 쓴다. */
+  visibleNotes: MockNote[];
   tabs: Tab[];
   activeTabId: string;
   isActive: boolean;
@@ -70,6 +73,7 @@ export default function EditorPanel({
   activeTab,
   note,
   allNotes,
+  visibleNotes,
   tabs,
   activeTabId,
   isActive,
@@ -534,7 +538,7 @@ export default function EditorPanel({
 
       {quickSwitcherOpen && (
         <QuickSwitcher
-          notes={allNotes}
+          notes={visibleNotes}
           onSelect={onQuickSwitcherSelect}
           onClose={onQuickSwitcherClose}
         />

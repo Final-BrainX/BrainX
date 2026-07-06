@@ -31,6 +31,16 @@ public interface SendChatMessageUseCase {
             return new ChatStreamEvent("done", Map.of("messageId", messageId));
         }
 
+        public static ChatStreamEvent done(String messageId, String llmRunId) {
+            if (llmRunId == null || llmRunId.isBlank()) {
+                return done(messageId);
+            }
+            return new ChatStreamEvent("done", Map.of(
+                "messageId", messageId,
+                "llmRunId", llmRunId
+            ));
+        }
+
         public static ChatStreamEvent route(String route, String reason, String routerModel) {
             return new ChatStreamEvent("route", Map.of(
                 "route", route == null || route.isBlank() ? "OUT_OF_SCOPE" : route,

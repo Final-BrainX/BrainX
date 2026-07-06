@@ -99,6 +99,7 @@ public class ClusteringController {
             job.clusterJobId(),
             job.documentGroupId(),
             job.status(),
+            job.llmRunId(),
             job.clusters().stream()
                 .map(ClusteringController::toClusterMap)
                 .toList(),
@@ -150,6 +151,7 @@ public class ClusteringController {
         String clusterJobId,
         String documentGroupId,
         ClusterJobStatus status,
+        String llmRunId,
         List<Map<String, Object>> clusters,
         Instant createdAt,
         Instant completedAt,

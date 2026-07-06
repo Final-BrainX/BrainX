@@ -63,6 +63,9 @@ public class ClusterJobJpaEntity {
     @Column(name = "model_id", nullable = false, length = 120)
     private String modelId;
 
+    @Column(name = "llm_run_id", length = 120)
+    private String llmRunId;
+
     @Column(name = "idempotency_key", length = 200)
     private String idempotencyKey;
 
@@ -88,6 +91,7 @@ public class ClusterJobJpaEntity {
         entity.algorithmOptionsJson = toJson(objectMapper, job.algorithmOptions());
         entity.clustersJson = toJson(objectMapper, job.clusters());
         entity.modelId = job.modelId();
+        entity.llmRunId = job.llmRunId();
         entity.idempotencyKey = job.idempotencyKey();
         entity.failureMessage = job.failureMessage();
         entity.createdAt = job.createdAt();
@@ -105,6 +109,7 @@ public class ClusterJobJpaEntity {
             fromJson(objectMapper, algorithmOptionsJson, MAP_TYPE, Map.of()),
             fromJson(objectMapper, clustersJson, CLUSTER_LIST_TYPE, List.of()),
             modelId,
+            llmRunId,
             idempotencyKey,
             failureMessage,
             createdAt,

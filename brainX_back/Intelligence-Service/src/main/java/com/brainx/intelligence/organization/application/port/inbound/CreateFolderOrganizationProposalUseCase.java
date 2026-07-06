@@ -18,9 +18,18 @@ public interface CreateFolderOrganizationProposalUseCase {
 
     record FolderOrganizationProposalResult(
         String proposalId,
+        String llmRunId,
         List<Map<String, Object>> proposedFolders,
         List<Map<String, Object>> proposedMoves
     ) {
+        public FolderOrganizationProposalResult(
+            String proposalId,
+            List<Map<String, Object>> proposedFolders,
+            List<Map<String, Object>> proposedMoves
+        ) {
+            this(proposalId, null, proposedFolders, proposedMoves);
+        }
+
         public FolderOrganizationProposalResult {
             proposedFolders = immutableMaps(proposedFolders);
             proposedMoves = immutableMaps(proposedMoves);

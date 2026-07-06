@@ -44,6 +44,14 @@ const UniverseIcon = ({ size = 18, className = "" }: { size?: number; className?
   </svg>
 );
 
+const GRAPH_NOTICE_TONE = {
+  info: "border border-line/60 bg-surface2/55 text-txt2",
+  stale: "border border-accent/25 bg-accent/[0.08] text-txt2",
+  error: "border border-primary/25 bg-primary/[0.08] text-txt2"
+} as const;
+
+const GRAPH_RECOMMENDATION_BUTTON = "border-[color-mix(in_srgb,rgb(var(--primary))_35%,rgb(var(--surface)))] bg-[color-mix(in_srgb,rgb(var(--primary))_14%,rgb(var(--surface)))] text-primary hover:border-[color-mix(in_srgb,rgb(var(--primary))_48%,rgb(var(--surface)))] hover:bg-[color-mix(in_srgb,rgb(var(--primary))_20%,rgb(var(--surface)))]";
+
 function GraphEmptyState({
   onCreateNote,
   onOpenNotes,
@@ -63,24 +71,24 @@ function GraphEmptyState({
       title: "노트 작성",
       desc: "생각, 공부, 아이디어를 먼저 적어두면 그래프의 중심이 생깁니다.",
       icon: PencilLine,
-      color: "from-[#EFEAFF] to-[#F7F5FF]",
-      accent: "text-[#6C63D8]"
+      color: "from-primary/15 to-accent/10",
+      accent: "text-primary"
     },
     {
       step: "2",
       title: "AI 연결",
       desc: "BrainX가 주제와 문맥을 읽고 관련 노트를 부드럽게 연결해요.",
       icon: Sparkles,
-      color: "from-[#EAF8F2] to-[#F5FBF8]",
-      accent: "text-[#4BC3AC]"
+      color: "from-accent/15 to-primary/10",
+      accent: "text-accent"
     },
     {
       step: "3",
       title: "그래프 탐색",
       desc: "연결망을 따라가며 지식의 구조와 공백을 한눈에 확인해요.",
       icon: Compass,
-      color: "from-[#EAF1FF] to-[#F5F8FF]",
-      accent: "text-[#5BA8F0]"
+      color: "from-primary/10 to-surface2",
+      accent: "text-primary"
     }
   ] as const;
 
@@ -110,7 +118,7 @@ function GraphEmptyState({
           <button
             type="button"
             onClick={onCreateNote}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#6C63D8] to-[#7A72E6] px-5 text-[14px] font-semibold text-white shadow-[0_14px_28px_rgba(108,99,216,0.22)] transition-transform hover:-translate-y-0.5"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-[14px] font-semibold text-white shadow-glow transition-transform hover:-translate-y-0.5 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60"
           >
             <Icon name="plus" size={16} />
             첫 노트 만들기
@@ -137,7 +145,7 @@ function GraphEmptyState({
               type="button"
               onClick={item.step === "1" ? onCreateNote : item.step === "2" ? onOpenChat : onOpenGraph}
               className={cx(
-                "group relative overflow-hidden rounded-2xl border p-5 text-left transition-all hover:-translate-y-0.5",
+                "group relative overflow-hidden rounded-2xl border p-5 text-left transition-[background-color,border-color,box-shadow,transform] duration-150 hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-primary/60",
                 isLight
                   ? "border-line/60 bg-white/85 shadow-[0_12px_30px_rgba(15,23,42,0.05)] hover:border-primary/25 hover:shadow-[0_16px_34px_rgba(108,99,216,0.12)]"
                   : "border-white/10 bg-transparent shadow-none hover:border-primary/30"
@@ -2433,7 +2441,7 @@ function GraphScreenInner() {
       <div className="pointer-events-none absolute left-5 right-5 top-5 z-20 flex items-start justify-between gap-3">
         <div
           className={cx(
-            "pointer-events-auto transition-all duration-300 ease-out",
+            "pointer-events-auto transition-[opacity,transform] duration-300 ease-out",
             !hasGraphData || sidebarsVisible ? "translate-x-0 opacity-100" : "-translate-x-10 opacity-0"
           )}
         >
@@ -2476,17 +2484,17 @@ function GraphScreenInner() {
                 {aiReadyNoteLabel} {aiClusterUsableNoteCount}개
               </div>
               {noteIndexStatusUnavailable ? (
-                <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-2.5 py-2 text-[11px] font-medium text-amber-700 dark:text-amber-200">
+                <div className={cx("mt-2 rounded-lg px-2.5 py-2 text-[11px] font-medium", GRAPH_NOTICE_TONE.info)}>
                   색인 상태를 확인하지 못해 기존 방식으로 선택합니다.
                 </div>
               ) : null}
               {clusterLatest?.state === "STALE" ? (
-                <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-2.5 py-2 text-[11px] font-medium text-amber-700 dark:text-amber-200">
+                <div className={cx("mt-2 rounded-lg px-2.5 py-2 text-[11px] font-medium", GRAPH_NOTICE_TONE.stale)}>
                   노트가 변경됨 · 다시 분석 필요
                 </div>
               ) : null}
               {clusterError ? (
-                <div className="mt-2 rounded-lg border border-red-400/30 bg-red-400/10 px-2.5 py-2 text-[11px] font-medium text-red-700 dark:text-red-200">
+                <div className={cx("mt-2 rounded-lg px-2.5 py-2 text-[11px] font-medium", GRAPH_NOTICE_TONE.error)}>
                   {clusterError}
                 </div>
               ) : null}
@@ -2537,7 +2545,7 @@ function GraphScreenInner() {
 
         <div
           className={cx(
-            "flex flex-col items-end gap-3 transition-all duration-300 ease-out",
+            "flex flex-col items-end gap-3 transition-[opacity,transform] duration-300 ease-out",
             noteDetailPanelVisible
               ? "pointer-events-none translate-x-10 opacity-0"
               : !hasGraphData || sidebarsVisible
@@ -2652,13 +2660,13 @@ function GraphScreenInner() {
                 type="button"
                 onClick={() => setTheme(t => t === 'universe' ? '2d' : 'universe')}
                 className={cx(
-                  "group relative grid h-9 w-9 place-items-center rounded-lg transition-all duration-300",
-                  theme === 'universe' 
-                    ? "text-cyan hover:text-white" 
+                  "group relative grid h-9 w-9 place-items-center rounded-lg transition-colors duration-200",
+                  theme === 'universe'
+                    ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-txt"
                     : "text-txt3 hover:bg-txt/10 hover:text-txt"
                 )}
               >
-                <div className={theme === 'universe' ? "drop-shadow-[0_0_8px_rgba(34,211,238,0.7)] group-hover:drop-shadow-[0_0_10px_rgba(255,255,255,0.8)] transition-all duration-300" : ""}>
+                <div>
                   <UniverseIcon size={19} />
                 </div>
                 <span className="pointer-events-none absolute top-[calc(100%+12px)] z-50 whitespace-nowrap rounded-[6px] px-2.5 py-1.5 text-[12px] font-medium bg-txt text-bg2 shadow-md opacity-0 transition-opacity duration-200 group-hover:opacity-100">
@@ -2696,18 +2704,18 @@ function GraphScreenInner() {
             ))}
           </div>
 
-            <button
-              type="button"
-              aria-pressed={bridgeMode}
-              disabled={!hasActionableNotes}
-              onClick={toggleBridgeMode}
-              className={cx(
-                "inline-flex h-8 items-center justify-center gap-1.5 rounded-xl px-3 text-[13px] font-semibold shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary/60",
-                !hasActionableNotes
-                  ? "cursor-not-allowed bg-surface2/60 text-txt3/50"
-                  : bridgeMode
-                    ? "bg-primary text-white hover:bg-primary/90"
-                  : "bg-accent text-white hover:bg-accent/90"
+          <button
+            type="button"
+            aria-pressed={bridgeMode}
+            disabled={!hasActionableNotes}
+            onClick={toggleBridgeMode}
+            className={cx(
+              "inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border px-3 text-[13px] font-semibold shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary/60",
+              !hasActionableNotes
+                ? "cursor-not-allowed border-line/40 bg-surface2/60 text-txt3/50"
+                : bridgeMode
+                  ? "border-primary bg-primary text-white hover:bg-primary/90"
+                  : GRAPH_RECOMMENDATION_BUTTON
             )}
           >
             <Icon name="sparkle" size={14} />
@@ -2724,12 +2732,12 @@ function GraphScreenInner() {
             disabled={!hasActionableNotes}
             onClick={toggleLinkMode}
             className={cx(
-              "inline-flex h-8 items-center justify-center gap-1.5 rounded-xl px-3 text-[13px] font-semibold shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary/60",
+              "inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border px-3 text-[13px] font-semibold shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary/60",
               !hasActionableNotes
-                ? "cursor-not-allowed bg-surface2/60 text-txt3/50"
+                ? "cursor-not-allowed border-line/40 bg-surface2/60 text-txt3/50"
                 : linkMode
-                  ? "bg-primary text-white hover:bg-primary/90"
-                  : "bg-txt text-bg hover:bg-txt/90"
+                  ? "border-primary bg-primary text-white hover:bg-primary/90"
+                  : GRAPH_RECOMMENDATION_BUTTON
             )}
           >
             <Icon name="sparkle" size={14} />
@@ -2836,7 +2844,7 @@ function GraphScreenInner() {
               </button>
 
               {bridgeStatus === "error" ? (
-                <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-[12px] leading-5 text-red-600 dark:text-red-300">
+                <div className={cx("rounded-xl p-3 text-[12px] leading-5", GRAPH_NOTICE_TONE.error)}>
                   {bridgeError ?? "추천 생성에 실패했습니다. 선택한 노트를 확인하고 다시 시도하세요."}
                 </div>
               ) : null}
@@ -2880,7 +2888,7 @@ function GraphScreenInner() {
                         <div className="mt-3 flex items-center justify-between gap-2 border-t border-line/50 pt-2.5">
                           <span className={cx(
                             "min-w-0 truncate text-[11px]",
-                            saveStatus === "error" ? "text-red-600 dark:text-red-300" : "text-txt3"
+                            saveStatus === "error" ? "text-primary" : "text-txt3"
                           )}>
                             {isSaved ? "Workspace 노트로 저장됨" : saveStatus === "error" ? saveState.error : "후보를 새 노트로 남길 수 있어요"}
                           </span>
@@ -3004,7 +3012,7 @@ function GraphScreenInner() {
               </button>
 
               {linkStatus === "error" ? (
-                <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-[12px] leading-5 text-red-600 dark:text-red-300">
+                <div className={cx("rounded-xl p-3 text-[12px] leading-5", GRAPH_NOTICE_TONE.error)}>
                   {linkError ?? "AI 연결 추천 생성에 실패했습니다. 선택한 노트를 확인하고 다시 시도하세요."}
                 </div>
               ) : null}
@@ -3029,7 +3037,7 @@ function GraphScreenInner() {
                       type="button"
                       disabled={linkAcceptAllLoading || linkAcceptableSuggestions.length === 0}
                       onClick={handleAcceptAllLinkSuggestions}
-                      className="inline-flex h-7 items-center justify-center gap-1.5 rounded-lg bg-txt px-2.5 text-[11px] font-semibold text-bg transition-colors hover:bg-txt/90 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-7 items-center justify-center gap-1.5 rounded-lg bg-primary px-2.5 text-[11px] font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {linkAcceptAllLoading ? <Icon name="refresh" size={12} className="animate-spin" /> : null}
                       {linkAcceptAllLoading ? "저장 중" : "전체 수락"}
@@ -3084,9 +3092,9 @@ function GraphScreenInner() {
                               <div className="mt-3 flex items-center justify-between gap-2 border-t border-line/50 pt-2.5">
                                 <span className={cx(
                                   "min-w-0 truncate text-[11px]",
-                                  acceptStatus === "error" ? "text-red-600 dark:text-red-300" : "text-txt3"
+                                  acceptStatus === "error" ? "text-primary" : "text-txt3"
                                 )}>
-                                  {isSaving ? "본문 링크로 저장 중..." : isSaved ? "그래프에 연결됨" : acceptStatus === "error" ? acceptState.error : "실제 링크로 저장할 수 있어요"}
+                                  {isSaving ? "본문 링크로 저장 중…" : isSaved ? "그래프에 연결됨" : acceptStatus === "error" ? acceptState.error : "실제 링크로 저장할 수 있어요"}
                                 </span>
                                 <button
                                   type="button"

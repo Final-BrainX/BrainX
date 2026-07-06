@@ -14,6 +14,10 @@ final class Ids {
         return "fld_" + UUID.randomUUID();
     }
 
+    static String workspace() {
+        return "dgrp_" + UUID.randomUUID();
+    }
+
     static String link() {
         return "lnk_" + UUID.randomUUID();
     }

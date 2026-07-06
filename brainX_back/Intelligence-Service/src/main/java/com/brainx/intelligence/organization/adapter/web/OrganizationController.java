@@ -40,6 +40,7 @@ public class OrganizationController {
         ));
         return ApiSuccessResponse.ok(new FolderOrganizationProposalData(
             result.proposalId(),
+            result.llmRunId(),
             result.proposedFolders(),
             result.proposedMoves()
         ));
@@ -64,6 +65,7 @@ public class OrganizationController {
 
     record FolderOrganizationProposalData(
         String proposalId,
+        String llmRunId,
         List<Map<String, Object>> proposedFolders,
         List<Map<String, Object>> proposedMoves
     ) {

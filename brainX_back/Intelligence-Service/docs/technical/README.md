@@ -7,7 +7,9 @@
 - `conditional-on-bean.md`: Spring Boot `@ConditionalOnBean` 동작과 Qdrant adapter 연결 방식
 - `ai-feature-catalog.md`: Intelligence-Service AI/LLM 기능 전체 카탈로그와 공개 API/LLM 호출 경계
 - `ai-model-pricing-and-usage.md`: AI 모델 카탈로그 가격과 token usage / cost 추정 메모
+- `cross-service-integration-map.md`: Intelligence-Service 관점의 타 서비스 계약, 이벤트, port 경계 지도
 - `intelligence-operational-db-ddl.md`: 운영 PostgreSQL schema baseline DDL과 부분 적용 DB 체크리스트
+- `llmops.md`: LLM run log, PromptOps registry, eval run, 사용자 피드백 API 기준
 - `connection-api.md`: 연결 추천 공개 API와 event / usage 경계
 - `external-search.md`: OpenAI `web_search` 기반 검색 port와 품질 캡처 메모
 - `frontend-ai-context-management.md`: 프론트엔드 AI context 흐름과 chat / inline assist 전달

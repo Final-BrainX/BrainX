@@ -47,6 +47,7 @@ public class ConnectionController {
         ));
 
         return ApiSuccessResponse.ok(new LinkSuggestionsData(
+            result.llmRunId(),
             result.suggestions().stream()
                 .map(suggestion -> new LinkSuggestionData(
                     suggestion.suggestionId(),
@@ -73,6 +74,7 @@ public class ConnectionController {
         ));
 
         return ApiSuccessResponse.ok(new BridgeConceptsData(
+            result.llmRunId(),
             result.recommendations().stream()
                 .map(recommendation -> new BridgeConceptRecommendationData(
                     recommendation.noteId(),
@@ -100,6 +102,7 @@ public class ConnectionController {
     }
 
     record LinkSuggestionsData(
+        String llmRunId,
         List<LinkSuggestionData> suggestions
     ) {
     }
@@ -122,6 +125,7 @@ public class ConnectionController {
     }
 
     record BridgeConceptsData(
+        String llmRunId,
         List<BridgeConceptRecommendationData> recommendations
     ) {
     }

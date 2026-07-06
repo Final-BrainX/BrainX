@@ -12,9 +12,9 @@ import { Icon } from "@/components/brainx-ui";
 
 import {
   clearNotionIntegration,
-  getImportJobStatus,
   importNotionPage,
   listNotionPages,
+  pollImportJob,
   readNotionIntegration,
   startNotionOAuth,
   uploadAndImportFile,
@@ -186,35 +186,42 @@ export function ImportScreen() {
     if (!notionIntegration || notionImportingId) return;
     setNotionImportingId(page.id);
     try {
-      const result = await importNotionPage(notionIntegration.integrationAccountId, page.id);
-      if (result.status === "FAILED") {
+      const accepted = await importNotionPage(notionIntegration.integrationAccountId, page.id);
+      pushToast(`${page.title} 가져오는 중...`, "ok");
+
+      // Notion 임포트는 백엔드에서 비동기(전용 워커)로 처리되어 즉시 PENDING을 반환하므로,
+      // 완료될 때까지 폴링한다. 페이지 구조가 크면 몇 분씩 걸릴 수 있어(레이트 리밋 초당 3건)
+      // 2초 간격으로 최대 5분(150회)까지 기다린다.
+      const jobStatus = await pollImportJob(accepted.importJobId, { intervalMs: 2000, maxAttempts: 150 });
+
+      if (jobStatus.status === "FAILED") {
         pushToast(`${page.title} 가져오기에 실패했습니다.`, "err");
         return;
       }
-      pushToast(`${page.title} 가져오기를 완료했어요`, "ok");
+      if (jobStatus.status !== "COMPLETED") {
+        pushToast(`${page.title} 가져오기가 예상보다 오래 걸리고 있어요. 잠시 후 노트 목록을 확인해 주세요.`, "err");
+        return;
+      }
 
-      try {
-        const jobStatus = await getImportJobStatus(result.importJobId);
-        const noteIds = jobStatus.createdNotes.map((item) => item.noteId).filter((id): id is string => !!id);
-        if (noteIds.length > 0) {
-          const childCount = noteIds.length - 1;
-          const displayTitle = childCount > 0
-            ? `${page.title} (하위 노트 ${childCount}개 포함)`
-            : page.title;
-          setImportedNotionNotes((current) => [{ id: noteIds[0], title: displayTitle }, ...current]);
-          pushToast(
-            childCount > 0
-              ? `${page.title} 및 하위 노트 ${childCount}개를 가져왔어요`
-              : `${page.title}을(를) 가져왔어요`,
-            "ok"
-          );
-          window.dispatchEvent(
-            new CustomEvent("brainx:notes-refresh", { detail: { noteId: noteIds[0] } })
-          );
-          router.push(`/notes/${noteIds[0]}`);
-        }
-      } catch (error) {
-        pushToast(error instanceof Error ? error.message : "가져온 노트를 확인하지 못했습니다.", "err");
+      const noteIds = jobStatus.createdNotes.map((item) => item.noteId).filter((id): id is string => !!id);
+      if (noteIds.length > 0) {
+        const childCount = noteIds.length - 1;
+        const displayTitle = childCount > 0
+          ? `${page.title} (하위 노트 ${childCount}개 포함)`
+          : page.title;
+        setImportedNotionNotes((current) => [{ id: noteIds[0], title: displayTitle }, ...current]);
+        pushToast(
+          childCount > 0
+            ? `${page.title} 및 하위 노트 ${childCount}개를 가져왔어요`
+            : `${page.title}을(를) 가져왔어요`,
+          "ok"
+        );
+        window.dispatchEvent(
+          new CustomEvent("brainx:notes-refresh", { detail: { noteId: noteIds[0] } })
+        );
+        router.push(`/notes/${noteIds[0]}`);
+      } else {
+        pushToast(`${page.title} 가져오기를 완료했지만 생성된 노트가 없습니다.`, "err");
       }
     } catch (error) {
       pushToast(error instanceof Error ? error.message : "Notion 가져오기에 실패했습니다.", "err");

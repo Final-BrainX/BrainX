@@ -15,6 +15,7 @@
 - `docs/technical/conditional-on-bean.md`: Spring Boot `@ConditionalOnBean`의 의미와 Qdrant adapter 적용 맥락을 확인할 때 참고합니다.
 - `docs/technical/ai-feature-catalog.md`: `Intelligence-Service`의 AI/LLM 기능 전체 목록, 공개 API, LLM 호출 여부, provider/model 경계를 확인할 때 참고합니다.
 - `docs/technical/ai-model-pricing-and-usage.md`: AI 모델 catalog 비용 필드, availability 결합, token usage/cost estimate 기록 정책을 확인할 때 참고합니다.
+- `docs/technical/cross-service-integration-map.md`: `Intelligence-Service` 관점의 Workspace/User/Gateway/Admin/MCP/Ingestion/Commerce 연동 계약, 이벤트, port 경계를 확인할 때 참고합니다.
 - `docs/technical/consumed-event-contract-alignment.md`: 구현된 consumed event handler와 AsyncAPI SSOT의 topic/payload 일치 수준을 확인할 때 참고합니다.
 - `docs/technical/consumed-events-implementation-checkpoints.md`: `Intelligence-Service`가 consumer로 받는 이벤트별 구현 체크포인트를 확인할 때 참고합니다.
 - `docs/technical/connection-api.md`: public 노트 연결 추천 API, 내부 `NoteAutoLinkUseCase` 재사용 방식, `default` document group 제한, usage/event 발행 경계를 확인할 때 참고합니다.
@@ -24,6 +25,7 @@
 - `docs/technical/inline-assist-frontend-stream-lifecycle.md`: `brainx-next` inline assist 요약/다시쓰기 SSE 소비 중 요청 state cleanup과 stream abort가 coupling될 때 생기는 문제, 원인 분석, 재발 방지 기준을 확인할 때 참고합니다.
 - `docs/technical/insight-reports.md`: 고급 인사이트 리포트 v1의 sync-complete job, document group scope, usage/event, persistence 정책을 확인할 때 참고합니다.
 - `docs/technical/knowledge-structure-analysis.md`: AI 클러스터링 작업 v1의 sync-complete job, note card 입력, usage/event, persistence 정책을 확인할 때 참고합니다.
+- `docs/technical/llmops.md`: Intelligence-Service LLM run log, PromptOps registry/version, eval run, 사용자 feedback API 기준을 확인할 때 참고합니다.
 - `docs/technical/llm-quality-evaluation-report-2026-06-26.md`: RAG/chat-router/external-search/inline-assist/connection dev 품질 CLI의 실제 provider 평가 결과, 실패/조치, 후속 품질 기준을 확인할 때 참고합니다.
 - `docs/technical/llm-quality-evaluations/`: LLM 품질 평가 결과를 RAG, chat router, external search, inline assist, connection 영역별로 더 자세히 확인할 때 참고합니다.
 - `docs/technical/note-auto-linking.md`: 유사 노트 자동 연결 v1의 `VECTOR_LLM`/`LLM_ONLY` 비교, anchor 위치 계산, CLI 실행, usage/cost 기록 정책을 확인할 때 참고합니다.
@@ -57,7 +59,9 @@
 - 문체 설정 UX나 `StyleProfile` 입력 방향은 `docs/domain/style-profile-input-direction.md`를 기준으로 답합니다.
 - Spring Boot conditional bean 등록이나 Qdrant adapter 조건부 등록은 `docs/technical/conditional-on-bean.md`를 기준으로 답합니다.
 - AI 모델 비용, cached input token, usage event payload, RAG usage cost estimate는 `docs/technical/ai-model-pricing-and-usage.md`를 기준으로 답합니다.
+- 다른 BrainX 서비스와의 source-of-truth, internal REST, AsyncAPI event, outbound port 경계는 `docs/technical/cross-service-integration-map.md`를 기준으로 답합니다.
 - 운영 PostgreSQL schema baseline DDL, 부분 적용 DB 체크리스트, 권장 인덱스는 `docs/technical/intelligence-operational-db-ddl.md`를 기준으로 답합니다.
+- LLMOps/PromptOps run log, prompt registry, eval set/run, 사용자 좋아요/싫어요 피드백 API는 `docs/technical/llmops.md`를 기준으로 답합니다.
 - 외부 자료 검색 port, OpenAI `web_search` provider, 검색 CLI 실행 방법, RAG chat router 연결 방향은 `docs/technical/external-search.md`를 기준으로 답합니다.
 - `brainx-next`의 AI context 관리, `clientContext` payload, `noteScope` 검증 역할, RightSidebar/NoteEditor context 조립 방식은 `docs/technical/frontend-ai-context-management.md`를 기준으로 답합니다.
 - `/chat` 화면의 RAG 채팅 API 연동, thread 목록 cursor pagination, SSE 이후 상세 재조회, PostgreSQL LOB preview 문제는 `docs/technical/rag-chat-api-frontend-integration.md`를 기준으로 답합니다.

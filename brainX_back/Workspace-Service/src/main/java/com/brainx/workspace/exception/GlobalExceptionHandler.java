@@ -9,6 +9,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 
 import java.util.Map;
 
@@ -29,6 +30,13 @@ public class GlobalExceptionHandler {
                 .orElse("Invalid request.");
         return ResponseEntity.badRequest()
                 .body(ErrorResponse.of("VALIDATION_FAILED", message, traceId(request), Map.of()));
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethodNotSupported(HttpRequestMethodNotSupportedException exception,
+                                                                  HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
+                .body(ErrorResponse.of("METHOD_NOT_ALLOWED", exception.getMessage(), traceId(request), Map.of()));
     }
 
     @ExceptionHandler(Exception.class)

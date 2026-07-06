@@ -2,6 +2,7 @@ package com.brainx.intelligence.assist.application.usecase;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -16,6 +17,9 @@ import com.brainx.intelligence.assist.domain.AiSuggestionDecision;
 import com.brainx.intelligence.assist.domain.InlineAssistAction;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
 import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
+import com.brainx.intelligence.llmops.application.service.AiRunRecorder;
+import com.brainx.intelligence.llmops.application.service.PromptRegistryService;
+import com.brainx.intelligence.llmops.application.service.PromptRegistryService.PromptResolution;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -42,6 +46,8 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
     private final EntitlementPort entitlementPort;
     private final AiChatPort aiChatPort;
     private final AiUsageRecorder aiUsageRecorder;
+    private final AiRunRecorder aiRunRecorder;
+    private final PromptRegistryService promptRegistryService;
     private final AssistEventPort assistEventPort;
     private final StylePromptCompiler stylePromptCompiler;
 
@@ -51,6 +57,8 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
         EntitlementPort entitlementPort,
         AiChatPort aiChatPort,
         AiUsageRecorder aiUsageRecorder,
+        AiRunRecorder aiRunRecorder,
+        PromptRegistryService promptRegistryService,
         AssistEventPort assistEventPort,
         StylePromptCompiler stylePromptCompiler
     ) {
@@ -59,6 +67,8 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
         this.entitlementPort = entitlementPort;
         this.aiChatPort = aiChatPort;
         this.aiUsageRecorder = aiUsageRecorder;
+        this.aiRunRecorder = aiRunRecorder;
+        this.promptRegistryService = promptRegistryService;
         this.assistEventPort = assistEventPort;
         this.stylePromptCompiler = stylePromptCompiler;
     }
@@ -77,8 +87,9 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
         validateInput(action, selectedText, contextBefore, contextAfter, draftPrompt);
 
         String modelId = resolveModelId(userId);
+        PromptResolution promptResolution = promptRegistryService.resolve("inline-assist", systemPrompt());
         String systemPrompt = StylePromptCompiler.appendToSystemPrompt(
-            systemPrompt(),
+            promptResolution.content(),
             stylePromptCompiler.writingStyleInstructions(userId)
         );
         String userPrompt = userPrompt(action, language, selectedText, contextBefore, contextAfter, draftPrompt, targetLength);
@@ -92,14 +103,24 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
             throw new IllegalArgumentException("AI capability is not available: " + entitlement.reasonCode());
         }
 
-        var response = aiChatPort.generate(new AiChatRequest(
-            modelId,
-            List.of(
-                new AiChatMessage(AiRole.SYSTEM, systemPrompt),
-                new AiChatMessage(AiRole.USER, userPrompt)
-            )
-        ));
         String suggestionId = UUID.randomUUID().toString();
+        List<AiChatMessage> messages = List.of(
+            new AiChatMessage(AiRole.SYSTEM, systemPrompt),
+            new AiChatMessage(AiRole.USER, userPrompt)
+        );
+        var recorded = aiRunRecorder.recordChatGenerateWithRun(
+            userId,
+            INLINE_ASSIST_FEATURE_ID,
+            promptResolution.promptKey(),
+            promptResolution.version(),
+            modelId,
+            "AI_SUGGESTION",
+            suggestionId,
+            messages,
+            Map.of("noteId", noteId, "action", action.name()),
+            () -> aiChatPort.generate(new AiChatRequest(modelId, messages))
+        );
+        var response = recorded.response();
         aiUsageRecorder.recordChatUsage(userId, INLINE_ASSIST_FEATURE_ID, modelId, suggestionId, response.tokenUsage());
         assistEventPort.aiSuggestionCreated(new AiSuggestionCreatedEvent(
             userId,
@@ -113,6 +134,7 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
             suggestionId,
             action,
             modelId,
+            recorded.llmRunId(),
             response.content() == null ? "" : response.content()
         );
     }

@@ -15,13 +15,28 @@ public interface AiChatPort {
 
     record AiChatRequest(
         String modelId,
-        List<AiChatMessage> messages
+        List<AiChatMessage> messages,
+        AiExecutionMetadata execution
     ) {
+        public AiChatRequest(String modelId, List<AiChatMessage> messages) {
+            this(modelId, messages, null);
+        }
     }
 
     record AiChatMessage(
         AiRole role,
         String content
+    ) {
+    }
+
+    record AiExecutionMetadata(
+        String userId,
+        String featureId,
+        String promptKey,
+        String promptVersion,
+        String targetType,
+        String targetId,
+        java.util.Map<String, Object> metadata
     ) {
     }
 
