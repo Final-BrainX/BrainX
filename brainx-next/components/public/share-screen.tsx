@@ -4,8 +4,22 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Clock, AlertCircle } from "lucide-react";
 import { getPublicSharedNote, getLinkedNote, type PublicSharedNoteData } from "@/lib/workspace-api";
+import { getAssetFileUrl } from "@/lib/ingestion-api";
+import { markdownToHtml } from "@/components/notes/NoteEditor";
 import { BrandLogo } from "@/components/brand-logo";
 import { ThemeToggle } from "@/components/brainx-ui";
+
+/**
+ * 노트를 에디터에서 한 번도 연 적이 없으면(예: Notion 가져오기 직후) 콘텐츠가 원본 마크다운
+ * 그대로 저장돼 있다(NoteEditor.tsx의 resolveEditorHtml과 동일한 판단 기준: '<'로 시작하면
+ * 이미 HTML). 공유 페이지는 processHtml이 HTML을 전제로 동작하므로, 마크다운이면 먼저
+ * HTML로 변환해야 ![](asset://...) 같은 문법이 화면에 글자 그대로 노출되지 않는다.
+ */
+function resolveShareHtml(rawContent: string): string {
+  const trimmed = rawContent.trim();
+  if (trimmed === "" || trimmed.startsWith("<")) return rawContent;
+  return markdownToHtml(rawContent);
+}
 
 function formatExpiry(isoString: string): string {
   const diffMs = new Date(isoString).getTime() - Date.now();
@@ -21,6 +35,22 @@ function processHtml(html: string, linkedShares: Record<string, string>): string
     .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
     .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, "");
 
+  // markdownToHtml이 asset:// 이미지를 <div data-image-block data-asset-id="..."></div>
+  // (빈 div, NodeView가 채워주길 기대하는 자리표시자)로 남겨두는데, 공유 페이지는 Tiptap
+  // NodeView가 없어 그대로 두면 아무것도 안 보인다. 실제 <img src="{자산 파일 URL}">로 채운다.
+  // (외부 URL 이미지는 markdownToHtml이 이미 <img>를 채워서 내보내므로 본문이 비어있지 않아
+  // 아래 정규식(빈 div만 매칭)에 걸리지 않는다.)
+  out = out.replace(
+    /<div([^>]*data-image-block="true"[^>]*)>\s*<\/div>/g,
+    (match: string, attrs: string) => {
+      const assetIdMatch = attrs.match(/data-asset-id="([^"]*)"/);
+      if (!assetIdMatch) return match;
+      const fileNameMatch = attrs.match(/data-file-name="([^"]*)"/);
+      const alt = fileNameMatch?.[1] ?? "";
+      return `<div data-image-block="true"><img src="${getAssetFileUrl(assetIdMatch[1])}" alt="${alt}"></div>`;
+    }
+  );
+
   // [[위키 링크]] span → 공유 링크 or 배지
   out = out.replace(
     /<span([^>]*data-wiki-link="true"[^>]*)>(.*?)<\/span>/g,
@@ -32,6 +62,24 @@ function processHtml(html: string, linkedShares: Record<string, string>): string
         return `<a href="${shareUrl}" class="wiki-share-link">${inner}</a>`;
       }
       return `<span class="wiki-link-badge" title="공유되지 않은 노트">${inner}</span>`;
+    }
+  );
+
+  // 다단 컬럼의 드래그로 지정된 칸 너비(data-width, %) → 인라인 flex 스타일
+  // (에디터에서는 ColumnView의 NodeView가 런타임에 계산해 넣지만, 공유 페이지는 저장된
+  // HTML을 그대로 꽂아 넣을 뿐이라 여기서 직접 반영해야 한다)
+  // 주의: Column.renderHTML(mergeAttributes)이 실제로 만드는 속성 순서는
+  // `data-width="..." data-type="column"`로, data-width가 먼저 온다. 예전 정규식은
+  // data-type="column" 다음에 data-width가 온다고 가정해서 실제 저장된 HTML과 순서가
+  // 어긋나 한 번도 매치되지 않았다(항상 균등 폭으로만 보였다) — 속성 순서에 의존하지 않도록
+  // data-type="column" 매치와 data-width 추출을 분리한다.
+  out = out.replace(
+    /<div([^>]*data-type="column"[^>]*)>/g,
+    (match: string, attrs: string) => {
+      if (/style="/.test(attrs)) return match;
+      const widthMatch = attrs.match(/data-width="(\d+(?:\.\d+)?)"/);
+      if (!widthMatch) return match;
+      return `<div${attrs} style="flex: 0 0 ${widthMatch[1]}%">`;
     }
   );
 
@@ -74,7 +122,7 @@ export function ShareScreen({ shareId, noteId }: ShareScreenProps = {}) {
     fetcher
       .then((data) => {
         setNote(data);
-        setProcessedHtml(processHtml(data.markdown ?? "", data.linkedShares ?? {}));
+        setProcessedHtml(processHtml(resolveShareHtml(data.markdown ?? ""), data.linkedShares ?? {}));
         setStatus("ok");
       })
       .catch((e: Error) => {

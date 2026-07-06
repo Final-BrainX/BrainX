@@ -28,6 +28,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.function.Supplier;
 
 @Slf4j
 @Service
@@ -42,6 +45,14 @@ public class ImportService {
     private final ContentConverter contentConverter;
     private final PptxSlideService pptxSlideService;
     private final IngestionEventPublisher eventPublisher;
+    private final ImportJobStatusUpdater jobStatusUpdater;
+
+    // 빈 이름(@Bean("notionImportExecutor"))과 필드명을 일치시켜, applicationTaskExecutor 등
+    // 다른 Executor 빈과 타입이 겹쳐도 Spring이 이름으로 명확히 구분하도록 한다.
+    private final Executor notionImportExecutor;
+
+    private static final int MAX_RETRY_ATTEMPTS = 3;
+    private static final long RETRY_BASE_DELAY_MS = 300L;
 
     @Value("${notion.client-id}")
     private String notionClientId;
@@ -142,45 +153,67 @@ public class ImportService {
                 .integrationAccountId(request.getIntegrationAccountId())
                 .sourceId(request.getSourceId())
                 .targetFolderId(request.getTargetFolderId())
+                .status(JobStatus.PENDING)
                 .build();
-        importJobRepository.save(job);
+        importJobRepository.save(job); // 이 트랜잭션은 INSERT 한 번, 수 ms 안에 커밋된다
 
-        // 실제 Notion 페이지 가져오기 (하위 페이지 재귀 포함)
+        String jobId = job.getImportJobId();
+        String accessToken = account.getAccessToken();
+        String sourceId = request.getSourceId();
+        String targetFolderId = request.getTargetFolderId();
+
         try {
-            String accessToken = account.getAccessToken();
-            List<String> allNoteIds = importPageRecursive(
-                    userId, request.getSourceId(), request.getTargetFolderId(), accessToken, jwtToken);
-
-            job.setStatus(JobStatus.COMPLETED);
-            job.setCreatedNoteIds(String.join(",", allNoteIds));
-            log.info("Notion 가져오기 완료: jobId={}, 생성 노트 수={}", job.getImportJobId(), allNoteIds.size());
-            publishImportJobCompleted(job, allNoteIds, 0);
-        } catch (Exception e) {
-            job.setStatus(JobStatus.FAILED);
-            job.setFailedFiles("페이지 가져오기 실패: " + e.getMessage());
-            log.error("Notion 가져오기 실패: jobId={}, error={}", job.getImportJobId(), e.getMessage());
-            publishImportJobFailed(job, e.getMessage());
+            notionImportExecutor.execute(() -> runNotionImportAsync(
+                    jobId, userId, sourceId, targetFolderId, accessToken, jwtToken));
+        } catch (RejectedExecutionException e) {
+            log.error("Notion 임포트 워커 큐 포화: jobId={}, error={}", jobId, e.getMessage());
+            jobStatusUpdater.markFailed(jobId, "가져오기 대기열이 가득 찼습니다. 잠시 후 다시 시도해주세요.");
         }
-        importJobRepository.save(job);
 
+        // status=PENDING으로 즉시 반환. 진행 상황은 GET /api/v1/imports/{importJobId}로 폴링한다.
         return ImportJobCreatedResponse.from(job);
+    }
+
+    /** 실제 재귀 임포트 본체. HTTP 요청 스레드/원본 트랜잭션과 분리된 전용 워커 스레드에서 실행. */
+    private void runNotionImportAsync(String jobId, String userId, String pageId, String folderId,
+                                      String accessToken, String jwtToken) {
+        jobStatusUpdater.markProcessing(jobId);
+        List<String> failedItems = new ArrayList<>();
+        try {
+            List<String> allNoteIds = importPageRecursiveWithRetry(
+                    userId, pageId, folderId, accessToken, jwtToken, failedItems);
+            jobStatusUpdater.markCompleted(jobId, allNoteIds, failedItems);
+            eventPublisher.publish("ImportJobCompleted", userId, Map.of(
+                    "importJobId", jobId, "userId", userId,
+                    "createdNoteIds", List.copyOf(allNoteIds), "failedCount", failedItems.size()));
+            log.info("Notion 가져오기 완료: jobId={}, 생성 노트 수={}, 실패 항목 수={}",
+                    jobId, allNoteIds.size(), failedItems.size());
+        } catch (Exception e) {
+            log.error("Notion 가져오기 실패: jobId={}, error={}", jobId, e.getMessage());
+            jobStatusUpdater.markFailed(jobId, "페이지 가져오기 실패: " + e.getMessage());
+            eventPublisher.publish("ImportJobFailed", userId, Map.of(
+                    "importJobId", jobId, "userId", userId,
+                    "errorCode", "IMPORT_FAILED", "errorMessage", e.getMessage() == null ? "알 수 없는 오류" : e.getMessage()));
+        }
     }
 
     // ── Notion 재귀 임포트 ────────────────────────────────────────────────
 
-    private List<String> importPageRecursive(String userId, String pageId, String folderId,
-                                             String accessToken, String jwtToken) {
+    private List<String> importPageRecursiveWithRetry(String userId, String pageId, String folderId,
+                                                       String accessToken, String jwtToken,
+                                                       List<String> failedItems) {
         String title = notionApiService.getPageTitle(pageId, accessToken);
         // 가져온 노트 전체를 담을 전용 폴더 생성 (페이지 제목과 동일한 이름)
         String importFolderId;
         try {
-            importFolderId = workspaceApiClient.createFolder(title, folderId, jwtToken);
+            importFolderId = withRetry("임포트 폴더 생성",
+                    () -> workspaceApiClient.createFolder(title, folderId, jwtToken));
             log.info("임포트 폴더 생성: title='{}', folderId={}", title, importFolderId);
-        } catch (Exception e) {
-            log.warn("임포트 폴더 생성 실패, 대상 폴더로 대체: error={}", e.getMessage());
+        } catch (RuntimeException e) {
+            log.warn("임포트 폴더 생성 실패(재시도 {}회 소진), 대상 폴더로 대체: error={}", MAX_RETRY_ATTEMPTS, e.getMessage());
             importFolderId = folderId;
         }
-        return importPageWithTitle(userId, pageId, title, importFolderId, accessToken, jwtToken);
+        return importPageWithTitleAndRetry(userId, pageId, title, importFolderId, accessToken, jwtToken, failedItems);
     }
 
     /**
@@ -188,13 +221,19 @@ public class ImportService {
      * 하위 페이지는 parent 블록 데이터에 이미 제목이 담겨 있어(ChildPageRef.title()) 별도
      * getPageTitle API 호출이 필요 없다 — Notion 연동이 하위 페이지 직접 접근 권한 없이
      * parent 페이지만 공유된 경우에도 올바른 제목으로 노트를 만들어 위키링크가 끊기지 않는다.
+     *
+     * workspace-service 호출(createNote/createFolder/createNoteLink)에는 지수 백오프 재시도를
+     * 적용하고, 재시도까지 소진한 하위 항목의 실패는 조용히 넘기지 않고 failedItems에 기록해
+     * ImportJob.failedFiles로 사용자에게 노출한다.
      */
-    private List<String> importPageWithTitle(String userId, String pageId, String title,
-                                              String folderId, String accessToken, String jwtToken) {
+    private List<String> importPageWithTitleAndRetry(String userId, String pageId, String title,
+                                                      String folderId, String accessToken, String jwtToken,
+                                                      List<String> failedItems) {
         List<String> allNoteIds = new ArrayList<>();
 
         String markdown = notionApiService.getPageMarkdown(pageId, accessToken, userId);
-        String noteId = workspaceApiClient.createNote(title, markdown, folderId, null, jwtToken);
+        String noteId = withRetry("노트 생성",
+                () -> workspaceApiClient.createNote(title, markdown, folderId, null, jwtToken));
         log.info("노트 생성: title='{}', noteId={}", title, noteId);
         allNoteIds.add(noteId);
 
@@ -205,14 +244,19 @@ public class ImportService {
         for (NotionApiService.ChildPageRef child : childPages) {
             importedIds.add(child.id());
             try {
-                List<String> childNoteIds = importPageWithTitle(
-                        userId, child.id(), child.title(), folderId, accessToken, jwtToken);
+                List<String> childNoteIds = importPageWithTitleAndRetry(
+                        userId, child.id(), child.title(), folderId, accessToken, jwtToken, failedItems);
                 if (!childNoteIds.isEmpty()) {
-                    workspaceApiClient.createNoteLink(noteId, childNoteIds.get(0), child.title(), jwtToken);
+                    String firstChildNoteId = childNoteIds.get(0);
+                    withRetry("노트 링크 생성", () -> {
+                        workspaceApiClient.createNoteLink(noteId, firstChildNoteId, child.title(), jwtToken);
+                        return null;
+                    });
                     allNoteIds.addAll(childNoteIds);
                 }
             } catch (Exception e) {
-                log.warn("하위 페이지 가져오기 실패: childPageId={}, error={}", child.id(), e.getMessage());
+                log.warn("하위 페이지 가져오기 실패(재시도 소진): childPageId={}, error={}", child.id(), e.getMessage());
+                failedItems.add(child.title() + " (" + e.getMessage() + ")");
             }
         }
 
@@ -227,12 +271,17 @@ public class ImportService {
                 importedIds.add(row.id());
                 try {
                     String rowMarkdown = notionApiService.getPageMarkdown(row.id(), accessToken, userId);
-                    String rowNoteId = workspaceApiClient.createNote(row.title(), rowMarkdown, folderId, null, jwtToken);
-                    workspaceApiClient.createNoteLink(noteId, rowNoteId, row.title(), jwtToken);
+                    String rowNoteId = withRetry("데이터베이스 행 노트 생성",
+                            () -> workspaceApiClient.createNote(row.title(), rowMarkdown, folderId, null, jwtToken));
+                    withRetry("노트 링크 생성", () -> {
+                        workspaceApiClient.createNoteLink(noteId, rowNoteId, row.title(), jwtToken);
+                        return null;
+                    });
                     allNoteIds.add(rowNoteId);
                     log.info("데이터베이스 행 노트 생성: title='{}', noteId={}", row.title(), rowNoteId);
                 } catch (Exception e) {
-                    log.warn("데이터베이스 행 가져오기 실패: rowId={}, error={}", row.id(), e.getMessage());
+                    log.warn("데이터베이스 행 가져오기 실패(재시도 소진): rowId={}, error={}", row.id(), e.getMessage());
+                    failedItems.add(row.title() + " (" + e.getMessage() + ")");
                 }
             }
         }
@@ -245,15 +294,51 @@ public class ImportService {
             try {
                 // mention 참조는 1단계만 임포트(참조된 페이지의 하위까지 재귀하지 않음)
                 String refMarkdown = notionApiService.getPageMarkdown(ref.id(), accessToken, userId);
-                String refNoteId = workspaceApiClient.createNote(ref.title(), refMarkdown, folderId, null, jwtToken);
-                workspaceApiClient.createNoteLink(noteId, refNoteId, ref.title(), jwtToken);
+                String refNoteId = withRetry("mention 페이지 노트 생성",
+                        () -> workspaceApiClient.createNote(ref.title(), refMarkdown, folderId, null, jwtToken));
+                withRetry("노트 링크 생성", () -> {
+                    workspaceApiClient.createNoteLink(noteId, refNoteId, ref.title(), jwtToken);
+                    return null;
+                });
                 allNoteIds.add(refNoteId);
             } catch (Exception e) {
-                log.warn("mention 페이지 가져오기 실패: pageId={}, error={}", ref.id(), e.getMessage());
+                log.warn("mention 페이지 가져오기 실패(재시도 소진): pageId={}, error={}", ref.id(), e.getMessage());
+                failedItems.add(ref.title() + " (" + e.getMessage() + ")");
             }
         }
 
         return allNoteIds;
+    }
+
+    /**
+     * 최대 3회, 300ms → 600ms → 1200ms 지수 백오프로 재시도한다.
+     * 주의: WorkspaceApiClient(createNote/createFolder/createNoteLink)는 현재 4xx/5xx를
+     * 구분하지 않고 모두 BrainXException(INTERNAL_ERROR)으로 뭉뚱그려 던지므로, 이 재시도는
+     * "영구적으로 실패하는 요청(예: 잘못된 folderId)"도 3번 반복한 뒤에야 포기한다.
+     */
+    private <T> T withRetry(String opName, Supplier<T> action) {
+        RuntimeException lastError = null;
+        for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+            try {
+                return action.get();
+            } catch (RuntimeException e) {
+                lastError = e;
+                if (attempt == MAX_RETRY_ATTEMPTS) break;
+                long backoffMs = RETRY_BASE_DELAY_MS * (1L << (attempt - 1));
+                log.warn("{} 실패 ({}/{}), {}ms 후 재시도: {}", opName, attempt, MAX_RETRY_ATTEMPTS, backoffMs, e.getMessage());
+                sleepQuietly(backoffMs);
+            }
+        }
+        throw lastError;
+    }
+
+    private void sleepQuietly(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("재시도 대기 중 인터럽트됨", ie);
+        }
     }
 
     // ── Notion 페이지 목록 조회 ───────────────────────────────────────────

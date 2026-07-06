@@ -1305,21 +1305,27 @@ html.light .tiptap-note-content .ProseMirror table.note-table :is(td, th) {
 
 /* ── 다단 컬럼 블록 (우클릭 → N단으로 나누기) ──────────────────── */
 
-.split-pane-editor .ProseMirror [data-type="column-list"] {
+.split-pane-editor .ProseMirror [data-type="column-list"],
+.share-content [data-type="column-list"] {
   display: flex;
   gap: 1rem;
   margin: 0.75rem 0;
 }
 
-.split-pane-editor .ProseMirror [data-type="column"] {
+.split-pane-editor .ProseMirror [data-type="column"],
+.share-content [data-type="column"] {
   flex: 1 1 0%;
   min-width: 0;
+}
+
+.split-pane-editor .ProseMirror [data-type="column"] {
   padding: 0.25rem 0.6rem;
   border: 1px dashed rgb(var(--line) / 0.4);
   border-radius: 0.5rem;
 }
 
-.split-pane-editor .ProseMirror [data-type="column"] > *:last-child {
+.split-pane-editor .ProseMirror [data-type="column"] > *:last-child,
+.share-content [data-type="column"] > *:last-child {
   margin-bottom: 0;
 }
 

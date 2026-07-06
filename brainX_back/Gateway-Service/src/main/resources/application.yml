@@ -258,6 +258,12 @@ resilience4j:
     instances:
       userServiceCircuitBreaker:
         timeout-duration: 6s
+      # Notion 재귀 임포트(ImportService.createNotionImportJob)가 현재 동기 처리라 페이지 구조에
+      # 따라 수십 초~수 분까지 걸릴 수 있어(2026-07-06 05:22~05:25 로그 기준 실사례), 기본 1s로는
+      # 정상 요청도 전부 503(fallback)으로 끊긴다. 근본 해결은 해당 임포트를 비동기로 전환하는 것이고,
+      # 이 값은 그 전까지의 임시 완화책이다.
+      ingestionServiceCircuitBreaker:
+        timeout-duration: 60s
 
 eureka:
   client:
