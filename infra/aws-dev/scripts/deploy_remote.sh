@@ -9,7 +9,9 @@ RUNTIME_ENV="$ENV_DIR/runtime.env"
 TAG_STATE="$STATE_DIR/image-tags.env"
 DB_BOOTSTRAP_STATE="$STATE_DIR/database-bootstrap.env"
 PARAMETER_CACHE="$STATE_DIR/ssm-parameters.json"
+RDS_RUNTIME_STATE="$STATE_DIR/rds-runtime.env"
 COMPOSE_FILE="$CURRENT_DIR/docker-compose.yml"
+RDS_RUNTIME_SERVICES="user-service workspace-service ingestion-service commerce-service admin-service intelligence-service mcp-service"
 
 required_env() {
   name="$1"
@@ -211,11 +213,23 @@ for key in \
 done
 
 services="${CHANGED_SERVICES:-}"
+force_runtime_refresh="${FORCE_RUNTIME_REFRESH:-false}"
 
-if [ -z "$services" ] && [ "${DEPLOY_CONFIG_CHANGED:-false}" != "true" ]; then
-  echo "No services requested for deployment."
-  exit 0
-fi
+append_unique_service() {
+  candidate="$1"
+  if [ -z "${DEPLOY_SERVICES:-}" ]; then
+    DEPLOY_SERVICES="$candidate"
+    return
+  fi
+
+  for existing in $DEPLOY_SERVICES; do
+    if [ "$existing" = "$candidate" ]; then
+      return
+    fi
+  done
+
+  DEPLOY_SERVICES="$DEPLOY_SERVICES $candidate"
+}
 
 for service in $services; do
   case "$service" in
@@ -234,6 +248,38 @@ for service in $services; do
     *) echo "Unknown service: $service" >&2; exit 1 ;;
   esac
 done
+
+rds_runtime_fingerprint() {
+  printf 'RDS_HOST=%s\n' "$RDS_HOST"
+  printf 'RDS_PORT=%s\n' "$RDS_PORT"
+  printf 'POSTGRES_USER=%s\n' "$POSTGRES_USER"
+  printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
+}
+
+rds_runtime_changed=false
+if [ "$force_runtime_refresh" = "true" ]; then
+  echo "Forced runtime refresh requested."
+  rds_runtime_changed=true
+elif [ ! -f "$RDS_RUNTIME_STATE" ] || [ "$(cat "$RDS_RUNTIME_STATE")" != "$(rds_runtime_fingerprint)" ]; then
+  echo "Detected RDS runtime credential change; DB-backed services will be force recreated."
+  rds_runtime_changed=true
+fi
+
+DEPLOY_SERVICES=""
+for service in $services; do
+  append_unique_service "$service"
+done
+
+if [ "$rds_runtime_changed" = "true" ]; then
+  for service in $RDS_RUNTIME_SERVICES; do
+    append_unique_service "$service"
+  done
+fi
+
+if [ -z "$DEPLOY_SERVICES" ] && [ "${DEPLOY_CONFIG_CHANGED:-false}" != "true" ]; then
+  echo "No services requested for deployment."
+  exit 0
+fi
 
 {
   write_env AWS_REGION "$AWS_REGION"
@@ -343,9 +389,24 @@ if [ "${DEPLOY_CONFIG_CHANGED:-false}" = "true" ]; then
     echo "Config-only deployment; skipping image pull."
   fi
   docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" up -d --remove-orphans --force-recreate
+  if [ "$rds_runtime_changed" = "true" ]; then
+    rds_runtime_fingerprint > "$RDS_RUNTIME_STATE"
+    chmod 600 "$RDS_RUNTIME_STATE"
+  fi
 else
-  docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" pull $services
-  docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" up -d --no-deps $services
+  if [ -n "$services" ]; then
+    docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" pull $services
+  else
+    echo "Image pull skipped; recreating services against the refreshed runtime environment."
+  fi
+
+  if [ "$rds_runtime_changed" = "true" ]; then
+    docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" up -d --no-deps --force-recreate $DEPLOY_SERVICES
+    rds_runtime_fingerprint > "$RDS_RUNTIME_STATE"
+    chmod 600 "$RDS_RUNTIME_STATE"
+  else
+    docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" up -d --no-deps $DEPLOY_SERVICES
+  fi
 fi
 
 docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" ps

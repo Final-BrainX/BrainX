@@ -24,6 +24,16 @@ ALL_SERVICES = [
     "admin-frontend",
 ]
 
+RDS_RUNTIME_SERVICES = [
+    "user-service",
+    "workspace-service",
+    "ingestion-service",
+    "commerce-service",
+    "admin-service",
+    "intelligence-service",
+    "mcp-service",
+]
+
 PATH_RULES: list[tuple[str, set[str]]] = [
     ("brainX_back/Discovery-Service/", {"discovery-service"}),
     ("brainX_back/Gateway-Service/", {"gateway-service"}),
@@ -82,6 +92,7 @@ def main() -> int:
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
     parser.add_argument("--deploy-all", action="store_true")
+    parser.add_argument("--force-runtime-refresh", action="store_true")
     parser.add_argument("--services", default="")
     args = parser.parse_args()
 
@@ -114,8 +125,10 @@ def main() -> int:
         "services": services,
         "servicesJson": json.dumps(services, separators=(",", ":")),
         "servicesSpace": " ".join(services),
-        "shouldDeploy": bool(services or deploy_config_changed),
+        "shouldDeploy": bool(services or deploy_config_changed or args.force_runtime_refresh),
         "deployConfigChanged": deploy_config_changed or args.deploy_all,
+        "forceRuntimeRefresh": args.force_runtime_refresh,
+        "runtimeRefreshServices": RDS_RUNTIME_SERVICES,
         "changedFiles": changed_files,
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
