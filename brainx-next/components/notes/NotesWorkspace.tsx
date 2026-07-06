@@ -664,20 +664,25 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     [folders, matchesCurrentWorkspace]
   );
 
-  /* 같은 depth에서 동일 이름의 노트 중복 여부 확인 (노트↔노트만, 폴더와는 허용) */
+  /* 같은 depth에서 동일 이름의 노트 중복 여부 확인 (노트↔노트만, 폴더와는 허용). 정책(§8)상
+     중복 검사는 Workspace 단위라 visibleNotes(현재 Workspace 기준)로 검사한다 — 전체 notes로
+     검사하면 다른 Workspace에 같은 위치(folderId)·같은 제목의 노트가 있다는 이유만으로 지금
+     Workspace에서는 실제로 충돌이 없는데도 "이미 있습니다"로 막히거나 불필요하게 번호가
+     붙는다. */
   const checkNoteDuplicate = useCallback((title: string, folderId: string | null | undefined): boolean => {
     const normalizedFolderId = folderId ?? null;
-    return notes.some(
+    return visibleNotes.some(
       (n) => (n.folderId ?? null) === normalizedFolderId && n.title.trim() === title.trim()
     );
-  }, [notes]);
+  }, [visibleNotes]);
 
-  /* 같은 depth에서 동일 이름의 폴더 중복 여부 확인 (폴더↔폴더만, 형제 폴더 기준) */
+  /* 같은 depth에서 동일 이름의 폴더 중복 여부 확인 (폴더↔폴더만, 형제 폴더 기준) — 위와 동일한
+     이유로 visibleFolders 기준으로 검사한다. */
   const checkFolderDuplicate = useCallback((name: string, parentFolderId: string | null, excludeId?: string): boolean => {
-    return folders.some(
+    return visibleFolders.some(
       (f) => f.id !== excludeId && (f.parentFolderId ?? null) === (parentFolderId ?? null) && f.name.trim() === name.trim()
     );
-  }, [folders]);
+  }, [visibleFolders]);
 
   const panelCount = countLeaves(state.root);
   const hasSplitPanels = panelCount > 1;
@@ -1541,7 +1546,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       ]);
       return;
     }
-    void createWorkspaceFolder(name, parentFolderId)
+    void createWorkspaceFolder(name, parentFolderId, currentWorkspaceId)
       .then((created) => {
         setFolders((prev) => [...prev, { ...workspaceFolderToMock(created), favorite: favorite || undefined }]);
         // 즐겨찾기 영역에서 직접 만든 루트 폴더는 자동 즐겨찾기.
@@ -1796,7 +1801,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const handleMoveNoteToFolder = useCallback((noteId: string, targetFolderId: string | null) => {
     const note = notes.find((n) => n.id === noteId);
     if (note) {
-      const titleConflict = notes.some(
+      // 현재 Workspace(visibleNotes) 기준으로만 충돌 검사한다 — checkNoteDuplicate와 동일한 이유.
+      const titleConflict = visibleNotes.some(
         (n) => n.id !== noteId && (n.folderId ?? null) === (targetFolderId ?? null) && n.title.trim() === note.title.trim()
       );
       if (titleConflict) {
@@ -1817,7 +1823,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         pushToast(error instanceof Error ? error.message : "노트 이동을 저장하지 못했습니다.", "err");
       });
     }
-  }, [notes, pushToast]);
+  }, [notes, visibleNotes, pushToast]);
 
   const handleReorderNote = useCallback((noteId: string, referenceNoteId: string, position: "before" | "after") => {
     setNotes((prev) => reorderNoteRelativeTo(prev, noteId, referenceNoteId, position));
