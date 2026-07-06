@@ -121,6 +121,15 @@ export function ChatScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadStatus]);
 
+  // Workspace 전환 시 이전 Workspace의 스레드가 화면/전송 대상으로 계속 남지 않도록 초기화한다.
+  // visibleThreads는 currentWorkspaceId 변경에 이미 반응하지만, activeThread/activeThreadId는
+  // 별도 상태라 그대로 두면 (1) 메인 패널이 이전 Workspace 대화를 계속 보여주고 (2) ask()가
+  // activeThread를 재사용해 새 메시지가 이전 Workspace의 스레드로 전송된다.
+  useEffect(() => {
+    clearActiveThread();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentWorkspaceId]);
+
   useEffect(() => {
     if (!deleteCandidate) return;
     const handleKey = (event: KeyboardEvent) => {
