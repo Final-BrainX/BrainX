@@ -216,8 +216,8 @@ public final class WorkspaceDtos {
     public record ShareAuthor(String nickname) {
     }
 
-    public record InternalNoteBulkCreateRequest(@NotBlank String userId, @NotBlank String source, String targetFolderId,
-                                                @NotEmpty List<@Valid InternalNoteCreateItem> notes) {
+    public record InternalNoteBulkCreateRequest(@NotBlank String userId, @NotBlank String source, String documentGroupId,
+                                                String targetFolderId, @NotEmpty List<@Valid InternalNoteCreateItem> notes) {
     }
 
     public record InternalNoteCreateItem(String externalId, @NotBlank String title, @NotNull String markdown,

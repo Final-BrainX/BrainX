@@ -12357,6 +12357,9 @@ paths:
       - id: internal.mcp-service
         type: internal-service
         description: Mcp-Service create-note tool writes through the authoritative Workspace command API.
+      - id: internal.knowledge-intelligence
+        type: internal-service
+        description: Intelligence Agent approved CREATE_NOTE actions write through the authoritative Workspace command API.
       x-produces-events:
       - NoteCreated
       x-internal-sync-calls: []
@@ -19796,6 +19799,10 @@ components:
           - EXTENSION_CAPTURE
           - MCP_TOOL_CALL
           - INTELLIGENCE_AGENT
+        documentGroupId:
+          type: string
+          nullable: true
+          description: Optional target Workspace document group. If omitted, Workspace-Service resolves the user's default group.
         targetFolderId:
           type: string
           nullable: true

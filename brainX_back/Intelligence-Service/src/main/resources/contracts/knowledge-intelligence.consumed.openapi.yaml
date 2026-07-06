@@ -7,9 +7,17 @@ info:
     url: https://brainx.p-e.kr
   description: OpenAPI slice for synchronous internal APIs consumed by Intelligence Service. Provider-owned API behavior remains
     governed by the source SSOT.
+  x-client-apps:
+  - id: web.next
+    type: frontend
+    description: Next.js App Router 기반 주력 웹 클라이언트
+  - id: desktop.electron
+    type: desktop
+    description: brainx-next를 재사용하는 Electron 기반 PC 앱 셸
 servers:
 - url: https://brainx.p-e.kr
-  description: AWS dev API 게이트웨이. 로컬 개발은 Gateway-Service 기본 포트 8088을 사용한다.
+  description: AWS dev API 게이트웨이. 로컬 public API 개발은 Gateway-Service 기본 포트 8088을 사용한다. Workspace-Service 직접 개발/디버깅 포트는 8082이지만,
+    이는 gateway 포트가 아니다.
 - url: https://api.brainx.com
   description: 운영 API 게이트웨이
 tags:
@@ -58,6 +66,89 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/EntitlementsCheckData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: 충돌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - serviceTokenAuth: []
+  /internal/v1/workspace/notes/bulk-create:
+    post:
+      operationId: bulkCreateNotesInternal
+      summary: '[Internal] 노트 일괄 생성 command'
+      tags:
+      - Internal Service APIs
+      x-producer-service: knowledge-workspace
+      x-visibility: internal
+      x-consumers:
+      - id: internal.content-ingestion-publishing
+        type: internal-service
+        description: 콘텐츠 수집 작업 워커 동기 호출자
+      - id: internal.mcp-service
+        type: internal-service
+        description: Mcp-Service create-note tool writes through the authoritative Workspace command API.
+      - id: internal.knowledge-intelligence
+        type: internal-service
+        description: Intelligence Agent approved CREATE_NOTE actions write through the authoritative Workspace command API.
+      x-produces-events:
+      - NoteCreated
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      description: Import/extension/MCP가 노트 저장소를 직접 쓰지 않도록 하는 내부 command API.
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InternalNoteBulkCreateRequest'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/InternalNoteBulkCreateData'
         '400':
           description: 잘못된 요청
           content:
@@ -384,6 +475,84 @@ components:
       required:
       - allowed
       - entitlementSnapshotVersion
+      additionalProperties: false
+    InternalNoteBulkCreateRequest:
+      type: object
+      properties:
+        userId:
+          type: string
+        source:
+          type: string
+          enum:
+          - NOTION_IMPORT
+          - OBSIDIAN_IMPORT
+          - EXTENSION_CAPTURE
+          - MCP_TOOL_CALL
+          - INTELLIGENCE_AGENT
+        documentGroupId:
+          type: string
+          nullable: true
+          description: Optional target Workspace document group. If omitted, Workspace-Service resolves the user's default
+            group.
+        targetFolderId:
+          type: string
+          nullable: true
+        notes:
+          type: array
+          items:
+            type: object
+            properties:
+              externalId:
+                type: string
+                nullable: true
+              title:
+                type: string
+              markdown:
+                type: string
+              tags:
+                type: array
+                items:
+                  type: string
+              assets:
+                type: array
+                items:
+                  type: string
+            required:
+            - title
+            - markdown
+            additionalProperties: false
+      required:
+      - userId
+      - source
+      - notes
+      additionalProperties: false
+    InternalNoteBulkCreateData:
+      type: object
+      properties:
+        createdNotes:
+          type: array
+          items:
+            type: object
+            properties:
+              externalId:
+                type: string
+                nullable: true
+              noteId:
+                type: string
+              version:
+                type: integer
+            required:
+            - noteId
+            - version
+            additionalProperties: false
+        failedItems:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      required:
+      - createdNotes
+      - failedItems
       additionalProperties: false
     InternalNoteSnapshotData:
       type: object
