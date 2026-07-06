@@ -14,6 +14,7 @@ import {
   requestEmailVerification,
   resolveAuthReturnTo,
   setAuthSessionPersistence,
+  startDemoSession,
   verifyEmailCode,
 } from "@/lib/auth-api";
 import { useBrainX } from "@/components/brainx-provider";
@@ -99,6 +100,14 @@ export function LoginScreen() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleDemoLogin = () => {
+    setAuthSessionPersistence(rememberMe ? "local" : "session");
+    startDemoSession();
+    pushToast("데모 체험으로 입장했습니다.", "ok");
+    const nextRoute = isElectronDesktop() && returnTo === "/home" ? "/" : resolveAuthReturnTo(returnTo);
+    router.push(nextRoute);
   };
 
   const openReset = () => {
@@ -254,6 +263,9 @@ export function LoginScreen() {
         <div className="h-px flex-1 bg-line/60" />
       </div>
       <SocialButtons recentLogin={recentLogin} returnTo={returnTo} rememberMe={rememberMe} />
+      <Btn variant="soft" size="lg" className="mt-3 w-full" onClick={handleDemoLogin}>
+        데모 체험
+      </Btn>
       <p className="mt-12 text-center text-[15px] text-txt2">
         계정이 없으신가요?{" "}
         <button type="button" onClick={() => router.push(buildAuthPath("/signup", returnTo))} className="font-medium text-primary">
