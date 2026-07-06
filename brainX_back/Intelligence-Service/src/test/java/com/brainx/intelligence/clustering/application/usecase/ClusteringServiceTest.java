@@ -25,6 +25,8 @@ import com.brainx.intelligence.clustering.domain.ClusterJobLatestState;
 import com.brainx.intelligence.clustering.domain.ClusterJobStatus;
 import com.brainx.intelligence.clustering.domain.ClusteringForbiddenException;
 import com.brainx.intelligence.clustering.domain.ClusteringNotFoundException;
+import com.brainx.intelligence.llmops.LlmOpsTestSupport;
+import com.brainx.intelligence.llmops.application.port.outbound.LlmOpsStore;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
 import com.brainx.intelligence.settings.application.port.outbound.StyleProfilePort;
@@ -64,6 +66,7 @@ class ClusteringServiceTest {
     private final ClusteringProperties properties = new ClusteringProperties();
     private final FakeStyleProfilePort styleProfilePort = new FakeStyleProfilePort();
     private final StylePromptCompiler stylePromptCompiler = new StylePromptCompiler(styleProfilePort);
+    private final LlmOpsStore llmOpsStore = LlmOpsTestSupport.store();
     private final ClusteringService service = new ClusteringService(
         store,
         noteSource,
@@ -71,6 +74,8 @@ class ClusteringServiceTest {
         settingsPort,
         chatPort,
         new AiUsageRecorder(tokenUsagePort, new AiTokenUsageCostEstimator(new EmptyAiModelCatalogPort())),
+        LlmOpsTestSupport.runRecorder(llmOpsStore),
+        LlmOpsTestSupport.promptRegistry(llmOpsStore),
         eventPort,
         properties,
         new ObjectMapper(),

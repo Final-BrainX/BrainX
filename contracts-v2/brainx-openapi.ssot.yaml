@@ -6596,7 +6596,7 @@ paths:
 
                     event: done
 
-                    data: {"suggestionId":"sug_01J...","action":"REWRITE","modelId":"gpt-5.4-mini"}
+                    data: {"suggestionId":"sug_01J...","action":"REWRITE","modelId":"gpt-5.4-mini","llmRunId":"run_01J..."}
 
 
                     '
@@ -6699,6 +6699,77 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
         '409':
           description: 충돌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+  /api/v1/ai/llm-feedback:
+    put:
+      operationId: upsertLlmFeedback
+      summary: LLM 응답 사용자 피드백 등록/수정
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.chat
+        type: frontend
+        description: AI 응답 좋아요/싫어요 피드백 UI
+      - id: web.note-editor
+        type: frontend
+        description: 인라인 AI 제안 피드백 UI
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      description: 같은 userId + llmRunId 조합은 upsert한다. llmRunId는 실제 provider 호출이 있는 생성형 AI 응답에만 제공된다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LlmFeedbackRequest'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/LlmFeedbackData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: LLM run을 찾을 수 없음
           content:
             application/json:
               schema:
@@ -6915,7 +6986,7 @@ paths:
 
                     event: done
 
-                    data: {"messageId":"msg_01J..."}
+                    data: {"messageId":"msg_01J...","llmRunId":"run_01J..."}
 
 
                     '
@@ -6928,7 +6999,7 @@ paths:
 
                     event: done
 
-                    data: {"messageId":"msg_01J..."}
+                    data: {"messageId":"msg_01J...","llmRunId":"run_01J..."}
 
 
                     '
@@ -11668,6 +11739,528 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - serviceTokenAuth: []
+  /internal/v1/intelligence/llmops/runs:
+    get:
+      operationId: listLlmRunsInternal
+      summary: '[Internal] LLM run 로그 목록 조회'
+      tags:
+      - Internal Service APIs
+      x-producer-service: knowledge-intelligence
+      x-visibility: internal
+      x-consumers:
+      - id: internal.admin-service
+        type: internal-service
+        description: 관리자 PromptOps/LLMOps 화면과 품질 운영 도구
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: userId
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: featureId
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/LlmRunStatus'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+          minimum: 1
+          maximum: 200
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/LlmRunListData'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - serviceTokenAuth: []
+  /internal/v1/intelligence/llmops/runs/{llmRunId}:
+    get:
+      operationId: getLlmRunInternal
+      summary: '[Internal] LLM run 상세 조회'
+      tags:
+      - Internal Service APIs
+      x-producer-service: knowledge-intelligence
+      x-visibility: internal
+      x-consumers:
+      - id: internal.admin-service
+        type: internal-service
+        description: 관리자 PromptOps/LLMOps 화면과 품질 운영 도구
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: llmRunId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/LlmRunData'
+        '404':
+          description: 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - serviceTokenAuth: []
+  /internal/v1/intelligence/llmops/feedback:
+    get:
+      operationId: listLlmFeedbackInternal
+      summary: '[Internal] LLM 피드백 목록 조회'
+      tags:
+      - Internal Service APIs
+      x-producer-service: knowledge-intelligence
+      x-visibility: internal
+      x-consumers:
+      - id: internal.admin-service
+        type: internal-service
+        description: 관리자 PromptOps/LLMOps 화면과 품질 운영 도구
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: userId
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: llmRunId
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+          minimum: 1
+          maximum: 200
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/LlmFeedbackListData'
+      security:
+      - serviceTokenAuth: []
+  /internal/v1/intelligence/llmops/prompts:
+    get:
+      operationId: listPromptDefinitionsInternal
+      summary: '[Internal] Prompt definition 목록 조회'
+      tags:
+      - Internal Service APIs
+      x-producer-service: knowledge-intelligence
+      x-visibility: internal
+      x-consumers:
+      - id: internal.admin-service
+        type: internal-service
+        description: 관리자 PromptOps/LLMOps 화면과 품질 운영 도구
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/PromptDefinitionListData'
+      security:
+      - serviceTokenAuth: []
+  /internal/v1/intelligence/llmops/prompts/{promptKey}:
+    put:
+      operationId: upsertPromptDefinitionInternal
+      summary: '[Internal] Prompt definition 등록/수정'
+      tags:
+      - Internal Service APIs
+      x-producer-service: knowledge-intelligence
+      x-visibility: internal
+      x-consumers:
+      - id: internal.admin-service
+        type: internal-service
+        description: 관리자 PromptOps/LLMOps 화면과 품질 운영 도구
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: promptKey
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromptDefinitionRequest'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/PromptDefinitionData'
+      security:
+      - serviceTokenAuth: []
+  /internal/v1/intelligence/llmops/prompts/{promptKey}/versions:
+    post:
+      operationId: createPromptVersionInternal
+      summary: '[Internal] Prompt version 생성'
+      tags:
+      - Internal Service APIs
+      x-producer-service: knowledge-intelligence
+      x-visibility: internal
+      x-consumers:
+      - id: internal.admin-service
+        type: internal-service
+        description: 관리자 PromptOps/LLMOps 화면과 품질 운영 도구
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: promptKey
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromptVersionCreateRequest'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/PromptVersionData'
+      security:
+      - serviceTokenAuth: []
+  /internal/v1/intelligence/llmops/prompts/{promptKey}/versions/{version}/activate:
+    post:
+      operationId: activatePromptVersionInternal
+      summary: '[Internal] Prompt active version 전환'
+      tags:
+      - Internal Service APIs
+      x-producer-service: knowledge-intelligence
+      x-visibility: internal
+      x-consumers:
+      - id: internal.admin-service
+        type: internal-service
+        description: 관리자 PromptOps/LLMOps 화면과 품질 운영 도구
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: promptKey
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/PromptVersionData'
+      security:
+      - serviceTokenAuth: []
+  /internal/v1/intelligence/llmops/eval-sets:
+    post:
+      operationId: createEvalSetInternal
+      summary: '[Internal] Eval set 생성'
+      tags:
+      - Internal Service APIs
+      x-producer-service: knowledge-intelligence
+      x-visibility: internal
+      x-consumers:
+      - id: internal.admin-service
+        type: internal-service
+        description: 관리자 PromptOps/LLMOps 화면과 품질 운영 도구
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvalSetCreateRequest'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/EvalSetData'
+      security:
+      - serviceTokenAuth: []
+  /internal/v1/intelligence/llmops/eval-sets/{evalSetId}:
+    get:
+      operationId: getEvalSetInternal
+      summary: '[Internal] Eval set 상세 조회'
+      tags:
+      - Internal Service APIs
+      x-producer-service: knowledge-intelligence
+      x-visibility: internal
+      x-consumers:
+      - id: internal.admin-service
+        type: internal-service
+        description: 관리자 PromptOps/LLMOps 화면과 품질 운영 도구
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: evalSetId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/EvalSetData'
+        '404':
+          description: 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - serviceTokenAuth: []
+  /internal/v1/intelligence/llmops/eval-sets/{evalSetId}/scenarios:
+    post:
+      operationId: createEvalScenarioInternal
+      summary: '[Internal] Eval scenario 생성'
+      tags:
+      - Internal Service APIs
+      x-producer-service: knowledge-intelligence
+      x-visibility: internal
+      x-consumers:
+      - id: internal.admin-service
+        type: internal-service
+        description: 관리자 PromptOps/LLMOps 화면과 품질 운영 도구
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: evalSetId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvalScenarioCreateRequest'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/EvalScenarioData'
+      security:
+      - serviceTokenAuth: []
+  /internal/v1/intelligence/llmops/eval-runs:
+    post:
+      operationId: runLlmEvalInternal
+      summary: '[Internal] Eval run 동기 실행'
+      tags:
+      - Internal Service APIs
+      x-producer-service: knowledge-intelligence
+      x-visibility: internal
+      x-consumers:
+      - id: internal.admin-service
+        type: internal-service
+        description: 관리자 PromptOps/LLMOps 화면과 품질 운영 도구
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvalRunRequest'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/EvalRunData'
+      security:
+      - serviceTokenAuth: []
+  /internal/v1/intelligence/llmops/eval-runs/{evalRunId}:
+    get:
+      operationId: getLlmEvalRunInternal
+      summary: '[Internal] Eval run 결과 조회'
+      tags:
+      - Internal Service APIs
+      x-producer-service: knowledge-intelligence
+      x-visibility: internal
+      x-consumers:
+      - id: internal.admin-service
+        type: internal-service
+        description: 관리자 PromptOps/LLMOps 화면과 품질 운영 도구
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: evalRunId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/EvalRunData'
+        '404':
+          description: 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - serviceTokenAuth: []
   /internal/v1/entitlements/check:
     post:
       operationId: checkEntitlementsInternal
@@ -16354,6 +16947,477 @@ components:
       - suggestionId
       - decision
       additionalProperties: false
+    LlmFeedbackRating:
+      type: string
+      enum:
+      - LIKE
+      - DISLIKE
+    LlmFeedbackRequest:
+      type: object
+      properties:
+        llmRunId:
+          type: string
+        rating:
+          $ref: '#/components/schemas/LlmFeedbackRating'
+        reasonCode:
+          type: string
+          nullable: true
+        comment:
+          type: string
+          nullable: true
+      required:
+      - llmRunId
+      - rating
+      additionalProperties: false
+    LlmFeedbackData:
+      type: object
+      properties:
+        feedbackId:
+          type: string
+        llmRunId:
+          type: string
+        rating:
+          $ref: '#/components/schemas/LlmFeedbackRating'
+        reasonCode:
+          type: string
+          nullable: true
+        comment:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+      - feedbackId
+      - llmRunId
+      - rating
+      - createdAt
+      - updatedAt
+      additionalProperties: false
+    LlmFeedbackListData:
+      type: object
+      properties:
+        feedback:
+          type: array
+          items:
+            $ref: '#/components/schemas/LlmFeedbackData'
+      required:
+      - feedback
+      additionalProperties: false
+    LlmRunStatus:
+      type: string
+      enum:
+      - RUNNING
+      - SUCCEEDED
+      - FAILED
+    LlmRunData:
+      type: object
+      properties:
+        llmRunId:
+          type: string
+        userId:
+          type: string
+          nullable: true
+        featureId:
+          type: string
+          nullable: true
+        targetType:
+          type: string
+          nullable: true
+        targetId:
+          type: string
+          nullable: true
+        promptKey:
+          type: string
+          nullable: true
+        promptVersion:
+          type: string
+          nullable: true
+        modelId:
+          type: string
+          nullable: true
+        provider:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/LlmRunStatus'
+        latencyMs:
+          type: integer
+          format: int64
+          nullable: true
+        inputTokens:
+          type: integer
+          nullable: true
+        cachedInputTokens:
+          type: integer
+          nullable: true
+        billableInputTokens:
+          type: integer
+          nullable: true
+        outputTokens:
+          type: integer
+          nullable: true
+        reasoningTokens:
+          type: integer
+          nullable: true
+        totalTokens:
+          type: integer
+          nullable: true
+        estimatedCost:
+          type: number
+          nullable: true
+        costCurrency:
+          type: string
+          nullable: true
+        inputPreview:
+          type: object
+          additionalProperties: true
+        outputPreview:
+          type: object
+          additionalProperties: true
+        metadata:
+          type: object
+          additionalProperties: true
+        errorCode:
+          type: string
+          nullable: true
+        errorMessage:
+          type: string
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - llmRunId
+      - status
+      - startedAt
+      additionalProperties: true
+    LlmRunListData:
+      type: object
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: '#/components/schemas/LlmRunData'
+      required:
+      - runs
+      additionalProperties: false
+    PromptVersionStatus:
+      type: string
+      enum:
+      - DRAFT
+      - ACTIVE
+      - ARCHIVED
+    PromptDefinitionRequest:
+      type: object
+      properties:
+        featureId:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        variableSchema:
+          type: object
+          additionalProperties: true
+      additionalProperties: false
+    PromptDefinitionData:
+      type: object
+      properties:
+        promptKey:
+          type: string
+        featureId:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        variableSchema:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+      - promptKey
+      - createdAt
+      - updatedAt
+      additionalProperties: false
+    PromptDefinitionListData:
+      type: object
+      properties:
+        prompts:
+          type: array
+          items:
+            $ref: '#/components/schemas/PromptDefinitionData'
+      required:
+      - prompts
+      additionalProperties: false
+    PromptVersionCreateRequest:
+      type: object
+      properties:
+        version:
+          type: integer
+          nullable: true
+        template:
+          type: string
+        variableSchema:
+          type: object
+          additionalProperties: true
+      required:
+      - template
+      additionalProperties: false
+    PromptVersionData:
+      type: object
+      properties:
+        promptVersionId:
+          type: string
+        promptKey:
+          type: string
+        version:
+          type: integer
+        status:
+          $ref: '#/components/schemas/PromptVersionStatus'
+        template:
+          type: string
+        variableSchema:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        activatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - promptVersionId
+      - promptKey
+      - version
+      - status
+      - template
+      - createdAt
+      additionalProperties: false
+    EvalScenarioType:
+      type: string
+      enum:
+      - PROMPT_COMPLETION
+      - CHAT_ROUTE
+      - INLINE_ASSIST
+      - CONNECTION_LINK
+      - CONNECTION_BRIDGE
+      - RAG_CHAT
+    EvalRunStatus:
+      type: string
+      enum:
+      - RUNNING
+      - COMPLETED
+      - FAILED
+    EvalResultStatus:
+      type: string
+      enum:
+      - PASSED
+      - FAILED
+      - ERROR
+    EvalFailureType:
+      type: string
+      enum:
+      - PROVIDER
+      - QUALITY
+      - CONFIG
+      - VALIDATION
+    EvalSetCreateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+      required:
+      - name
+      additionalProperties: false
+    EvalSetData:
+      type: object
+      properties:
+        evalSet:
+          $ref: '#/components/schemas/EvalSetCoreData'
+        scenarios:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvalScenarioData'
+      required:
+      - evalSet
+      - scenarios
+      additionalProperties: false
+    EvalSetCoreData:
+      type: object
+      properties:
+        evalSetId:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+      - evalSetId
+      - name
+      - createdAt
+      additionalProperties: false
+    EvalScenarioCreateRequest:
+      type: object
+      properties:
+        scenarioType:
+          $ref: '#/components/schemas/EvalScenarioType'
+        name:
+          type: string
+        input:
+          type: object
+          additionalProperties: true
+        validation:
+          type: object
+          additionalProperties: true
+      required:
+      - scenarioType
+      - name
+      additionalProperties: false
+    EvalScenarioData:
+      type: object
+      properties:
+        scenarioId:
+          type: string
+        evalSetId:
+          type: string
+        scenarioType:
+          $ref: '#/components/schemas/EvalScenarioType'
+        name:
+          type: string
+        input:
+          type: object
+          additionalProperties: true
+        validation:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+      - scenarioId
+      - evalSetId
+      - scenarioType
+      - name
+      - createdAt
+      additionalProperties: false
+    EvalRunRequest:
+      type: object
+      properties:
+        evalSetId:
+          type: string
+        modelId:
+          type: string
+      required:
+      - evalSetId
+      - modelId
+      additionalProperties: false
+    EvalRunData:
+      type: object
+      properties:
+        run:
+          $ref: '#/components/schemas/EvalRunCoreData'
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvalResultData'
+      required:
+      - run
+      - results
+      additionalProperties: false
+    EvalRunCoreData:
+      type: object
+      properties:
+        evalRunId:
+          type: string
+        evalSetId:
+          type: string
+        status:
+          $ref: '#/components/schemas/EvalRunStatus'
+        modelId:
+          type: string
+        scenarioCount:
+          type: integer
+        passedCount:
+          type: integer
+        failedCount:
+          type: integer
+        failureType:
+          $ref: '#/components/schemas/EvalFailureType'
+        failureMessage:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - evalRunId
+      - evalSetId
+      - status
+      - modelId
+      - createdAt
+      additionalProperties: false
+    EvalResultData:
+      type: object
+      properties:
+        resultId:
+          type: string
+        evalRunId:
+          type: string
+        scenarioId:
+          type: string
+        status:
+          $ref: '#/components/schemas/EvalResultStatus'
+        output:
+          type: object
+          additionalProperties: true
+        failureType:
+          $ref: '#/components/schemas/EvalFailureType'
+        failureMessage:
+          type: string
+          nullable: true
+        llmRunId:
+          type: string
+          nullable: true
+        latencyMs:
+          type: integer
+          format: int64
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+      - resultId
+      - evalRunId
+      - scenarioId
+      - status
+      - createdAt
+      additionalProperties: false
     ChatThreadCreateRequest:
       type: object
       properties:
@@ -16701,6 +17765,9 @@ components:
         modelId:
           type: string
           nullable: true
+        llmRunId:
+          type: string
+          nullable: true
         createdAt:
           type: string
           format: date-time
@@ -16901,6 +17968,9 @@ components:
           items:
             type: object
             additionalProperties: true
+        llmRunId:
+          type: string
+          nullable: true
       required:
       - proposalId
       additionalProperties: false
@@ -16915,6 +17985,9 @@ components:
     LinkSuggestionsData:
       type: object
       properties:
+        llmRunId:
+          type: string
+          nullable: true
         suggestions:
           type: array
           items:
@@ -16973,6 +18046,9 @@ components:
           type: string
         status:
           $ref: '#/components/schemas/JobStatus'
+        llmRunId:
+          type: string
+          nullable: true
         clusters:
           type: array
           items:
@@ -17043,6 +18119,9 @@ components:
     BridgeConceptsData:
       type: object
       properties:
+        llmRunId:
+          type: string
+          nullable: true
         recommendations:
           type: array
           items:
@@ -17080,6 +18159,9 @@ components:
           type: string
         status:
           $ref: '#/components/schemas/JobStatus'
+        llmRunId:
+          type: string
+          nullable: true
         summary:
           type: string
           nullable: true

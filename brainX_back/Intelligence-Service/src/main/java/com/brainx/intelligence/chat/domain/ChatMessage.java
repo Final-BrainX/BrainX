@@ -18,6 +18,7 @@ public record ChatMessage(
     Map<String, Object> clientContext,
     List<ChatCitation> citations,
     ChatTokenUsage tokenUsage,
+    String llmRunId,
     Instant createdAt
 ) {
 
@@ -33,6 +34,7 @@ public record ChatMessage(
         noteScope = immutableMap(noteScope);
         clientContext = immutableMap(clientContext);
         citations = immutableList(citations);
+        llmRunId = llmRunId == null || llmRunId.isBlank() ? null : llmRunId.trim();
         createdAt = createdAt == null ? Instant.now() : createdAt;
     }
 
@@ -57,6 +59,34 @@ public record ChatMessage(
             clientContext,
             List.of(),
             null,
+            null,
+            createdAt
+        );
+    }
+
+    public static ChatMessage assistant(
+        String messageId,
+        String threadId,
+        String userId,
+        String content,
+        String modelId,
+        List<ChatCitation> citations,
+        ChatTokenUsage tokenUsage,
+        String llmRunId,
+        Instant createdAt
+    ) {
+        return new ChatMessage(
+            messageId,
+            threadId,
+            userId,
+            ChatRole.ASSISTANT,
+            content,
+            modelId,
+            Map.of(),
+            Map.of(),
+            citations,
+            tokenUsage,
+            llmRunId,
             createdAt
         );
     }
@@ -71,19 +101,7 @@ public record ChatMessage(
         ChatTokenUsage tokenUsage,
         Instant createdAt
     ) {
-        return new ChatMessage(
-            messageId,
-            threadId,
-            userId,
-            ChatRole.ASSISTANT,
-            content,
-            modelId,
-            Map.of(),
-            Map.of(),
-            citations,
-            tokenUsage,
-            createdAt
-        );
+        return assistant(messageId, threadId, userId, content, modelId, citations, tokenUsage, null, createdAt);
     }
 
     private static String requireText(String value, String name) {

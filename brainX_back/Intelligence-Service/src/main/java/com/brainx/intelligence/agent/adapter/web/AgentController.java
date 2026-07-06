@@ -209,6 +209,7 @@ public class AgentController {
             message.role(),
             message.content(),
             message.modelId(),
+            message.llmRunId(),
             message.createdAt(),
             message.actions().stream().map(AgentController::toActionData).toList()
         );
@@ -316,6 +317,7 @@ public class AgentController {
         AgentRole role,
         String content,
         String modelId,
+        String llmRunId,
         Instant createdAt,
         List<AgentActionData> actions
     ) {

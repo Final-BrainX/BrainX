@@ -34,7 +34,11 @@ public interface CreateInlineAssistUseCase {
         String suggestionId,
         InlineAssistAction action,
         String modelId,
+        String llmRunId,
         String text
     ) {
+        public InlineAssistResult(String suggestionId, InlineAssistAction action, String modelId, String text) {
+            this(suggestionId, action, modelId, null, text);
+        }
     }
 }

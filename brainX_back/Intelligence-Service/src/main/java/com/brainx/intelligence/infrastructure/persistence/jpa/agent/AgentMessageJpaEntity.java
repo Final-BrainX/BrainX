@@ -45,6 +45,9 @@ public class AgentMessageJpaEntity {
     @Column(name = "model_id", length = 120)
     private String modelId;
 
+    @Column(name = "llm_run_id", length = 120)
+    private String llmRunId;
+
     @Lob
     @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "client_context", nullable = false)
@@ -65,6 +68,7 @@ public class AgentMessageJpaEntity {
         entity.role = message.role();
         entity.content = message.content();
         entity.modelId = message.modelId();
+        entity.llmRunId = message.llmRunId();
         entity.clientContext = message.clientContext();
         entity.createdAt = message.createdAt();
         return entity;
@@ -78,6 +82,7 @@ public class AgentMessageJpaEntity {
             role,
             content,
             modelId,
+            llmRunId,
             clientContext,
             createdAt
         );

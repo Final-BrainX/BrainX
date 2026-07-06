@@ -10,6 +10,8 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 import com.brainx.intelligence.chat.domain.ChatRoute;
+import com.brainx.intelligence.llmops.LlmOpsTestSupport;
+import com.brainx.intelligence.llmops.application.port.outbound.LlmOpsStore;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.domain.AiModel;
 import com.brainx.intelligence.settings.domain.VendorTokenCost;
@@ -31,10 +33,13 @@ class ChatRouteDeciderTest {
     private final ChatRouterProperties properties = new ChatRouterProperties();
     private final FakeAiChatPort chatPort = new FakeAiChatPort();
     private final FakeTokenUsagePort tokenUsagePort = new FakeTokenUsagePort();
+    private final LlmOpsStore llmOpsStore = LlmOpsTestSupport.store();
     private final LlmChatRouteDecider decider = new LlmChatRouteDecider(
         properties,
         chatPort,
         new AiUsageRecorder(tokenUsagePort, new AiTokenUsageCostEstimator(new FakeAiModelCatalogPort())),
+        LlmOpsTestSupport.runRecorder(llmOpsStore),
+        LlmOpsTestSupport.promptRegistry(llmOpsStore),
         new ObjectMapper().findAndRegisterModules()
     );
 
@@ -87,6 +92,33 @@ class ChatRouteDeciderTest {
 
         assertThat(decision.route()).isEqualTo(ChatRoute.OUT_OF_SCOPE);
         assertThat(decision.reason()).isEqualTo("invalid router response");
+    }
+
+    @Test
+    void promptAllowsCurrentExternalTopicDraftsButKeepsPureFactLookupOutOfScope() {
+        chatPort.response = new AiChatResponse(
+            "{\"route\":\"COMPOSE\",\"reason\":\"document writing request\"}",
+            null
+        );
+
+        var decision = decider.decide(new ChatRouteDecider.ChatRouteRequest(
+            "user-1",
+            "최신 홍명보호 월드컵 성적에 대한 문서 작성해줘",
+            "group-1",
+            Map.of(),
+            Map.of()
+        ));
+
+        assertThat(decision.route()).isEqualTo(ChatRoute.COMPOSE);
+        assertThat(chatPort.lastRequest.messages().getFirst().content())
+            .contains("Choose COMPOSE for writing requests even when the topic mentions external")
+            .contains("Do not choose OUT_OF_SCOPE solely because a writing request mentions current or external facts")
+            .contains("Choose OUT_OF_SCOPE for pure current-fact lookup without a writing/drafting deliverable")
+            .contains("\"최신 홍명보호 월드컵 성적에 대한 문서 작성해줘\" -> COMPOSE")
+            .contains("\"홍명보호 월드컵 성적을 바탕으로 보고서 초안 써줘\" -> COMPOSE")
+            .contains("\"오늘 월드컵 예선 결과 알려줘\" -> OUT_OF_SCOPE");
+        assertThat(chatPort.lastRequest.messages().getLast().content())
+            .contains("최신 홍명보호 월드컵 성적에 대한 문서 작성해줘");
     }
 
     @Test

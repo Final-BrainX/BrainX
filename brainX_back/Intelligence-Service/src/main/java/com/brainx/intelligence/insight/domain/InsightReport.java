@@ -18,6 +18,7 @@ public record InsightReport(
     List<String> knowledgeGaps,
     List<InsightRecommendation> recommendations,
     String modelId,
+    String llmRunId,
     String idempotencyKey,
     String failureMessage,
     Instant createdAt,
@@ -38,9 +39,45 @@ public record InsightReport(
             .toList();
         recommendations = recommendations == null ? List.of() : List.copyOf(recommendations);
         modelId = modelId == null ? "" : modelId;
+        llmRunId = normalizeNullable(llmRunId);
         idempotencyKey = normalizeNullable(idempotencyKey);
         failureMessage = normalizeNullable(failureMessage);
         createdAt = createdAt == null ? Instant.EPOCH : createdAt;
+    }
+
+    public InsightReport(
+        String reportId,
+        String userId,
+        String documentGroupId,
+        InsightReportStatus status,
+        Map<String, Object> scope,
+        boolean includeLearningRecommendations,
+        String summary,
+        List<String> knowledgeGaps,
+        List<InsightRecommendation> recommendations,
+        String modelId,
+        String idempotencyKey,
+        String failureMessage,
+        Instant createdAt,
+        Instant completedAt
+    ) {
+        this(
+            reportId,
+            userId,
+            documentGroupId,
+            status,
+            scope,
+            includeLearningRecommendations,
+            summary,
+            knowledgeGaps,
+            recommendations,
+            modelId,
+            null,
+            idempotencyKey,
+            failureMessage,
+            createdAt,
+            completedAt
+        );
     }
 
     public static InsightReport running(
@@ -64,6 +101,7 @@ public record InsightReport(
             List.of(),
             List.of(),
             modelId,
+            null,
             idempotencyKey,
             null,
             createdAt,
@@ -88,6 +126,7 @@ public record InsightReport(
             completedKnowledgeGaps,
             completedRecommendations,
             modelId,
+            llmRunId,
             idempotencyKey,
             null,
             createdAt,
@@ -107,8 +146,29 @@ public record InsightReport(
             List.of(),
             List.of(),
             modelId,
+            llmRunId,
             idempotencyKey,
             message,
+            createdAt,
+            completedAt
+        );
+    }
+
+    public InsightReport withLlmRunId(String llmRunId) {
+        return new InsightReport(
+            reportId,
+            userId,
+            documentGroupId,
+            status,
+            scope,
+            includeLearningRecommendations,
+            summary,
+            knowledgeGaps,
+            recommendations,
+            modelId,
+            llmRunId,
+            idempotencyKey,
+            failureMessage,
             createdAt,
             completedAt
         );
