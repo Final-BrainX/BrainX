@@ -436,6 +436,20 @@ html.light .aurora b {
 .share-content .wiki-share-link { color: rgb(var(--primary)); text-decoration: none; background: rgb(var(--primary) / 0.08); border-radius: 4px; padding: 0.1em 0.4em; font-size: 0.9em; }
 .share-content .wiki-share-link:hover { background: rgb(var(--primary) / 0.16); }
 .share-content .wiki-link-badge { color: rgb(var(--txt3)); background: rgb(var(--surface2)); border-radius: 4px; padding: 0.1em 0.4em; font-size: 0.9em; cursor: default; }
+.share-content [data-tag-node] { display: inline-flex; align-items: center; color: rgb(var(--primary)); background: rgb(var(--primary) / 0.1); border: 1px solid rgb(var(--primary) / 0.2); border-radius: 9999px; padding: 0.1em 0.55em; font-size: 0.85em; font-weight: 500; }
+
+/* 토글 블록(processHtml의 convertToggleBlocks가 <details>/<summary>로 변환) */
+.share-content details.share-toggle { margin: 0.5rem 0; }
+.share-content details.share-toggle > summary { cursor: pointer; font-weight: 500; color: rgb(var(--txt)); padding: 0.2rem 0; list-style: revert; }
+.share-content details.share-toggle > summary:hover { color: rgb(var(--primary)); }
+.share-content .share-toggle-content { margin: 0.4rem 0 0.4rem 1.1rem; padding-left: 0.75rem; border-left: 2px solid rgb(var(--border) / 0.25); }
+
+/* PDF/HTML 임베드(processHtml이 <iframe>으로 직접 채움), PPT는 첫 슬라이드 미리보기 + 다운로드 */
+.share-content .share-file-block { margin: 1rem 0; border-radius: 8px; overflow: hidden; border: 1px solid rgb(var(--border) / 0.25); }
+.share-content .share-file-frame { width: 100%; height: 70vh; border: none; display: block; background: rgb(var(--surface2)); }
+.share-content .share-ppt-block { padding: 0.75rem; background: rgb(var(--surface2)); text-align: center; }
+.share-content .share-ppt-preview { max-width: 100%; border-radius: 6px; }
+.share-content .share-file-link { display: inline-block; margin-top: 0.6rem; font-size: 0.875rem; }
 
 @keyframes drift {
   0%,
