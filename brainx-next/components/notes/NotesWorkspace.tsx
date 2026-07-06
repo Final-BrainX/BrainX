@@ -2520,14 +2520,17 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   }, [primaryPaneId, paneTabs, requestNewNote, requestQuickSwitcher, handleManualSave]);
 
   // 위키링크([[노트]]) 기능에 필요한 컨텍스트 — 노트 목록 조회/존재 확인/이동/생성을 에디터
-  // 깊숙이(NoteEditor → CodeBlockView 같은 중첩 단계 없이도) 어디서든 쓸 수 있게 한다.
+  // 깊숙이(NoteEditor → CodeBlockView 같은 중첩 단계 없이도) 어디서든 쓸 수 있게 한다. 정책(§8)상
+  // WikiLink도 NotesExplorer/QuickSwitcher와 동일하게 현재 Workspace 안에서만 연결돼야 하므로
+  // visibleNotes/visibleFolders(현재 Workspace 기준)를 쓴다 — currentWorkspaceId가 null(Guest 또는
+  // Workspace 미선택)이면 matchesCurrentWorkspace가 항상 true라 기존처럼 전체 후보가 그대로 유지된다.
   const wikiLinkNoteRefs = useMemo(
-    () => notes.map((n) => ({ id: n.id, title: n.title, folderId: n.folderId ?? null })),
-    [notes]
+    () => visibleNotes.map((n) => ({ id: n.id, title: n.title, folderId: n.folderId ?? null })),
+    [visibleNotes]
   );
   const wikiLinkFolderRefs = useMemo(
-    () => folders.map((f) => ({ id: f.id, name: f.name, parentFolderId: f.parentFolderId })),
-    [folders]
+    () => visibleFolders.map((f) => ({ id: f.id, name: f.name, parentFolderId: f.parentFolderId })),
+    [visibleFolders]
   );
   const wikiLinkValue = useMemo<WikiLinkContextValue>(
     () => ({
