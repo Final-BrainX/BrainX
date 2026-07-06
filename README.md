@@ -118,6 +118,7 @@ BrainX/
 ### 로컬 Kafka
 
 `brainX_back/docker-compose.yml`에는 로컬 Kafka broker가 들어 있습니다. 호스트에서는 `localhost:9092`, 컨테이너 내부에서는 `kafka:9092`로 접근합니다. 1차 Kafka 범위에서는 기존 동기 흐름을 그대로 유지하고, 이벤트 발행은 서비스 플래그로 켜는 방식입니다. `BRAINX_EVENTS_OUTBOX_ENABLED=true`이면 Workspace-Service와 Commerce-Service가 outbox row를 Kafka로 흘리고, `BRAINX_EVENTS_PRODUCER_ENABLED=true`이면 Ingestion-Service가 `IntegrationConnected`, `ImportJobCompleted`, `ImportJobFailed`를 발행합니다. `BRAINX_EVENTS_CONSUMER_ENABLED=true`이면 Intelligence-Service가 workspace note 이벤트, `CaptureReceived`, note link 이벤트, folder 이벤트, `UserDeletionRequested`를 소비합니다. 작업 요약은 [`brainX_back/KAFKA_IMPLEMENTATION_SUMMARY.md`](brainX_back/KAFKA_IMPLEMENTATION_SUMMARY.md)에 둡니다. `ImportJobRequested`는 앞으로의 async worker 흐름에서 다룹니다.
+`apache/kafka:3.8.0` 이미지는 컨테이너 내부 Kafka CLI PATH가 고정적이지 않고, `kafka-topics.sh` 기반 healthcheck가 환경에 따라 느리거나 timeout을 내기 쉬워 로컬 Compose에서는 `nc -z localhost 9092` TCP probe를 사용합니다. 현재 Compose의 named volume `brainx_kafka_data`는 `/bitnami/kafka`로 연결돼 있어 Bitnami 경로 흔적이 남아 있습니다. 실제 런타임 데이터 디렉터리는 `/var/lib/kafka/data`이므로, 이 경로를 바꾸는 작업은 기존 Kafka 데이터 마운트 영향 범위를 확인한 뒤 별도 마이그레이션으로 다룹니다.
 `brainX_back/docker-compose.yml`의 `Intelligence-Service`는 env_file, Eureka, Kafka, Qdrant, and workspace-token settings를 한 서비스 블록으로 합쳐 두었습니다.
 `Admin-Service`가 Docker Compose로 뜰 때 관리자 모니터링의 Kafka lag는 `KAFKA_BOOTSTRAP_SERVERS=kafka:9092`, `BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID=intelligence-service` 기준으로 읽습니다. 배포 compose에서도 같은 값을 `admin-service` 환경변수로 주입하며, 호스트에서 직접 `Admin-Service`를 실행할 때만 `localhost:9092` 기본값을 사용합니다.
 

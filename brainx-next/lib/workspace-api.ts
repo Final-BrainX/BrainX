@@ -617,6 +617,11 @@ export async function saveWorkspaceNoteDraft(note: MockNote) {
   return authedRequest<NoteDraftSaveResult>(`/api/v1/notes/${note.id}/draft`, {
     method: "PUT",
     body: JSON.stringify({
+      // SSOT NoteDraftSaveRequest.documentGroupId: 로그인 사용자가 currentWorkspaceId를 실어
+      // 보내면 그 Workspace로 귀속되고, 생략하면(undefined -> JSON.stringify가 키 자체를
+      // 빼먹음) 기존처럼 호출자의 default Workspace로 귀속된다 — Guest/미선택 상태에서
+      // note.documentGroupId가 없는 경우는 지금까지와 동일하게 생략된다.
+      documentGroupId: note.documentGroupId ?? undefined,
       title: note.title,
       markdown: note.content,
       folderId: note.folderId ?? null,

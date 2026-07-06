@@ -2134,6 +2134,95 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     });
   }, [state, paneTabs, notes, folders, paneFontScale]);
 
+  /* Ticket14 2단계: Workspace 전환 시 탐색기/Quick Switcher에서는 이미 사라진(다른 Workspace
+     소속) 노트를 가리키는 탭이 화면에는 계속 열려 편집 가능한 상태로 남는 불일치를 없앤다.
+     정책(A): currentWorkspaceId가 실제로 바뀌면 새 Workspace 기준으로 보이지 않는 노트의 탭을
+     모두 닫는다 — 남는 탭이 없는 패널은 applyLocalNotesDeletion과 동일한 정책(분할의 일부면
+     closeNode로 제거, 유일한 leaf면 비워서 Welcome Board 노출)을 따른다. 노트/폴더 데이터
+     자체는 지우지 않으므로 다시 그 Workspace로 돌아오면 그대로 탐색기에 남아있다.
+     currentWorkspaceId 변경에만 반응해야 하므로(매 노트 편집마다 재실행되면 안 됨) notes/
+     paneTabs/state는 항상 최신값을 들고 있는 latestSessionRef를 통해 읽는다.
+
+     "전환"의 판정은 boolean 1회성 플래그가 아니라 직전 currentWorkspaceId 값을 직접 기억해서
+     비교해야 한다 — WorkspaceProvider는 마운트마다 null로 시작했다가 비동기로 default
+     Workspace를 resolve하므로(새로고침 시 마지막으로 보던 Workspace를 기억하지 않는다), null이
+     한쪽이라도 관여하는 전환(null→default 최초 해석, 조회 실패로 인한 non-null→null 리셋 등)은
+     전부 로딩/초기화 상태이지 사용자가 실제로 고른 전환이 아니다. 이 값을 boolean으로만
+     추적하면 "첫 effect 실행이 null인 채로 소비돼버려서" 정작 막아야 할 null→default 전환을
+     통과시켜, non-default Workspace에서 탭을 열어둔 채 새로고침한 사용자의 탭이 로딩 도중
+     stale로 오판되어 닫히는 회귀가 있었다 — previousWorkspaceId 자체가 null이거나
+     currentWorkspaceId가 null이면 항상 정리를 건너뛰고, 두 값이 모두 non-null이면서 서로 다를
+     때만 실제 전환으로 취급한다. */
+  const previousWorkspaceIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const previousWorkspaceId = previousWorkspaceIdRef.current;
+    previousWorkspaceIdRef.current = currentWorkspaceId;
+    if (!previousWorkspaceId || !currentWorkspaceId) return;
+    if (previousWorkspaceId === currentWorkspaceId) return;
+    const staleNoteIds = new Set(
+      latestSessionRef.current.notes
+        .filter((note) => !matchesCurrentWorkspace(note.documentGroupId))
+        .map((note) => note.id)
+    );
+    if (staleNoteIds.size === 0) return;
+
+    const { paneTabs: currentPaneTabs, root: currentRoot, activeId: currentActiveId } = latestSessionRef.current;
+    const affectedPaneIds = Object.keys(currentPaneTabs).filter((paneId) =>
+      currentPaneTabs[paneId].tabs.some((t) => staleNoteIds.has(t.noteId))
+    );
+    if (affectedPaneIds.length === 0) return;
+
+    let nextRoot = currentRoot;
+    const removedPaneIds = new Set<string>();
+    for (const paneId of affectedPaneIds) {
+      const remainingTabs = currentPaneTabs[paneId].tabs.filter((t) => !staleNoteIds.has(t.noteId));
+      if (remainingTabs.length > 0) continue;
+      if (countLeaves(nextRoot) > 1) {
+        const removed = closeNode(nextRoot, paneId);
+        if (removed) {
+          nextRoot = removed;
+          removedPaneIds.add(paneId);
+        }
+      } else {
+        nextRoot = setNoteOnLeaf(nextRoot, paneId, "");
+      }
+    }
+    if (nextRoot !== currentRoot) {
+      const nextActiveId = removedPaneIds.has(currentActiveId)
+        ? findFirstLeafId(nextRoot) ?? currentActiveId
+        : currentActiveId;
+      setState({ root: nextRoot, activeId: nextActiveId });
+    }
+
+    setPaneTabs((prev) => {
+      const next = { ...prev };
+      for (const paneId of affectedPaneIds) {
+        if (removedPaneIds.has(paneId)) {
+          delete next[paneId];
+          continue;
+        }
+        const current = next[paneId];
+        if (!current) continue;
+        const newTabs = current.tabs.filter((t) => !staleNoteIds.has(t.noteId));
+        const newActiveTabId = newTabs.some((t) => t.id === current.activeTabId)
+          ? current.activeTabId
+          : newTabs[0]?.id ?? "";
+        next[paneId] = { tabs: newTabs, activeTabId: newActiveTabId };
+      }
+      return next;
+    });
+
+    setTabMode((prev) => {
+      const next = { ...prev };
+      for (const paneId of affectedPaneIds) {
+        currentPaneTabs[paneId].tabs.forEach((t) => {
+          if (staleNoteIds.has(t.noteId)) delete next[t.id];
+        });
+      }
+      return next;
+    });
+  }, [currentWorkspaceId, matchesCurrentWorkspace]);
+
   useEffect(() => {
     if (USE_MOCK_NOTES || !hydratedRef.current || !activeNote) return;
     if (!activeNote.id.startsWith("note_")) return;
