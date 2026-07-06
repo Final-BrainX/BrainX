@@ -13,6 +13,7 @@
 
 ```text
 brainx-electron/
+|-- build/                   # packaged app resources such as icon.png and icon.ico
 |-- scripts/
 |   `-- build-renderer.mjs   # builds and copies the bundled Next standalone renderer
 |-- src/

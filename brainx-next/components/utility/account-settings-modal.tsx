@@ -45,8 +45,22 @@ import {
 import { getMyWorkspaceStats, type WorkspaceUserStatsData } from "@/lib/workspace-api";
 import { createSupportTicket, getMySupportTicket, getMySupportTickets, type SupportTicket, type SupportTicketDetail, type SupportTicketPayload } from "@/lib/support-api";
 import { getRecentDailySeries, summarizeWorkspaceNotes } from "@/lib/workspace-note-stats";
-import { getBrainxDesktopConfig, isElectronDesktop, type BrainxDesktopVaultSyncMode, type BrainxDesktopVaultSyncPolicy } from "@/lib/desktop-bridge";
-import { getDesktopVaultSyncPolicy, requestDesktopVaultManualSync, setDesktopVaultSyncPolicy } from "@/lib/desktop-vault";
+import {
+  getBrainxDesktopConfig,
+  isElectronDesktop,
+  type BrainxDesktopVaultSummary,
+  type BrainxDesktopVaultSyncMode,
+  type BrainxDesktopVaultSyncPolicy
+} from "@/lib/desktop-bridge";
+import {
+  activateDesktopVault,
+  chooseDesktopVaultDirectory,
+  createDesktopVault,
+  getDesktopVaultSyncPolicy,
+  listDesktopVaults,
+  requestDesktopVaultManualSync,
+  setDesktopVaultSyncPolicy
+} from "@/lib/desktop-vault";
 import { addPopupResultListener, openBrainxPopup } from "@/lib/desktop-bridge";
 import { cx } from "@/lib/utils";
 import type { ThemeMode } from "@/components/brainx-provider";
@@ -1281,6 +1295,121 @@ function ConsentButton({
   );
 }
 
+function DesktopVaultSwitcherSection() {
+  const router = useRouter();
+  const { pushToast } = useBrainX();
+  const [supported, setSupported] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [activeVaultId, setActiveVaultId] = useState<string | null>(null);
+  const [recentVaults, setRecentVaults] = useState<BrainxDesktopVaultSummary[]>([]);
+
+  const refresh = useCallback(async () => {
+    const [config, vaults] = await Promise.all([getBrainxDesktopConfig(), listDesktopVaults()]);
+    setSupported(Boolean(config));
+    setActiveVaultId(config?.activeVault?.id ?? null);
+    setRecentVaults(vaults);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!isElectronDesktop()) {
+      setSupported(false);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    refresh()
+      .catch(() => {
+        if (!active) return;
+        setSupported(false);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [refresh]);
+
+  if (!supported) {
+    return null;
+  }
+
+  const runVaultAction = async (action: () => Promise<BrainxDesktopVaultSummary | null>, successMessage: string) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const vault = await action();
+      if (!vault) return;
+      await refresh();
+      pushToast(successMessage, "ok");
+      router.push("/notes");
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : "vault 전환을 완료하지 못했습니다.", "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const activeVault = recentVaults.find((vault) => vault.id === activeVaultId) ?? null;
+
+  return (
+    <section className="mt-5 rounded-[12px] border border-[#e5e0d8] px-4 py-4">
+      <div className="mb-3">
+        <h2 className="text-[14px] font-bold text-[#2f2d2a]">Desktop Vault 선택</h2>
+        <p className="mt-1 text-[12px] leading-5 text-[#6d6861]">
+          앱에서는 마지막으로 작업한 vault를 자동으로 다시 엽니다. 여기서 현재 vault를 바꾸거나 새 vault를 연결할 수 있습니다.
+        </p>
+      </div>
+
+      <div className="mb-3 rounded-[10px] bg-[#fbfaf8] px-3 py-3">
+        <div className="text-[11px] font-semibold text-[#6d6861]">현재 active vault</div>
+        <div className="mt-1 text-[13px] font-semibold text-[#2f2d2a]">{loading ? "불러오는 중..." : activeVault?.name ?? "선택된 vault 없음"}</div>
+        <div className="mt-1 truncate text-[11px] text-[#8c877f]">{activeVault?.vaultPath ?? "연결된 vault가 아직 없습니다."}</div>
+      </div>
+
+      <div className="mb-3 flex flex-wrap gap-2">
+        <ModalButton disabled={busy || loading} onClick={() => void runVaultAction(() => chooseDesktopVaultDirectory(), "기존 vault를 연결했습니다.")}>
+          기존 vault 열기
+        </ModalButton>
+        <ModalButton primary disabled={busy || loading} onClick={() => void runVaultAction(() => createDesktopVault("BrainX Vault"), "새 vault를 만들었습니다.")}>
+          새 vault 만들기
+        </ModalButton>
+      </div>
+
+      <div className="space-y-2">
+        {(loading ? [] : recentVaults).map((vault) => {
+          const active = vault.id === activeVaultId;
+          return (
+            <div key={vault.id} className={cx("flex items-center justify-between gap-3 rounded-[10px] border px-3 py-3", active ? "border-[#cfc3ff] bg-[#f6f1ff]" : "border-[#ece7df] bg-white")}>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <div className="truncate text-[13px] font-semibold text-[#2f2d2a]">{vault.name}</div>
+                  {active ? <span className="rounded-full bg-[#ede7ff] px-2 py-0.5 text-[10px] font-semibold text-[#6c55f6]">현재 사용 중</span> : null}
+                </div>
+                <div className="mt-1 truncate text-[11px] text-[#8c877f]">{vault.vaultPath}</div>
+              </div>
+              <ModalButton
+                primary={!active}
+                disabled={busy || active}
+                onClick={() => void runVaultAction(() => activateDesktopVault(vault.id), `${vault.name} vault로 전환했습니다.`)}
+              >
+                {active ? "현재 vault" : "열기"}
+              </ModalButton>
+            </div>
+          );
+        })}
+        {!loading && recentVaults.length === 0 ? (
+          <div className="rounded-[10px] border border-dashed border-[#e5e0d8] px-3 py-4 text-[12px] text-[#8c877f]">최근 vault가 아직 없습니다.</div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function DesktopVaultSyncSection() {
   const { pushToast } = useBrainX();
   const [supported, setSupported] = useState(false);
@@ -1440,6 +1569,7 @@ function GeneralSettingsPanel({
           action={<ConsentButton checked={consents.behaviorAnalyticsOptional} disabled={savingConsent === "behaviorAnalyticsOptional"} onChange={(value) => onConsentChange("behaviorAnalyticsOptional", value)} />}
         />
       </section>
+      <DesktopVaultSwitcherSection />
       <DesktopVaultSyncStatusSection />
     </>
   );
