@@ -180,6 +180,22 @@ type WorkspaceListData = {
   workspaces: WorkspaceSummaryData[];
 };
 
+/** NotesWorkspace.tsx의 matchesCurrentWorkspace와 동일한 판정 로직 — 현재 선택된 Workspace
+    기준으로 documentGroupId가 "보여도 되는지" 판단한다. currentWorkspaceId===null(Guest 또는
+    Workspace 미선택)이면 항상 true(전체 노출, 기존 동작 유지)이고, default Workspace가
+    선택돼 있으면 documentGroupId가 없는(레거시) 항목도 함께 노출한다. TopBar 전역 검색처럼
+    NotesWorkspace 바깥에서도 같은 Workspace 스코프 판정이 필요한 곳에서 재사용한다. */
+export function matchesWorkspaceScope(
+  documentGroupId: string | null | undefined,
+  currentWorkspaceId: string | null,
+  workspaces: WorkspaceSummaryData[]
+): boolean {
+  if (currentWorkspaceId === null) return true;
+  if ((documentGroupId ?? null) === currentWorkspaceId) return true;
+  const currentWorkspace = workspaces.find((w) => w.documentGroupId === currentWorkspaceId) ?? null;
+  return currentWorkspace?.isDefault === true && (documentGroupId ?? null) === null;
+}
+
 async function shouldUseDesktopVault() {
   if (!isElectronDesktop()) return false;
   const config = await getBrainxDesktopConfig();
@@ -467,7 +483,7 @@ export async function createWorkspace(name: string): Promise<WorkspaceSummaryDat
   });
 }
 
-export async function createWorkspaceFolder(name: string, parentFolderId: string | null) {
+export async function createWorkspaceFolder(name: string, parentFolderId: string | null, documentGroupId?: string | null) {
   if (await shouldUseDesktopVault()) {
     const created = await createDesktopVaultFolder(name, parentFolderId);
     return {
@@ -479,7 +495,9 @@ export async function createWorkspaceFolder(name: string, parentFolderId: string
   }
   return authedRequest<WorkspaceFolderItem>("/api/v1/folders", {
     method: "POST",
-    body: JSON.stringify({ name, parentFolderId }),
+    // SSOT FolderCreateRequest.documentGroupId: createNote()/saveWorkspaceNoteDraft()와 동일한
+    // 이유로 생략하면(undefined) default Workspace로 귀속되는 기존 동작을 그대로 유지한다.
+    body: JSON.stringify({ name, parentFolderId, documentGroupId: documentGroupId ?? undefined }),
   });
 }
 

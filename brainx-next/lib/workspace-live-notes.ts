@@ -59,6 +59,7 @@ function workspaceItemToBrainXNote(note: WorkspaceNoteItem, links: Set<string> |
     id: note.noteId,
     title,
     markdown,
+    documentGroupId: note.documentGroupId ?? null,
     folderId: cluster,
     cluster,
     summary: summarize(markdown),
