@@ -108,6 +108,7 @@ services:
       SERVER_PORT: "8080"
       POSTGRES_HOST: postgres
       REDIS_HOST: redis
+      WORKSPACE_SERVICE_BASE_URL: http://workspace-service:8082
       EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: user-service
     ports:

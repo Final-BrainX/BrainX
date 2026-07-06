@@ -1268,16 +1268,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("brainx-toggle-notes-explorer", handleExplorerState);
   }, []);
 
-  useEffect(() => {
-    if (pathname === "/mypage") {
-      if (readAuthSession()?.accessToken) {
-        setSettingsTab("profile");
-        setSettingsOpen(true);
-      }
-      router.replace("/home");
-    }
-  }, [pathname, router]);
-
   const openSettings = (tab: SettingsTab = "profile") => {
     setSettingsTab(tab);
     setSettingsOpen(true);
