@@ -1,8 +1,7 @@
 "use client";
 
+import { getPublicApiBaseUrl } from "@/lib/api-base";
 import { clearAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 export type SupportTicket = {
   ticketId: string;
@@ -47,7 +46,7 @@ async function authedRequest<T>(path: string, init?: RequestInit) {
     throw new Error("로그인이 필요합니다.");
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(`${getPublicApiBaseUrl()}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",

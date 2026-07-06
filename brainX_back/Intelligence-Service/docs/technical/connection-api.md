@@ -15,8 +15,9 @@
 
 - 요청은 `noteId`만 받는다.
 - 응답은 요청 source note에서 연결할 만한 target note 후보 목록이다.
-- 각 suggestion은 `suggestionId`, `targetNoteId`, `targetTitle`, `score`, `reason`을 반환한다.
-- 현재 구현은 `NoteAutoLinkUseCase`의 `VECTOR_LLM` 전략을 실행한 뒤, 요청한 `noteId`가 `sourceNoteId`인 suggestion만 노출한다.
+- 각 suggestion은 `suggestionId`, `targetNoteId`, `targetTitle`, `score`, `reason`, `anchorText`, `anchorStartOffset`, `anchorEndOffset`을 반환한다.
+- 현재 구현은 `NoteAutoLinkUseCase`의 source-only `LLM_ONLY` 분석 경로를 사용해 요청한 `noteId`에서 다른 후보 노트로 나가는 suggestion만 계산한다.
+- `/graph` 클라이언트는 suggestion을 수락할 때 최신 Workspace source note 본문을 조회하고, anchor 위치를 확정할 수 있을 때만 해당 구간을 `[[targetTitle|anchorText]]`로 바꾼 뒤 Workspace content save를 호출한다. Workspace는 저장된 wiki link를 `TYPE_WIKI` 링크와 graph projection으로 동기화한다.
 
 `POST /api/v1/ai/bridge-concepts`
 
@@ -54,7 +55,7 @@
 - raw `markdown`이 있어야 한다.
 - `searchIndexStatus=INDEXED`여야 한다.
 
-이 조건은 자동 연결이 raw markdown anchor와 Qdrant index를 함께 사용하기 때문이다.
+이 조건은 자동 연결이 raw markdown anchor를 찾고 최신 검색 가능 projection만 대상으로 삼기 때문이다.
 
 `bridge-concepts` source note는 searchable projection이면 사용할 수 있고, prompt에는 title/tags만 넣는다. 3개 이상 입력된 note는 후보 생성 배경으로 활용할 수 있지만, 저장될 bridge note가 wiki link로 직접 연결하는 원본 concept은 앞의 두 note로 제한한다.
 
@@ -62,7 +63,7 @@
 
 두 endpoint 모두 `LINK_SUGGESTIONS` capability를 확인한다.
 
-- `link-suggestions`는 기존 `NoteAutoLinkUseCase` 내부 usage 기록을 사용한다.
+- `link-suggestions`는 `NoteAutoLinkUseCase`의 source-only 분석 경로 내부 usage 기록을 사용한다.
 - `bridge-concepts`는 `featureId=bridge-concepts`로 `TokenUsageRecordedRequested`를 기록한다.
 - provider token usage가 있으면 실제 usage를 쓰고, 없으면 prompt/response 길이 기반 estimate를 기록한다.
 
@@ -85,7 +86,7 @@
 주요 회귀 테스트는 다음을 확인한다.
 
 - `ConnectionControllerTest`: request validation, auth required, wrapper response, domain exception HTTP mapping
-- `ConnectionServiceTest`: default document group 사용, source note filtering, `VECTOR_LLM` 결과 필터, bridge prompt/usage/event 기록
+- `ConnectionServiceTest`: default document group 사용, source-only `LLM_ONLY` 호출, 결과 필터와 anchor mapping, bridge prompt/usage/event 기록
 - `NoteProjectionJpaAdapterTest`: connection source note 조회 조건
 - `KafkaIntelligenceEventAdapterTest`: connection 이벤트가 `AiSuggestionCreated` envelope로 publish되는지
 
@@ -97,7 +98,7 @@ public HTTP auth 흐름은 controller test가 담당하고, LLM 품질은 dev-on
 python scripts\capture_connection_cli.py --run-name 20260626-connection-quality
 ```
 
-이 script는 `.brainx-local.properties`, OpenAI/Voyage/Qdrant 설정, Qdrant gRPC 연결을 preflight로 확인한다. 통과하면 `sample_notes`를 ingest하고 `link-suggestions`, `bridge-concepts` scenario를 실행한다. sample note id는 `SampleNoteLoader`와 같은 `sample-<sha256(relativePath)[0:16]>` 규칙으로 계산한다.
+이 script는 `.brainx-local.properties`와 provider 설정을 preflight로 확인한다. 통과하면 `sample_notes`를 ingest하고 `link-suggestions`, `bridge-concepts` scenario를 실행한다. sample note id는 `SampleNoteLoader`와 같은 `sample-<sha256(relativePath)[0:16]>` 규칙으로 계산한다.
 
 결과는 `build/connection-captures/<run-id>/`에 저장되며 suggestion/recommendation count, score, reason, duplicate proposal, bridge reason의 필수 `[[...]]` wiki link를 검증한다. 실패는 exit code `1`, provider/config preflight 실패는 exit code `2`로 구분한다.
 
@@ -105,5 +106,5 @@ python scripts\capture_connection_cli.py --run-name 20260626-connection-quality
 
 - `connection` public API는 사용자-facing surface다.
 - `autolink`는 내부 분석/CLI/품질 평가 기능이다.
-- 운영 기본 연결 추천은 `VECTOR_LLM`이며, `LLM_ONLY`는 비교와 진단용으로 유지한다.
-- public response에는 source markdown anchor offset을 아직 노출하지 않는다. anchor 적용까지 필요해지면 OpenAPI 계약을 별도 확장해야 한다.
+- public 연결 추천은 source-only `LLM_ONLY` 경로를 사용한다. `VECTOR_LLM`과 전체 note 자동 분석은 내부 비교/진단 전략으로 유지한다.
+- public response는 source markdown anchor text와 UTF-16 offset을 노출한다. 클라이언트는 offset 또는 유일한 anchor 매칭으로 위치를 확정할 수 있을 때만 해당 구간을 치환하고, 실패하면 저장하지 않아야 한다.

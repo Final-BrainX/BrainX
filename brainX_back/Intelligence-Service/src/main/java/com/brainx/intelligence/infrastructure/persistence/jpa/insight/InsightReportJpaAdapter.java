@@ -1,7 +1,9 @@
 package com.brainx.intelligence.infrastructure.persistence.jpa.insight;
 
+import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 
 import com.brainx.intelligence.insight.application.port.outbound.InsightReportStore;
@@ -35,5 +37,17 @@ public class InsightReportJpaAdapter implements InsightReportStore {
     public Optional<InsightReport> findByUserIdAndIdempotencyKey(String userId, String idempotencyKey) {
         return repository.findByUserIdAndIdempotencyKey(userId, idempotencyKey)
             .map(entity -> entity.toDomain(objectMapper));
+    }
+
+    @Override
+    public List<InsightReport> findRecentByUserIdAndDocumentGroupId(String userId, String documentGroupId, int limit) {
+        return repository.findByUserIdAndDocumentGroupIdOrderByCreatedAtDescReportIdDesc(
+                userId,
+                documentGroupId,
+                PageRequest.of(0, Math.max(1, limit))
+            )
+            .stream()
+            .map(entity -> entity.toDomain(objectMapper))
+            .toList();
     }
 }

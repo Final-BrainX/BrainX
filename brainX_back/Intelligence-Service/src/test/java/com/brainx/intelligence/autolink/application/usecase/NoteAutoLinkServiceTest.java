@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkCommand;
+import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkSourceCommand;
 import com.brainx.intelligence.autolink.application.port.outbound.AutoLinkNoteSourcePort;
 import com.brainx.intelligence.autolink.application.port.outbound.AutoLinkNoteSourcePort.AutoLinkNoteSource;
 import com.brainx.intelligence.autolink.application.port.outbound.AutoLinkUsageCapturePort;
@@ -99,6 +100,65 @@ class NoteAutoLinkServiceTest {
         assertThat(strategy.filteredQualityCount()).isZero();
         assertThat(strategy.usageRecords()).hasSize(2);
         assertThat(strategy.usageSummary().inputTokens()).isEqualTo(20);
+    }
+
+    @Test
+    void sourceOnlyLlmOnlyAnalyzesRequestedSourceOnce() {
+        FakeNoteSourcePort projectionStore = new FakeNoteSourcePort();
+        projectionStore.notes.add(note("source", "Source", "This note mentions Knowledge Graphs."));
+        projectionStore.notes.add(note("target", "Target", "Knowledge Graphs are useful."));
+        projectionStore.notes.add(note("other", "Other", "Another candidate note."));
+        FakeChunkRetrieval chunkRetrieval = new FakeChunkRetrieval();
+        FakeAiChatPort aiChatPort = new FakeAiChatPort();
+        aiChatPort.responses.add("""
+            [{"anchorText":"Knowledge Graphs","targetNoteId":"target","reason":"same topic","confidence":0.8}]
+            """);
+
+        var result = service(projectionStore, chunkRetrieval, aiChatPort).analyzeSourceLinks(new AutoLinkSourceCommand(
+            "user-1",
+            "group-1",
+            "source",
+            50,
+            "gpt-5.4-mini"
+        ));
+
+        var strategy = result.strategies().getFirst();
+        assertThat(result.analyzedNoteCount()).isEqualTo(1);
+        assertThat(strategy.analyzedNoteCount()).isEqualTo(1);
+        assertThat(strategy.llmCallCount()).isEqualTo(1);
+        assertThat(strategy.candidatePairCount()).isEqualTo(2);
+        assertThat(strategy.suggestions()).hasSize(1);
+        assertThat(strategy.suggestions().getFirst().sourceNoteId()).isEqualTo("source");
+        assertThat(strategy.suggestions().getFirst().targetNoteId()).isEqualTo("target");
+        assertThat(chunkRetrieval.queries).isEmpty();
+        assertThat(aiChatPort.requests).hasSize(1);
+        assertThat(aiChatPort.requests.getFirst().messages().get(1).content())
+            .contains("noteId: target")
+            .contains("noteId: other");
+    }
+
+    @Test
+    void sourceOnlyWithoutCandidatesDoesNotCallLlm() {
+        FakeNoteSourcePort projectionStore = new FakeNoteSourcePort();
+        projectionStore.notes.add(note("source", "Source", "This note has no candidates."));
+        FakeChunkRetrieval chunkRetrieval = new FakeChunkRetrieval();
+        FakeAiChatPort aiChatPort = new FakeAiChatPort();
+
+        var result = service(projectionStore, chunkRetrieval, aiChatPort).analyzeSourceLinks(new AutoLinkSourceCommand(
+            "user-1",
+            "group-1",
+            "source",
+            50,
+            "gpt-5.4-mini"
+        ));
+
+        var strategy = result.strategies().getFirst();
+        assertThat(result.status()).isEqualTo("COMPLETED");
+        assertThat(result.analyzedNoteCount()).isEqualTo(1);
+        assertThat(strategy.llmCallCount()).isZero();
+        assertThat(strategy.candidatePairCount()).isZero();
+        assertThat(strategy.suggestions()).isEmpty();
+        assertThat(aiChatPort.requests).isEmpty();
     }
 
     @Test
@@ -523,6 +583,20 @@ class NoteAutoLinkServiceTest {
                     && note.markdown() != null)
                 .limit(limit)
                 .toList();
+        }
+
+        @Override
+        public Optional<AutoLinkNoteSource> findSearchableNoteSource(
+            String userId,
+            String documentGroupId,
+            String noteId
+        ) {
+            return notes.stream()
+                .filter(note -> note.userId().equals(userId)
+                    && note.documentGroupId().equals(documentGroupId)
+                    && note.noteId().equals(noteId)
+                    && note.markdown() != null)
+                .findFirst();
         }
     }
 

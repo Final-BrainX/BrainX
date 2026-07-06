@@ -29,6 +29,11 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
     password: ${SPRING_DATASOURCE_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: ${REDIS_TIMEOUT:2s}
   sql:
     init:
       mode: never
@@ -234,6 +239,9 @@ eureka:
     instance-id: ${spring.application.name}:${server.port}
 
 management:
+  health:
+    redis:
+      enabled: ${BRAINX_REDIS_HEALTH_ENABLED:false}
   metrics:
     tags:
       application: ${spring.application.name}

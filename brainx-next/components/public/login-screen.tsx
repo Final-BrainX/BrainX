@@ -7,15 +7,19 @@ import {
   buildAuthPath,
   issueTemporaryPassword,
   loginLocal,
+  readAuthSession,
+  readAuthSessionPersistence,
   readRecentSocialLoginProvider,
   readReturnToParam,
   requestEmailVerification,
   resolveAuthReturnTo,
+  setAuthSessionPersistence,
   verifyEmailCode,
 } from "@/lib/auth-api";
 import { useBrainX } from "@/components/brainx-provider";
 import { Btn } from "@/components/brainx-ui";
 import { AuthShell, Field, SocialButtons } from "@/components/public/auth-shared";
+import { isElectronDesktop } from "@/lib/desktop-bridge";
 
 type ResetStep = "idle" | "sent" | "verified";
 type LoginFieldErrors = {
@@ -39,6 +43,7 @@ export function LoginScreen() {
   const [resetSubmitting, setResetSubmitting] = useState(false);
   const [recentLogin, setRecentLogin] = useState<"google" | "kakao" | "naver" | null>(() => readRecentSocialLoginProvider());
   const [returnTo] = useState(() => readReturnToParam());
+  const [rememberMe, setRememberMe] = useState(() => readAuthSessionPersistence() === "local");
 
   useEffect(() => {
     const syncRecentLogin = () => {
@@ -55,6 +60,12 @@ export function LoginScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    const session = readAuthSession();
+    if (!session?.accessToken) return;
+    router.replace(isElectronDesktop() && returnTo === "/home" ? "/" : resolveAuthReturnTo(returnTo));
+  }, [returnTo, router]);
+
   const canSubmit = email.trim().length > 0 && password.length > 0 && !submitting;
   const canRequestResetCode = resetEmail.trim().length > 0 && !resetSubmitting;
   const canVerifyResetCode = resetEmail.trim().length > 0 && verificationCode.trim().length > 0 && !resetSubmitting;
@@ -65,13 +76,15 @@ export function LoginScreen() {
     setFieldErrors({});
     setSubmitting(true);
     try {
+      setAuthSessionPersistence(rememberMe ? "local" : "session");
       const data = await loginLocal(email.trim(), password);
       if (data.requires2fa) {
         pushToast("2단계 인증이 필요합니다.", "info");
         return;
       }
       pushToast("로그인 성공", "ok");
-      router.push(data.next === "ONBOARDING" ? buildAuthPath("/onboarding", returnTo) : resolveAuthReturnTo(returnTo));
+      const nextRoute = isElectronDesktop() && returnTo === "/home" ? "/" : resolveAuthReturnTo(returnTo);
+      router.push(data.next === "ONBOARDING" ? buildAuthPath("/onboarding", returnTo) : nextRoute);
     } catch (error) {
       const message = error instanceof Error ? error.message : "로그인에 실패했습니다.";
       if (message.includes("존재하지 않는 이메일")) {
@@ -176,6 +189,15 @@ export function LoginScreen() {
           </button>
         }
       />
+      <label className="mb-4 flex items-center gap-2 text-[13px] text-txt2">
+        <input
+          type="checkbox"
+          checked={rememberMe}
+          onChange={(event) => setRememberMe(event.target.checked)}
+          className="h-4 w-4 rounded border border-line/60 bg-surface accent-primary"
+        />
+        로그인 유지
+      </label>
       {resetOpen ? (
         <div className="mb-4 rounded-xl border border-line/60 bg-surface2/40 p-3">
           <div className="mb-3 flex items-start justify-between gap-3">
@@ -231,7 +253,7 @@ export function LoginScreen() {
         또는
         <div className="h-px flex-1 bg-line/60" />
       </div>
-      <SocialButtons recentLogin={recentLogin} returnTo={returnTo} />
+      <SocialButtons recentLogin={recentLogin} returnTo={returnTo} rememberMe={rememberMe} />
       <p className="mt-12 text-center text-[15px] text-txt2">
         계정이 없으신가요?{" "}
         <button type="button" onClick={() => router.push(buildAuthPath("/signup", returnTo))} className="font-medium text-primary">

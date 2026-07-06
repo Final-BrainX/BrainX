@@ -21,6 +21,7 @@
 | consumed event/projection | `event_consumption_records`, `intelligence_capture_projections`, `intelligence_folder_projections`, `intelligence_note_link_projections`, `intelligence_user_deletion_requests` |
 | note/RAG index | `intelligence_note_projections`, `intelligence_note_index_chunks`, `exploration_note_summaries` |
 | chat | `intelligence_chat_threads`, `intelligence_chat_messages` |
+| agent | `intelligence_agent_threads`, `intelligence_agent_messages`, `intelligence_agent_actions` |
 | clustering/insight | `intelligence_cluster_jobs`, `intelligence_insight_reports` |
 
 ## Baseline DDL
@@ -191,6 +192,55 @@ create table if not exists intelligence_chat_messages (
   created_at timestamp(6) with time zone not null
 );
 
+create table if not exists intelligence_agent_threads (
+  thread_id varchar(120) primary key,
+  user_id varchar(120) not null,
+  document_group_id varchar(120) not null,
+  title varchar(500) not null,
+  model_id varchar(120) not null,
+  created_at timestamp(6) with time zone not null
+);
+
+create table if not exists intelligence_agent_messages (
+  message_id varchar(120) primary key,
+  thread_id varchar(120) not null,
+  user_id varchar(120) not null,
+  role varchar(20) not null,
+  content text not null,
+  model_id varchar(120),
+  client_context text not null default '{}',
+  created_at timestamp(6) with time zone not null,
+  constraint fk_agent_messages_thread
+    foreign key (thread_id) references intelligence_agent_threads(thread_id)
+    on delete cascade
+);
+
+create table if not exists intelligence_agent_actions (
+  action_id varchar(120) primary key,
+  user_id varchar(120) not null,
+  thread_id varchar(120) not null,
+  message_id varchar(120) not null,
+  action_type varchar(40) not null,
+  status varchar(40) not null,
+  title varchar(500) not null,
+  summary varchar(1000) not null,
+  preview_markdown text not null,
+  document_group_id varchar(120) not null,
+  target_json text not null default '{}',
+  payload_json text not null default '{}',
+  result_json text,
+  error_json text,
+  created_at timestamp(6) with time zone not null,
+  decided_at timestamp(6) with time zone,
+  executed_at timestamp(6) with time zone,
+  constraint fk_agent_actions_thread
+    foreign key (thread_id) references intelligence_agent_threads(thread_id)
+    on delete cascade,
+  constraint fk_agent_actions_message
+    foreign key (message_id) references intelligence_agent_messages(message_id)
+    on delete cascade
+);
+
 create table if not exists intelligence_cluster_jobs (
   cluster_job_id varchar(120) primary key,
   user_id varchar(120) not null,
@@ -292,6 +342,18 @@ create index if not exists idx_chat_threads_user_state_created
 create index if not exists idx_chat_messages_user_thread_created
   on intelligence_chat_messages (user_id, thread_id, created_at, message_id);
 
+create index if not exists idx_agent_threads_user_created
+  on intelligence_agent_threads (user_id, created_at desc, thread_id desc);
+
+create index if not exists idx_agent_messages_user_thread_created
+  on intelligence_agent_messages (user_id, thread_id, created_at asc, message_id asc);
+
+create index if not exists idx_agent_actions_user_thread_created
+  on intelligence_agent_actions (user_id, thread_id, created_at asc, action_id asc);
+
+create index if not exists idx_agent_actions_user_status_created
+  on intelligence_agent_actions (user_id, status, created_at desc, action_id desc);
+
 create index if not exists idx_cluster_jobs_user_job
   on intelligence_cluster_jobs (user_id, cluster_job_id);
 
@@ -301,6 +363,9 @@ create index if not exists idx_cluster_jobs_user_idempotency
 
 create index if not exists idx_insight_reports_user_report
   on intelligence_insight_reports (user_id, report_id);
+
+create index if not exists idx_insight_reports_user_group_created
+  on intelligence_insight_reports (user_id, document_group_id, created_at desc, report_id desc);
 
 create index if not exists idx_insight_reports_user_idempotency
   on intelligence_insight_reports (user_id, idempotency_key)
@@ -353,6 +418,58 @@ alter table intelligence_chat_threads
 
 create index if not exists idx_chat_threads_user_state_created
   on intelligence_chat_threads (user_id, deleted_at, archived_at, created_at desc, thread_id desc);
+
+create table if not exists intelligence_agent_threads (
+  thread_id varchar(120) primary key,
+  user_id varchar(120) not null,
+  document_group_id varchar(120) not null,
+  title varchar(500) not null,
+  model_id varchar(120) not null,
+  created_at timestamp(6) with time zone not null
+);
+
+create table if not exists intelligence_agent_messages (
+  message_id varchar(120) primary key,
+  thread_id varchar(120) not null,
+  user_id varchar(120) not null,
+  role varchar(20) not null,
+  content text not null,
+  model_id varchar(120),
+  client_context text not null default '{}',
+  created_at timestamp(6) with time zone not null
+);
+
+create table if not exists intelligence_agent_actions (
+  action_id varchar(120) primary key,
+  user_id varchar(120) not null,
+  thread_id varchar(120) not null,
+  message_id varchar(120) not null,
+  action_type varchar(40) not null,
+  status varchar(40) not null,
+  title varchar(500) not null,
+  summary varchar(1000) not null,
+  preview_markdown text not null,
+  document_group_id varchar(120) not null,
+  target_json text not null default '{}',
+  payload_json text not null default '{}',
+  result_json text,
+  error_json text,
+  created_at timestamp(6) with time zone not null,
+  decided_at timestamp(6) with time zone,
+  executed_at timestamp(6) with time zone
+);
+
+create index if not exists idx_agent_threads_user_created
+  on intelligence_agent_threads (user_id, created_at desc, thread_id desc);
+
+create index if not exists idx_agent_messages_user_thread_created
+  on intelligence_agent_messages (user_id, thread_id, created_at asc, message_id asc);
+
+create index if not exists idx_agent_actions_user_thread_created
+  on intelligence_agent_actions (user_id, thread_id, created_at asc, action_id asc);
+
+create index if not exists idx_agent_actions_user_status_created
+  on intelligence_agent_actions (user_id, status, created_at desc, action_id desc);
 ```
 
 신규 기능 table이 통째로 없으면 `Baseline DDL`의 `create table if not exists` 블록을 적용한다. 이미 생성된 table에 필수 컬럼을 추가해야 하고 default를 둘 수 없다면 다음 순서를 따른다.
@@ -383,6 +500,9 @@ where table_schema = 'public'
     'exploration_note_summaries',
     'intelligence_chat_threads',
     'intelligence_chat_messages',
+    'intelligence_agent_threads',
+    'intelligence_agent_messages',
+    'intelligence_agent_actions',
     'intelligence_cluster_jobs',
     'intelligence_insight_reports'
   )

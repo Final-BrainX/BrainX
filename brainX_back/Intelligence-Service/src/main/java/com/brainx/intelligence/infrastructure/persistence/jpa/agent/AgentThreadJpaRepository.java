@@ -1,0 +1,76 @@
+package com.brainx.intelligence.infrastructure.persistence.jpa.agent;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.lang.Nullable;
+
+interface AgentThreadJpaRepository extends JpaRepository<AgentThreadJpaEntity, String> {
+
+    Optional<AgentThreadJpaEntity> findByUserIdAndThreadId(String userId, String threadId);
+
+    @Query(value = """
+        select
+          s.thread_id as threadId,
+          s.user_id as userId,
+          s.document_group_id as documentGroupId,
+          s.title as title,
+          s.model_id as modelId,
+          s.created_at as createdAt,
+          s.last_message_at as lastMessageAt,
+          s.message_count as messageCount
+        from (
+          select
+            t.thread_id,
+            t.user_id,
+            t.document_group_id,
+            t.title,
+            t.model_id,
+            t.created_at,
+            coalesce(max(m.created_at), t.created_at) as last_message_at,
+            count(m.message_id) as message_count
+          from intelligence_agent_threads t
+          left join intelligence_agent_messages m
+            on m.user_id = t.user_id
+           and m.thread_id = t.thread_id
+          where t.user_id = :userId
+          group by
+            t.thread_id,
+            t.user_id,
+            t.document_group_id,
+            t.title,
+            t.model_id,
+            t.created_at
+        ) s
+        order by s.last_message_at desc, s.thread_id desc
+        limit :limit
+        """, nativeQuery = true)
+    List<AgentThreadSummaryProjection> findThreadSummariesByUserId(
+        @Param("userId") String userId,
+        @Param("limit") int limit
+    );
+
+    interface AgentThreadSummaryProjection {
+
+        String getThreadId();
+
+        String getUserId();
+
+        String getDocumentGroupId();
+
+        String getTitle();
+
+        String getModelId();
+
+        Object getCreatedAt();
+
+        Object getLastMessageAt();
+
+        @Nullable
+        Object getMessageCount();
+    }
+}

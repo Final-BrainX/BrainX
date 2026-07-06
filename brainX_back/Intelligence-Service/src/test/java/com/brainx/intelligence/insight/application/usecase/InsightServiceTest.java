@@ -14,6 +14,7 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 
+import com.brainx.intelligence.insight.application.port.inbound.GetLatestInsightReportUseCase.GetLatestInsightReportQuery;
 import com.brainx.intelligence.insight.application.port.inbound.RequestInsightReportUseCase.InsightReportCommand;
 import com.brainx.intelligence.insight.application.port.outbound.InsightEventPort;
 import com.brainx.intelligence.insight.application.port.outbound.InsightEventPort.InsightReportCompletedEvent;
@@ -22,6 +23,7 @@ import com.brainx.intelligence.insight.application.port.outbound.InsightReportSt
 import com.brainx.intelligence.insight.domain.InsightConflictException;
 import com.brainx.intelligence.insight.domain.InsightForbiddenException;
 import com.brainx.intelligence.insight.domain.InsightReport;
+import com.brainx.intelligence.insight.domain.InsightReportLatestState;
 import com.brainx.intelligence.insight.domain.InsightReportStatus;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
@@ -127,7 +129,9 @@ class InsightServiceTest {
         assertThat(tokenUsagePort.records.getFirst().featureId()).isEqualTo("insight-report-chat");
         assertThat(tokenUsagePort.records.getFirst().cachedInputTokens()).isEqualTo(20);
         assertThat(eventPort.requestedEvents).hasSize(1);
+        assertThat(eventPort.requestedEvents.getFirst().scope()).doesNotContainKey(InsightService.SOURCE_SNAPSHOT_SCOPE_KEY);
         assertThat(eventPort.completedEvents).hasSize(1);
+        assertThat(report.scope()).containsKey(InsightService.SOURCE_SNAPSHOT_SCOPE_KEY);
     }
 
     @Test
@@ -185,12 +189,187 @@ class InsightServiceTest {
         assertThat(eventPort.completedEvents).isEmpty();
     }
 
+    @Test
+    void latestInsightReportReturnsNoSourceNotes() {
+        var latest = service.getLatestInsightReport(new GetLatestInsightReportQuery("user-1", "default"));
+
+        assertThat(latest.state()).isEqualTo(InsightReportLatestState.NO_SOURCE_NOTES);
+        assertThat(latest.searchableNoteCount()).isZero();
+        assertThat(latest.report()).isNull();
+    }
+
+    @Test
+    void latestInsightReportReturnsNotAnalyzedWhenNotesExistWithoutReport() {
+        noteSource.notes = List.of(note("note-1", "Spring", List.of(), List.of(), "Spring"));
+
+        var latest = service.getLatestInsightReport(new GetLatestInsightReportQuery("user-1", "default"));
+
+        assertThat(latest.state()).isEqualTo(InsightReportLatestState.NOT_ANALYZED);
+        assertThat(latest.searchableNoteCount()).isEqualTo(1);
+        assertThat(latest.latestNoteUpdatedAt()).isEqualTo(Instant.parse("2026-06-26T00:00:00Z"));
+        assertThat(latest.report()).isNull();
+    }
+
+    @Test
+    void latestInsightReportReturnsFreshCompletedWorkspaceReport() {
+        List<KnowledgeAnalysisNote> notes = List.of(note(
+            "note-1",
+            "Spring",
+            List.of(),
+            List.of(),
+            "Spring",
+            Instant.parse("2026-06-25T00:00:00Z")
+        ));
+        noteSource.notes = notes;
+        InsightReport report = completedReport(
+            "report-1",
+            scopeWithSnapshot(Map.of("documentGroupId", "default", "maxNotes", 50), notes),
+            Instant.parse("2026-06-26T00:00:00Z")
+        );
+        store.save(report);
+
+        var latest = service.getLatestInsightReport(new GetLatestInsightReportQuery("user-1", "default"));
+
+        assertThat(latest.state()).isEqualTo(InsightReportLatestState.FRESH);
+        assertThat(latest.report().reportId()).isEqualTo("report-1");
+    }
+
+    @Test
+    void latestInsightReportReturnsStaleWhenNoteChangedAfterReportCompletion() {
+        List<KnowledgeAnalysisNote> snapshotNotes = List.of(note(
+            "note-1",
+            "Spring",
+            List.of(),
+            List.of(),
+            "Spring",
+            Instant.parse("2026-06-25T00:00:00Z")
+        ));
+        noteSource.notes = List.of(note(
+            "note-1",
+            "Spring",
+            List.of(),
+            List.of(),
+            "Spring",
+            Instant.parse("2026-06-27T00:00:00Z")
+        ));
+        store.save(completedReport(
+            "report-1",
+            scopeWithSnapshot(Map.of("documentGroupId", "default", "maxNotes", 50), snapshotNotes),
+            Instant.parse("2026-06-26T00:00:00Z")
+        ));
+
+        var latest = service.getLatestInsightReport(new GetLatestInsightReportQuery("user-1", "default"));
+
+        assertThat(latest.state()).isEqualTo(InsightReportLatestState.STALE);
+        assertThat(latest.report().reportId()).isEqualTo("report-1");
+    }
+
+    @Test
+    void latestInsightReportReturnsStaleWhenSourceNoteRemoved() {
+        List<KnowledgeAnalysisNote> snapshotNotes = List.of(
+            note("note-1", "Spring", List.of(), List.of(), "Spring", Instant.parse("2026-06-25T00:00:00Z")),
+            note("note-2", "OAuth", List.of(), List.of(), "OAuth", Instant.parse("2026-06-25T00:00:01Z"))
+        );
+        noteSource.notes = List.of(snapshotNotes.getFirst());
+        store.save(completedReport(
+            "report-1",
+            scopeWithSnapshot(Map.of("documentGroupId", "default", "maxNotes", 50), snapshotNotes),
+            Instant.parse("2026-06-26T00:00:00Z")
+        ));
+
+        var latest = service.getLatestInsightReport(new GetLatestInsightReportQuery("user-1", "default"));
+
+        assertThat(latest.state()).isEqualTo(InsightReportLatestState.STALE);
+        assertThat(latest.searchableNoteCount()).isEqualTo(1);
+        assertThat(latest.report().reportId()).isEqualTo("report-1");
+    }
+
+    @Test
+    void latestInsightReportReturnsStaleForLegacyCompletedReportWithoutSnapshot() {
+        noteSource.notes = List.of(note(
+            "note-1",
+            "Spring",
+            List.of(),
+            List.of(),
+            "Spring",
+            Instant.parse("2026-06-25T00:00:00Z")
+        ));
+        store.save(completedReport(
+            "report-1",
+            Map.of("documentGroupId", "default", "maxNotes", 50),
+            Instant.parse("2026-06-26T00:00:00Z")
+        ));
+
+        var latest = service.getLatestInsightReport(new GetLatestInsightReportQuery("user-1", "default"));
+
+        assertThat(latest.state()).isEqualTo(InsightReportLatestState.STALE);
+        assertThat(latest.report().reportId()).isEqualTo("report-1");
+    }
+
+    @Test
+    void latestInsightReportReturnsFailedForLatestFailedWorkspaceReport() {
+        noteSource.notes = List.of(note("note-1", "Spring", List.of(), List.of(), "Spring"));
+        store.save(completedReport(
+            "report-1",
+            Map.of("documentGroupId", "default", "maxNotes", 50),
+            Instant.parse("2026-06-25T00:00:00Z")
+        ));
+        store.save(new InsightReport(
+            "report-2",
+            "user-1",
+            "default",
+            InsightReportStatus.FAILED,
+            Map.of("documentGroupId", "default", "maxNotes", 50),
+            false,
+            null,
+            List.of(),
+            List.of(),
+            "gpt-test",
+            null,
+            "invalid json",
+            Instant.parse("2026-06-26T00:00:00Z"),
+            Instant.parse("2026-06-26T00:00:01Z")
+        ));
+
+        var latest = service.getLatestInsightReport(new GetLatestInsightReportQuery("user-1", "default"));
+
+        assertThat(latest.state()).isEqualTo(InsightReportLatestState.FAILED);
+        assertThat(latest.report().reportId()).isEqualTo("report-2");
+        assertThat(latest.report().failureMessage()).isEqualTo("invalid json");
+    }
+
+    @Test
+    void latestInsightReportIgnoresScopedNoteReports() {
+        noteSource.notes = List.of(note("note-1", "Spring", List.of(), List.of(), "Spring"));
+        store.save(completedReport(
+            "report-1",
+            Map.of("documentGroupId", "default", "noteIds", List.of("note-1"), "maxNotes", 1),
+            Instant.parse("2026-06-26T00:00:00Z")
+        ));
+
+        var latest = service.getLatestInsightReport(new GetLatestInsightReportQuery("user-1", "default"));
+
+        assertThat(latest.state()).isEqualTo(InsightReportLatestState.NOT_ANALYZED);
+        assertThat(latest.report()).isNull();
+    }
+
     private static KnowledgeAnalysisNote note(
         String noteId,
         String title,
         List<String> tags,
         List<String> headings,
         String excerpt
+    ) {
+        return note(noteId, title, tags, headings, excerpt, Instant.parse("2026-06-26T00:00:00Z"));
+    }
+
+    private static KnowledgeAnalysisNote note(
+        String noteId,
+        String title,
+        List<String> tags,
+        List<String> headings,
+        String excerpt,
+        Instant updatedAt
     ) {
         return new KnowledgeAnalysisNote(
             "user-1",
@@ -200,8 +379,57 @@ class InsightServiceTest {
             tags,
             headings,
             excerpt,
-            Instant.parse("2026-06-26T00:00:00Z")
+            updatedAt
         );
+    }
+
+    private static InsightReport completedReport(String reportId, Map<String, Object> scope, Instant completedAt) {
+        return new InsightReport(
+            reportId,
+            "user-1",
+            "default",
+            InsightReportStatus.COMPLETED,
+            scope,
+            false,
+            "summary",
+            List.of("gap"),
+            List.of(),
+            "gpt-test",
+            null,
+            null,
+            completedAt.minusSeconds(1),
+            completedAt
+        );
+    }
+
+    private static Map<String, Object> scopeWithSnapshot(
+        Map<String, Object> scope,
+        List<KnowledgeAnalysisNote> notes
+    ) {
+        Map<String, Object> values = new LinkedHashMap<>(scope);
+        values.put(InsightService.SOURCE_SNAPSHOT_SCOPE_KEY, sourceSnapshot(notes));
+        return values;
+    }
+
+    private static Map<String, Object> sourceSnapshot(List<KnowledgeAnalysisNote> notes) {
+        List<Map<String, Object>> sourceNotes = notes.stream()
+            .sorted((left, right) -> left.noteId().compareTo(right.noteId()))
+            .map(note -> {
+                Map<String, Object> values = new LinkedHashMap<>();
+                values.put("noteId", note.noteId());
+                values.put("updatedAt", note.updatedAt().toString());
+                return values;
+            })
+            .toList();
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("noteCount", notes.size());
+        snapshot.put("latestNoteUpdatedAt", notes.stream()
+            .map(KnowledgeAnalysisNote::updatedAt)
+            .max(Instant::compareTo)
+            .map(Instant::toString)
+            .orElse(null));
+        snapshot.put("notes", sourceNotes);
+        return snapshot;
     }
 
     private static class FakeInsightReportStore implements InsightReportStore {
@@ -226,6 +454,19 @@ class InsightServiceTest {
         @Override
         public Optional<InsightReport> findByUserIdAndIdempotencyKey(String userId, String idempotencyKey) {
             return Optional.ofNullable(reportsByIdempotency.get(userId + "::" + idempotencyKey));
+        }
+
+        @Override
+        public List<InsightReport> findRecentByUserIdAndDocumentGroupId(String userId, String documentGroupId, int limit) {
+            return reportsById.values().stream()
+                .filter(report -> report.userId().equals(userId))
+                .filter(report -> report.documentGroupId().equals(documentGroupId))
+                .sorted((left, right) -> {
+                    int created = right.createdAt().compareTo(left.createdAt());
+                    return created != 0 ? created : right.reportId().compareTo(left.reportId());
+                })
+                .limit(limit)
+                .toList();
         }
     }
 

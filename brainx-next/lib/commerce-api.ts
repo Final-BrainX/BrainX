@@ -1,8 +1,8 @@
 "use client";
 
+import { getPublicApiBaseUrl } from "@/lib/api-base";
 import { clearAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
-
-const COMMERCE_API_BASE_URL = process.env.NEXT_PUBLIC_COMMERCE_API_BASE_URL ?? "http://localhost:8084";
+import { requestDesktopApiJson } from "@/lib/desktop-api-request";
 
 export const PAYMENT_RESULT_MESSAGE_TYPE = "brainx-payment-result";
 
@@ -64,17 +64,21 @@ function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
 
 async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const session = readAuthSession();
-
-  const response = await fetch(`${COMMERCE_API_BASE_URL}${path}`, {
+  const requestInit: RequestInit = {
     ...init,
     headers: {
       "Content-Type": "application/json",
       ...(session?.accessToken ? { Authorization: `${session.tokenType ?? "Bearer"} ${session.accessToken}` } : {}),
       ...(init?.headers ?? {})
     }
-  });
-
-  const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
+  };
+  const desktopResponse = await requestDesktopApiJson<ApiResponse<T>>(path, requestInit);
+  const response = desktopResponse
+    ? { ok: desktopResponse.ok, status: desktopResponse.status }
+    : await fetch(`${getPublicApiBaseUrl()}${path}`, requestInit);
+  const payload = desktopResponse
+    ? desktopResponse.payload
+    : ((await (response as Response).json().catch(() => null)) as ApiResponse<T> | null);
   if (response.status === 401 || response.status === 403) {
     clearAuthSession();
     throw new Error("로그인이 만료되었습니다. 다시 로그인해 주세요.");

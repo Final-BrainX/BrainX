@@ -214,10 +214,12 @@ function WorkspaceLoadingShell({
   explorerOpen,
   contextOpen,
   contextPanelSize,
+  message = "불러오는 중…",
 }: {
   explorerOpen: boolean;
   contextOpen: boolean;
   contextPanelSize: number;
+  message?: string;
 }) {
   return (
     <div className="flex h-full overflow-hidden">
@@ -228,7 +230,7 @@ function WorkspaceLoadingShell({
           <div className="flex flex-1 items-center justify-center">
             <div className="inline-flex items-center gap-2 rounded-lg border border-line/50 bg-surface/80 px-3 py-2 text-[12px] font-medium text-txt2">
               <LoaderCircle size={14} className="animate-spin" />
-              <span>불러오는 중…</span>
+              <span>{message}</span>
             </div>
           </div>
           {contextOpen ? <ContextPanelSkeleton width={contextPanelSize} /> : null}
@@ -551,6 +553,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   }, []);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isInitialWorkspaceLoading, setIsInitialWorkspaceLoading] = useState(!USE_MOCK_NOTES);
+  const [isSyncRefreshLoading, setIsSyncRefreshLoading] = useState(false);
   const aiNonceRef = useRef(0);
   const editorHandlesRef = useRef<Record<string, NoteEditorHandle>>({});
   const [editorHandleRevision, setEditorHandleRevision] = useState(0);
@@ -1991,7 +1994,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     // 라우트 전환에도 리마운트되지 않아(레이아웃에서 한 번만 마운트) mount 시점 fetch만으로는 새
     // 노트를 못 본다. 외부에서 이 이벤트를 쏘면 목록을 다시 불러오고, 지정한 노트를 바로 연다.
     function handleExternalRefresh(event: Event) {
-      const detail = (event as CustomEvent<{ noteId?: string; resetWorkspace?: boolean }>).detail;
+      const detail = (event as CustomEvent<{ noteId?: string; resetWorkspace?: boolean; syncRefresh?: boolean }>).detail;
       // 로그인/회원가입/로그아웃으로 actor(guest/user)가 바뀐 경우(auth-api.ts의
       // claimGuestDraftsAfterAuth/clearAuthSession)에는 resetWorkspace:true로 호출된다.
       // localStorage 키 자체를 다시 계산해 갈아끼운다(resolveActorPersistKey가 guest->user
@@ -2023,7 +2026,14 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       // resetWorkspace(actor 전환)면 applyHydration이 이미 claim mapping까지 반영해 pane
       // tree/tabs를 복원해뒀으므로, 이 새로고침 자체는 attachInitialTab=false로 호출해 그
       // 복원 결과를 initialTab 폴백으로 덮어쓰지 않는다.
-      void loadFromServer(detail?.noteId, false, !detail?.resetWorkspace);
+      if (detail?.syncRefresh) {
+        setIsSyncRefreshLoading(true);
+      }
+      void loadFromServer(detail?.noteId, false, !detail?.resetWorkspace).finally(() => {
+        if (detail?.syncRefresh) {
+          setIsSyncRefreshLoading(false);
+        }
+      });
     }
     window.addEventListener("brainx:notes-refresh", handleExternalRefresh);
 
@@ -2406,8 +2416,15 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
 
   // 노트/탭/패널 데이터 초기화가 끝나기 전에는 워크스페이스 전체를 로딩 상태로 대체한다 —
   // Welcome 보드나 탐색기처럼 일부 영역만 먼저 깜빡이며 빈 상태로 그려지는 것을 막는다.
-  if (isInitialWorkspaceLoading) {
-    return <WorkspaceLoadingShell explorerOpen={explorerOpen} contextOpen={contextOpen} contextPanelSize={contextPanelSize} />;
+  if (isInitialWorkspaceLoading || isSyncRefreshLoading) {
+    return (
+      <WorkspaceLoadingShell
+        explorerOpen={explorerOpen}
+        contextOpen={contextOpen}
+        contextPanelSize={contextPanelSize}
+        message={isSyncRefreshLoading ? "동기화 중.." : "불러오는 중…"}
+      />
+    );
   }
 
   const paneTree = (

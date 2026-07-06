@@ -1,13 +1,13 @@
 x-desktop-popup-bridge:
-  description: Browser popup callbacks may use window.postMessage, while Electron desktop clients may deliver the same callback payload through preload/IPC renderer events.
+  description: Browser popup callbacks may use window.postMessage, while Electron desktop clients may deliver the same callback payload through preload/IPC renderer events or through a custom-protocol deep link that returns external-browser OAuth completion into the renderer callback route.
 x-desktop-file-session-bridge:
-  description: Electron desktop clients may back renderer auth/session persistence and file open-save flows with preload IPC bridges while Web clients continue to use browser storage and download behavior.
+  description: Electron desktop clients may back renderer auth/session persistence, login-OAuth API fallback requests, and file open-save flows with preload IPC bridges while Web clients continue to use browser storage and download behavior; desktop auth persistence may also invalidate stored sessions once when the packaged app version changes after a rebuild/update, and desktop shells must not synthesize web-only dev bypass sessions when no stored auth session exists.
 x-desktop-bundled-renderer:
-  description: Packaged Electron desktop clients may serve a bundled local Next standalone renderer from unpacked app resources and fall back to the remote web deployment only as a desktop runtime fallback.
+  description: Packaged Electron desktop clients may serve a bundled local Next standalone renderer from unpacked app resources, prefer same-origin Next proxy routes for renderer-to-public-API calls so desktop auth does not depend on cross-origin browser CORS, carry branded desktop icon resources for the executable-installer shell, and fall back to the remote web deployment only as a desktop runtime fallback.
 x-desktop-local-vault:
-  description: Electron desktop clients may persist local vault metadata in app user-data storage, normalize user-selected vault folders into notes/assets/exports plus .brainx workspace descriptors, store local vault note and folder indexes separately from future cloud sync policy, and keep import-export plus graph-home statistics bound to the active vault.
+  description: Electron desktop clients may persist local vault metadata in app user-data storage, normalize user-selected vault folders into notes/assets/exports plus .brainx workspace descriptors, restore the most recent valid vault automatically on startup, present a desktop vault launcher when authenticated users do not yet have an active vault, store local vault note and folder indexes separately from future cloud sync policy, keep import-export plus graph-home statistics bound to the active vault, and let local-only PPT assets open through the desktop shell when remote slide preview endpoints are unavailable.
 x-desktop-manual-sync:
-  description: Electron desktop clients may expose preload IPC helpers for vault sync mode selection and manual sync job requests while remote workspace synchronization remains a separate follow-up worker implementation.
+  description: Electron desktop clients may expose preload IPC helpers for vault sync mode selection and manual sync job requests, execute authenticated manual-cloud sync jobs for vault note and folder metadata plus mirrored asset references, upload local vault assets through `/api/v1/assets/upload-sessions*`, pull remote image/PDF/HTML binaries into the active vault when needed, persist note/folder/asset sync mappings under `.brainx/sync-state.json`, store the latest manual sync result under the active vault for restart-safe desktop status recovery, write divergent local-vs-remote conflict reports under `.brainx/conflicts/` without auto-merging, let renderer conflict summaries open detailed report payloads through preload IPC, hide transient top-of-screen sync banners from the notes workspace, and keep the notes workspace in a loading shell until sync-refreshed note data is fully reloaded after a completed manual sync.
 
 openapi: 3.0.3
 info:
@@ -7178,6 +7178,440 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+  /api/v1/ai/agent-threads:
+    get:
+      operationId: listAgentThreads
+      summary: List experimental Agent threads
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.agent
+        type: frontend
+        description: Experimental Agent tab
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/AgentThreadListData'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+    post:
+      operationId: createAgentThread
+      summary: Create experimental Agent thread
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.agent
+        type: frontend
+        description: Experimental Agent tab
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentThreadCreateRequest'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/AgentThreadData'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+  /api/v1/ai/agent-threads/{threadId}:
+    get:
+      operationId: getAgentThread
+      summary: Get experimental Agent thread
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.agent
+        type: frontend
+        description: Experimental Agent tab
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: threadId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/AgentThreadDetailData'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+  /api/v1/ai/agent-threads/{threadId}/messages:
+    post:
+      operationId: sendAgentMessage
+      summary: Send experimental Agent message
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.agent
+        type: frontend
+        description: Experimental Agent tab
+      x-produces-events:
+      - AgentActionProposed
+      - TokenUsageRecordedRequested
+      x-internal-sync-calls:
+      - targetService: commerce-operations
+        operationId: checkEntitlementsInternal
+        reason: capability/quota must be decided synchronously before model call
+        required: true
+      x-async-boundary: false
+      parameters:
+      - name: threadId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentMessageCreateRequest'
+      responses:
+        '200':
+          description: Agent SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Server-Sent Events using delta, action_proposed, action_status, action_result, done, and error events.
+              examples:
+                action_proposed:
+                  summary: Agent proposes a note creation action before done
+                  value: 'event: delta
+
+                    data: {"text":"문서로 저장할 작업을 제안합니다."}
+
+
+                    event: action_proposed
+
+                    data: {"actionId":"act_01J...","actionType":"CREATE_NOTE","status":"PENDING_APPROVAL"}
+
+
+                    event: done
+
+                    data: {"messageId":"msg_01J..."}
+
+
+                    '
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+      x-streaming: sse
+  /api/v1/ai/agent-actions/{actionId}/approve:
+    post:
+      operationId: approveAgentAction
+      summary: Approve and execute an Agent action
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.agent
+        type: frontend
+        description: Experimental Agent tab
+      x-produces-events: []
+      x-internal-sync-calls:
+      - targetService: workspace-knowledge
+        operationId: createInternalNotesBulk or patchInternalNoteContent
+        reason: user-approved Agent action mutates Workspace notes
+        required: true
+      x-async-boundary: false
+      parameters:
+      - name: actionId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/AgentActionData'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+  /api/v1/ai/agent-actions/{actionId}/reject:
+    post:
+      operationId: rejectAgentAction
+      summary: Reject an Agent action
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.agent
+        type: frontend
+        description: Experimental Agent tab
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: actionId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/AgentActionData'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
   /api/v1/ai/models:
     get:
       operationId: listAiModels
@@ -7928,6 +8362,68 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
         '500':
           description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+  /api/v1/ai/insight-reports/latest:
+    get:
+      operationId: getLatestInsightReport
+      summary: Latest AI insight report status
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.home
+        type: frontend
+        description: Home screen AI insight panel
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: documentGroupId
+        in: query
+        required: false
+        schema:
+          type: string
+          default: default
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/InsightReportLatestData'
+        '400':
+          description: bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: server error
           content:
             application/json:
               schema:
@@ -16063,6 +16559,219 @@ components:
       - thread
       - messages
       additionalProperties: false
+    AgentThreadCreateRequest:
+      type: object
+      properties:
+        documentGroupId:
+          type: string
+          description: Optional document group boundary. The server uses default when omitted.
+        title:
+          type: string
+        initialMessage:
+          type: string
+          nullable: true
+          description: Optional first user message preview used by the Agent UI.
+        modelId:
+          type: string
+      required:
+      - title
+      - modelId
+      additionalProperties: false
+    AgentMessageCreateRequest:
+      type: object
+      properties:
+        message:
+          type: string
+        clientContext:
+          $ref: '#/components/schemas/AiClientContext'
+        modelId:
+          type: string
+      required:
+      - message
+      - modelId
+      additionalProperties: false
+    AgentActionType:
+      type: string
+      enum:
+      - CREATE_NOTE
+      - APPEND_NOTE_CONTENT
+    AgentActionStatus:
+      type: string
+      enum:
+      - PENDING_APPROVAL
+      - APPROVED
+      - EXECUTING
+      - SUCCEEDED
+      - FAILED
+      - REJECTED
+    AgentThreadData:
+      type: object
+      properties:
+        threadId:
+          type: string
+        documentGroupId:
+          type: string
+        title:
+          type: string
+        modelId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+      - threadId
+      - documentGroupId
+      - title
+      - modelId
+      - createdAt
+      additionalProperties: false
+    AgentThreadListItemData:
+      type: object
+      properties:
+        threadId:
+          type: string
+        documentGroupId:
+          type: string
+        title:
+          type: string
+        modelId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        lastMessageAt:
+          type: string
+          format: date-time
+        lastMessagePreview:
+          type: string
+          nullable: true
+        messageCount:
+          type: integer
+          format: int64
+      required:
+      - threadId
+      - documentGroupId
+      - title
+      - modelId
+      - createdAt
+      - lastMessageAt
+      - messageCount
+      additionalProperties: false
+    AgentThreadListData:
+      type: object
+      properties:
+        threads:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentThreadListItemData'
+      required:
+      - threads
+      additionalProperties: false
+    AgentMessageData:
+      type: object
+      properties:
+        messageId:
+          type: string
+        threadId:
+          type: string
+        role:
+          type: string
+          enum:
+          - USER
+          - AGENT
+        content:
+          type: string
+        modelId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentActionData'
+      required:
+      - messageId
+      - threadId
+      - role
+      - content
+      - createdAt
+      - actions
+      additionalProperties: false
+    AgentActionData:
+      type: object
+      properties:
+        actionId:
+          type: string
+        threadId:
+          type: string
+        messageId:
+          type: string
+        actionType:
+          $ref: '#/components/schemas/AgentActionType'
+        status:
+          $ref: '#/components/schemas/AgentActionStatus'
+        title:
+          type: string
+        summary:
+          type: string
+        previewMarkdown:
+          type: string
+        documentGroupId:
+          type: string
+        target:
+          type: object
+          additionalProperties: true
+        payload:
+          type: object
+          additionalProperties: true
+        result:
+          type: object
+          nullable: true
+          additionalProperties: true
+        error:
+          type: object
+          nullable: true
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        decidedAt:
+          type: string
+          format: date-time
+          nullable: true
+        executedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - actionId
+      - threadId
+      - messageId
+      - actionType
+      - status
+      - title
+      - summary
+      - previewMarkdown
+      - documentGroupId
+      - target
+      - payload
+      - createdAt
+      additionalProperties: false
+    AgentThreadDetailData:
+      type: object
+      properties:
+        thread:
+          $ref: '#/components/schemas/AgentThreadData'
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentMessageData'
+      required:
+      - thread
+      - messages
+      additionalProperties: false
     AiModelsData:
       type: object
       properties:
@@ -16204,10 +16913,24 @@ components:
                 type: number
               reason:
                 type: string
+              anchorText:
+                type: string
+                description: Source note markdown text selected as the wiki-link alias.
+              anchorStartOffset:
+                type: integer
+                format: int32
+                description: Zero-based start offset of anchorText in the source note markdown used for this suggestion.
+              anchorEndOffset:
+                type: integer
+                format: int32
+                description: Zero-based exclusive end offset of anchorText in the source note markdown used for this suggestion.
             required:
             - suggestionId
             - targetNoteId
             - score
+            - anchorText
+            - anchorStartOffset
+            - anchorEndOffset
             additionalProperties: false
       required:
       - suggestions
@@ -16356,8 +17079,44 @@ components:
           type: string
           format: date-time
           nullable: true
+        failureMessage:
+          type: string
+          nullable: true
       required:
       - reportId
+      additionalProperties: false
+    InsightReportLatestState:
+      type: string
+      enum:
+      - NO_SOURCE_NOTES
+      - NOT_ANALYZED
+      - FRESH
+      - STALE
+      - FAILED
+    InsightReportLatestData:
+      type: object
+      properties:
+        documentGroupId:
+          type: string
+        searchableNoteCount:
+          type: integer
+          format: int32
+          minimum: 0
+        latestNoteUpdatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        state:
+          $ref: '#/components/schemas/InsightReportLatestState'
+        report:
+          type: object
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/InsightReportData'
+      required:
+      - documentGroupId
+      - searchableNoteCount
+      - state
       additionalProperties: false
     StyleProfileData:
       type: object
@@ -17878,6 +18637,7 @@ components:
           - OBSIDIAN_IMPORT
           - EXTENSION_CAPTURE
           - MCP_TOOL_CALL
+          - INTELLIGENCE_AGENT
         targetFolderId:
           type: string
           nullable: true

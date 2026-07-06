@@ -1,5 +1,5 @@
-import { LandingScreen } from "@/components/public-screens";
+import { DesktopRootEntry } from "@/components/public/desktop-root-entry";
 
 export default function PublicHomePage() {
-  return <LandingScreen />;
+  return <DesktopRootEntry />;
 }

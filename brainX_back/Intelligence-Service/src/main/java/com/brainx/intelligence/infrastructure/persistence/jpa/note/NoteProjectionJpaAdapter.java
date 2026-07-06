@@ -13,6 +13,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.brainx.intelligence.agent.application.port.outbound.AgentNoteSourcePort;
+import com.brainx.intelligence.agent.application.port.outbound.AgentNoteSourcePort.AgentNoteSource;
 import com.brainx.intelligence.autolink.application.port.outbound.AutoLinkNoteSourcePort;
 import com.brainx.intelligence.autolink.application.port.outbound.AutoLinkNoteSourcePort.AutoLinkNoteSource;
 import com.brainx.intelligence.connection.application.port.outbound.ConnectionNoteSourcePort;
@@ -30,7 +32,7 @@ import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysi
 import com.brainx.intelligence.shared.domain.DocumentGroups;
 
 @Repository
-public class NoteProjectionJpaAdapter implements NoteProjectionStore, AutoLinkNoteSourcePort, ConnectionNoteSourcePort, KnowledgeAnalysisNoteSourcePort, OrganizationNoteSourcePort, NoteIndexStatusPort {
+public class NoteProjectionJpaAdapter implements NoteProjectionStore, AgentNoteSourcePort, AutoLinkNoteSourcePort, ConnectionNoteSourcePort, KnowledgeAnalysisNoteSourcePort, OrganizationNoteSourcePort, NoteIndexStatusPort {
 
     private final NoteProjectionJpaRepository repository;
 
@@ -117,17 +119,16 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AutoLinkNo
     @Transactional(readOnly = true)
     public List<AutoLinkNoteSource> findSearchableNoteSources(String userId, String documentGroupId, int limit) {
         return findSearchableByUserIdAndDocumentGroupId(userId, documentGroupId, limit).stream()
-            .map(projection -> new AutoLinkNoteSource(
-                projection.userId(),
-                projection.documentGroupId(),
-                projection.noteId(),
-                projection.title(),
-                projection.tags(),
-                projection.markdownHash(),
-                projection.markdown(),
-                projection.updatedAt()
-            ))
+            .map(NoteProjectionJpaAdapter::toAutoLinkNoteSource)
             .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<AutoLinkNoteSource> findSearchableNoteSource(String userId, String documentGroupId, String noteId) {
+        return findByUserIdAndDocumentGroupIdAndNoteId(userId, documentGroupId, noteId)
+            .filter(NoteProjectionJpaAdapter::canCreateLinkSuggestions)
+            .map(NoteProjectionJpaAdapter::toAutoLinkNoteSource);
     }
 
     @Override
@@ -162,6 +163,18 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AutoLinkNo
                 projection.noteId(),
                 projection.title()
             ));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<AgentNoteSource> findSearchableAgentNoteSource(
+        String userId,
+        String documentGroupId,
+        String noteId
+    ) {
+        return findByUserIdAndDocumentGroupIdAndNoteId(userId, documentGroupId, noteId)
+            .filter(NoteProjection::searchable)
+            .map(projection -> new AgentNoteSource(projection.noteId(), projection.title()));
     }
 
     @Override
@@ -293,6 +306,19 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AutoLinkNo
 
     private static boolean canAnalyze(NoteProjection projection) {
         return canCreateLinkSuggestions(projection);
+    }
+
+    private static AutoLinkNoteSource toAutoLinkNoteSource(NoteProjection projection) {
+        return new AutoLinkNoteSource(
+            projection.userId(),
+            projection.documentGroupId(),
+            projection.noteId(),
+            projection.title(),
+            projection.tags(),
+            projection.markdownHash(),
+            projection.markdown(),
+            projection.updatedAt()
+        );
     }
 
     private static KnowledgeAnalysisNote toAnalysisNote(NoteProjection projection) {

@@ -13,6 +13,7 @@ const standaloneSource = path.join(nextRoot, ".next", "standalone");
 const staticSource = path.join(nextRoot, ".next", "static");
 const publicSource = path.join(nextRoot, "public");
 const standaloneTarget = path.join(bundleRoot, "standalone");
+const productionOrigin = process.env.BRAINX_DESKTOP_API_ORIGIN ?? "https://brainx.p-e.kr";
 
 async function removeBundleRoot() {
   await fs.rm(bundleRoot, { recursive: true, force: true });
@@ -25,6 +26,11 @@ function runNextBuild() {
       env: {
         ...process.env,
         BRAINX_NEXT_OUTPUT_MODE: "standalone",
+        NEXT_PUBLIC_API_BASE_URL: productionOrigin,
+        NEXT_PUBLIC_WORKSPACE_API_BASE_URL: productionOrigin,
+        NEXT_PUBLIC_INGESTION_API_BASE_URL: productionOrigin,
+        API_SERVER_URL: productionOrigin,
+        INTELLIGENCE_API_BASE_URL: productionOrigin,
       },
       stdio: "inherit",
       shell: true,

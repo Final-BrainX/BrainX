@@ -22,6 +22,12 @@ export type ChatThreadDeleteData = Schemas["ChatThreadDeleteData"];
 export type ChatThreadListData = Schemas["ChatThreadListData"];
 export type ChatMessageCreateRequest = Schemas["ChatMessageCreateRequest"];
 export type ChatThreadDetailData = Schemas["ChatThreadDetailData"];
+export type AgentThreadCreateRequest = Schemas["AgentThreadCreateRequest"];
+export type AgentMessageCreateRequest = Schemas["AgentMessageCreateRequest"];
+export type AgentThreadData = Schemas["AgentThreadData"];
+export type AgentThreadListData = Schemas["AgentThreadListData"];
+export type AgentThreadDetailData = Schemas["AgentThreadDetailData"];
+export type AgentActionData = Schemas["AgentActionData"];
 export type LinkSuggestionsRequest = Schemas["LinkSuggestionsRequest"];
 export type LinkSuggestionsData = Schemas["LinkSuggestionsData"];
 export type BridgeConceptsRequest = Schemas["BridgeConceptsRequest"];
@@ -29,6 +35,9 @@ export type BridgeConceptsData = Schemas["BridgeConceptsData"];
 export type ClusterJobCreateRequest = Schemas["ClusterJobCreateRequest"];
 export type ClusterJobData = Schemas["ClusterJobData"];
 export type ClusterJobLatestData = Schemas["ClusterJobLatestData"];
+export type InsightReportCreateRequest = Schemas["InsightReportCreateRequest"];
+export type InsightReportData = Schemas["InsightReportData"];
+export type InsightReportLatestData = Schemas["InsightReportLatestData"];
 export type AiModelsData = Schemas["AiModelsData"];
 export type AiModelSettingsPutRequest = Schemas["AiModelSettingsPutRequest"];
 export type AiModelSettingsData = Schemas["AiModelSettingsData"];
@@ -43,6 +52,10 @@ export type InlineAssistDoneEvent = {
 };
 
 export type ChatMessageDoneEvent = {
+  messageId: string;
+};
+
+export type AgentMessageDoneEvent = {
   messageId: string;
 };
 
@@ -63,6 +76,9 @@ export type IntelligenceStreamHandlers<TDone> = IntelligenceRequestOptions & {
   onDelta?: (text: string) => void;
   onDone?: (data: TDone) => void;
   onRoute?: (data: ChatRouteEvent) => void;
+  onActionProposed?: (data: AgentActionData) => void;
+  onActionStatus?: (data: AgentActionData) => void;
+  onActionResult?: (data: AgentActionData) => void;
   onError?: (error: unknown) => void;
 };
 
@@ -158,6 +174,12 @@ async function readSseStream<TDone>(
         handlers.onDelta?.(text);
       } else if (frame.event === "route") {
         handlers.onRoute?.(routeEventFrom(parsed));
+      } else if (frame.event === "action_proposed") {
+        handlers.onActionProposed?.(parsed as AgentActionData);
+      } else if (frame.event === "action_status") {
+        handlers.onActionStatus?.(parsed as AgentActionData);
+      } else if (frame.event === "action_result") {
+        handlers.onActionResult?.(parsed as AgentActionData);
       } else if (frame.event === "done") {
         donePayload = parsed as TDone;
         handlers.onDone?.(donePayload);
@@ -172,6 +194,12 @@ async function readSseStream<TDone>(
     const frame = parseSseFrame(tail);
     if (frame.event === "route") {
       handlers.onRoute?.(routeEventFrom(parseJson(frame.data)));
+    } else if (frame.event === "action_proposed") {
+      handlers.onActionProposed?.(parseJson(frame.data) as AgentActionData);
+    } else if (frame.event === "action_status") {
+      handlers.onActionStatus?.(parseJson(frame.data) as AgentActionData);
+    } else if (frame.event === "action_result") {
+      handlers.onActionResult?.(parseJson(frame.data) as AgentActionData);
     } else if (frame.event === "done") {
       donePayload = parseJson(frame.data) as TDone;
       handlers.onDone?.(donePayload);
@@ -377,6 +405,76 @@ export function deleteChatThread(threadId: string, options?: IntelligenceRequest
   );
 }
 
+export function createAgentThread(payload: AgentThreadCreateRequest, options?: IntelligenceRequestOptions) {
+  return authedRequest<AgentThreadData>(
+    "/api/v1/ai/agent-threads",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    options
+  );
+}
+
+export function listAgentThreads(params: { limit?: number } = {}, options?: IntelligenceRequestOptions) {
+  const searchParams = new URLSearchParams();
+  if (params.limit) {
+    searchParams.set("limit", String(params.limit));
+  }
+  const query = searchParams.toString();
+  return authedRequest<AgentThreadListData>(
+    `/api/v1/ai/agent-threads${query ? `?${query}` : ""}`,
+    undefined,
+    options
+  );
+}
+
+export function getAgentThread(threadId: string, options?: IntelligenceRequestOptions) {
+  return authedRequest<AgentThreadDetailData>(
+    `/api/v1/ai/agent-threads/${encodeURIComponent(threadId)}`,
+    undefined,
+    options
+  );
+}
+
+export function sendAgentMessageStream(
+  threadId: string,
+  payload: AgentMessageCreateRequest,
+  handlers?: IntelligenceStreamHandlers<AgentMessageDoneEvent>
+) {
+  return streamRequest<AgentMessageDoneEvent>(
+    `/api/v1/ai/agent-threads/${encodeURIComponent(threadId)}/messages`,
+    payload,
+    {
+      ...handlers,
+      onDone: (data) => {
+        notifyTokenUsageChanged();
+        handlers?.onDone?.(data);
+      },
+    }
+  );
+}
+
+export function approveAgentAction(actionId: string, options?: IntelligenceRequestOptions) {
+  return authedRequest<AgentActionData>(
+    `/api/v1/ai/agent-actions/${encodeURIComponent(actionId)}/approve`,
+    {
+      method: "POST",
+    },
+    options
+  );
+}
+
+export function rejectAgentAction(actionId: string, options?: IntelligenceRequestOptions) {
+  return authedRequest<AgentActionData>(
+    `/api/v1/ai/agent-actions/${encodeURIComponent(actionId)}/reject`,
+    {
+      method: "POST",
+    },
+    options
+  );
+}
+
 export function createBridgeConcepts(payload: BridgeConceptsRequest, options?: IntelligenceRequestOptions) {
   return authedRequest<BridgeConceptsData>(
     "/api/v1/ai/bridge-concepts",
@@ -430,6 +528,44 @@ export function getLatestClusterJob(
   const query = searchParams.toString();
   return authedRequest<ClusterJobLatestData>(
     `/api/v1/ai/clusters/latest${query ? `?${query}` : ""}`,
+    undefined,
+    options
+  );
+}
+
+export function requestInsightReport(payload: InsightReportCreateRequest, options?: IntelligenceRequestOptions) {
+  return authedRequest<InsightReportData>(
+    "/api/v1/ai/insight-reports",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    options
+  ).then((data) => {
+    notifyTokenUsageChanged();
+    return data;
+  });
+}
+
+export function getInsightReport(reportId: string, options?: IntelligenceRequestOptions) {
+  return authedRequest<InsightReportData>(
+    `/api/v1/ai/insight-reports/${encodeURIComponent(reportId)}`,
+    undefined,
+    options
+  );
+}
+
+export function getLatestInsightReport(
+  params: { documentGroupId?: string } = {},
+  options?: IntelligenceRequestOptions
+) {
+  const searchParams = new URLSearchParams();
+  if (params.documentGroupId) {
+    searchParams.set("documentGroupId", params.documentGroupId);
+  }
+  const query = searchParams.toString();
+  return authedRequest<InsightReportLatestData>(
+    `/api/v1/ai/insight-reports/latest${query ? `?${query}` : ""}`,
     undefined,
     options
   );
