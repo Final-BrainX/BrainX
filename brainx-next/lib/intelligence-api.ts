@@ -2,6 +2,7 @@
 "use client";
 
 import { clearAuthSession, isDevAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { requestDesktopApiJson } from "@/lib/desktop-api-request";
 import { DEV_USER_ID } from "@/lib/dev-user";
 import type { components } from "@/lib/generated/intelligence-openapi";
 
@@ -109,13 +110,19 @@ function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
 }
 
 async function authedRequest<T>(path: string, init?: RequestInit, options?: IntelligenceRequestOptions): Promise<T> {
-  const response = await fetch(`${INTELLIGENCE_API_BASE_URL}${path}`, {
+  const requestInit: RequestInit = {
     ...init,
     signal: options?.signal ?? init?.signal,
     headers: buildHeaders(init?.headers, options),
-  });
+  };
+  const desktopResponse = await requestDesktopApiJson<ApiResponse<T>>(path, requestInit);
+  const response = desktopResponse
+    ? { ok: desktopResponse.ok, status: desktopResponse.status }
+    : await fetch(`${INTELLIGENCE_API_BASE_URL}${path}`, requestInit);
 
-  const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
+  const payload = desktopResponse
+    ? desktopResponse.payload
+    : ((await (response as Response).json().catch(() => null)) as ApiResponse<T> | null);
   if (response.status === 401 || response.status === 403) {
     clearAuthSession();
     throw new IntelligenceAuthRequiredError();

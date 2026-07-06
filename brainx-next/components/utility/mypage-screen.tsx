@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 
 import { useBrainX } from "@/components/brainx-provider";
 import { Icon, Btn, Card, Toggle, Avatar } from "@/components/brainx-ui";
+import { getBrainxDesktopConfig, isElectronDesktop, type BrainxDesktopVaultSummary } from "@/lib/desktop-bridge";
 import type { BrainXNote } from "@/lib/brainx-data";
+import { activateDesktopVault, chooseDesktopVaultDirectory, createDesktopVault, listDesktopVaults } from "@/lib/desktop-vault";
 import { getOAuthAuthorization, type OAuthProvider } from "@/lib/auth-api";
 import {
   cancelAccountDeletion,
@@ -85,7 +87,7 @@ function readImageFile(event: ChangeEvent<HTMLInputElement>, onLoad: (value: str
 
 function ProfileAvatar({ name, imageUrl, size = 112 }: { name: string; imageUrl?: string | null; size?: number }) {
   return (
-    <div className="relative shadow-soft rounded-full bg-bg p-1 shrink-0" style={{ width: size + 8, height: size + 8 }}>
+    <div className="relative shrink-0 rounded-full bg-surface p-1 shadow-soft ring-1 ring-line/40" style={{ width: size + 8, height: size + 8 }}>
       <Avatar name={name} imageUrl={imageUrl} size={size} />
     </div>
   );
@@ -620,8 +622,8 @@ function ConsentToggle({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between rounded-xl bg-surface2 px-3 py-3">
-      <span className="text-[14px] text-txt">{label}</span>
+    <div className="flex items-center justify-between rounded-2xl border border-line/40 bg-surface px-4 py-3.5 shadow-sm">
+      <span className="text-[14.5px] font-medium text-txt">{label}</span>
       <div className={disabled ? "pointer-events-none opacity-50" : ""}>
         <Toggle on={checked} onChange={(v) => !disabled && onChange(v)} size="sm" />
       </div>
@@ -661,6 +663,7 @@ function AccountSettingsModal({
   });
   const [deletionReason, setDeletionReason] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
+  const [savingConsents, setSavingConsents] = useState(false);
 
   useEffect(() => {
     function closeOnOutsideMouseDown(event: MouseEvent) {
@@ -754,14 +757,19 @@ function AccountSettingsModal({
     }
   };
 
-  const saveConsents = async (next: ConsentPayload) => {
-    setConsents(next);
+  const saveConsents = async (patch: Partial<ConsentPayload>) => {
+    if (!profile) return;
+    const next = { ...consents, ...patch };
+    setSavingConsents(true);
     try {
       const saved = await updateMyConsents(next);
-      onProfileChange({ ...(profile as MyProfile), consents: saved });
+      setConsents(saved);
+      onProfileChange({ ...profile, consents: saved });
       pushToast("개인정보 동의가 수정되었습니다.", "ok");
     } catch (error) {
       pushToast(error instanceof Error ? error.message : "동의 정보 수정에 실패했습니다.", "err");
+    } finally {
+      setSavingConsents(false);
     }
   };
 
@@ -898,19 +906,18 @@ function AccountSettingsModal({
                     key={provider}
                     type="button"
                     onClick={() => linked ? removeSocialLink(provider) : startSocialLink(provider)}
-                    className="inline-flex h-12 items-center gap-2.5 rounded-[18px] border px-4 text-[14px] font-medium transition hover:-translate-y-0.5 hover:shadow-sm"
+                    className="inline-flex h-12 items-center gap-3 rounded-full border border-line/60 bg-surface px-4 text-[14px] font-medium text-txt transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-soft"
                     style={{
-                      borderColor: linked ? social.border : "#d4d4d4",
-                      backgroundColor: linked ? social.bg : "#ffffff",
-                      color: linked ? social.text : "#404040"
+                      backgroundColor: linked ? "rgb(var(--primary) / 0.08)" : undefined,
+                      color: linked ? "rgb(var(--primary))" : undefined,
                     }}
                   >
                     <span
                       className="grid h-8 w-8 place-items-center rounded-full text-[13px] font-bold"
                       style={{
-                        backgroundColor: linked ? "rgb(255 255 255 / 0.28)" : social.bg,
+                        backgroundColor: linked ? "rgb(var(--primary) / 0.14)" : social.bg,
                         color: social.color,
-                        border: `1px solid ${social.border}`
+                        border: `1px solid ${linked ? "rgb(var(--primary) / 0.25)" : social.border}`
                       }}
                     >
                       {social.mark}
@@ -984,8 +991,18 @@ function AccountSettingsModal({
             <div className="space-y-2">
               <ConsentToggle label="서비스 이용약관 동의" checked={consents.termsRequired} disabled onChange={() => undefined} />
               <ConsentToggle label="개인정보 처리방침 동의" checked={consents.privacyRequired} disabled onChange={() => undefined} />
-              <ConsentToggle label="마케팅 정보 수신 동의" checked={consents.marketingOptional} onChange={(value) => saveConsents({ ...consents, marketingOptional: value })} />
-              <ConsentToggle label="행동 데이터 분석 동의" checked={consents.behaviorAnalyticsOptional} onChange={(value) => saveConsents({ ...consents, behaviorAnalyticsOptional: value })} />
+              <ConsentToggle
+                label="마케팅 정보 수신 동의"
+                checked={consents.marketingOptional}
+                disabled={savingConsents}
+                onChange={(value) => saveConsents({ marketingOptional: value })}
+              />
+              <ConsentToggle
+                label="행동 데이터 분석 동의"
+                checked={consents.behaviorAnalyticsOptional}
+                disabled={savingConsents}
+                onChange={(value) => saveConsents({ behaviorAnalyticsOptional: value })}
+              />
             </div>
           </ModalSection>
 
@@ -1005,12 +1022,147 @@ function AccountSettingsModal({
   );
 }
 
+function DesktopVaultPickerSection({ onActivated }: { onActivated: () => void }) {
+  const { pushToast } = useBrainX();
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [activeVaultId, setActiveVaultId] = useState<string | null>(null);
+  const [recentVaults, setRecentVaults] = useState<BrainxDesktopVaultSummary[]>([]);
+
+  const refresh = async () => {
+    const [config, vaults] = await Promise.all([getBrainxDesktopConfig(), listDesktopVaults()]);
+    setActiveVaultId(config?.activeVault?.id ?? null);
+    setRecentVaults(vaults);
+  };
+
+  useEffect(() => {
+    if (!isElectronDesktop()) {
+      setLoading(false);
+      return;
+    }
+
+    let active = true;
+    setLoading(true);
+    refresh()
+      .catch((error) => {
+        if (!active) return;
+        pushToast(error instanceof Error ? error.message : "vault 목록을 불러오지 못했습니다.", "err");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [pushToast]);
+
+  if (!isElectronDesktop()) {
+    return null;
+  }
+
+  const runVaultAction = async (action: () => Promise<BrainxDesktopVaultSummary | null>, successMessage: string) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const vault = await action();
+      if (!vault) return;
+      await refresh();
+      pushToast(successMessage, "ok");
+      onActivated();
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : "vault 작업을 완료하지 못했습니다.", "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="mt-12 rounded-[24px] border border-line/50 bg-surface/80 p-5 shadow-soft md:p-6">
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-[11px] font-semibold text-primary">
+            <Icon name="folder" className="h-3.5 w-3.5" />
+            Desktop Vault
+          </div>
+          <h2 className="text-[20px] font-semibold text-txt">앱 전용 vault 선택</h2>
+          <p className="mt-2 text-[13px] leading-6 text-txt2">
+            BrainX 앱에서는 최근 작업한 vault를 자동 복원합니다. 여기서 현재 vault를 바꾸거나 새 vault를 바로 연결할 수 있습니다.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Btn variant="soft" disabled={busy || loading} onClick={() => void runVaultAction(() => chooseDesktopVaultDirectory(), "기존 vault를 연결했습니다.")}>
+            기존 vault 열기
+          </Btn>
+          <Btn variant="primary" disabled={busy || loading} onClick={() => void runVaultAction(() => createDesktopVault("BrainX Vault"), "새 vault를 만들었습니다.")}>
+            새 vault 만들기
+          </Btn>
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-[18px] border border-line/50 bg-bg/70 px-4 py-3">
+        <div className="text-[12px] font-medium text-txt2">현재 active vault</div>
+        <div className="mt-1 text-[16px] font-semibold text-txt">
+          {loading ? "불러오는 중..." : recentVaults.find((vault) => vault.id === activeVaultId)?.name ?? "선택된 vault 없음"}
+        </div>
+        <div className="mt-1 truncate text-[12px] text-txt3">
+          {recentVaults.find((vault) => vault.id === activeVaultId)?.vaultPath ?? "최근 vault를 아직 연결하지 않았습니다."}
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="mb-2 text-[12px] font-medium text-txt2">최근 vault</div>
+        {loading ? (
+          <div className="rounded-[18px] border border-line/40 bg-bg/60 px-4 py-4 text-[13px] text-txt3">vault 목록을 불러오는 중입니다.</div>
+        ) : recentVaults.length === 0 ? (
+          <div className="rounded-[18px] border border-line/40 bg-bg/60 px-4 py-4 text-[13px] text-txt3">연결된 vault가 아직 없습니다.</div>
+        ) : (
+          <div className="space-y-3">
+            {recentVaults.map((vault) => {
+              const active = vault.id === activeVaultId;
+              return (
+                <div
+                  key={vault.id}
+                  className={`flex flex-col gap-3 rounded-[18px] border px-4 py-4 md:flex-row md:items-center md:justify-between ${
+                    active ? "border-primary/40 bg-primary/8" : "border-line/40 bg-bg/60"
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <div className="truncate text-[15px] font-semibold text-txt">{vault.name}</div>
+                      {active ? <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">현재 사용 중</span> : null}
+                    </div>
+                    <div className="mt-1 truncate text-[12px] text-txt3">{vault.vaultPath}</div>
+                    <div className="mt-1 text-[11px] text-txt3">
+                      최근 작업 {new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(vault.lastOpenedAt))}
+                    </div>
+                  </div>
+
+                  <Btn
+                    variant={active ? "soft" : "primary"}
+                    disabled={busy || active}
+                    onClick={() => void runVaultAction(() => activateDesktopVault(vault.id), `${vault.name} vault로 전환했습니다.`)}
+                  >
+                    {active ? "현재 vault" : "이 vault 열기"}
+                  </Btn>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function MyPageScreen() {
   const router = useRouter();
   const { notes, pushToast } = useBrainX();
   const [profile, setProfile] = useState<MyProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [vaultMenuOpen, setVaultMenuOpen] = useState(false);
   const [coverImage, setCoverImage] = useState("");
   const [activityPeriod, setActivityPeriod] = useState<ActivityPeriod>("week");
 
@@ -1056,12 +1208,19 @@ export function MyPageScreen() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {isElectronDesktop() ? (
+                <Btn variant="soft" icon="folder" onClick={() => setVaultMenuOpen((current) => !current)}>
+                  {vaultMenuOpen ? "Vault 메뉴 닫기" : "Vault 선택"}
+                </Btn>
+              ) : null}
               <Btn variant="soft" icon="settings" onClick={() => setSettingsOpen(true)}>
                 계정 설정
               </Btn>
             </div>
           </div>
         </section>
+
+        {vaultMenuOpen ? <DesktopVaultPickerSection onActivated={() => router.push("/notes")} /> : null}
 
         <ActivityDashboard notes={notes} period={activityPeriod} onPeriodChange={setActivityPeriod} />
 

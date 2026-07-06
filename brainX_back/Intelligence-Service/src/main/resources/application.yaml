@@ -59,7 +59,7 @@ brainx:
       user-id: ${BRAINX_SECURITY_DEV_USER_ID:dev-test-user}
   events:
     producer:
-      enabled: ${BRAINX_EVENTS_PRODUCER_ENABLED:false}
+      enabled: ${BRAINX_EVENTS_PRODUCER_ENABLED:true}
       semantic-search-performed-topic: ${BRAINX_EVENTS_TOPIC_SEMANTIC_SEARCH_PERFORMED:brainx.knowledge.intelligence.semantic-search-performed.v1}
       token-usage-recorded-requested-topic: ${BRAINX_EVENTS_TOPIC_TOKEN_USAGE_RECORDED_REQUESTED:brainx.knowledge.intelligence.token-usage-recorded-requested.v1}
       ai-suggestion-created-topic: ${BRAINX_EVENTS_TOPIC_AI_SUGGESTION_CREATED:brainx.knowledge.intelligence.ai-suggestion-created.v1}

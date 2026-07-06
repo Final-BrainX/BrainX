@@ -12,7 +12,6 @@ import {
   AI_CLUSTER_MAX_CLUSTERS,
   AI_CLUSTER_MAX_NOTES,
   AI_CLUSTER_MIN_NOTES,
-  DEFAULT_DOCUMENT_GROUP_ID,
   applyAiClustersToNotes,
   deriveNoteClusterMeta,
   isAiFeatureReadyNote,
@@ -22,9 +21,10 @@ import {
 } from "@/lib/ai-cluster-projection";
 import { mergeNoteIndexStatuses } from "@/lib/note-index-statuses";
 import { readPendingCreatedNotes, removePendingCreatedNoteByNoteId } from "@/lib/notes/pending-created-note-cache";
-import { createWorkspaceNote, getNote, hasWorkspaceUserIdentity, listWorkspaceNoteDrafts, updateWorkspaceNoteContent, WorkspaceApiError, type NoteCreated } from "@/lib/workspace-api";
+import { createWorkspaceNote, getNote, hasWorkspaceUserIdentity, listWorkspaceNoteDrafts, matchesWorkspaceScope, updateWorkspaceNoteContent, WorkspaceApiError, type NoteCreated } from "@/lib/workspace-api";
 import { contentHasWikiLinkTo } from "@/lib/wiki-links";
 import { useBrainX } from "@/components/brainx-provider";
+import { useWorkspace } from "@/components/workspace-provider";
 import { Avatar, Badge, Btn, Card, Icon } from "@/components/brainx-ui";
 import { cx } from "@/lib/utils";
 import { ReactFlow, ReactFlowProvider, SelectionMode, useNodesState, useEdgesState, useReactFlow, useStoreApi, type Edge, type Node, type SelectionRect, type Transform } from "@xyflow/react";
@@ -1529,7 +1529,10 @@ function GraphScreenInner() {
   const optimisticGraphNotesRef = useRef<Record<string, BrainXNote>>({});
   const currentSession = readAuthSession();
   const hasRealLogin = !!currentSession?.accessToken && !isDevAuthSession(currentSession);
-  const aiClusterPanelEnabled = hasRealLogin && !USE_MOCK_GRAPH && !USE_MOCK_GRAPH_CLUSTERS;
+  const { currentWorkspaceId, workspaces } = useWorkspace();
+  // Ticket16: "default" 문자열 대신 현재 선택된 Workspace의 실제 documentGroupId가 있을 때만
+  // AI 클러스터링을 활성화한다 — Guest/미선택 상태(currentWorkspaceId=null)는 기존과 동일하게 비활성.
+  const aiClusterPanelEnabled = hasRealLogin && !!currentWorkspaceId && !USE_MOCK_GRAPH && !USE_MOCK_GRAPH_CLUSTERS;
   const rawNotes = aiClusterPanelEnabled ? (liveNotes ?? []) : (liveNotes ?? mockNotes);
   const aiClusterProjection = useMemo(
     () => aiClusterPanelEnabled ? applyAiClustersToNotes(rawNotes, clusterLatest) : { notes: rawNotes, clusters: null },
@@ -1588,6 +1591,7 @@ function GraphScreenInner() {
   const selectedSummary = (selected?.summary ?? "").trim();
   const noteDetailPanelVisible = selected !== null && !bridgeMode && !linkMode;
   const hasGraphData = notes.length > 0;
+  const hasActionableNotes = rawNotes.length > 0;
   const noteIndexStatusUnavailable = rawNotes.some((note) => note.indexStatusUnavailable);
   const aiReadyNoteLabel = noteIndexStatusUnavailable ? "선택 가능한 노트" : "색인된 노트";
   const aiClusterUsableNoteCount = useMemo(
@@ -1660,6 +1664,10 @@ function GraphScreenInner() {
         .map((suggestion) => ({ group, suggestion }))
     ),
     [linkAcceptStates, linkGroups]
+  );
+  const resolveAiRequestNoteId = useCallback(
+    (noteId: string) => notes.find((note) => note.id === noteId)?.aiSourceNoteId ?? noteId,
+    [notes]
   );
 
   useEffect(() => {
@@ -1767,8 +1775,18 @@ function GraphScreenInner() {
           }
           return true;
         });
-        setLiveNotes(optimisticNotes.length > 0 ? [...optimisticNotes, ...graphNotes] : graphNotes);
-        setLiveEdges(graphEdgesForFlow(graph));
+        // GraphNodeData(=/api/v1/graph 응답)에는 documentGroupId가 없어 그래프 자체로는 Workspace를
+        // 판정할 수 없다 — mockNotes(useBrainX(), 실제로는 Notes API로 이미 documentGroupId까지
+        // 불러온 전역 노트 목록)와 noteId로 대조해 현재 Workspace 소속만 남긴다. optimisticNotes(방금
+        // 만들어 아직 서버 그래프에 없는 노트)는 이 대조표에 없을 수 있어 필터링하지 않고 그대로
+        // 둔다 — 방금 만든 노트가 순간적으로 사라지는 것이 더 나쁜 회귀다.
+        const docGroupByNoteId = new Map(mockNotes.map((note) => [note.id, note.documentGroupId ?? null]));
+        const scopedGraphNotes = graphNotes.filter((note) =>
+          matchesWorkspaceScope(docGroupByNoteId.get(note.id) ?? null, currentWorkspaceId, workspaces)
+        );
+        const scopedNoteIds = new Set([...scopedGraphNotes.map((note) => note.id), ...optimisticNotes.map((note) => note.id)]);
+        setLiveNotes(optimisticNotes.length > 0 ? [...optimisticNotes, ...scopedGraphNotes] : scopedGraphNotes);
+        setLiveEdges(graphEdgesForFlow(graph).filter((edge) => scopedNoteIds.has(edge.source) && scopedNoteIds.has(edge.target)));
         setGraphDataVersion((version) => version + 1);
       } catch (error) {
         if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
@@ -1780,12 +1798,12 @@ function GraphScreenInner() {
         }
       }
     },
-    [pushToast]
+    [pushToast, mockNotes, currentWorkspaceId, workspaces]
   );
 
   const refreshClusterLatest = useCallback(
     async ({ showError = false }: { showError?: boolean } = {}) => {
-      if (!aiClusterPanelEnabled) {
+      if (!aiClusterPanelEnabled || !currentWorkspaceId) {
         setClusterLatest(null);
         setClusterError(null);
         setClusterStatus("idle");
@@ -1797,7 +1815,7 @@ function GraphScreenInner() {
       setClusterStatus((current) => current === "analyzing" ? current : "loading");
 
       try {
-        const latest = await getLatestClusterJob({ documentGroupId: DEFAULT_DOCUMENT_GROUP_ID });
+        const latest = await getLatestClusterJob({ documentGroupId: currentWorkspaceId });
         if (!graphMountedRef.current || requestId !== clusterRequestIdRef.current) return null;
         setClusterLatest(latest);
         setClusterError(null);
@@ -1812,11 +1830,11 @@ function GraphScreenInner() {
         return null;
       }
     },
-    [aiClusterPanelEnabled, pushToast]
+    [aiClusterPanelEnabled, currentWorkspaceId, pushToast]
   );
 
   const requestAiClusterAnalysis = useCallback(async () => {
-    if (aiClusterButtonDisabled) return;
+    if (aiClusterButtonDisabled || !currentWorkspaceId) return;
     const requestId = clusterRequestIdRef.current + 1;
     clusterRequestIdRef.current = requestId;
     setClusterStatus("analyzing");
@@ -1825,7 +1843,7 @@ function GraphScreenInner() {
     try {
       const job = await requestClusterJob({
         scope: {
-          documentGroupId: DEFAULT_DOCUMENT_GROUP_ID,
+          documentGroupId: currentWorkspaceId,
           maxNotes: AI_CLUSTER_MAX_NOTES,
         },
         algorithmOptions: {
@@ -1851,7 +1869,7 @@ function GraphScreenInner() {
       setClusterStatus("error");
       pushToast(message, "err");
     }
-  }, [aiClusterButtonDisabled, aiClusterUsableNoteCount, pushToast, refreshClusterLatest]);
+  }, [aiClusterButtonDisabled, aiClusterUsableNoteCount, currentWorkspaceId, pushToast, refreshClusterLatest]);
 
   const clearBridgeState = () => {
     setBridgeSelectedIds([]);
@@ -2042,7 +2060,7 @@ function GraphScreenInner() {
     setBridgeError(null);
     setBridgeSaveStates({});
     try {
-      const result = await createBridgeConcepts({ noteIds: bridgeSelectedIds });
+      const result = await createBridgeConcepts({ noteIds: bridgeSelectedIds.map(resolveAiRequestNoteId) });
       setBridgeRecommendations(result.recommendations);
       setBridgeStatus("success");
       if (result.recommendations.length > 0) {
@@ -2078,7 +2096,7 @@ function GraphScreenInner() {
         const sourceNote = notes.find((note) => note.id === sourceNoteId);
         if (!sourceNote) continue;
         setLinkProgress({ current: index + 1, total: linkSelectedIds.length });
-        const result = await createLinkSuggestions({ noteId: sourceNoteId });
+        const result = await createLinkSuggestions({ noteId: resolveAiRequestNoteId(sourceNoteId) });
         const suggestions = filterLinkSuggestions(sourceNoteId, result.suggestions, notes, edges);
         if (suggestions.length > 0) {
           groups.push({
@@ -2294,14 +2312,14 @@ function GraphScreenInner() {
   }, [refreshGraph]);
 
   useEffect(() => {
-    if (!aiClusterPanelEnabled || !hasGraphData) {
+    if (!aiClusterPanelEnabled || !hasActionableNotes) {
       setClusterLatest(null);
       setClusterError(null);
       setClusterStatus("idle");
       return;
     }
     void refreshClusterLatest({ showError: false });
-  }, [aiClusterPanelEnabled, graphDataVersion, hasGraphData, refreshClusterLatest]);
+  }, [aiClusterPanelEnabled, graphDataVersion, hasActionableNotes, refreshClusterLatest]);
 
   useEffect(() => {
     if (!hasGraphData) {
@@ -2702,11 +2720,11 @@ function GraphScreenInner() {
           <button
             type="button"
             aria-pressed={bridgeMode}
-            disabled={!hasGraphData}
+            disabled={!hasActionableNotes}
             onClick={toggleBridgeMode}
             className={cx(
               "inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border px-3 text-[13px] font-semibold shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary/60",
-              !hasGraphData
+              !hasActionableNotes
                 ? "cursor-not-allowed border-line/40 bg-surface2/60 text-txt3/50"
                 : bridgeMode
                   ? "border-primary bg-primary text-white hover:bg-primary/90"
@@ -2724,11 +2742,11 @@ function GraphScreenInner() {
           <button
             type="button"
             aria-pressed={linkMode}
-            disabled={!hasGraphData}
+            disabled={!hasActionableNotes}
             onClick={toggleLinkMode}
             className={cx(
               "inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border px-3 text-[13px] font-semibold shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary/60",
-              !hasGraphData
+              !hasActionableNotes
                 ? "cursor-not-allowed border-line/40 bg-surface2/60 text-txt3/50"
                 : linkMode
                   ? "border-primary bg-primary text-white hover:bg-primary/90"

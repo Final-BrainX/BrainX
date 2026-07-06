@@ -11,8 +11,13 @@ export type BrainXCluster = {
 
 export type BrainXNote = {
   id: string;
+  aiSourceNoteId?: string | null;
   title: string;
   markdown: string;
+  /** Workspace(documentGroup) 소속 — 없으면(undefined) 레거시/Guest 노트. TopBar 전역 검색 등
+      NotesWorkspace 바깥에서 Workspace 스코프를 판정할 때 쓴다(lib/workspace-api.ts의
+      matchesWorkspaceScope 참고). */
+  documentGroupId?: string | null;
   searchIndexStatus?: "NOT_INDEXED" | "PROVISIONAL" | "STALE" | "INDEXED" | "FAILED" | "REMOVED" | "UNKNOWN";
   availableForAiFeatures?: boolean;
   indexedAt?: string | null;

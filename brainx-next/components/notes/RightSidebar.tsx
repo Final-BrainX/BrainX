@@ -7,6 +7,7 @@ import { Icon } from "@/components/brainx-ui";
 import { MockNote } from "@/lib/notes/noteTypes";
 import { MOCK_CONTEXT_DATA } from "@/lib/notes/mockNotes";
 import { createChatThread, createInlineAssistStream, decideAiSuggestion, sendChatMessageStream } from "@/lib/intelligence-api";
+import { useWorkspace } from "@/components/workspace-provider";
 import {
   DEFAULT_DRAFT_TARGET_LENGTH,
   clampDraftTargetLength,
@@ -349,7 +350,6 @@ export interface PendingAiRequest {
   nonce: number;
 }
 
-const DEFAULT_DOCUMENT_GROUP_ID = "default";
 const DEFAULT_CHAT_MODEL_ID = "gpt-5.4-mini";
 const INLINE_AI_HEIGHT_KEY = "brainx_notes_inline_ai_height_v1";
 const INLINE_AI_DEFAULT_HEIGHT = 260;
@@ -407,6 +407,14 @@ export default function RightSidebar({
   const aiMockTimerRef = useRef<number | null>(null);
   const activeDraftSessionRef = useRef<InlineDraftSession | null>(null);
   const chatThreadIdsRef = useRef<Record<string, string>>({});
+  const { currentWorkspaceId } = useWorkspace();
+
+  // Ticket16: Workspace를 전환하면 이전 Workspace 기준으로 만들어둔 노트별 스레드 캐시를 그대로
+  // 재사용하지 않는다 — 재사용하면 새 메시지의 noteScope.documentGroupId(현재 Workspace)가 그
+  // 스레드가 생성될 때의 documentGroupId와 어긋나 서버 검증에 걸릴 수 있다.
+  useEffect(() => {
+    chatThreadIdsRef.current = {};
+  }, [currentWorkspaceId]);
 
   const toc = useMemo(() => (activeNote ? parseHeadings(activeNote.content) : []), [activeNote]);
   const ctx = (activeNote && MOCK_CONTEXT_DATA[activeNote.id]) || { backlinks: [], connections: [], aiSuggestions: [] };
@@ -489,7 +497,7 @@ export default function RightSidebar({
     const existing = chatThreadIdsRef.current[note.id];
     if (existing) return existing;
     const created = await createChatThread({
-      documentGroupId: DEFAULT_DOCUMENT_GROUP_ID,
+      documentGroupId: currentWorkspaceId ?? undefined,
       title: `${note.title} AI`,
       modelId: DEFAULT_CHAT_MODEL_ID,
     });
@@ -587,7 +595,7 @@ export default function RightSidebar({
     const clientContext = buildNoteAiContext({
       task: "note.ask",
       surface: "RIGHT_SIDEBAR",
-      documentGroupId: DEFAULT_DOCUMENT_GROUP_ID,
+      documentGroupId: currentWorkspaceId ?? undefined,
       noteId: note.id,
       title: note.title,
       content: note.content,
@@ -610,7 +618,7 @@ export default function RightSidebar({
         {
           message: prompt,
           noteScope: {
-            documentGroupId: DEFAULT_DOCUMENT_GROUP_ID,
+            documentGroupId: currentWorkspaceId ?? undefined,
             noteId: note.id,
           },
           clientContext,
@@ -669,7 +677,7 @@ export default function RightSidebar({
       const clientContext = buildNoteAiContext({
         task: "note.summarize.selection",
         surface: "RIGHT_SIDEBAR",
-        documentGroupId: DEFAULT_DOCUMENT_GROUP_ID,
+        documentGroupId: currentWorkspaceId ?? undefined,
         noteId: activeNote.id,
         title: activeNote.title,
         selectedText,
@@ -696,7 +704,7 @@ export default function RightSidebar({
           {
             message: "선택한 텍스트를 요약해줘.",
             noteScope: {
-              documentGroupId: DEFAULT_DOCUMENT_GROUP_ID,
+              documentGroupId: currentWorkspaceId ?? undefined,
               noteId: activeNote.id,
             },
             clientContext,

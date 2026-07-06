@@ -48,9 +48,51 @@ spring:
                     fallbackUri: forward:/fallback/commerce
 
             - id: commerce-service-user-token-usage
-              uri: ${COMMERCE_SERVICE_URL:http://localhost:8084}
+              uri: lb://Commerce-Service
               predicates:
                 - Path=/api/v1/users/me/token-usage
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: commerceServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/commerce
+
+            # commerce-service-user-subscription/-token-usage와 동일한 override 패턴 — 아래
+            # user-service-users(/api/v1/users/**)·workspace-service(/api/v1/notes/**)보다
+            # 라우트 목록에서 먼저 나와야 더 구체적인 이 두 경로가 먼저 매칭된다. 지금까지는
+            # next.config.mjs의 rewrite가 이 두 경로를 Intelligence-Service로 먼저 가로채서
+            # Gateway에 라우트가 없어도 웹 프론트에서는 드러나지 않았을 뿐, Gateway 공개 API
+            # 기준으로는 계약과 실제 라우팅이 어긋나 있었다(Gateway를 직접 호출하는 클라이언트는
+            # 각각 Workspace-Service/User-Service로 잘못 라우팅되어 404가 났다).
+            - id: intelligence-service-style-profile
+              uri: lb://intelligence-service
+              predicates:
+                - Path=/api/v1/users/me/style-profile
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: intelligenceServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/intelligence
+
+            - id: intelligence-service-notes-summary
+              uri: lb://intelligence-service
+              predicates:
+                - Path=/api/v1/notes/{noteId}/summary
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: intelligenceServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/intelligence
+
+            - id: intelligence-service
+              uri: lb://intelligence-service
+              predicates:
+                - Path=/api/v1/intelligence/**,/api/v1/ai/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: intelligenceServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/intelligence
 
             - id: internal-user-service-users
               uri: lb://User-Service

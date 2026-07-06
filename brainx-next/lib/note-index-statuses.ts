@@ -34,13 +34,19 @@ export async function mergeNoteIndexStatuses(
   documentGroupId?: string | null
 ): Promise<BrainXNote[]> {
   const baseNotes = notes.map(withUnknownNoteIndexStatus);
-  const noteIds = baseNotes.map((note) => note.id);
-  if (noteIds.length === 0) return baseNotes;
+  const aiSourceNoteIds = Array.from(
+    new Set(
+      baseNotes
+        .map((note) => note.aiSourceNoteId?.trim() || "")
+        .filter((noteId) => noteId.length > 0)
+    )
+  );
+  if (aiSourceNoteIds.length === 0) return baseNotes;
 
   try {
     const statusEntries: NoteIndexStatusesData["notes"] = [];
-    for (let index = 0; index < noteIds.length; index += NOTE_INDEX_STATUS_BATCH_SIZE) {
-      const batchIds = noteIds.slice(index, index + NOTE_INDEX_STATUS_BATCH_SIZE);
+    for (let index = 0; index < aiSourceNoteIds.length; index += NOTE_INDEX_STATUS_BATCH_SIZE) {
+      const batchIds = aiSourceNoteIds.slice(index, index + NOTE_INDEX_STATUS_BATCH_SIZE);
       const result = await getNoteIndexStatuses({
         ...(documentGroupId ? { documentGroupId } : {}),
         noteIds: batchIds
@@ -49,7 +55,7 @@ export async function mergeNoteIndexStatuses(
     }
     const statusesById = new Map(statusEntries.map((note) => [note.noteId, note]));
     return baseNotes.map((note) => {
-      const status = statusesById.get(note.id);
+      const status = note.aiSourceNoteId ? statusesById.get(note.aiSourceNoteId) : undefined;
       if (!status) return note;
       return {
         ...note,

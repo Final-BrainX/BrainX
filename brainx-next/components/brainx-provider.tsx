@@ -224,7 +224,9 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!hydrated) return;
     const applyTheme = () => {
-      const nextEffectiveTheme = theme === "system" ? getSystemTheme() : theme;
+      const pathname = window.location.pathname;
+      const isThemeEnabledRoute = ["/home", "/notes", "/chat", "/graph", "/billing", "/admin", "/settings"].some((prefix) => pathname.startsWith(prefix));
+      const nextEffectiveTheme = isThemeEnabledRoute ? (theme === "system" ? getSystemTheme() : theme) : "light";
       setEffectiveTheme(nextEffectiveTheme);
       document.documentElement.classList.toggle("light", nextEffectiveTheme === "light");
       document.documentElement.classList.toggle("dark", nextEffectiveTheme === "dark");

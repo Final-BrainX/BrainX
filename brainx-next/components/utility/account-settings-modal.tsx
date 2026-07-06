@@ -45,12 +45,27 @@ import {
 import { getMyWorkspaceStats, type WorkspaceUserStatsData } from "@/lib/workspace-api";
 import { createSupportTicket, getMySupportTicket, getMySupportTickets, type SupportTicket, type SupportTicketDetail, type SupportTicketPayload } from "@/lib/support-api";
 import { getRecentDailySeries, summarizeWorkspaceNotes } from "@/lib/workspace-note-stats";
-import { getBrainxDesktopConfig, isElectronDesktop, type BrainxDesktopVaultSyncMode, type BrainxDesktopVaultSyncPolicy } from "@/lib/desktop-bridge";
-import { getDesktopVaultSyncPolicy, requestDesktopVaultManualSync, setDesktopVaultSyncPolicy } from "@/lib/desktop-vault";
+import {
+  getBrainxDesktopConfig,
+  isElectronDesktop,
+  type BrainxDesktopVaultSummary,
+  type BrainxDesktopVaultSyncMode,
+  type BrainxDesktopVaultSyncPolicy
+} from "@/lib/desktop-bridge";
+import {
+  activateDesktopVault,
+  chooseDesktopVaultDirectory,
+  createDesktopVault,
+  getDesktopVaultSyncPolicy,
+  listDesktopVaults,
+  requestDesktopVaultManualSync,
+  setDesktopVaultSyncPolicy
+} from "@/lib/desktop-vault";
 import { addPopupResultListener, openBrainxPopup } from "@/lib/desktop-bridge";
 import { cx } from "@/lib/utils";
 import type { ThemeMode } from "@/components/brainx-provider";
 import type { LanguageCode } from "@/lib/i18n";
+import { Toggle } from "@/components/brainx-ui";
 import { useGuideStore } from "@/lib/use-guide-store";
 import { formatCreditCount, formatResetDate, formatTokenPercent, iconForFeature } from "@/lib/token-usage";
 import {
@@ -80,6 +95,22 @@ type StyleDraft = {
   conversationTone: Record<ConversationToneKey, string>;
   writingStyle: Record<WritingStyleScalarKey, string> & { avoid: string };
 };
+
+function PillToggle({
+  on,
+  onChange,
+  size = "sm",
+  disabled,
+  ariaLabel
+}: {
+  on: boolean;
+  onChange: (value: boolean) => void;
+  size?: "sm" | "md";
+  disabled?: boolean;
+  ariaLabel?: string;
+}) {
+  return <Toggle on={on} onChange={onChange} size={size} disabled={disabled} ariaLabel={ariaLabel} />;
+}
 
 const EMPTY_STYLE_BASE: StyleProfileBase = { conversationTone: {}, writingStyle: {} };
 
@@ -1272,12 +1303,127 @@ function ConsentButton({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cx(
-        "h-8 min-w-[48px] rounded-[7px] px-3 text-[12px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-45",
-        checked ? "bg-[#6c55f6] text-white" : "border border-[#ded8cf] bg-white text-[#6d6861]"
+        "h-7 min-w-[52px] rounded-full px-3 text-[12px] font-semibold transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-45",
+        checked ? "bg-primary text-white shadow-soft" : "border border-line/60 bg-surface2 text-txt2"
       )}
     >
-      {checked ? "켜짐" : "꺼짐"}
+      {checked ? "ON" : "OFF"}
     </button>
+  );
+}
+
+function DesktopVaultSwitcherSection() {
+  const router = useRouter();
+  const { pushToast } = useBrainX();
+  const [supported, setSupported] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [activeVaultId, setActiveVaultId] = useState<string | null>(null);
+  const [recentVaults, setRecentVaults] = useState<BrainxDesktopVaultSummary[]>([]);
+
+  const refresh = useCallback(async () => {
+    const [config, vaults] = await Promise.all([getBrainxDesktopConfig(), listDesktopVaults()]);
+    setSupported(Boolean(config));
+    setActiveVaultId(config?.activeVault?.id ?? null);
+    setRecentVaults(vaults);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!isElectronDesktop()) {
+      setSupported(false);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    refresh()
+      .catch(() => {
+        if (!active) return;
+        setSupported(false);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [refresh]);
+
+  if (!supported) {
+    return null;
+  }
+
+  const runVaultAction = async (action: () => Promise<BrainxDesktopVaultSummary | null>, successMessage: string) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const vault = await action();
+      if (!vault) return;
+      await refresh();
+      pushToast(successMessage, "ok");
+      router.push("/notes");
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : "vault 전환을 완료하지 못했습니다.", "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const activeVault = recentVaults.find((vault) => vault.id === activeVaultId) ?? null;
+
+  return (
+    <section className="mt-5 rounded-[12px] border border-[#e5e0d8] px-4 py-4">
+      <div className="mb-3">
+        <h2 className="text-[14px] font-bold text-[#2f2d2a]">Desktop Vault 선택</h2>
+        <p className="mt-1 text-[12px] leading-5 text-[#6d6861]">
+          앱에서는 마지막으로 작업한 vault를 자동으로 다시 엽니다. 여기서 현재 vault를 바꾸거나 새 vault를 연결할 수 있습니다.
+        </p>
+      </div>
+
+      <div className="mb-3 rounded-[10px] bg-[#fbfaf8] px-3 py-3">
+        <div className="text-[11px] font-semibold text-[#6d6861]">현재 active vault</div>
+        <div className="mt-1 text-[13px] font-semibold text-[#2f2d2a]">{loading ? "불러오는 중..." : activeVault?.name ?? "선택된 vault 없음"}</div>
+        <div className="mt-1 truncate text-[11px] text-[#8c877f]">{activeVault?.vaultPath ?? "연결된 vault가 아직 없습니다."}</div>
+      </div>
+
+      <div className="mb-3 flex flex-wrap gap-2">
+        <ModalButton disabled={busy || loading} onClick={() => void runVaultAction(() => chooseDesktopVaultDirectory(), "기존 vault를 연결했습니다.")}>
+          기존 vault 열기
+        </ModalButton>
+        <ModalButton primary disabled={busy || loading} onClick={() => void runVaultAction(() => createDesktopVault("BrainX Vault"), "새 vault를 만들었습니다.")}>
+          새 vault 만들기
+        </ModalButton>
+      </div>
+
+      <div className="space-y-2">
+        {(loading ? [] : recentVaults).map((vault) => {
+          const active = vault.id === activeVaultId;
+          return (
+            <div key={vault.id} className={cx("flex items-center justify-between gap-3 rounded-[10px] border px-3 py-3", active ? "border-[#cfc3ff] bg-[#f6f1ff]" : "border-[#ece7df] bg-white")}>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <div className="truncate text-[13px] font-semibold text-[#2f2d2a]">{vault.name}</div>
+                  {active ? <span className="rounded-full bg-[#ede7ff] px-2 py-0.5 text-[10px] font-semibold text-[#6c55f6]">현재 사용 중</span> : null}
+                </div>
+                <div className="mt-1 truncate text-[11px] text-[#8c877f]">{vault.vaultPath}</div>
+              </div>
+              <ModalButton
+                primary={!active}
+                disabled={busy || active}
+                onClick={() => void runVaultAction(() => activateDesktopVault(vault.id), `${vault.name} vault로 전환했습니다.`)}
+              >
+                {active ? "현재 vault" : "열기"}
+              </ModalButton>
+            </div>
+          );
+        })}
+        {!loading && recentVaults.length === 0 ? (
+          <div className="rounded-[10px] border border-dashed border-[#e5e0d8] px-3 py-4 text-[12px] text-[#8c877f]">최근 vault가 아직 없습니다.</div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -1424,22 +1570,73 @@ function GeneralSettingsPanel({
         <h1 className="text-[24px] font-bold tracking-[-0.01em] text-[#2f2d2a]">{t("general.title")}</h1>
         <p className="mt-3 text-[13px] text-[#6d6861]">{t("general.desc")}</p>
       </header>
-      <section className="rounded-[12px] border border-[#e5e0d8]">
-        <AccountRow className="px-4" title={t("general.language")} desc={t("general.languageDesc")} action={<SegmentedControl options={languageOptions} value={language} onChange={onLanguageChange} />} />
-        <AccountRow className="px-4" title={t("general.theme")} desc={t("general.themeDesc")} action={<SegmentedControl options={themeOptions} value={theme} onChange={onThemeChange} />} />
+      <section className="rounded-2xl border border-line/40 bg-surface shadow-soft">
+        <AccountRow
+          className="px-4"
+          title={t("general.language")}
+          desc="한 / Eng"
+          action={
+            <div className="inline-flex h-10 items-center rounded-full border border-line/60 bg-surface2/60 p-1 shadow-sm">
+              {[
+                { value: "ko" as LanguageCode, label: "한" },
+                { value: "en" as LanguageCode, label: "Eng" }
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => onLanguageChange(option.value)}
+                  className={cx(
+                    "h-8 rounded-full px-3 text-[13px] font-medium transition-all duration-300",
+                    language === option.value ? "bg-primary text-white shadow-soft" : "text-txt2 hover:bg-surface hover:text-txt"
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          }
+        />
+        <AccountRow
+          className="px-4"
+          title={t("general.theme")}
+          desc={t("general.themeDesc")}
+          action={
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-line/60 bg-surface2/60 p-1 shadow-sm">
+              {[
+                { value: "dark" as ThemeMode, icon: "moon" as const, label: t("general.dark") },
+                { value: "light" as ThemeMode, icon: "sun" as const, label: t("general.light") },
+                { value: "system" as ThemeMode, icon: "settings" as const, label: t("general.system") }
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => onThemeChange(option.value)}
+                  aria-label={option.label}
+                  className={cx(
+                    "grid h-8 w-8 place-items-center rounded-full transition-all duration-300",
+                    theme === option.value ? "bg-primary text-white shadow-soft" : "text-txt2 hover:bg-surface hover:text-txt"
+                  )}
+                >
+                  <Icon name={option.icon} size={15} />
+                </button>
+              ))}
+            </div>
+          }
+        />
         <AccountRow
           className="px-4"
           title={t("general.marketing")}
           desc={t("general.marketingDesc")}
-          action={<ConsentButton checked={consents.marketingOptional} disabled={savingConsent === "marketingOptional"} onChange={(value) => onConsentChange("marketingOptional", value)} />}
+          action={<PillToggle on={consents.marketingOptional} disabled={savingConsent === "marketingOptional"} onChange={(value) => onConsentChange("marketingOptional", value)} />}
         />
         <AccountRow
           className="px-4"
           title={t("general.analytics")}
           desc={t("general.analyticsDesc")}
-          action={<ConsentButton checked={consents.behaviorAnalyticsOptional} disabled={savingConsent === "behaviorAnalyticsOptional"} onChange={(value) => onConsentChange("behaviorAnalyticsOptional", value)} />}
+          action={<PillToggle on={consents.behaviorAnalyticsOptional} disabled={savingConsent === "behaviorAnalyticsOptional"} onChange={(value) => onConsentChange("behaviorAnalyticsOptional", value)} />}
         />
       </section>
+      <DesktopVaultSwitcherSection />
       <DesktopVaultSyncStatusSection />
     </>
   );
@@ -1792,50 +1989,60 @@ function GeneralPanel({
   consents,
   savingConsent,
   onConsentChange,
-  onLogout
+  onLogout,
+
+  language,
+  setLanguage,
+  theme,
+  setTheme,
 }: {
   consents: ConsentPayload;
   savingConsent: keyof ConsentPayload | null;
   onConsentChange: (key: keyof ConsentPayload, value: boolean) => void;
   onLogout: () => void;
+
+  language: LanguageCode;
+  setLanguage: (value: LanguageCode) => void;
+
+  theme: "light" | "dark" | "system";
+  setTheme: (value: "light" | "dark" | "system") => void;
 }) {
   return (
     <>
-      <header className="mb-8">
-        <h1 className="text-[24px] font-bold tracking-[-0.01em] text-[#2f2d2a]">일반</h1>
-        <p className="mt-3 text-[13px] text-[#6d6861]">앱 표시와 개인정보 옵션을 관리하세요.</p>
-      </header>
-      <section className="rounded-[12px] border border-[#e5e0d8]">
-        <AccountRow className="px-4" title="언어" desc="한국어" />
-        <AccountRow className="px-4" title="테마" desc="시스템 설정 사용" />
-        <AccountRow
-          className="px-4"
-          title="마케팅 정보 수신"
-          desc="제품 소식과 혜택 안내 수신 동의"
-          action={<ConsentButton checked={consents.marketingOptional} disabled={savingConsent === "marketingOptional"} onChange={(value) => onConsentChange("marketingOptional", value)} />}
-        />
-        <AccountRow
-          className="px-4"
-          title="행동 데이터 분석"
-          desc="서비스 개선을 위한 사용 분석 동의"
-          action={<ConsentButton checked={consents.behaviorAnalyticsOptional} disabled={savingConsent === "behaviorAnalyticsOptional"} onChange={(value) => onConsentChange("behaviorAnalyticsOptional", value)} />}
-        />
-        <AccountRow className="px-4" title="세션" desc="현재 로그인된 기기에서 로그아웃합니다." action={<ModalButton onClick={onLogout}>로그아웃</ModalButton>} />
-      </section>
+
     </>
   );
 }
 
 function NotificationsPanel() {
+  const [enabled, setEnabled] = useState<Record<string, boolean>>({
+    "댓글과 멘션": true,
+    "공유 링크 활동": true,
+    "AI 작업 완료": true,
+    "주간 활동 리포트": false
+  });
+
   return (
     <>
       <header className="mb-8">
         <h1 className="text-[24px] font-bold tracking-[-0.01em] text-[#2f2d2a]">알림</h1>
         <p className="mt-3 text-[13px] text-[#6d6861]">노트와 AI 작업에 관한 알림을 조정하세요.</p>
       </header>
-      <section className="rounded-[12px] border border-[#e5e0d8]">
+      <section className="rounded-2xl border border-line/40 bg-surface shadow-soft">
         {["댓글과 멘션", "공유 링크 활동", "AI 작업 완료", "주간 활동 리포트"].map((item) => (
-          <AccountRow className="px-4" key={item} title={item} desc="앱 내 알림으로 받아봅니다." action={<span className="text-[12px] font-semibold text-[#6c55f6]">켜짐</span>} />
+          <AccountRow
+            className="px-4"
+            key={item}
+            title={item}
+            desc="앱 내 알림으로 받아봅니다."
+            action={
+              <Toggle
+                on={enabled[item]}
+                onChange={(value) => setEnabled((current) => ({ ...current, [item]: value }))}
+                size="sm"
+              />
+            }
+          />
         ))}
       </section>
     </>

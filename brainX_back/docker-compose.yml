@@ -200,6 +200,8 @@ services:
       EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: commerce-service
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      BRAINX_EVENTS_CONSUMER_ENABLED: "true"
+      BRAINX_EVENTS_OUTBOX_ENABLED: "true"
     ports:
       - "8084:8084"
     depends_on:

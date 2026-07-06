@@ -11,10 +11,12 @@ import { BrandLogo } from "@/components/brand-logo";
 import { AccountSettingsModal } from "@/components/utility/account-settings-modal";
 import CreateWorkspaceModal from "@/components/notes/CreateWorkspaceModal";
 import WorkspaceSwitcher from "@/components/notes/WorkspaceSwitcher";
+import { useWorkspace } from "@/components/workspace-provider";
 import { PanelLeftClose, PanelLeft } from "lucide-react";
 import type { BrainXNote } from "@/lib/brainx-data";
 import { addPopupResultListener } from "@/lib/desktop-bridge";
 import { cx, stripMarkdown } from "@/lib/utils";
+import { matchesWorkspaceScope } from "@/lib/workspace-api";
 import {
   semanticSearch,
   type SemanticSearchData,
@@ -357,7 +359,16 @@ function SearchBar() {
   const semanticAbortRef = useRef<AbortController | null>(null);
   const router = useRouter();
   const searchId = useId();
-  const { hydrated, notes, pushToast, saveStatus } = useBrainX();
+  const { hydrated, notes: allNotes, pushToast, saveStatus } = useBrainX();
+  const { currentWorkspaceId, workspaces } = useWorkspace();
+  /* Search 정책(§12): 현재 Workspace 내부에서만 검색한다 — NotesExplorer/QuickSwitcher의
+     visibleNotes와 동일한 판정(matchesWorkspaceScope)을 재사용한다. currentWorkspaceId가
+     null(Guest 또는 Workspace 미선택)이면 항상 전체 notes와 같아져 기존 동작이 그대로
+     유지된다. */
+  const notes = useMemo(
+    () => allNotes.filter((note) => matchesWorkspaceScope(note.documentGroupId, currentWorkspaceId, workspaces)),
+    [allNotes, currentWorkspaceId, workspaces]
+  );
   const query = normalizeSearchText(value);
   const searchIndex = useMemo(() => createSearchIndex(notes), [notes]);
   const noteById = useMemo(
@@ -482,12 +493,24 @@ function SearchBar() {
     });
 
     try {
+      // Search 정책(§12): Workspace가 선택돼 있으면(currentWorkspaceId) SSOT가 정의한
+      // scope=DOCUMENT_GROUP + documentGroupId로 그 Workspace 안에서만 검색한다. Guest/
+      // Workspace 미선택(currentWorkspaceId===null)은 documentGroupId 개념이 없으므로
+      // 기존처럼 scope=USER(계정 전체) 그대로 유지한다 — SSOT 설명대로 USER scope에는
+      // documentGroupId를 함께 보내지 않는다.
       const result = await semanticSearch(
-        {
-          scope: "USER",
-          query: requestQuery,
-          limit: SEARCH_RESULT_LIMIT,
-        },
+        currentWorkspaceId
+          ? {
+              scope: "DOCUMENT_GROUP",
+              documentGroupId: currentWorkspaceId,
+              query: requestQuery,
+              limit: SEARCH_RESULT_LIMIT,
+            }
+          : {
+              scope: "USER",
+              query: requestQuery,
+              limit: SEARCH_RESULT_LIMIT,
+            },
         { signal: controller.signal },
       );
       if (controller.signal.aborted) return;
@@ -1446,6 +1469,7 @@ function TopBar({
                     type="button"
                     onClick={() => {
                       setGuestMenuOpen(false);
+                      clearAuthSession();
                       router.push(buildAuthPath("/login", pathname));
                     }}
                     className="flex h-9 w-full items-center rounded-lg px-2 text-left text-[13px] font-medium text-txt hover:bg-surface2/60"

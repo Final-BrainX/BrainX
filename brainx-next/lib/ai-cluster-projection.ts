@@ -18,7 +18,6 @@ type NormalizedAiCluster = AiClusterMeta & {
   noteIds: string[];
 };
 
-export const DEFAULT_DOCUMENT_GROUP_ID = "default";
 export const AI_CLUSTER_MIN_NOTES = 5;
 export const AI_CLUSTER_MAX_NOTES = 50;
 export const AI_CLUSTER_MAX_CLUSTERS = 6;
@@ -98,9 +97,9 @@ export function applyAiClustersToNotes(notes: BrainXNote[], latest: ClusterJobLa
     return { notes, clusters: null as AiClusterMeta[] | null };
   }
 
-  const existingNoteIds = new Set(notes.map((note) => note.id));
+  const aiSourceNoteIds = new Set(notes.map((note) => note.aiSourceNoteId ?? note.id));
   const normalizedClusters = (job.clusters ?? [])
-    .map((cluster, index) => normalizeAiCluster(cluster, index, existingNoteIds))
+    .map((cluster, index) => normalizeAiCluster(cluster, index, aiSourceNoteIds))
     .filter((cluster): cluster is NormalizedAiCluster => !!cluster);
   if (normalizedClusters.length === 0) {
     return { notes, clusters: null as AiClusterMeta[] | null };
@@ -117,7 +116,7 @@ export function applyAiClustersToNotes(notes: BrainXNote[], latest: ClusterJobLa
 
   let hasUnassigned = false;
   const clusteredNotes = notes.map((note) => {
-    const clusterId = clusterByNoteId.get(note.id);
+    const clusterId = clusterByNoteId.get(note.aiSourceNoteId ?? note.id);
     if (!clusterId) {
       hasUnassigned = true;
       return { ...note, cluster: UNASSIGNED_CLUSTER_ID, folderId: UNASSIGNED_CLUSTER_ID };
