@@ -43,8 +43,13 @@
    - 지식 공백, 추천사항, 학습 제안을 조회할 수 있게 한다.
    - v1은 note card 기반 sync-complete report로 처리하고, long-running worker와 report 세분화는 후속 범위다.
 
+9. [x] Agent 실험 탭
+   - 기존 `/chat` API/UI를 대체하지 않고 별도 `/agent` 실험 흐름을 제공한다.
+   - v1은 `CREATE_NOTE`, `APPEND_NOTE_CONTENT` action 제안과 사용자 승인 후 Workspace mutation만 지원한다.
+   - note 조회/search/read-only tool, Agent prompt용 note context 자동 주입, 현재 노트 context 전달은 후속 v2 후보로 둔다.
+
 ## Domain Flow
 
-구현 흐름은 `AI 설정 -> 검색/요약 -> 작성 보조 -> 대화형 탐색 -> 연결 추천 -> 정리 제안 -> 구조 분석 -> 인사이트 리포트` 순서로 본다.
+구현 흐름은 `AI 설정 -> 검색/요약 -> 작성 보조 -> 대화형 탐색 -> 연결 추천 -> 정리 제안 -> 구조 분석 -> 인사이트 리포트 -> Agent 실험` 순서로 본다.
 
 먼저 사용자가 즉시 체감하는 노트 단위 기능을 만들고, 이후 전체 지식 베이스를 분석하거나 장기 작업을 생성하는 기능으로 확장한다.

@@ -27,6 +27,7 @@ import com.brainx.intelligence.insight.domain.InsightConflictException;
 import com.brainx.intelligence.insight.domain.InsightDomainException;
 import com.brainx.intelligence.insight.domain.InsightForbiddenException;
 import com.brainx.intelligence.insight.domain.InsightNotFoundException;
+import com.brainx.intelligence.llmops.domain.LlmOpsNotFoundException;
 import com.brainx.intelligence.organization.domain.OrganizationConflictException;
 import com.brainx.intelligence.organization.domain.OrganizationDomainException;
 import com.brainx.intelligence.organization.domain.OrganizationForbiddenException;
@@ -75,6 +76,7 @@ public class GlobalApiExceptionHandler {
         ClusteringNotFoundException.class,
         ConnectionNotFoundException.class,
         InsightNotFoundException.class,
+        LlmOpsNotFoundException.class,
         OrganizationNotFoundException.class
     })
     public ResponseEntity<ApiErrorResponse> handleNotFound(Exception exception) {

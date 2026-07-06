@@ -9,6 +9,9 @@ import org.springframework.util.StringUtils;
 import com.brainx.intelligence.chat.application.usecase.ChatRouteDecider.ChatRouteRequest;
 import com.brainx.intelligence.chat.domain.ChatRoute;
 import com.brainx.intelligence.chat.domain.ChatRouteDecision;
+import com.brainx.intelligence.llmops.application.service.AiRunRecorder;
+import com.brainx.intelligence.llmops.application.service.PromptRegistryService;
+import com.brainx.intelligence.llmops.application.service.PromptRegistryService.PromptResolution;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -25,17 +28,23 @@ public class LlmChatRouteDecider implements ChatRouteDecider {
     private final ChatRouterProperties properties;
     private final AiChatPort aiChatPort;
     private final AiUsageRecorder aiUsageRecorder;
+    private final AiRunRecorder aiRunRecorder;
+    private final PromptRegistryService promptRegistryService;
     private final ObjectMapper objectMapper;
 
     public LlmChatRouteDecider(
         ChatRouterProperties properties,
         AiChatPort aiChatPort,
         AiUsageRecorder aiUsageRecorder,
+        AiRunRecorder aiRunRecorder,
+        PromptRegistryService promptRegistryService,
         ObjectMapper objectMapper
     ) {
         this.properties = properties;
         this.aiChatPort = aiChatPort;
         this.aiUsageRecorder = aiUsageRecorder;
+        this.aiRunRecorder = aiRunRecorder;
+        this.promptRegistryService = promptRegistryService;
         this.objectMapper = objectMapper;
     }
 
@@ -61,13 +70,23 @@ public class LlmChatRouteDecider implements ChatRouteDecider {
     }
 
     private AiChatResponseWithPrompt routeWithPrompt(ChatRouteRequest request, String routerModel) {
-        var response = aiChatPort.generate(new AiChatRequest(
+        PromptResolution resolution = promptRegistryService.resolve("chat.route", systemPrompt());
+        List<AiChatMessage> messages = List.of(
+            new AiChatMessage(AiRole.SYSTEM, resolution.content()),
+            new AiChatMessage(AiRole.USER, userPrompt(request))
+        );
+        var response = aiRunRecorder.recordChatGenerate(
+            request.userId(),
+            CHAT_ROUTER_FEATURE_ID,
+            resolution.promptKey(),
+            resolution.version(),
             routerModel,
-            List.of(
-                new AiChatMessage(AiRole.SYSTEM, systemPrompt()),
-                new AiChatMessage(AiRole.USER, userPrompt(request))
-            )
-        ));
+            "CHAT_ROUTE",
+            null,
+            messages,
+            Map.of("documentGroupId", request.documentGroupId()),
+            () -> aiChatPort.generate(new AiChatRequest(routerModel, messages))
+        );
         return new AiChatResponseWithPrompt(response);
     }
 
@@ -92,16 +111,22 @@ public class LlmChatRouteDecider implements ChatRouteDecider {
             Allowed routes:
             - NOTE_QA: asks a question that should be answered from the current note/document group context.
             - WORKSPACE_SEARCH: asks to find, search, compare, or summarize information across the user's notes.
-            - COMPOSE: asks to write, draft, rewrite, outline, or create content.
+            - COMPOSE: asks to write, draft, rewrite, outline, or create content. Choose COMPOSE for writing requests even when the topic mentions external, current, news, sports, political, or general web knowledge.
             - NOTE_ACTION: asks to save, insert, append, apply, or add generated content to a note. This only produces a draft; no mutation is performed.
-            - OUT_OF_SCOPE: weather, news, general web knowledge, coding help, app navigation, account, billing, settings, or anything unrelated to notes/search/writing/note draft application.
+            - OUT_OF_SCOPE: weather, news, general web knowledge, coding help, app navigation, account, billing, settings, or anything unrelated to notes/search/writing/note draft application. Do not choose OUT_OF_SCOPE solely because a writing request mentions current or external facts.
             Routing priority:
             - If the message refers to the current note, this note, selected note/text, current document group, current thread, or current document-group notes, choose NOTE_QA unless it asks to save/insert/apply content.
             - Choose WORKSPACE_SEARCH only when the user explicitly asks across all notes, the whole workspace, every note, my entire notes, or user-wide/global note search.
+            - Choose NOTE_ACTION when the user asks to save, insert, append, apply, or add generated content to a note.
+            - Choose COMPOSE when the main intent is to produce a document, report, post, outline, or draft, even if the subject itself is not in the user's notes.
+            - Choose OUT_OF_SCOPE for pure current-fact lookup without a writing/drafting deliverable.
             Examples:
             - "현재 문서 그룹 노트 기준으로 RAG 흐름을 설명해줘" -> NOTE_QA
             - "이 노트에서 토큰 사용량 기록 과정을 설명해줘" -> NOTE_QA
             - "내 전체 노트에서 인증과 토큰 사용량 관련 내용을 찾아 비교해줘" -> WORKSPACE_SEARCH
+            - "최신 홍명보호 월드컵 성적에 대한 문서 작성해줘" -> COMPOSE
+            - "홍명보호 월드컵 성적을 바탕으로 보고서 초안 써줘" -> COMPOSE
+            - "오늘 월드컵 예선 결과 알려줘" -> OUT_OF_SCOPE
             Do not answer the user. Classify only.
             """;
     }

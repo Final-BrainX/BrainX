@@ -65,6 +65,7 @@ import { addPopupResultListener, openBrainxPopup } from "@/lib/desktop-bridge";
 import { cx } from "@/lib/utils";
 import type { ThemeMode } from "@/components/brainx-provider";
 import type { LanguageCode } from "@/lib/i18n";
+import { Toggle } from "@/components/brainx-ui";
 import { useGuideStore } from "@/lib/use-guide-store";
 import { formatCreditCount, formatResetDate, formatTokenPercent, iconForFeature } from "@/lib/token-usage";
 import {
@@ -94,6 +95,22 @@ type StyleDraft = {
   conversationTone: Record<ConversationToneKey, string>;
   writingStyle: Record<WritingStyleScalarKey, string> & { avoid: string };
 };
+
+function PillToggle({
+  on,
+  onChange,
+  size = "sm",
+  disabled,
+  ariaLabel
+}: {
+  on: boolean;
+  onChange: (value: boolean) => void;
+  size?: "sm" | "md";
+  disabled?: boolean;
+  ariaLabel?: string;
+}) {
+  return <Toggle on={on} onChange={onChange} size={size} disabled={disabled} ariaLabel={ariaLabel} />;
+}
 
 const EMPTY_STYLE_BASE: StyleProfileBase = { conversationTone: {}, writingStyle: {} };
 
@@ -1286,11 +1303,11 @@ function ConsentButton({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cx(
-        "h-8 min-w-[48px] rounded-[7px] px-3 text-[12px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-45",
-        checked ? "bg-[#6c55f6] text-white" : "border border-[#ded8cf] bg-white text-[#6d6861]"
+        "h-7 min-w-[52px] rounded-full px-3 text-[12px] font-semibold transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-45",
+        checked ? "bg-primary text-white shadow-soft" : "border border-line/60 bg-surface2 text-txt2"
       )}
     >
-      {checked ? "켜짐" : "꺼짐"}
+      {checked ? "ON" : "OFF"}
     </button>
   );
 }
@@ -1553,20 +1570,70 @@ function GeneralSettingsPanel({
         <h1 className="text-[24px] font-bold tracking-[-0.01em] text-[#2f2d2a]">{t("general.title")}</h1>
         <p className="mt-3 text-[13px] text-[#6d6861]">{t("general.desc")}</p>
       </header>
-      <section className="rounded-[12px] border border-[#e5e0d8]">
-        <AccountRow className="px-4" title={t("general.language")} desc={t("general.languageDesc")} action={<SegmentedControl options={languageOptions} value={language} onChange={onLanguageChange} />} />
-        <AccountRow className="px-4" title={t("general.theme")} desc={t("general.themeDesc")} action={<SegmentedControl options={themeOptions} value={theme} onChange={onThemeChange} />} />
+      <section className="rounded-2xl border border-line/40 bg-surface shadow-soft">
+        <AccountRow
+          className="px-4"
+          title={t("general.language")}
+          desc="한 / Eng"
+          action={
+            <div className="inline-flex h-10 items-center rounded-full border border-line/60 bg-surface2/60 p-1 shadow-sm">
+              {[
+                { value: "ko" as LanguageCode, label: "한" },
+                { value: "en" as LanguageCode, label: "Eng" }
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => onLanguageChange(option.value)}
+                  className={cx(
+                    "h-8 rounded-full px-3 text-[13px] font-medium transition-all duration-300",
+                    language === option.value ? "bg-primary text-white shadow-soft" : "text-txt2 hover:bg-surface hover:text-txt"
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          }
+        />
+        <AccountRow
+          className="px-4"
+          title={t("general.theme")}
+          desc={t("general.themeDesc")}
+          action={
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-line/60 bg-surface2/60 p-1 shadow-sm">
+              {[
+                { value: "dark" as ThemeMode, icon: "moon" as const, label: t("general.dark") },
+                { value: "light" as ThemeMode, icon: "sun" as const, label: t("general.light") },
+                { value: "system" as ThemeMode, icon: "settings" as const, label: t("general.system") }
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => onThemeChange(option.value)}
+                  aria-label={option.label}
+                  className={cx(
+                    "grid h-8 w-8 place-items-center rounded-full transition-all duration-300",
+                    theme === option.value ? "bg-primary text-white shadow-soft" : "text-txt2 hover:bg-surface hover:text-txt"
+                  )}
+                >
+                  <Icon name={option.icon} size={15} />
+                </button>
+              ))}
+            </div>
+          }
+        />
         <AccountRow
           className="px-4"
           title={t("general.marketing")}
           desc={t("general.marketingDesc")}
-          action={<ConsentButton checked={consents.marketingOptional} disabled={savingConsent === "marketingOptional"} onChange={(value) => onConsentChange("marketingOptional", value)} />}
+          action={<PillToggle on={consents.marketingOptional} disabled={savingConsent === "marketingOptional"} onChange={(value) => onConsentChange("marketingOptional", value)} />}
         />
         <AccountRow
           className="px-4"
           title={t("general.analytics")}
           desc={t("general.analyticsDesc")}
-          action={<ConsentButton checked={consents.behaviorAnalyticsOptional} disabled={savingConsent === "behaviorAnalyticsOptional"} onChange={(value) => onConsentChange("behaviorAnalyticsOptional", value)} />}
+          action={<PillToggle on={consents.behaviorAnalyticsOptional} disabled={savingConsent === "behaviorAnalyticsOptional"} onChange={(value) => onConsentChange("behaviorAnalyticsOptional", value)} />}
         />
       </section>
       <DesktopVaultSwitcherSection />
@@ -1922,50 +1989,60 @@ function GeneralPanel({
   consents,
   savingConsent,
   onConsentChange,
-  onLogout
+  onLogout,
+
+  language,
+  setLanguage,
+  theme,
+  setTheme,
 }: {
   consents: ConsentPayload;
   savingConsent: keyof ConsentPayload | null;
   onConsentChange: (key: keyof ConsentPayload, value: boolean) => void;
   onLogout: () => void;
+
+  language: LanguageCode;
+  setLanguage: (value: LanguageCode) => void;
+
+  theme: "light" | "dark" | "system";
+  setTheme: (value: "light" | "dark" | "system") => void;
 }) {
   return (
     <>
-      <header className="mb-8">
-        <h1 className="text-[24px] font-bold tracking-[-0.01em] text-[#2f2d2a]">일반</h1>
-        <p className="mt-3 text-[13px] text-[#6d6861]">앱 표시와 개인정보 옵션을 관리하세요.</p>
-      </header>
-      <section className="rounded-[12px] border border-[#e5e0d8]">
-        <AccountRow className="px-4" title="언어" desc="한국어" />
-        <AccountRow className="px-4" title="테마" desc="시스템 설정 사용" />
-        <AccountRow
-          className="px-4"
-          title="마케팅 정보 수신"
-          desc="제품 소식과 혜택 안내 수신 동의"
-          action={<ConsentButton checked={consents.marketingOptional} disabled={savingConsent === "marketingOptional"} onChange={(value) => onConsentChange("marketingOptional", value)} />}
-        />
-        <AccountRow
-          className="px-4"
-          title="행동 데이터 분석"
-          desc="서비스 개선을 위한 사용 분석 동의"
-          action={<ConsentButton checked={consents.behaviorAnalyticsOptional} disabled={savingConsent === "behaviorAnalyticsOptional"} onChange={(value) => onConsentChange("behaviorAnalyticsOptional", value)} />}
-        />
-        <AccountRow className="px-4" title="세션" desc="현재 로그인된 기기에서 로그아웃합니다." action={<ModalButton onClick={onLogout}>로그아웃</ModalButton>} />
-      </section>
+      
     </>
   );
 }
 
 function NotificationsPanel() {
+  const [enabled, setEnabled] = useState<Record<string, boolean>>({
+    "댓글과 멘션": true,
+    "공유 링크 활동": true,
+    "AI 작업 완료": true,
+    "주간 활동 리포트": false
+  });
+
   return (
     <>
       <header className="mb-8">
         <h1 className="text-[24px] font-bold tracking-[-0.01em] text-[#2f2d2a]">알림</h1>
         <p className="mt-3 text-[13px] text-[#6d6861]">노트와 AI 작업에 관한 알림을 조정하세요.</p>
       </header>
-      <section className="rounded-[12px] border border-[#e5e0d8]">
+      <section className="rounded-2xl border border-line/40 bg-surface shadow-soft">
         {["댓글과 멘션", "공유 링크 활동", "AI 작업 완료", "주간 활동 리포트"].map((item) => (
-          <AccountRow className="px-4" key={item} title={item} desc="앱 내 알림으로 받아봅니다." action={<span className="text-[12px] font-semibold text-[#6c55f6]">켜짐</span>} />
+          <AccountRow
+            className="px-4"
+            key={item}
+            title={item}
+            desc="앱 내 알림으로 받아봅니다."
+            action={
+              <Toggle
+                on={enabled[item]}
+                onChange={(value) => setEnabled((current) => ({ ...current, [item]: value }))}
+                size="sm"
+              />
+            }
+          />
         ))}
       </section>
     </>

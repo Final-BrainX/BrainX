@@ -4,10 +4,11 @@
 
 ## 기준
 
-- 기준일: 2026-07-04
+- 기준일: 2026-07-06
 - 구현 범위: `src/main/java/com/brainx/intelligence`
 - 공개 계약 slice: `src/main/resources/contracts/knowledge-intelligence.openapi.yaml`
 - 생성형 LLM 호출: `AiChatPort` -> `SpringAiAdapter` -> Spring AI `ChatClient`
+- 생성형 LLM 관측: `AiRunRecorder`가 provider 호출별 `llmRunId`, prompt key/version, preview, latency, token/cost를 `intelligence_llm_runs`에 저장한다.
 - embedding 호출: `AiEmbeddingPort` -> Voyage adapter 또는 configured provider
 - 검색 index: Workspace note event 기반 read model/vector index. Intelligence-Service는 원본 노트를 소유하지 않는다.
 
@@ -21,15 +22,25 @@
 | Agent 실험 탭 | `GET/POST /api/v1/ai/agent-threads...`, `POST /api/v1/ai/agent-actions/{actionId}/approve|reject` | chat LLM + 승인 후 Workspace mutation | `/chat` 대체가 아닌 별도 `/agent` 실험 흐름이다. Agent는 `CREATE_NOTE`, `APPEND_NOTE_CONTENT` action을 제안만 하고, 사용자가 승인한 뒤에만 Workspace mutation을 수행한다. |
 | 인라인 어시스트 | `POST /api/v1/ai/inline-assists` | chat LLM | 노트 편집 중 선택 영역과 앞뒤 문맥을 바탕으로 요약, 재작성, 이어쓰기, 번역, 초안 작성을 수행한다. |
 | AI 제안 결정 기록 | `POST /api/v1/ai/suggestions/{suggestionId}/decision` | LLM 호출 없음 | inline assist 등에서 만들어진 제안의 수락/거절/재생성 결정을 이벤트로 기록한다. |
+| LLM 응답 피드백 | `PUT /api/v1/ai/llm-feedback` | LLM 호출 없음 | 실제 provider 호출에서 발급된 `llmRunId` 기준으로 사용자 `LIKE`/`DISLIKE` 피드백을 upsert한다. |
 | AI 링크 추천 | `POST /api/v1/ai/link-suggestions` | chat LLM | source note와 연결할 후보 note를 추천하고 이유/anchor 정보를 만든다. |
 | 징검다리 개념 추천 | `POST /api/v1/ai/bridge-concepts` | chat LLM | 여러 source note 사이를 이어줄 개념과 필요한 wiki link 후보를 추천한다. |
 | AI 클러스터링 | `POST /api/v1/ai/clusters`, `GET /api/v1/ai/clusters/latest`, `GET /api/v1/ai/clusters/{clusterJobId}` | chat LLM | note card를 기반으로 주제 cluster를 생성하고 job 결과로 저장한다. GET 계열은 저장된 결과/상태 조회다. |
-| AI 인사이트 리포트 | `POST /api/v1/ai/insight-reports`, `GET /api/v1/ai/insight-reports/{reportId}` | chat LLM | note set에서 insight, knowledge gap, 추천 액션을 생성한다. GET은 저장된 report 조회다. |
+| AI 인사이트 리포트 | `POST /api/v1/ai/insight-reports`, `GET /api/v1/ai/insight-reports/latest`, `GET /api/v1/ai/insight-reports/{reportId}` | chat LLM | note set에서 insight, knowledge gap, 추천 액션을 생성한다. latest/report GET은 저장된 report와 freshness 상태 조회다. |
 | AI 폴더 정리 제안 | `POST /api/v1/ai/folder-organization-proposals` | chat LLM | note card를 보고 proposed folders와 proposed moves를 만든다. 실제 Workspace mutation은 하지 않는다. |
 | AI 모델 설정 | `GET /api/v1/ai/models`, `PUT /api/v1/ai/model-settings` | LLM 호출 없음 | 사용 가능한 model catalog와 사용자별 enabled/default model 설정을 관리한다. |
 | 문체 프로필 | `GET/PUT /api/v1/users/me/style-profile` | LLM 호출 없음 | 사용자의 선호 문체/도움 방식 설정을 저장한다. LLM prompt 입력으로 사용할 수 있는 설정 데이터다. |
 | 노트 인덱스 상태 | `POST /api/v1/intelligence/note-index-statuses` | LLM 호출 없음 | 노트별 `searchIndexStatus`와 `availableForAiFeatures`를 반환해 프론트가 AI 추천 가능 여부를 판단하게 한다. |
 | 노트 요약 조회 | `GET /api/v1/notes/{noteId}/summary` | 요청 시 LLM 호출 없음 | projection summary가 있으면 반환하고, 없으면 Workspace snapshot markdown에서 excerpt fallback을 만든다. |
+
+## LLMOps / PromptOps
+
+LLMOps v1은 UI 없이 backend foundation만 제공한다. 자세한 기준은 `docs/technical/llmops.md`를 따른다.
+
+- 실제 provider 호출이 있는 생성형 AI 응답에는 가능하면 `llmRunId`를 함께 반환한다.
+- `AiRunRecorder`는 관측/품질/피드백 책임이고, `AiUsageRecorder`는 Commerce usage event 책임이다.
+- DB active prompt version이 있으면 해당 template을 사용하고, 없으면 기존 code prompt를 `promptVersion=code`로 기록한다.
+- internal `/internal/v1/intelligence/llmops/**` API는 service token 기반으로 run/prompt/eval/feedback 운영 도구가 붙을 수 있는 표면이다.
 
 ## 채팅 라우팅
 
@@ -54,6 +65,8 @@
 - `CREATE_NOTE`는 승인 후 Workspace internal bulk-create API를 `INTELLIGENCE_AGENT` source로 호출한다.
 - `APPEND_NOTE_CONTENT`는 승인 후 note projection으로 user/documentGroup ownership을 확인하고, Workspace snapshot의 최신 `version`을 baseVersion으로 사용해 internal content patch `APPEND`를 호출한다.
 - 승인 전에는 Agent가 저장/수정 완료를 말하지 않고 실행 가능한 action card만 제안한다.
+- 현재 Agent는 note 조회/search/read-only tool을 제공하지 않는다. `AgentMessageCreateRequest.clientContext`는 schema와 persistence에 있지만, 현재 planner prompt에는 노트 context로 자동 주입하지 않는다.
+- 현재 노트 context 주입, `READ_NOTE`, `SEARCH_NOTES`, `LIST_RECENT_NOTES` 같은 read-only tool은 후속 v2 후보이며 v1 기능처럼 문서화하지 않는다.
 
 ## 인라인 어시스트 액션
 
@@ -65,7 +78,7 @@
 | `TRANSLATE` | 선택 영역 번역 | 선택 영역을 target language로 번역한다. |
 | `DRAFT` | 새 초안 작성 | `draftPrompt`가 필수이며 target length는 100~3000자로 clamp된다. |
 
-응답은 SSE delta stream이며 완료 이벤트에 `suggestionId`, `action`, `modelId`가 포함된다. 생성된 제안의 수락/거절/재생성 결정은 별도 decision API로 기록한다.
+응답은 SSE delta stream이며 완료 이벤트에 `suggestionId`, `action`, `modelId`, `llmRunId`가 포함될 수 있다. 생성된 제안의 수락/거절/재생성 결정은 별도 decision API로 기록한다.
 
 ## 분석형 Job 기능
 
@@ -129,6 +142,7 @@ OpenAI chat은 Spring AI `ChatClient`를 통해 호출한다. OpenAI audio/image
 - `docs/technical/frontend-ai-context-management.md`
 - `docs/technical/inline-assist-frontend-stream-lifecycle.md`
 - `docs/technical/connection-api.md`
+- `docs/technical/cross-service-integration-map.md`
 - `docs/technical/knowledge-structure-analysis.md`
 - `docs/technical/insight-reports.md`
 - `docs/technical/note-auto-linking.md`

@@ -37,6 +37,9 @@ import com.brainx.intelligence.connection.domain.ConnectionNotFoundException;
 import com.brainx.intelligence.connection.domain.ConnectionProviderUnavailableException;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
 import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
+import com.brainx.intelligence.llmops.application.service.AiRunRecorder;
+import com.brainx.intelligence.llmops.application.service.PromptRegistryService;
+import com.brainx.intelligence.llmops.application.service.PromptRegistryService.PromptResolution;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -71,6 +74,8 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
     private final AiModelSettingsPort aiModelSettingsPort;
     private final AiChatPort aiChatPort;
     private final AiUsageRecorder aiUsageRecorder;
+    private final AiRunRecorder aiRunRecorder;
+    private final PromptRegistryService promptRegistryService;
     private final StylePromptCompiler stylePromptCompiler;
     private final ObjectMapper objectMapper;
 
@@ -83,6 +88,8 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
         AiModelSettingsPort aiModelSettingsPort,
         AiChatPort aiChatPort,
         AiUsageRecorder aiUsageRecorder,
+        AiRunRecorder aiRunRecorder,
+        PromptRegistryService promptRegistryService,
         StylePromptCompiler stylePromptCompiler,
         ObjectMapper objectMapper
     ) {
@@ -94,6 +101,8 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
         this.aiModelSettingsPort = aiModelSettingsPort;
         this.aiChatPort = aiChatPort;
         this.aiUsageRecorder = aiUsageRecorder;
+        this.aiRunRecorder = aiRunRecorder;
+        this.promptRegistryService = promptRegistryService;
         this.stylePromptCompiler = stylePromptCompiler;
         this.objectMapper = objectMapper;
     }
@@ -173,8 +182,12 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
         String modelId = resolveBridgeModelId(userId);
         int maxRecommendations = bridgeProperties.getMaxRecommendations();
         List<String> bridgeLinkTitles = bridgeLinkTitles(sourceNotes);
+        PromptResolution promptResolution = promptRegistryService.resolve("connection.bridge", bridgeSystemPrompt());
         String systemPrompt = StylePromptCompiler.appendToSystemPrompt(
-            bridgeSystemPrompt(maxRecommendations),
+            StylePromptCompiler.appendToSystemPrompt(
+                promptResolution.content(),
+                bridgeRuntimeInstructions(maxRecommendations)
+            ),
             stylePromptCompiler.conversationToneInstructions(userId)
         );
         String userPrompt = bridgeUserPrompt(sourceNotes, bridgeLinkTitles, maxRecommendations);
@@ -190,7 +203,19 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
         }
 
         String requestId = UUID.randomUUID().toString();
-        AiChatResponse response = generateBridge(modelId, systemPrompt, userPrompt);
+        List<AiChatMessage> messages = List.of(
+            new AiChatMessage(AiRole.SYSTEM, systemPrompt),
+            new AiChatMessage(AiRole.USER, userPrompt)
+        );
+        var recorded = generateBridge(
+            userId,
+            modelId,
+            requestId,
+            promptResolution,
+            messages,
+            Map.of("noteIds", noteIds)
+        );
+        AiChatResponse response = recorded.response();
         String content = response == null || response.content() == null ? "" : response.content();
         recordBridgeUsage(userId, modelId, requestId, response == null ? null : response.tokenUsage());
         List<BridgeConceptRecommendation> recommendations = bridgeRecommendations(
@@ -207,7 +232,7 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
             null,
             modelId
         )));
-        return new BridgeConceptsResult(recommendations);
+        return new BridgeConceptsResult(recorded.llmRunId(), recommendations);
     }
 
     private List<ConnectionBridgeSourceNote> bridgeSourceNotes(String userId, String documentGroupId, List<String> noteIds) {
@@ -234,15 +259,27 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
             .orElseGet(() -> requireText(bridgeProperties.getDefaultModel(), "brainx.connection.bridge.default-model"));
     }
 
-    private AiChatResponse generateBridge(String modelId, String systemPrompt, String userPrompt) {
+    private AiRunRecorder.RecordedChatResponse generateBridge(
+        String userId,
+        String modelId,
+        String requestId,
+        PromptResolution promptResolution,
+        List<AiChatMessage> messages,
+        Map<String, Object> metadata
+    ) {
         try {
-            return aiChatPort.generate(new AiChatRequest(
+            return aiRunRecorder.recordChatGenerateWithRun(
+                userId,
+                BRIDGE_CONCEPTS_FEATURE_ID,
+                promptResolution.promptKey(),
+                promptResolution.version(),
                 modelId,
-                List.of(
-                    new AiChatMessage(AiRole.SYSTEM, systemPrompt),
-                    new AiChatMessage(AiRole.USER, userPrompt)
-                )
-            ));
+                "BRIDGE_CONCEPTS",
+                requestId,
+                messages,
+                metadata,
+                () -> aiChatPort.generate(new AiChatRequest(modelId, messages))
+            );
         } catch (IllegalStateException exception) {
             if (exception.getMessage() != null && exception.getMessage().contains("ChatClient.Builder bean is not configured")) {
                 throw new ConnectionProviderUnavailableException("AI provider is unavailable for bridge concepts.");
@@ -338,15 +375,19 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
         }
     }
 
-    private static String bridgeSystemPrompt(int maxRecommendations) {
+    private static String bridgeSystemPrompt() {
         return """
             You are BrainX bridge concept generator.
-            Return only a strict JSON array with at most %d objects.
+            Return only a strict JSON array of bridge concept objects.
             Each object must contain:
             - title: concise Korean bridge document/topic title
             - bridgeReason: one Korean sentence explaining how it connects the two bridge source concepts, including both required wiki links exactly as [[title]]
             Do not return markdown fences, comments, prose, IDs, note bodies, or additional fields.
-            """.formatted(maxRecommendations);
+            """;
+    }
+
+    private static String bridgeRuntimeInstructions(int maxRecommendations) {
+        return "Return at most %d objects.".formatted(maxRecommendations);
     }
 
     private static List<String> bridgeLinkTitles(List<ConnectionBridgeSourceNote> sourceNotes) {

@@ -36,6 +36,9 @@ import com.brainx.intelligence.clustering.domain.ClusteringForbiddenException;
 import com.brainx.intelligence.clustering.domain.ClusteringNotFoundException;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
 import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
+import com.brainx.intelligence.llmops.application.service.AiRunRecorder;
+import com.brainx.intelligence.llmops.application.service.PromptRegistryService;
+import com.brainx.intelligence.llmops.application.service.PromptRegistryService.PromptResolution;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -68,6 +71,8 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
     private final AiModelSettingsPort aiModelSettingsPort;
     private final AiChatPort aiChatPort;
     private final AiUsageRecorder aiUsageRecorder;
+    private final AiRunRecorder aiRunRecorder;
+    private final PromptRegistryService promptRegistryService;
     private final ClusteringEventPort clusteringEventPort;
     private final ClusteringProperties properties;
     private final ObjectMapper objectMapper;
@@ -82,6 +87,8 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
         AiModelSettingsPort aiModelSettingsPort,
         AiChatPort aiChatPort,
         AiUsageRecorder aiUsageRecorder,
+        AiRunRecorder aiRunRecorder,
+        PromptRegistryService promptRegistryService,
         ClusteringEventPort clusteringEventPort,
         ClusteringProperties properties,
         ObjectMapper objectMapper,
@@ -94,6 +101,8 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
             aiModelSettingsPort,
             aiChatPort,
             aiUsageRecorder,
+            aiRunRecorder,
+            promptRegistryService,
             clusteringEventPort,
             properties,
             objectMapper,
@@ -109,6 +118,8 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
         AiModelSettingsPort aiModelSettingsPort,
         AiChatPort aiChatPort,
         AiUsageRecorder aiUsageRecorder,
+        AiRunRecorder aiRunRecorder,
+        PromptRegistryService promptRegistryService,
         ClusteringEventPort clusteringEventPort,
         ClusteringProperties properties,
         ObjectMapper objectMapper,
@@ -121,6 +132,8 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
         this.aiModelSettingsPort = aiModelSettingsPort;
         this.aiChatPort = aiChatPort;
         this.aiUsageRecorder = aiUsageRecorder;
+        this.aiRunRecorder = aiRunRecorder;
+        this.promptRegistryService = promptRegistryService;
         this.clusteringEventPort = clusteringEventPort;
         this.properties = properties;
         this.objectMapper = objectMapper;
@@ -149,8 +162,12 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
         }
 
         String modelId = resolveModelId(userId);
+        PromptResolution promptResolution = promptRegistryService.resolve("clustering", systemPrompt());
         String systemPrompt = StylePromptCompiler.appendToSystemPrompt(
-            systemPrompt(maxClusters),
+            StylePromptCompiler.appendToSystemPrompt(
+                promptResolution.template(),
+                runtimeInstructions(maxClusters)
+            ),
             stylePromptCompiler.writingStyleInstructions(userId)
         );
         String userPrompt = userPrompt(notes, maxClusters);
@@ -184,17 +201,27 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
         ));
 
         try {
-            AiChatResponse response = aiChatPort.generate(new AiChatRequest(
+            List<AiChatMessage> messages = List.of(
+                new AiChatMessage(AiRole.SYSTEM, systemPrompt),
+                new AiChatMessage(AiRole.USER, userPrompt)
+            );
+            AiRunRecorder.RecordedChatResponse recorded = aiRunRecorder.recordChatGenerateWithRun(
+                userId,
+                AI_CLUSTERING_FEATURE_ID,
+                promptResolution.promptKey(),
+                promptResolution.version(),
                 modelId,
-                List.of(
-                    new AiChatMessage(AiRole.SYSTEM, systemPrompt),
-                    new AiChatMessage(AiRole.USER, userPrompt)
-                )
-            ));
+                "CLUSTER_JOB",
+                clusterJobId,
+                messages,
+                Map.of("documentGroupId", scope.documentGroupId()),
+                () -> aiChatPort.generate(new AiChatRequest(modelId, messages))
+            );
+            AiChatResponse response = recorded.response();
             String content = response == null || response.content() == null ? "" : response.content();
             recordUsage(userId, modelId, clusterJobId, response == null ? null : response.tokenUsage());
             List<Cluster> clusters = parseClusters(clusterJobId, content, notes, maxClusters);
-            ClusterJob completed = clusterJobStore.save(running.completed(clusters, Instant.now(clock)));
+            ClusterJob completed = clusterJobStore.save(running.withLlmRunId(recorded.llmRunId()).completed(clusters, Instant.now(clock)));
             clusteringEventPort.clusterJobCompleted(new ClusterJobCompletedEvent(
                 userId,
                 clusterJobId,
@@ -313,10 +340,10 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
             """.formatted(toJson(noteCards), maxClusters);
     }
 
-    private static String systemPrompt(int maxClusters) {
+    private static String systemPrompt() {
         return """
             You are BrainX knowledge structure analyst.
-            Return only a strict JSON array with at most %d cluster objects.
+            Return only a strict JSON array of cluster objects.
             Each object must contain:
             - title: concise Korean cluster title
             - summary: one Korean sentence explaining the cluster
@@ -324,7 +351,11 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
             - keywords: array of 2 to 6 Korean or technical keywords
             - confidence: number from 0 to 1
             Do not return markdown fences, prose, or additional fields.
-            """.formatted(maxClusters);
+            """;
+    }
+
+    private static String runtimeInstructions(int maxClusters) {
+        return "Return at most %d cluster objects.".formatted(maxClusters);
     }
 
     private List<Cluster> parseClusters(

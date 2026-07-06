@@ -18,6 +18,7 @@ public class Folder {
     private String folderId;
     @Column(nullable = false)
     private String userId;
+    private String documentGroupId;
     @Column(nullable = false)
     private String name;
     private String parentFolderId;
@@ -27,8 +28,13 @@ public class Folder {
     private Instant updatedAt;
 
     public Folder(String folderId, String userId, String name, String parentFolderId, Instant now) {
+        this(folderId, userId, null, name, parentFolderId, now);
+    }
+
+    public Folder(String folderId, String userId, String documentGroupId, String name, String parentFolderId, Instant now) {
         this.folderId = folderId;
         this.userId = userId;
+        this.documentGroupId = documentGroupId;
         this.name = name;
         this.parentFolderId = parentFolderId;
         this.createdAt = now;
@@ -45,10 +51,14 @@ public class Folder {
         this.updatedAt = now;
     }
 
-    /** guest -> user 전환(draft claim) 시 폴더 소유자를 옮긴다. folderId는 그대로라 이 폴더를
-        가리키는 다른 폴더의 parentFolderId/노트의 folderId 참조는 깨지지 않는다. */
-    public void reassignOwner(String userId, Instant now) {
+    /** guest -> user 전환(draft claim) 시 폴더 소유자와 소속 Workspace를 함께 옮긴다. folderId는
+        그대로라 이 폴더를 가리키는 다른 폴더의 parentFolderId/노트의 folderId 참조는 깨지지
+        않는다. documentGroupId는 회원의 default Workspace(또는 null, Guest 안전장치)를 그대로
+        받는다 — Guest는 Workspace를 가지지 않으므로 이 메서드가 Guest id를 대상으로 호출되어서는
+        안 된다. */
+    public void reassignOwner(String userId, String documentGroupId, Instant now) {
         this.userId = userId;
+        this.documentGroupId = documentGroupId;
         this.updatedAt = now;
     }
 }

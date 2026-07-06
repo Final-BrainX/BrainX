@@ -34,6 +34,8 @@ import com.brainx.intelligence.connection.domain.ConnectionConflictException;
 import com.brainx.intelligence.connection.domain.ConnectionForbiddenException;
 import com.brainx.intelligence.connection.domain.ConnectionNotFoundException;
 import com.brainx.intelligence.connection.domain.ConnectionProviderUnavailableException;
+import com.brainx.intelligence.llmops.LlmOpsTestSupport;
+import com.brainx.intelligence.llmops.application.port.outbound.LlmOpsStore;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
 import com.brainx.intelligence.settings.application.port.outbound.StyleProfilePort;
@@ -70,6 +72,7 @@ class ConnectionServiceTest {
     private final AiTokenUsageCostEstimator usageCostEstimator = new AiTokenUsageCostEstimator(new FakeAiModelCatalogPort());
     private final FakeStyleProfilePort styleProfilePort = new FakeStyleProfilePort();
     private final StylePromptCompiler stylePromptCompiler = new StylePromptCompiler(styleProfilePort);
+    private final LlmOpsStore llmOpsStore = LlmOpsTestSupport.store();
     private final ConnectionService service = new ConnectionService(
         noteSourcePort,
         entitlementPort,
@@ -79,6 +82,8 @@ class ConnectionServiceTest {
         aiModelSettingsPort,
         aiChatPort,
         new AiUsageRecorder(tokenUsagePort, usageCostEstimator),
+        LlmOpsTestSupport.runRecorder(llmOpsStore),
+        LlmOpsTestSupport.promptRegistry(llmOpsStore),
         stylePromptCompiler,
         new ObjectMapper()
     );

@@ -15,6 +15,10 @@ export interface QuickSwitcherTarget {
 interface Props {
   node: PaneNode;
   notes: MockNote[];
+  /** Ticket14 후속: 패널 내부 Quick Switcher(Ctrl+O) 전용 — 현재 Workspace 기준으로 걸러진
+      노트 목록. 탭 콘텐츠 해석(note/allNotes)은 그대로 전체 notes를 써야 하므로(전환 직후
+      탭 자동 정리 effect가 아직 안 돈 순간에도 이미 열린 탭 내용이 깨지지 않게) 별도로 둔다. */
+  visibleNotes: MockNote[];
   activeId: string;
   dragPayload: DragPayload | null;
   /** 탭(노트 인스턴스) id 기준 읽기/편집 모드 — 패널이 아니라 탭 단위로 독립적으로 유지된다 */
@@ -61,6 +65,7 @@ interface Props {
 export default function PaneTreeRenderer({
   node,
   notes,
+  visibleNotes,
   activeId,
   dragPayload,
   tabMode,
@@ -124,6 +129,7 @@ export default function PaneTreeRenderer({
         activeTab={activeTab}
         note={note}
         allNotes={notes}
+        visibleNotes={visibleNotes}
         tabs={tabs}
         activeTabId={activeTabId}
         isActive={activeId === node.id}
@@ -183,6 +189,7 @@ export default function PaneTreeRenderer({
             <PaneTreeRenderer
               node={child}
               notes={notes}
+              visibleNotes={visibleNotes}
               activeId={activeId}
               dragPayload={dragPayload}
               tabMode={tabMode}

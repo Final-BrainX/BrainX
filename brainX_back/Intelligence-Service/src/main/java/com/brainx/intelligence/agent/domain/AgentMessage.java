@@ -12,6 +12,7 @@ public record AgentMessage(
     AgentRole role,
     String content,
     String modelId,
+    String llmRunId,
     Map<String, Object> clientContext,
     Instant createdAt
 ) {
@@ -25,6 +26,7 @@ public record AgentMessage(
         }
         content = requireText(content, "content");
         modelId = modelId == null || modelId.isBlank() ? null : modelId.trim();
+        llmRunId = llmRunId == null || llmRunId.isBlank() ? null : llmRunId.trim();
         clientContext = immutableMap(clientContext);
         createdAt = createdAt == null ? Instant.now() : createdAt;
     }
@@ -38,7 +40,7 @@ public record AgentMessage(
         Map<String, Object> clientContext,
         Instant createdAt
     ) {
-        return new AgentMessage(messageId, threadId, userId, AgentRole.USER, content, modelId, clientContext, createdAt);
+        return new AgentMessage(messageId, threadId, userId, AgentRole.USER, content, modelId, null, clientContext, createdAt);
     }
 
     public static AgentMessage agent(
@@ -49,7 +51,19 @@ public record AgentMessage(
         String modelId,
         Instant createdAt
     ) {
-        return new AgentMessage(messageId, threadId, userId, AgentRole.AGENT, content, modelId, Map.of(), createdAt);
+        return agent(messageId, threadId, userId, content, modelId, null, createdAt);
+    }
+
+    public static AgentMessage agent(
+        String messageId,
+        String threadId,
+        String userId,
+        String content,
+        String modelId,
+        String llmRunId,
+        Instant createdAt
+    ) {
+        return new AgentMessage(messageId, threadId, userId, AgentRole.AGENT, content, modelId, llmRunId, Map.of(), createdAt);
     }
 
     private static String requireText(String value, String name) {

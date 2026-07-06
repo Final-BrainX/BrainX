@@ -24,9 +24,13 @@ import com.brainx.intelligence.agent.domain.AgentNotFoundException;
 import com.brainx.intelligence.agent.domain.AgentRole;
 import com.brainx.intelligence.agent.domain.AgentThread;
 import com.brainx.intelligence.agent.domain.AgentThreadSummary;
+import com.brainx.intelligence.llmops.application.service.AiRunRecorder;
+import com.brainx.intelligence.llmops.application.service.PromptRegistryService;
+import com.brainx.intelligence.llmops.application.service.PromptRegistryService.PromptResolution;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
+import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatResponse;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiRole;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort.EntitlementRequest;
@@ -86,6 +90,8 @@ public class AgentService {
     private final AiChatPort aiChatPort;
     private final EntitlementPort entitlementPort;
     private final AiUsageRecorder aiUsageRecorder;
+    private final AiRunRecorder aiRunRecorder;
+    private final PromptRegistryService promptRegistryService;
     private final WorkspaceNotePort workspaceNotePort;
     private final AgentNoteSourcePort agentNoteSourcePort;
     private final ObjectMapper objectMapper;
@@ -95,6 +101,8 @@ public class AgentService {
         AiChatPort aiChatPort,
         EntitlementPort entitlementPort,
         AiUsageRecorder aiUsageRecorder,
+        AiRunRecorder aiRunRecorder,
+        PromptRegistryService promptRegistryService,
         WorkspaceNotePort workspaceNotePort,
         AgentNoteSourcePort agentNoteSourcePort,
         ObjectMapper objectMapper
@@ -103,6 +111,8 @@ public class AgentService {
         this.aiChatPort = aiChatPort;
         this.entitlementPort = entitlementPort;
         this.aiUsageRecorder = aiUsageRecorder;
+        this.aiRunRecorder = aiRunRecorder;
+        this.promptRegistryService = promptRegistryService;
         this.workspaceNotePort = workspaceNotePort;
         this.agentNoteSourcePort = agentNoteSourcePort;
         this.objectMapper = objectMapper;
@@ -162,16 +172,20 @@ public class AgentService {
         List<AgentMessage> history = persistencePort.findMessagesByUserIdAndThreadId(userId, threadId).stream()
             .filter(item -> !item.messageId().equals(userMessage.messageId()))
             .toList();
-        checkEntitlement(userId, modelId, history, message);
+        PromptResolution promptResolution = promptRegistryService.resolve("agent.planner", SYSTEM_PROMPT);
+        checkEntitlement(userId, modelId, history, message, promptResolution.content());
 
         try {
-            AgentPlan plan = plan(thread, history, userMessage);
+            String agentMessageId = UUID.randomUUID().toString();
+            RecordedAgentPlan recordedPlan = plan(thread, history, userMessage, agentMessageId, promptResolution);
+            AgentPlan plan = recordedPlan.plan();
             AgentMessage agentMessage = persistencePort.saveMessage(AgentMessage.agent(
-                UUID.randomUUID().toString(),
+                agentMessageId,
                 thread.threadId(),
                 userId,
                 StringUtils.hasText(plan.reply()) ? plan.reply() : "실행할 수 있는 작업을 확인했습니다.",
                 modelId,
+                recordedPlan.llmRunId(),
                 Instant.now()
             ));
             List<AgentStreamEvent> events = new ArrayList<>();
@@ -181,7 +195,7 @@ public class AgentService {
                 AgentAction saved = persistencePort.saveAction(action);
                 events.add(AgentStreamEvent.actionProposed(toActionView(saved)));
             }
-            events.add(AgentStreamEvent.done(agentMessage.messageId()));
+            events.add(AgentStreamEvent.done(agentMessage.messageId(), agentMessage.llmRunId()));
             return Flux.fromIterable(events);
         } catch (RuntimeException exception) {
             return Flux.just(AgentStreamEvent.error("AGENT_PLANNER_FAILED", safeMessage(exception)));
@@ -223,17 +237,42 @@ public class AgentService {
         return new AgentThreadDetailResult(toThreadView(thread), messages);
     }
 
-    private AgentPlan plan(AgentThread thread, List<AgentMessage> history, AgentMessage userMessage) {
+    private RecordedAgentPlan plan(
+        AgentThread thread,
+        List<AgentMessage> history,
+        AgentMessage userMessage,
+        String agentMessageId,
+        PromptResolution promptResolution
+    ) {
         List<AiChatMessage> prompt = new ArrayList<>();
-        prompt.add(new AiChatMessage(AiRole.SYSTEM, SYSTEM_PROMPT));
+        prompt.add(new AiChatMessage(AiRole.SYSTEM, promptResolution.template()));
         prompt.add(new AiChatMessage(AiRole.USER, agentContextPrompt(thread, history, userMessage)));
-        var response = aiChatPort.generate(new AiChatRequest(userMessage.modelId(), prompt));
-        aiUsageRecorder.recordChatUsage(thread.userId(), AGENT_FEATURE_ID, userMessage.modelId(), userMessage.messageId(), response.tokenUsage());
-        return AgentPlan.fromJson(parseJson(response.content()));
+        AiRunRecorder.RecordedChatResponse recorded = aiRunRecorder.recordChatGenerateWithRun(
+            thread.userId(),
+            AGENT_FEATURE_ID,
+            promptResolution.promptKey(),
+            promptResolution.version(),
+            userMessage.modelId(),
+            "AGENT_MESSAGE",
+            agentMessageId,
+            prompt,
+            Map.of(
+                "threadId", thread.threadId(),
+                "documentGroupId", thread.documentGroupId(),
+                "userMessageId", userMessage.messageId()
+            ),
+            () -> aiChatPort.generate(new AiChatRequest(userMessage.modelId(), prompt))
+        );
+        AiChatResponse response = recorded.response();
+        if (response != null) {
+            aiUsageRecorder.recordChatUsage(thread.userId(), AGENT_FEATURE_ID, userMessage.modelId(), agentMessageId, response.tokenUsage());
+        }
+        String content = response == null || response.content() == null ? "" : response.content();
+        return new RecordedAgentPlan(recorded.llmRunId(), AgentPlan.fromJson(parseJson(content)));
     }
 
-    private void checkEntitlement(String userId, String modelId, List<AgentMessage> history, String message) {
-        int estimate = estimateTokens(SYSTEM_PROMPT + historyPrompt(history) + message);
+    private void checkEntitlement(String userId, String modelId, List<AgentMessage> history, String message, String systemPrompt) {
+        int estimate = estimateTokens(systemPrompt + historyPrompt(history) + message);
         var entitlement = entitlementPort.checkEntitlement(new EntitlementRequest(userId, AGENT_CAPABILITY, estimate));
         if (!entitlement.allowed()) {
             throw new AgentDomainException("AI capability is not available: " + entitlement.reasonCode());
@@ -529,6 +568,7 @@ public class AgentService {
             message.role(),
             message.content(),
             message.modelId(),
+            message.llmRunId(),
             message.createdAt(),
             actions.stream().map(AgentService::toActionView).toList()
         );
@@ -567,6 +607,9 @@ public class AgentService {
             }
             return mapValue(source);
         }
+    }
+
+    record RecordedAgentPlan(String llmRunId, AgentPlan plan) {
     }
 
     public record CreateAgentThreadCommand(
@@ -626,6 +669,7 @@ public class AgentService {
         AgentRole role,
         String content,
         String modelId,
+        String llmRunId,
         Instant createdAt,
         List<AgentActionView> actions
     ) {
@@ -676,7 +720,16 @@ public class AgentService {
         }
 
         public static AgentStreamEvent done(String messageId) {
-            return new AgentStreamEvent("done", Map.of("messageId", messageId));
+            return done(messageId, null);
+        }
+
+        public static AgentStreamEvent done(String messageId, String llmRunId) {
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("messageId", messageId);
+            if (StringUtils.hasText(llmRunId)) {
+                values.put("llmRunId", llmRunId);
+            }
+            return new AgentStreamEvent("done", values);
         }
 
         public static AgentStreamEvent error(String code, String message) {
