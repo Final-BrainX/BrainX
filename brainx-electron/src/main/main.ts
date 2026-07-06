@@ -118,6 +118,7 @@ type VaultSyncStateFile = {
   noteMappings: Record<string, { remoteNoteId: string }>;
   folderMappings: Record<string, { remoteFolderId: string }>;
   assetMappings: Record<string, { remoteAssetId: string; checksum: string | null; syncedAt: string | null }>;
+  deletedRemoteNoteIds: string[];
 };
 
 type VaultSyncConflict = {
@@ -619,6 +620,7 @@ function readVaultSyncState(vault: BrainxDesktopVaultSummary): VaultSyncStateFil
       noteMappings: parsed.noteMappings ?? {},
       folderMappings: parsed.folderMappings ?? {},
       assetMappings: parsed.assetMappings ?? {},
+      deletedRemoteNoteIds: Array.isArray(parsed.deletedRemoteNoteIds) ? parsed.deletedRemoteNoteIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0) : [],
     };
   } catch {
     return {
@@ -627,6 +629,7 @@ function readVaultSyncState(vault: BrainxDesktopVaultSummary): VaultSyncStateFil
       noteMappings: {},
       folderMappings: {},
       assetMappings: {},
+      deletedRemoteNoteIds: [],
     };
   }
 }
@@ -809,6 +812,7 @@ function deleteVaultNoteFile(vault: BrainxDesktopVaultSummary, fileName: string)
 
 function readVaultSnapshot(vault: BrainxDesktopVaultSummary): BrainxDesktopVaultSnapshot {
   const index = readVaultIndex(vault);
+  const syncState = readVaultSyncState(vault);
   return {
     vault,
     syncPolicy: index.syncPolicy,
@@ -816,6 +820,7 @@ function readVaultSnapshot(vault: BrainxDesktopVaultSummary): BrainxDesktopVault
     assets: index.assets,
     notes: index.notes.map((note) => ({
       ...note,
+      remoteNoteId: syncState.noteMappings[note.noteId]?.remoteNoteId ?? null,
       markdown: readVaultNoteMarkdown(vault, note.fileName),
     })),
   };
@@ -1294,6 +1299,27 @@ async function remoteWorkspaceBinaryRequest(pathName: string, init?: RequestInit
   return response;
 }
 
+async function deleteRemoteWorkspaceNote(remoteNoteId: string) {
+  const session = readStoredAuthSession();
+  if (!session?.accessToken) {
+    throw new Error("Desktop manual sync requires an authenticated BrainX session.");
+  }
+
+  const response = await fetch(`${getDesktopApiOrigin()}/api/v1/notes/${remoteNoteId}?mode=trash`, {
+    method: "DELETE",
+    headers: buildRemoteWorkspaceHeaders(session),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | { success?: boolean; message?: string; error?: { message?: string } }
+    | null;
+  if (response.status === 404) {
+    return;
+  }
+  if (!response.ok || !payload?.success) {
+    throw new Error(payload?.message ?? payload?.error?.message ?? `Remote note delete failed (${response.status}).`);
+  }
+}
+
 async function uploadVaultAssetToRemote(
   vault: BrainxDesktopVaultSummary,
   index: VaultIndexFile,
@@ -1457,6 +1483,13 @@ async function runManualVaultSync(vault: BrainxDesktopVaultSummary): Promise<Bra
 
   try {
     const syncState = readVaultSyncState(vault);
+    if (syncState.deletedRemoteNoteIds.length > 0) {
+      const pendingDeletedRemoteNoteIds = [...new Set(syncState.deletedRemoteNoteIds)];
+      for (const remoteNoteId of pendingDeletedRemoteNoteIds) {
+        await deleteRemoteWorkspaceNote(remoteNoteId);
+      }
+      syncState.deletedRemoteNoteIds = [];
+    }
     const remoteFoldersData = await remoteWorkspaceRequest<{
       folders: Array<{ folderId: string; name: string; parentFolderId: string | null; updatedAt?: string }>;
     }>("/api/v1/folders/tree");
@@ -2294,12 +2327,19 @@ function registerIpc() {
     };
   });
 
-  ipcMain.handle("brainx-desktop:delete-vault-note", (_event, options: BrainxDesktopDeleteVaultNoteOptions) => {
+  ipcMain.handle("brainx-desktop:delete-vault-note", async (_event, options: BrainxDesktopDeleteVaultNoteOptions) => {
     const vault = requireActiveVault();
     const index = readVaultIndex(vault);
     const note = index.notes.find((item) => item.noteId === options.noteId);
     if (!note) {
       return { noteId: options.noteId, deletedAt: new Date().toISOString(), purgeAt: null };
+    }
+    const syncState = readVaultSyncState(vault);
+    const mappedRemoteNoteId = syncState.noteMappings[note.noteId]?.remoteNoteId ?? null;
+    if (mappedRemoteNoteId) {
+      syncState.deletedRemoteNoteIds = Array.from(new Set([...syncState.deletedRemoteNoteIds, mappedRemoteNoteId]));
+      delete syncState.noteMappings[note.noteId];
+      persistVaultSyncState(vault, syncState);
     }
     deleteVaultNoteFile(vault, note.fileName);
     index.notes = index.notes.filter((item) => item.noteId !== options.noteId);

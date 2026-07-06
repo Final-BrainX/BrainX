@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { WikiLinkContext, resolveWikiLinkTitle, type WikiLinkContextValue } from "./WikiLinkContext";
@@ -33,6 +33,7 @@ import {
   patchWorkspaceFolder,
   putFavorite,
   saveWorkspaceNoteDraft,
+  shouldUseDesktopVault,
   updateWorkspaceNoteContent,
   updateWorkspaceNoteMetadata,
   workspaceDraftToMock,
@@ -71,7 +72,7 @@ const CONTEXT_PANEL_SIZE_KEY = "brainx_notes_context_panel_size_v1";
 function makeBlankNote(folderId?: string): MockNote {
   return {
     id: `note-${uid()}`,
-    title: "새 노트",
+    title: "???명듃",
     content: "",
     tags: [],
     category: "frontend",
@@ -83,10 +84,10 @@ function makeBlankNote(folderId?: string): MockNote {
   };
 }
 
-/** 30초 주기 draft flush(NoteDraftFlushScheduler)가 백그라운드에서 note.version을 올릴 수 있어,
-    Ctrl+S가 들고 있던 baseVersion이 그 사이 낡아 409 NOTE_VERSION_CONFLICT가 날 수 있다. 서버가
-    돌려주는 실제 serverVersion으로 딱 한 번만 재시도한다 — 그래도 실패하면(진짜 동시 편집 충돌)
-    그대로 던져 기존 에러 처리(저장 실패 상태 표시)를 그대로 탄다. */
+/** 30珥?二쇨린 draft flush(NoteDraftFlushScheduler)媛 諛깃렇?쇱슫?쒖뿉??note.version???щ┫ ???덉뼱,
+    Ctrl+S媛 ?ㅺ퀬 ?덈뜕 baseVersion??洹??ъ씠 ?≪븘 409 NOTE_VERSION_CONFLICT媛 ?????덈떎. ?쒕쾭媛
+    ?뚮젮二쇰뒗 ?ㅼ젣 serverVersion?쇰줈 ????踰덈쭔 ?ъ떆?꾪븳????洹몃옒???ㅽ뙣?섎㈃(吏꾩쭨 ?숈떆 ?몄쭛 異⑸룎)
+    洹몃?濡??섏졇 湲곗〈 ?먮윭 泥섎━(????ㅽ뙣 ?곹깭 ?쒖떆)瑜?洹몃?濡??꾨떎. */
 async function saveNoteContentWithVersionRetry(note: MockNote) {
   try {
     return await updateWorkspaceNoteContent(note);
@@ -100,22 +101,22 @@ async function saveNoteContentWithVersionRetry(note: MockNote) {
   }
 }
 
-/** 위키링크 새 노트 생성 흐름의 저장/링크 생성은 대부분 `.catch(() => {})`로 조용히 실패를
-    삼킨다(사용자 흐름을 막지 않기 위한 best-effort) — 그러나 그러면 개발 중에는 왜 링크나
-    그래프 edge가 안 보이는지 원인을 알 수 없다. 프로덕션 사용자 경험은 그대로 두고, 개발
-    환경 콘솔에서만 실패를 확인할 수 있게 한다. */
+/** ?꾪궎留곹겕 ???명듃 ?앹꽦 ?먮쫫?????留곹겕 ?앹꽦? ?遺遺?`.catch(() => {})`濡?議곗슜???ㅽ뙣瑜?
+    ?쇳궓???ъ슜???먮쫫??留됱? ?딄린 ?꾪븳 best-effort) ??洹몃윭??洹몃윭硫?媛쒕컻 以묒뿉????留곹겕??
+    洹몃옒??edge媛 ??蹂댁씠?붿? ?먯씤???????녿떎. ?꾨줈?뺤뀡 ?ъ슜??寃쏀뿕? 洹몃?濡??먭퀬, 媛쒕컻
+    ?섍꼍 肄섏넄?먯꽌留??ㅽ뙣瑜??뺤씤?????덇쾶 ?쒕떎. */
 function warnWikiLinkFailure(context: string, error: unknown) {
   if (process.env.NODE_ENV === "production") return;
   console.warn(`[wiki-link] ${context}`, error);
 }
 
-/** 노트가 "지금 활성 탭인 동안만" 저장되는 effect(draft autosave/수동 저장)에 기대지 않고,
-    주어진 노트 스냅샷을 지금 이 순간 best-effort로 서버에 반영한다. 위키링크로 새 노트를
-    만들면서 탭을 즉시 전환하는 경우처럼, activeNote가 바뀌는 순간 그 note를 대상으로 하던
-    디바운스 타이머(draftAutosaveTimerRef)가 cleanup으로 취소돼버려 방금 넣은 내용이 서버에
-    한 번도 저장되지 못하는 경로를 우회하기 위한 함수다. 반환값 true는 "저장을 시도했다"는
-    뜻이고, false는 note가 아직 로컬(local) id라 서버에 저장할 방법이 없어 스킵했다는 뜻이다
-    (draft id 발급 전 — 호출부가 id 확정 시점에 다시 시도하도록 책임진다). */
+/** ?명듃媛 "吏湲??쒖꽦 ??씤 ?숈븞留? ??λ릺??effect(draft autosave/?섎룞 ?????湲곕?吏 ?딄퀬,
+    二쇱뼱吏??명듃 ?ㅻ깄?룹쓣 吏湲????쒓컙 best-effort濡??쒕쾭??諛섏쁺?쒕떎. ?꾪궎留곹겕濡????명듃瑜?
+    留뚮뱾硫댁꽌 ??쓣 利됱떆 ?꾪솚?섎뒗 寃쎌슦泥섎읆, activeNote媛 諛붾뚮뒗 ?쒓컙 洹?note瑜???곸쑝濡??섎뜕
+    ?붾컮?댁뒪 ??대㉧(draftAutosaveTimerRef)媛 cleanup?쇰줈 痍⑥냼?쇰쾭??諛⑷툑 ?ｌ? ?댁슜???쒕쾭??
+    ??踰덈룄 ??λ릺吏 紐삵븯??寃쎈줈瑜??고쉶?섍린 ?꾪븳 ?⑥닔?? 諛섑솚媛?true??"??μ쓣 ?쒕룄?덈떎"??
+    ?살씠怨? false??note媛 ?꾩쭅 濡쒖뺄(local) id???쒕쾭????ν븷 諛⑸쾿???놁뼱 ?ㅽ궢?덈떎???살씠??
+    (draft id 諛쒓툒 ?????몄텧遺媛 id ?뺤젙 ?쒖젏???ㅼ떆 ?쒕룄?섎룄濡?梨낆엫吏꾨떎). */
 async function persistNoteBestEffort(note: MockNote): Promise<boolean> {
   if (note.persisted) {
     await saveNoteContentWithVersionRetry(note);
@@ -130,12 +131,12 @@ async function persistNoteBestEffort(note: MockNote): Promise<boolean> {
 
 const SAVE_BUTTON_TITLE: Record<SaveStatus, string> = {
   idle: "저장 (Ctrl+S)",
-  saving: "저장 중…",
+  saving: "저장 중...",
   saved: "저장됨",
-  error: "저장 실패 — 다시 시도해 주세요",
+  error: "저장에 실패했습니다. 다시 시도해 주세요.",
 };
 
-/** draft 자동저장과 수동저장(Ctrl+S/클릭)을 하나의 아이콘 버튼 상태로 통합 표시 */
+/** draft ?먮룞??κ낵 ?섎룞???Ctrl+S/?대┃)???섎굹???꾩씠肄?踰꾪듉 ?곹깭濡??듯빀 ?쒖떆 */
 function SaveIconButton({ status, disabled, onClick }: { status: SaveStatus; disabled: boolean; onClick: () => void }) {
   return (
     <button
@@ -204,16 +205,16 @@ function ContextPanelSkeleton({ width }: { width: number }) {
   );
 }
 
-/** /notes 페이지 전체(탐색기·툴바·에디터·컨텍스트 패널)를 한 번에 로딩 상태로 보여준다.
-    초기 서버 데이터 로드가 끝나기 전에 Welcome 보드 등 일부 영역만 따로 깜빡이며 바뀌지
-    않도록, 실제 레이아웃 구조(탐색기 폭/툴바 높이/컨텍스트 패널 폭)를 그대로 흉내내며
-    화면 전체를 대체한다. 추후 더 정교한 모양으로 바꿀 때는 이 함수와 위 *Skeleton
-    컴포넌트들만 교체하면 된다 — 호출 쪽(아래 isInitialWorkspaceLoading 분기)은 그대로 둔다. */
+/** /notes ?섏씠吏 ?꾩껜(?먯깋湲걔룻댋諛붋룹뿉?뷀꽣쨌而⑦뀓?ㅽ듃 ?⑤꼸)瑜???踰덉뿉 濡쒕뵫 ?곹깭濡?蹂댁뿬以??
+    珥덇린 ?쒕쾭 ?곗씠??濡쒕뱶媛 ?앸굹湲??꾩뿉 Welcome 蹂대뱶 ???쇰? ?곸뿭留??곕줈 源쒕묀?대ŉ 諛붾뚯?
+    ?딅룄濡? ?ㅼ젣 ?덉씠?꾩썐 援ъ“(?먯깋湲????대컮 ?믪씠/而⑦뀓?ㅽ듃 ?⑤꼸 ??瑜?洹몃?濡??됰궡?대ŉ
+    ?붾㈃ ?꾩껜瑜??泥댄븳?? 異뷀썑 ???뺢탳??紐⑥뼇?쇰줈 諛붽? ?뚮뒗 ???⑥닔? ??*Skeleton
+    而댄룷?뚰듃?ㅻ쭔 援먯껜?섎㈃ ?쒕떎 ???몄텧 履??꾨옒 isInitialWorkspaceLoading 遺꾧린)? 洹몃?濡??붾떎. */
 function WorkspaceLoadingShell({
   explorerOpen,
   contextOpen,
   contextPanelSize,
-  message = "불러오는 중…",
+  message = "불러오는 중...",
 }: {
   explorerOpen: boolean;
   contextOpen: boolean;
@@ -241,14 +242,14 @@ function WorkspaceLoadingShell({
 
 interface NotesWorkspaceProps {
   initialTab: InitialTab;
-  /** 지정 시 localStorage에 세션(분할/탭/노트/폴더)을 영속화한다. 데모(split-demo)는 비워서 매번 초기화. */
+  /** 吏????localStorage???몄뀡(遺꾪븷/???명듃/?대뜑)???곸냽?뷀븳?? ?곕え(split-demo)??鍮꾩썙??留ㅻ쾲 珥덇린?? */
   persistKey?: string;
-  /** 대표 활성 노트가 바뀔 때 호출 — 페이지에서 URL을 갱신하는 데 사용 */
+  /** ????쒖꽦 ?명듃媛 諛붾????몄텧 ???섏씠吏?먯꽌 URL??媛깆떊?섎뒗 ???ъ슜 */
   onActiveNoteChange?: (noteId: string | null) => void;
 }
 
-/* 패널 트리 + 탭 상태를 함께 초기화 (동일한 paneId로 묶기 위해 한번에 생성). initialTab이 "start"면
-   탭을 만들지 않는다(탭 배열이 빈 상태) — 워크스페이스가 이를 보고 Welcome 보드를 보여준다. */
+/* ?⑤꼸 ?몃━ + ???곹깭瑜??④퍡 珥덇린??(?숈씪??paneId濡?臾띔린 ?꾪빐 ?쒕쾲???앹꽦). initialTab??"start"硫?
+   ??쓣 留뚮뱾吏 ?딅뒗????諛곗뿴??鍮??곹깭) ???뚰겕?ㅽ럹?댁뒪媛 ?대? 蹂닿퀬 Welcome 蹂대뱶瑜?蹂댁뿬以?? */
 function createInitialPaneState(initialTab: InitialTab) {
   const rootId = uid();
   const leafNoteId = initialTab.kind === "note" ? initialTab.noteId : "";
@@ -262,10 +263,10 @@ function createInitialPaneState(initialTab: InitialTab) {
   };
 }
 
-/* 트리에 실제로 존재하는 leaf paneId만 모은다 — paneTabs 객체에는 과거 버그/레이스로 생긴 고아
-   항목(트리에서는 이미 사라졌지만 키만 남은 패널)이 섞여 있을 수 있어, "탭이 0개인지" 판정은
-   항상 이 함수로 얻은 실제 leaf 기준으로만 해야 한다(고아 항목이 있다는 이유로 Welcome 판정이
-   깨지면 안 됨). */
+/* ?몃━???ㅼ젣濡?議댁옱?섎뒗 leaf paneId留?紐⑥?????paneTabs 媛앹껜?먮뒗 怨쇨굅 踰꾧렇/?덉씠?ㅻ줈 ?앷릿 怨좎븘
+   ??ぉ(?몃━?먯꽌???대? ?щ씪議뚯?留??ㅻ쭔 ?⑥? ?⑤꼸)???욎뿬 ?덉쓣 ???덉뼱, "??씠 0媛쒖씤吏" ?먯젙?
+   ??긽 ???⑥닔濡??살? ?ㅼ젣 leaf 湲곗??쇰줈留??댁빞 ?쒕떎(怨좎븘 ??ぉ???덈떎???댁쑀濡?Welcome ?먯젙??
+   源⑥?硫?????. */
 function collectLeafIds(node: PaneNode, acc: string[] = []): string[] {
   if (node.type === "leaf") {
     acc.push(node.id);
@@ -290,7 +291,7 @@ function normalizeEmptyWorkspaceSession(session: NotesWorkspaceSession): NotesWo
     paneTabs: fresh.paneTabs,
     notes: session.notes,
     folders: session.folders,
-    // 트리 자체가 새로 만들어지므로(새 pane id) 이전 pane에 매인 줌 값은 더 이상 의미가 없다.
+    // ?몃━ ?먯껜媛 ?덈줈 留뚮뱾?댁?誘濡???pane id) ?댁쟾 pane??留ㅼ씤 以?媛믪? ???댁긽 ?섎?媛 ?녿떎.
     paneFontScale: {},
   };
 }
@@ -306,37 +307,37 @@ function readSession(persistKey: string): NotesWorkspaceSession | null {
   }
 }
 
-/** 호출자가 직접 실패를 처리한다 (백그라운드 자동저장은 무시, 수동 저장은 실패 상태로 노출) */
+/** ?몄텧?먭? 吏곸젒 ?ㅽ뙣瑜?泥섎━?쒕떎 (諛깃렇?쇱슫???먮룞??μ? 臾댁떆, ?섎룞 ??μ? ?ㅽ뙣 ?곹깭濡??몄텧) */
 function writeSession(persistKey: string, session: NotesWorkspaceSession) {
   window.localStorage.setItem(persistKey, JSON.stringify(session));
 }
 
-/* localStorage 워크스페이스 세션 key를 actor(guest/user)별로 분리해서 계산한다 — 게스트의 탭/
-   split/active note가 로그인 직후 다른 사용자의 화면에 잠깐 보이거나, 반대로 로그아웃 후 직전
-   user의 탭이 게스트 화면에 남는 걸 막기 위함(기존 brainx:notes-refresh + resetWorkspace는
-   "현재 메모리 상태를 정리"할 뿐, 페이지를 새로 열거나 다른 라우트(/login 등)를 거쳐 돌아오는
-   경우처럼 컴포넌트가 새로 마운트되는 경로는 못 막는다 — localStorage key 자체가 actor별로
-   갈라져 있어야 그 경로도 안전하다).
+/* localStorage ?뚰겕?ㅽ럹?댁뒪 ?몄뀡 key瑜?actor(guest/user)蹂꾨줈 遺꾨━?댁꽌 怨꾩궛?쒕떎 ??寃뚯뒪?몄쓽 ??
+   split/active note媛 濡쒓렇??吏곹썑 ?ㅻⅨ ?ъ슜?먯쓽 ?붾㈃???좉퉸 蹂댁씠嫄곕굹, 諛섎?濡?濡쒓렇?꾩썐 ??吏곸쟾
+   user????씠 寃뚯뒪???붾㈃???⑤뒗 嫄?留됯린 ?꾪븿(湲곗〈 brainx:notes-refresh + resetWorkspace??
+   "?꾩옱 硫붾え由??곹깭瑜??뺣━"??肉? ?섏씠吏瑜??덈줈 ?닿굅???ㅻⅨ ?쇱슦??/login ??瑜?嫄곗퀜 ?뚯븘?ㅻ뒗
+   寃쎌슦泥섎읆 而댄룷?뚰듃媛 ?덈줈 留덉슫?몃릺??寃쎈줈??紐?留됰뒗????localStorage key ?먯껜媛 actor蹂꾨줈
+   媛덈씪???덉뼱??洹?寃쎈줈???덉쟾?섎떎).
 
-   guestId는 Gateway가 httpOnly 쿠키(brainx_guest_id)로만 들고 있어 프론트 JS가 값을 읽을 수
-   없다 — 그래서 "이 브라우저의 현재 게스트"를 가리키는 고정 슬롯 하나(:guest, id 없이)만
-   쓴다. 어차피 브라우저 하나에는 그 쿠키도 한 번에 하나뿐이라 별도 id가 없어도 충돌하지
-   않는다. userId는 로그인 세션에 평문으로 있으므로 그대로 키에 쓴다.
+   guestId??Gateway媛 httpOnly 荑좏궎(brainx_guest_id)濡쒕쭔 ?ㅺ퀬 ?덉뼱 ?꾨줎??JS媛 媛믪쓣 ?쎌쓣 ??
+   ?녿떎 ??洹몃옒??"??釉뚮씪?곗????꾩옱 寃뚯뒪??瑜?媛由ы궎??怨좎젙 ?щ’ ?섎굹(:guest, id ?놁씠)留?
+   ?대떎. ?댁감??釉뚮씪?곗? ?섎굹?먮뒗 洹?荑좏궎????踰덉뿉 ?섎굹肉먯씠??蹂꾨룄 id媛 ?놁뼱??異⑸룎?섏?
+   ?딅뒗?? userId??濡쒓렇???몄뀡???됰Ц?쇰줈 ?덉쑝誘濡?洹몃?濡??ㅼ뿉 ?대떎.
 
-   "게스트 → 유저"는 매 로그인/회원가입마다(최초 가입뿐 아니라 기존 회원 로그인도 동일) 그
-   순간의 게스트 작업을 user 세션으로 넘겨준다("이어받기") — 그래서 게스트 키에 실제 탭이
-   있으면 그 내용을 통째로 user 키에 덮어쓰고, 게스트 키는 지운다(다음부터는 user 키만 읽음).
-   게스트가 비어 있었으면(둘러보기만 한 경우) 굳이 비어있는 값으로 그 user의 기존 세션을
-   덮어쓰지 않는다.
+   "寃뚯뒪?????좎?"??留?濡쒓렇???뚯썝媛?낅쭏??理쒖큹 媛?낅퓧 ?꾨땲??湲곗〈 ?뚯썝 濡쒓렇?몃룄 ?숈씪) 洹?
+   ?쒓컙??寃뚯뒪???묒뾽??user ?몄뀡?쇰줈 ?섍꺼以??"?댁뼱諛쏄린") ??洹몃옒??寃뚯뒪???ㅼ뿉 ?ㅼ젣 ??씠
+   ?덉쑝硫?洹??댁슜???듭㎏濡?user ?ㅼ뿉 ??뼱?곌퀬, 寃뚯뒪???ㅻ뒗 吏?대떎(?ㅼ쓬遺?곕뒗 user ?ㅻ쭔 ?쎌쓬).
+   寃뚯뒪?멸? 鍮꾩뼱 ?덉뿀?쇰㈃(?섎윭蹂닿린留???寃쎌슦) 援녹씠 鍮꾩뼱?덈뒗 媛믪쑝濡?洹?user??湲곗〈 ?몄뀡??
+   ??뼱?곗? ?딅뒗??
 
-   예전의 공유 단일 key(`persistKeyBase` 그대로, suffix 없음)는 guest/user 어느 쪽 데이터인지
-   알 수 없어 안전하게 폐기한다(섞어 쓰는 것보다 버리는 쪽이 안전) — 호출마다(멱등) 지운다. */
+   ?덉쟾??怨듭쑀 ?⑥씪 key(`persistKeyBase` 洹몃?濡? suffix ?놁쓬)??guest/user ?대뒓 履??곗씠?곗씤吏
+   ?????놁뼱 ?덉쟾?섍쾶 ?먭린?쒕떎(?욎뼱 ?곕뒗 寃껊낫??踰꾨━??履쎌씠 ?덉쟾) ???몄텧留덈떎(硫깅벑) 吏?대떎. */
 function resolveActorPersistKey(persistKeyBase: string): string {
   if (typeof window === "undefined") return persistKeyBase;
   try {
     window.localStorage.removeItem(persistKeyBase);
   } catch {
-    // localStorage 접근 불가 — 무시
+    // localStorage ?묎렐 遺덇? ??臾댁떆
   }
 
   const guestKey = `${persistKeyBase}:guest`;
@@ -346,10 +347,10 @@ function resolveActorPersistKey(persistKeyBase: string): string {
   }
 
   const userKey = `${persistKeyBase}:user:${session.userId}`;
-  // 방금 claimGuestDraftsAfterAuth가 끝났다면(로그인/회원가입 직후 첫 마운트) draft id → 승계된
-  // 실제 noteId 매핑이 여기 있다 — 게스트 세션을 그대로 넘기면 pane tree/tabs가 더 이상 존재하지
-  // 않는 draft id를 가리키게 되므로, user 키에 쓰기 전에 먼저 갈아끼운다. 한 번 소비하면 지워지므로
-  // 이 함수가 같은 로그인에 대해 여러 번 호출돼도(이벤트 핸들러 쪽 재호출 등) 두 번 적용되지 않는다.
+  // 諛⑷툑 claimGuestDraftsAfterAuth媛 ?앸궗?ㅻ㈃(濡쒓렇???뚯썝媛??吏곹썑 泥?留덉슫?? draft id ???밴퀎??
+  // ?ㅼ젣 noteId 留ㅽ븨???ш린 ?덈떎 ??寃뚯뒪???몄뀡??洹몃?濡??섍린硫?pane tree/tabs媛 ???댁긽 議댁옱?섏?
+  // ?딅뒗 draft id瑜?媛由ы궎寃??섎?濡? user ?ㅼ뿉 ?곌린 ?꾩뿉 癒쇱? 媛덉븘?쇱슫?? ??踰??뚮퉬?섎㈃ 吏?뚯?誘濡?
+  // ???⑥닔媛 媛숈? 濡쒓렇?몄뿉 ????щ윭 踰??몄텧?쇰룄(?대깽???몃뱾??履??ы샇異??? ??踰??곸슜?섏? ?딅뒗??
   const claimMapping = consumePendingNoteClaim();
   try {
     const guestRaw = window.localStorage.getItem(guestKey);
@@ -371,7 +372,7 @@ function resolveActorPersistKey(persistKeyBase: string): string {
       window.localStorage.removeItem(guestKey);
     }
   } catch {
-    // 손상된 게스트 세션 등은 무시하고 user 키로 그대로 진행
+    // ?먯긽??寃뚯뒪???몄뀡 ?깆? 臾댁떆?섍퀬 user ?ㅻ줈 洹몃?濡?吏꾪뻾
   }
   return userKey;
 }
@@ -416,14 +417,14 @@ function resolveVisiblePaneId(root: PaneNode, activeId: string): string {
 }
 
 export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteChange }: NotesWorkspaceProps) {
-  // 최초 1회만 생성되는 초기값 (pane root와 paneTabs가 같은 paneId를 공유해야 함)
+  // 理쒖큹 1?뚮쭔 ?앹꽦?섎뒗 珥덇린媛?(pane root? paneTabs媛 媛숈? paneId瑜?怨듭쑀?댁빞 ??
   const initRef = useRef<ReturnType<typeof createInitialPaneState> | null>(null);
   if (!initRef.current) initRef.current = createInitialPaneState(initialTab);
   const init = initRef.current;
 
   const { pushToast } = useBrainX();
 
-  // 툴바 "···" 메뉴
+  // ?대컮 "쨌쨌쨌" 硫붾돱
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [exportSubmenuOpen, setExportSubmenuOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
@@ -447,9 +448,9 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     activeId: init.activeId,
   }));
   const [paneTabs, setPaneTabs] = useState<Record<string, PaneTabsState>>(() => init.paneTabs);
-  /* pane(분할 패널)별 Ctrl+Wheel 에디터 뷰 줌(%, 기본 100) — 노트 문서의 typography(서식 패널)와
-     완전히 분리된 UI 전용 상태다. key는 PaneLeaf.id라 split 생성/삭제/이동에도 각 패널 고유의
-     값으로 자연히 유지되고, 새로 생긴 pane은 그냥 이 맵에 없는 상태(= 기본 100%)로 시작한다. */
+  /* pane(遺꾪븷 ?⑤꼸)蹂?Ctrl+Wheel ?먮뵒??酉?以?%, 湲곕낯 100) ???명듃 臾몄꽌??typography(?쒖떇 ?⑤꼸)?
+     ?꾩쟾??遺꾨━??UI ?꾩슜 ?곹깭?? key??PaneLeaf.id??split ?앹꽦/??젣/?대룞?먮룄 媛??⑤꼸 怨좎쑀??
+     媛믪쑝濡??먯뿰???좎??섍퀬, ?덈줈 ?앷릿 pane? 洹몃깷 ??留듭뿉 ?녿뒗 ?곹깭(= 湲곕낯 100%)濡??쒖옉?쒕떎. */
   const [paneFontScale, setPaneFontScale] = useState<Record<string, number>>({});
   const [dragPayload, setDragPayload] = useState<DragPayload | null>(null);
   const [explorerOpen, setExplorerOpen] = useState(true);
@@ -460,29 +461,29 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     window.addEventListener("brainx-toggle-notes-explorer", handleToggle);
     return () => window.removeEventListener("brainx-toggle-notes-explorer", handleToggle);
   }, []);
-  // 컨텍스트 패널 폭 — Split View(PaneTreeRenderer.tsx)와 동일한 react-resizable-panels
-  // Group/Panel/Separator를 재사용해 드래그로 조절 가능하게 한다. 마지막 폭은 localStorage에
-  // 저장해 새로고침 후에도 유지(요구사항).
+  // 而⑦뀓?ㅽ듃 ?⑤꼸 ????Split View(PaneTreeRenderer.tsx)? ?숈씪??react-resizable-panels
+  // Group/Panel/Separator瑜??ъ궗?⑺빐 ?쒕옒洹몃줈 議곗젅 媛?ν븯寃??쒕떎. 留덉?留???? localStorage??
+  // ??ν빐 ?덈줈怨좎묠 ?꾩뿉???좎?(?붽뎄?ы빆).
   //
-  // 첫 드래그만 마우스 이동량의 일부만 반영되고(실측: 100px 드래그 → 10px만 적용) 두 번째
-  // 드래그부터 정상화되는 버그가 있었다(Playwright로 재현). Split View 쪽 Group(같은
-  // 라이브러리, PaneTreeRenderer.tsx)은 동일 문제가 없었는데 — 그쪽은 사용자가 직접 분할할
-  // 때(이미 페이지가 안정된 뒤) 마운트되고, 이 컨텍스트 패널 Group은 페이지 로드 즉시
-  // 마운트된다는 차이뿐이었다.
+  // 泥??쒕옒洹몃쭔 留덉슦???대룞?됱쓽 ?쇰?留?諛섏쁺?섍퀬(?ㅼ륫: 100px ?쒕옒洹???10px留??곸슜) ??踰덉㎏
+  // ?쒕옒洹몃????뺤긽?붾릺??踰꾧렇媛 ?덉뿀??Playwright濡??ы쁽). Split View 履?Group(媛숈?
+  // ?쇱씠釉뚮윭由? PaneTreeRenderer.tsx)? ?숈씪 臾몄젣媛 ?놁뿀?붾뜲 ??洹몄そ? ?ъ슜?먭? 吏곸젒 遺꾪븷??
+  // ???대? ?섏씠吏媛 ?덉젙???? 留덉슫?몃릺怨? ??而⑦뀓?ㅽ듃 ?⑤꼸 Group? ?섏씠吏 濡쒕뱶 利됱떆
+  // 留덉슫?몃맂?ㅻ뒗 李⑥씠肉먯씠?덈떎.
   //
-  // 원인을 좁혀보려고 시도한 것들(전부 효과 없었음, Playwright로 직접 검증):
-  //   - groupRef.setLayout()으로 마운트 직후 레이아웃 재적용
-  //   - window.dispatchEvent(new Event("resize"))(진짜/합성 둘 다)
-  //   - 패널 DOM에 1px 강제 리사이즈 후 원복
-  //   - separator에 합성(untrusted) PointerEvent로 "워밍업 제스처" 흘려보내기
-  // 유일하게 효과가 있었던 건 Playwright의 page.mouse.down/move/up(브라우저가 isTrusted:true로
-  // 인식하는 진짜 제스처)으로 한 번 드래그해 보는 것뿐이었다 — 즉 라이브러리의 내부 드래그
-  // 델타 계산이 "신뢰된(isTrusted) 포인터 제스처"가 한 번 있어야 기준점을 잡는 것으로 보이고,
-  // 스크립트로 dispatch한 합성 이벤트는 isTrusted:false라 그 기준점 보정이 일어나지 않는다.
-  // 페이지 코드에서 신뢰된 이벤트를 만들어낼 방법은 없으므로(보안상 당연히 막혀 있음), 이
-  // Separator만 라이브러리의 내장 드래그 대신 직접 만든 mousedown/mousemove 핸들러로 폭을
-  // 계산해 `groupRef.setLayout()`을 호출하는 방식으로 바꿔 라이브러리의 그 내부 계산 경로를
-  // 아예 타지 않게 했다 — 신뢰된 이벤트 여부와 무관하게 항상 실제 마우스 이동량만큼 반영된다.
+  // ?먯씤??醫곹?蹂대젮怨??쒕룄??寃껊뱾(?꾨? ?④낵 ?놁뿀?? Playwright濡?吏곸젒 寃利?:
+  //   - groupRef.setLayout()?쇰줈 留덉슫??吏곹썑 ?덉씠?꾩썐 ?ъ쟻??
+  //   - window.dispatchEvent(new Event("resize"))(吏꾩쭨/?⑹꽦 ????
+  //   - ?⑤꼸 DOM??1px 媛뺤젣 由ъ궗?댁쫰 ???먮났
+  //   - separator???⑹꽦(untrusted) PointerEvent濡?"?뚮컢???쒖뒪泥? ?섎젮蹂대궡湲?
+  // ?좎씪?섍쾶 ?④낵媛 ?덉뿀??嫄?Playwright??page.mouse.down/move/up(釉뚮씪?곗?媛 isTrusted:true濡?
+  // ?몄떇?섎뒗 吏꾩쭨 ?쒖뒪泥??쇰줈 ??踰??쒕옒洹명빐 蹂대뒗 寃껊퓧?댁뿀????利??쇱씠釉뚮윭由ъ쓽 ?대? ?쒕옒洹?
+  // ?명? 怨꾩궛??"?좊ː??isTrusted) ?ъ씤???쒖뒪泥?媛 ??踰??덉뼱??湲곗??먯쓣 ?〓뒗 寃껋쑝濡?蹂댁씠怨?
+  // ?ㅽ겕由쏀듃濡?dispatch???⑹꽦 ?대깽?몃뒗 isTrusted:false??洹?湲곗???蹂댁젙???쇱뼱?섏? ?딅뒗??
+  // ?섏씠吏 肄붾뱶?먯꽌 ?좊ː???대깽?몃? 留뚮뱾?대궪 諛⑸쾿? ?놁쑝誘濡?蹂댁븞???뱀뿰??留됲? ?덉쓬), ??
+  // Separator留??쇱씠釉뚮윭由ъ쓽 ?댁옣 ?쒕옒洹????吏곸젒 留뚮뱺 mousedown/mousemove ?몃뱾?щ줈 ??쓣
+  // 怨꾩궛??`groupRef.setLayout()`???몄텧?섎뒗 諛⑹떇?쇰줈 諛붽퓭 ?쇱씠釉뚮윭由ъ쓽 洹??대? 怨꾩궛 寃쎈줈瑜?
+  // ?꾩삁 ?吏 ?딄쾶 ?덈떎 ???좊ː???대깽???щ?? 臾닿??섍쾶 ??긽 ?ㅼ젣 留덉슦???대룞?됰쭔??諛섏쁺?쒕떎.
   const [contextPanelSize, setContextPanelSize] = useState<number>(() => {
     if (typeof window === "undefined") return 300;
     const saved = Number(window.localStorage.getItem(CONTEXT_PANEL_SIZE_KEY));
@@ -507,13 +508,13 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       try {
         window.localStorage.setItem(CONTEXT_PANEL_SIZE_KEY, String(latest));
       } catch {
-        // localStorage 접근 불가
+        // localStorage ?묎렐 遺덇?
       }
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   }, [contextPanelSize]);
-  // MOCK_NOTES를 가변 상태로 복사 → 제목 수정/새 노트 생성 시 사이드바/헤더/컨텍스트 패널 즉시 반영
+  // MOCK_NOTES瑜?媛蹂 ?곹깭濡?蹂듭궗 ???쒕ぉ ?섏젙/???명듃 ?앹꽦 ???ъ씠?쒕컮/?ㅻ뜑/而⑦뀓?ㅽ듃 ?⑤꼸 利됱떆 諛섏쁺
   const [notes, setNotes] = useState<MockNote[]>(() => {
     if (USE_MOCK_NOTES) return [...MOCK_NOTES];
     if (!persistKey) return [];
@@ -526,16 +527,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     const key = resolveActorPersistKey(persistKey);
     return readSession(key)?.folders ?? [];
   });
-  // 탭(노트 인스턴스)별 읽기/편집 모드 — tabId 기준. 패널이 아니라 탭 단위라서 같은 패널 안에서
-  // 탭마다 다른 모드를 가질 수 있고, 같은 노트를 여러 패널에 열어도 각 탭이 독립적으로 유지된다.
-  // 기록이 없는 tabId는 항상 "edit"로 취급한다(새 노트/새로 연 노트는 기본 편집 모드).
+  // ???명듃 ?몄뒪?댁뒪)蹂??쎄린/?몄쭛 紐⑤뱶 ??tabId 湲곗?. ?⑤꼸???꾨땲?????⑥쐞?쇱꽌 媛숈? ?⑤꼸 ?덉뿉??
+  // ??쭏???ㅻⅨ 紐⑤뱶瑜?媛吏????덇퀬, 媛숈? ?명듃瑜??щ윭 ?⑤꼸???댁뼱??媛???씠 ?낅┰?곸쑝濡??좎??쒕떎.
+  // 湲곕줉???녿뒗 tabId????긽 "edit"濡?痍④툒?쒕떎(???명듃/?덈줈 ???명듃??湲곕낯 ?몄쭛 紐⑤뱶).
   const [tabMode, setTabMode] = useState<Record<string, EditMode>>({});
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [aiRequest, setAiRequest] = useState<PendingAiRequest | null>(null);
   const [quickSwitcher, setQuickSwitcher] = useState<QuickSwitcherTarget | null>(null);
   const [draftSaveStatus, setDraftSaveStatus] = useState<SaveStatus>("idle");
   const [manualSaveStatus, setManualSaveStatus] = useState<SaveStatus>("idle");
-  // 자동 draft 저장과 수동 저장(Ctrl+S/클릭) 상태를 저장 버튼 하나에서 통합 표시하기 위한 파생값
+  // ?먮룞 draft ??κ낵 ?섎룞 ???Ctrl+S/?대┃) ?곹깭瑜????踰꾪듉 ?섎굹?먯꽌 ?듯빀 ?쒖떆?섍린 ?꾪븳 ?뚯깮媛?
   const combinedSaveStatus: SaveStatus =
     manualSaveStatus === "saving" || draftSaveStatus === "saving"
       ? "saving"
@@ -563,26 +564,26 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const draftSaveStatusTimerRef = useRef<number | null>(null);
   const draftAutosaveTimerRef = useRef<number | null>(null);
   const draftDirtyNoteIdsRef = useRef<Set<string>>(new Set());
-  /* 위키링크로 새 노트를 만들 때, 소스 노트가 아직 draft id 발급 전(local id)이라 그 자리에서
-     바로 저장하지 못한 경우 여기(local id 기준)에 표시해둔다 — createNote의 draft id 확정
-     시점(.then)에서 이 목록을 확인해 그때 다시 한번 저장을 시도한다. */
+  /* ?꾪궎留곹겕濡????명듃瑜?留뚮뱾 ?? ?뚯뒪 ?명듃媛 ?꾩쭅 draft id 諛쒓툒 ??local id)?대씪 洹??먮━?먯꽌
+     諛붾줈 ??ν븯吏 紐삵븳 寃쎌슦 ?ш린(local id 湲곗?)???쒖떆?대몦????createNote??draft id ?뺤젙
+     ?쒖젏(.then)?먯꽌 ??紐⑸줉???뺤씤??洹몃븣 ?ㅼ떆 ?쒕쾲 ??μ쓣 ?쒕룄?쒕떎. */
   const pendingWikiLinkFlushRef = useRef<Set<string>>(new Set());
-  /* 위키링크로 새 노트(target)를 만들었는데 그 시점에 소스 노트가 아직 local id라 서버
-     NoteLink(그래프 edge)를 못 만든 경우, 소스의 local id를 key로 여기 등록해둔다. createNote가
-     그 소스 노트 자신의 draft id를 확정 짓는 순간(다른 createNote 호출의 .then일 수도 있다) 이
-     맵을 확인해 실제 sourceNoteId로 링크 생성을 재시도한다. 탭 전환/페이지 이동에도 이 ref는
-     컴포넌트가 마운트된 채로 남아있는 한(같은 (app)/notes 레이아웃 안에서는 리마운트되지 않음)
-     세션 동안 유지된다. */
+  /* ?꾪궎留곹겕濡????명듃(target)瑜?留뚮뱾?덈뒗??洹??쒖젏???뚯뒪 ?명듃媛 ?꾩쭅 local id???쒕쾭
+     NoteLink(洹몃옒??edge)瑜?紐?留뚮뱺 寃쎌슦, ?뚯뒪??local id瑜?key濡??ш린 ?깅줉?대몦?? createNote媛
+     洹??뚯뒪 ?명듃 ?먯떊??draft id瑜??뺤젙 吏볥뒗 ?쒓컙(?ㅻⅨ createNote ?몄텧??.then???섎룄 ?덈떎) ??
+     留듭쓣 ?뺤씤???ㅼ젣 sourceNoteId濡?留곹겕 ?앹꽦???ъ떆?꾪븳?? ???꾪솚/?섏씠吏 ?대룞?먮룄 ??ref??
+     而댄룷?뚰듃媛 留덉슫?몃맂 梨꾨줈 ?⑥븘?덈뒗 ??媛숈? (app)/notes ?덉씠?꾩썐 ?덉뿉?쒕뒗 由щ쭏?댄듃?섏? ?딆쓬)
+     ?몄뀡 ?숈븞 ?좎??쒕떎. */
   const pendingWikiLinkEdgeRef = useRef<Map<string, { targetNoteId: string; targetTitle: string }>>(new Map());
-  // persistKey(prop)는 "brainx_notes_workspace_v1" 같은 고정 베이스고, 실제로 읽고 쓰는 키는
-  // 여기서 actor(guest/user)별로 한 번 더 갈라진다 — resolveActorPersistKey 참고. 마운트
-  // 시점에 1회 계산(이 시점에 이미 guest->user 1회 승계도 처리됨), 이후 로그인/로그아웃 등으로
-  // actor가 바뀌면 handleExternalRefresh(resetWorkspace)가 다시 계산해 갈아끼운다.
+  // persistKey(prop)??"brainx_notes_workspace_v1" 媛숈? 怨좎젙 踰좎씠?ㅺ퀬, ?ㅼ젣濡??쎄퀬 ?곕뒗 ?ㅻ뒗
+  // ?ш린??actor(guest/user)蹂꾨줈 ??踰???媛덈씪吏꾨떎 ??resolveActorPersistKey 李멸퀬. 留덉슫??
+  // ?쒖젏??1??怨꾩궛(???쒖젏???대? guest->user 1???밴퀎??泥섎━??, ?댄썑 濡쒓렇??濡쒓렇?꾩썐 ?깆쑝濡?
+  // actor媛 諛붾뚮㈃ handleExternalRefresh(resetWorkspace)媛 ?ㅼ떆 怨꾩궛??媛덉븘?쇱슫??
   const [actorPersistKey, setActorPersistKey] = useState<string | undefined>(() =>
     persistKey ? resolveActorPersistKey(persistKey) : undefined
   );
   const effectivePersistKey = actorPersistKey;
-  // Ctrl+S 발생 시점의 최신 세션 스냅샷 — 디바운스/렌더 타이밍과 무관하게 항상 최신값을 읽기 위한 ref
+  // Ctrl+S 諛쒖깮 ?쒖젏??理쒖떊 ?몄뀡 ?ㅻ깄?????붾컮?댁뒪/?뚮뜑 ??대컢怨?臾닿??섍쾶 ??긽 理쒖떊媛믪쓣 ?쎄린 ?꾪븳 ref
   const latestSessionRef = useRef<NotesWorkspaceSession>({
     root: init.root,
     activeId: init.activeId,
@@ -591,13 +592,13 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     folders: USE_MOCK_NOTES ? [...MOCK_FOLDERS] : [],
   });
 
-  /* 게스트 여부 — 인증 세션이 없으면 게스트 */
+  /* 寃뚯뒪???щ? ???몄쬆 ?몄뀡???놁쑝硫?寃뚯뒪??*/
   const isGuest = useMemo(() => {
     const session = readAuthSession();
     return !session?.accessToken;
   }, []);
 
-  /* 같은 depth에서 동일 이름의 노트 중복 여부 확인 (노트↔노트만, 폴더와는 허용) */
+  /* 媛숈? depth?먯꽌 ?숈씪 ?대쫫???명듃 以묐났 ?щ? ?뺤씤 (?명듃?붾끂?몃쭔, ?대뜑????덉슜) */
   const checkNoteDuplicate = useCallback((title: string, folderId: string | null | undefined): boolean => {
     const normalizedFolderId = folderId ?? null;
     return notes.some(
@@ -605,7 +606,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     );
   }, [notes]);
 
-  /* 같은 depth에서 동일 이름의 폴더 중복 여부 확인 (폴더↔폴더만, 형제 폴더 기준) */
+  /* 媛숈? depth?먯꽌 ?숈씪 ?대쫫???대뜑 以묐났 ?щ? ?뺤씤 (?대뜑?뷀뤃?붾쭔, ?뺤젣 ?대뜑 湲곗?) */
   const checkFolderDuplicate = useCallback((name: string, parentFolderId: string | null, excludeId?: string): boolean => {
     return folders.some(
       (f) => f.id !== excludeId && (f.parentFolderId ?? null) === (parentFolderId ?? null) && f.name.trim() === name.trim()
@@ -615,25 +616,25 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const panelCount = countLeaves(state.root);
   const hasSplitPanels = panelCount > 1;
   const primaryPaneId = useMemo(() => resolveVisiblePaneId(state.root, state.activeId), [state.root, state.activeId]);
-  // 열려 있는 노트가 하나(탭 1개)뿐이어도 분할은 허용된다 — handleSplitTab은 그 탭의 노트를
-  // "복제"해 새 패널에 열 뿐 원래 패널의 탭은 그대로 두므로(같은 노트를 여러 패널에 여는 기존
-  // 동작과 동일한 방식), 탭이 1개뿐이라고 막을 기술적 이유가 없다. 예전에 `> 1`로 막아둔 탓에
-  // 노트를 하나만 연 가장 흔한 상태에서 "우측 분할"/"하단 분할" 메뉴가 계속 비활성으로 보여
-  // 분할 기능 자체가 고장난 것처럼 보였다.
+  // ?대젮 ?덈뒗 ?명듃媛 ?섎굹(??1媛?肉먯씠?대룄 遺꾪븷? ?덉슜?쒕떎 ??handleSplitTab? 洹???쓽 ?명듃瑜?
+  // "蹂듭젣"?????⑤꼸????肉??먮옒 ?⑤꼸????? 洹몃?濡??먮?濡?媛숈? ?명듃瑜??щ윭 ?⑤꼸???щ뒗 湲곗〈
+  // ?숈옉怨??숈씪??諛⑹떇), ??씠 1媛쒕퓧?대씪怨?留됱쓣 湲곗닠???댁쑀媛 ?녿떎. ?덉쟾??`> 1`濡?留됱븘???볦뿉
+  // ?명듃瑜??섎굹留???媛???뷀븳 ?곹깭?먯꽌 "?곗륫 遺꾪븷"/"?섎떒 遺꾪븷" 硫붾돱媛 怨꾩냽 鍮꾪솢?깆쑝濡?蹂댁뿬
+  // 遺꾪븷 湲곕뒫 ?먯껜媛 怨좎옣??寃껋쿂??蹂댁???
   const canSplitPane = useCallback(
     (paneId: string) => hasSplitPanels || (paneTabs[paneId]?.tabs.length ?? 0) >= 1,
     [hasSplitPanels, paneTabs]
   );
-  /* 워크스페이스 전체 기준으로 열린 노트가 0개인지 — 실제 트리에 있는 leaf만 기준으로 판정한다.
-     paneTabs 객체 자체를 기준으로 하면(예전 구현) 트리에서는 이미 제거됐지만 paneTabs에는 키만
-     남은 고아 항목 때문에 "탭이 있다"고 잘못 판정해 Welcome 보드 대신 빈 패널이 보이는 문제가
-     있었다 — Welcome 보드는 탭이 아니라 이 empty state를 직접 그린다(탭 배열에 들어가지 않음). */
+  /* ?뚰겕?ㅽ럹?댁뒪 ?꾩껜 湲곗??쇰줈 ?대┛ ?명듃媛 0媛쒖씤吏 ???ㅼ젣 ?몃━???덈뒗 leaf留?湲곗??쇰줈 ?먯젙?쒕떎.
+     paneTabs 媛앹껜 ?먯껜瑜?湲곗??쇰줈 ?섎㈃(?덉쟾 援ы쁽) ?몃━?먯꽌???대? ?쒓굅?먯?留?paneTabs?먮뒗 ?ㅻ쭔
+     ?⑥? 怨좎븘 ??ぉ ?뚮Ц??"??씠 ?덈떎"怨??섎せ ?먯젙??Welcome 蹂대뱶 ???鍮??⑤꼸??蹂댁씠??臾몄젣媛
+     ?덉뿀????Welcome 蹂대뱶????씠 ?꾨땲????empty state瑜?吏곸젒 洹몃┛????諛곗뿴???ㅼ뼱媛吏 ?딆쓬). */
   const isWorkspaceEmpty = useMemo(
     () => collectLeafIds(state.root).every((leafId) => (paneTabs[leafId]?.tabs.length ?? 0) === 0),
     [state.root, paneTabs]
   );
 
-  /* 활성 패널의 활성 탭 → 현재 노트 (우측 컨텍스트 패널 기준). start 탭이면 null. */
+  /* ?쒖꽦 ?⑤꼸???쒖꽦 ?????꾩옱 ?명듃 (?곗륫 而⑦뀓?ㅽ듃 ?⑤꼸 湲곗?). start ??씠硫?null. */
   const activeTabsState = paneTabs[state.activeId];
   const activeTab = activeTabsState?.tabs.find((t) => t.id === activeTabsState.activeTabId) ?? null;
   const activeNoteId = activeTab?.kind === "note" ? activeTab.noteId : null;
@@ -645,10 +646,10 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   );
   const activeEditorMode = activeTabsState?.activeTabId ? tabMode[activeTabsState.activeTabId] ?? "edit" : "edit";
 
-  /* ── 핸들러 ────────────────────────────────────────── */
+  /* ?? ?몃뱾???????????????????????????????????????????? */
 
-  /* 활성 탭을 해당 노트로 교체 (이미 같은 패널에 열려있으면 그 탭을 활성화). paneId를 받아 "드롭한
-     패널 기준" 동작도 같은 로직으로 처리한다 — 사이드바 클릭은 항상 현재 활성 패널을 대상으로 호출. */
+  /* ?쒖꽦 ??쓣 ?대떦 ?명듃濡?援먯껜 (?대? 媛숈? ?⑤꼸???대젮?덉쑝硫?洹???쓣 ?쒖꽦??. paneId瑜?諛쏆븘 "?쒕∼??
+     ?⑤꼸 湲곗?" ?숈옉??媛숈? 濡쒖쭅?쇰줈 泥섎━?쒕떎 ???ъ씠?쒕컮 ?대┃? ??긽 ?꾩옱 ?쒖꽦 ?⑤꼸????곸쑝濡??몄텧. */
   const handleReplaceActiveTab = useCallback((paneId: string, noteId: string) => {
     setPaneTabs((prev) => {
       const current = prev[paneId];
@@ -672,8 +673,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }));
   }, []);
 
-  /* 사이드바 노트를 탭바 영역에 드롭 → 해당 패널에 새 탭으로 추가 (이미 열려있으면 그 탭 활성화).
-     targetIndex를 주면 그 위치에 삽입(탭바 드래그 인디케이터 위치와 일치), 없으면 맨 끝에 추가. */
+  /* ?ъ씠?쒕컮 ?명듃瑜???컮 ?곸뿭???쒕∼ ???대떦 ?⑤꼸??????쑝濡?異붽? (?대? ?대젮?덉쑝硫?洹????쒖꽦??.
+     targetIndex瑜?二쇰㈃ 洹??꾩튂???쎌엯(??컮 ?쒕옒洹??몃뵒耳?댄꽣 ?꾩튂? ?쇱튂), ?놁쑝硫?留??앹뿉 異붽?. */
   const handleAddNoteTab = useCallback((paneId: string, noteId: string, targetIndex?: number) => {
     setPaneTabs((prev) => {
       const current = prev[paneId];
@@ -701,10 +702,10 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }));
   }, []);
 
-  /* 패널에 노트를 여는 공통 정책 — "교체"는 그 패널이 비어있을 때만 적용되고, 실제 내용이 있는
-     노트가 열려 있으면 새 탭으로 추가한다(기존 노트를 무조건 교체하지 않음). "비어있다"는 빈 시작
-     화면(start)뿐 아니라 "+"로 막 생성된 본문이 빈 노트 탭도 포함한다(빈 탭 = 교체 대상).
-     사이드바 클릭, 탭바 드롭, 탭 이동 모두 이 정책을 공유한다. */
+  /* ?⑤꼸???명듃瑜??щ뒗 怨듯넻 ?뺤콉 ??"援먯껜"??洹??⑤꼸??鍮꾩뼱?덉쓣 ?뚮쭔 ?곸슜?섍퀬, ?ㅼ젣 ?댁슜???덈뒗
+     ?명듃媛 ?대젮 ?덉쑝硫?????쑝濡?異붽??쒕떎(湲곗〈 ?명듃瑜?臾댁“嫄?援먯껜?섏? ?딆쓬). "鍮꾩뼱?덈떎"??鍮??쒖옉
+     ?붾㈃(start)肉??꾨땲??"+"濡?留??앹꽦??蹂몃Ц??鍮??명듃 ??룄 ?ы븿?쒕떎(鍮???= 援먯껜 ???.
+     ?ъ씠?쒕컮 ?대┃, ??컮 ?쒕∼, ???대룞 紐⑤몢 ???뺤콉??怨듭쑀?쒕떎. */
   const openNoteInPane = useCallback((paneId: string, noteId: string, targetIndex?: number) => {
     const current = paneTabs[paneId];
     const active = current?.tabs.find((t) => t.id === current.activeTabId);
@@ -717,16 +718,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }
   }, [paneTabs, notes, handleReplaceActiveTab, handleAddNoteTab]);
 
-  /* 사이드바에서 노트 클릭 → 현재 활성 패널에 openNoteInPane 정책 적용 */
+  /* ?ъ씠?쒕컮?먯꽌 ?명듃 ?대┃ ???꾩옱 ?쒖꽦 ?⑤꼸??openNoteInPane ?뺤콉 ?곸슜 */
   const handleNoteClick = useCallback((noteId: string) => {
     openNoteInPane(primaryPaneId, noteId);
   }, [primaryPaneId, openNoteInPane]);
 
-  /* 노트 탐색기 위로 OS 파일을 드래그&드롭하면 /import 화면과 동일한
-     uploadAndImportFile() 경로로 가져오기를 수행한다(현재 선택된 폴더로 들어감). */
+  /* ?명듃 ?먯깋湲??꾨줈 OS ?뚯씪???쒕옒洹??쒕∼?섎㈃ /import ?붾㈃怨??숈씪??
+     uploadAndImportFile() 寃쎈줈濡?媛?몄삤湲곕? ?섑뻾?쒕떎(?꾩옱 ?좏깮???대뜑濡??ㅼ뼱媛?. */
   const handleDropFiles = useCallback((files: FileList) => {
     if (USE_MOCK_NOTES) {
-      pushToast("목 데이터 모드에서는 드래그&드롭 가져오기를 지원하지 않습니다.", "err");
+      pushToast("紐??곗씠??紐⑤뱶?먯꽌???쒕옒洹??쒕∼ 媛?몄삤湲곕? 吏?먰븯吏 ?딆뒿?덈떎.", "err");
       return;
     }
     void (async () => {
@@ -737,7 +738,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         try {
           const job = await uploadAndImportFile(file, selectedFolderId ?? undefined);
           if (!job || job.status === "FAILED") {
-            pushToast(`${file.name} 가져오기에 실패했습니다.`, "err");
+            pushToast(`${file.name} 媛?몄삤湲곗뿉 ?ㅽ뙣?덉뒿?덈떎.`, "err");
             continue;
           }
           const noteIds = job.createdNotes.map((item) => item.noteId).filter((id): id is string => !!id);
@@ -746,17 +747,17 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
             successCount += noteIds.length;
           }
         } catch (error) {
-          pushToast(error instanceof Error ? error.message : `${file.name} 가져오기에 실패했습니다.`, "err");
+          pushToast(error instanceof Error ? error.message : `${file.name} 媛?몄삤湲곗뿉 ?ㅽ뙣?덉뒿?덈떎.`, "err");
         }
       }
       if (successCount > 0) {
-        pushToast(`${successCount}개 노트를 가져왔어요`, "ok");
+        pushToast(`${successCount}媛??명듃瑜?媛?몄솕?댁슂`, "ok");
         window.dispatchEvent(new CustomEvent("brainx:notes-refresh", { detail: { noteId: firstNoteId ?? undefined } }));
       }
     })();
   }, [selectedFolderId, pushToast]);
 
-  /* 같은 패널 안에서 탭 hold & drag로 순서 변경. activeTabId는 건드리지 않으므로 활성 탭 상태는 유지된다. */
+  /* 媛숈? ?⑤꼸 ?덉뿉????hold & drag濡??쒖꽌 蹂寃? activeTabId??嫄대뱶由ъ? ?딆쑝誘濡??쒖꽦 ???곹깭???좎??쒕떎. */
   const handleReorderTab = useCallback((paneId: string, tabId: string, targetIndex: number) => {
     setPaneTabs((prev) => {
       const current = prev[paneId];
@@ -773,7 +774,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     });
   }, []);
 
-  /* 패널 닫기 — paneTabs 정리 + 그 패널에 있던 탭들의 tabMode 항목도 함께 정리 */
+  /* ?⑤꼸 ?リ린 ??paneTabs ?뺣━ + 洹??⑤꼸???덈뜕 ??뱾??tabMode ??ぉ???④퍡 ?뺣━ */
   const handleClose = useCallback((id: string) => {
     const closingTabIds = paneTabs[id]?.tabs.map((t) => t.id) ?? [];
     setState((prev) => {
@@ -797,10 +798,10 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     });
   }, [paneTabs]);
 
-  /* 패널의 마지막 탭이 닫힐 때 공통 정책: 화면분할 상태면 패널 자체를 제거(분할 취소),
-     분할이 아닌 단일 패널이면 그 패널의 탭을 빈 배열로 되돌린다(탭이 아니라 Welcome
-     보드 — empty state — 가 보이게 됨, NotesWorkspace 최상위 렌더링 참고).
-     "모두 닫기"와 "마지막 탭 X로 닫기"가 동일한 정책을 공유한다. */
+  /* ?⑤꼸??留덉?留???씠 ?ロ옄 ??怨듯넻 ?뺤콉: ?붾㈃遺꾪븷 ?곹깭硫??⑤꼸 ?먯껜瑜??쒓굅(遺꾪븷 痍⑥냼),
+     遺꾪븷???꾨땶 ?⑥씪 ?⑤꼸?대㈃ 洹??⑤꼸????쓣 鍮?諛곗뿴濡??섎룎由곕떎(??씠 ?꾨땲??Welcome
+     蹂대뱶 ??empty state ??媛 蹂댁씠寃??? NotesWorkspace 理쒖긽???뚮뜑留?李멸퀬).
+     "紐⑤몢 ?リ린"? "留덉?留???X濡??リ린"媛 ?숈씪???뺤콉??怨듭쑀?쒕떎. */
   const closePaneOrClearTabs = useCallback((paneId: string) => {
     if (panelCount > 1) {
       handleClose(paneId);
@@ -814,9 +815,9 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }));
   }, [panelCount, handleClose]);
 
-  /* 탭을 다른 패널로 "이동"한다(복제가 아님) — Obsidian처럼 같은 패널/다른 패널/분할 구조 어디서든
-     동작. 1) 목표 패널에 openNoteInPane 정책으로 노트를 연 뒤, 2) 원본 패널에서 그 탭을 제거한다.
-     원본 패널의 마지막 탭이었으면 closePaneOrClearTabs 정책(분할 취소 또는 빈 탭 상태 복귀)을 따른다. */
+  /* ??쓣 ?ㅻⅨ ?⑤꼸濡?"?대룞"?쒕떎(蹂듭젣媛 ?꾨떂) ??Obsidian泥섎읆 媛숈? ?⑤꼸/?ㅻⅨ ?⑤꼸/遺꾪븷 援ъ“ ?대뵒?쒕뱺
+     ?숈옉. 1) 紐⑺몴 ?⑤꼸??openNoteInPane ?뺤콉?쇰줈 ?명듃瑜????? 2) ?먮낯 ?⑤꼸?먯꽌 洹???쓣 ?쒓굅?쒕떎.
+     ?먮낯 ?⑤꼸??留덉?留???씠?덉쑝硫?closePaneOrClearTabs ?뺤콉(遺꾪븷 痍⑥냼 ?먮뒗 鍮????곹깭 蹂듦?)???곕Ⅸ?? */
   const handleMoveTabToPane = useCallback((
     sourcePaneId: string,
     sourceTabId: string,
@@ -851,43 +852,43 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setState((prev) => ({ ...prev, activeId: id }));
   }, []);
 
-  /* 탭(노트 인스턴스) 모드 변경 — tabId 기준으로 저장. 같은 패널 안에서도 탭마다, 같은 노트를
-     여러 패널에 열어도 각 탭 인스턴스마다 독립적으로 유지된다. */
+  /* ???명듃 ?몄뒪?댁뒪) 紐⑤뱶 蹂寃???tabId 湲곗??쇰줈 ??? 媛숈? ?⑤꼸 ?덉뿉?쒕룄 ??쭏?? 媛숈? ?명듃瑜?
+     ?щ윭 ?⑤꼸???댁뼱??媛????몄뒪?댁뒪留덈떎 ?낅┰?곸쑝濡??좎??쒕떎. */
   const handleModeChange = useCallback((tabId: string, mode: EditMode) => {
     setTabMode((prev) => ({ ...prev, [tabId]: mode }));
   }, []);
 
-  /* 노트 제목 변경(에디터 상단 제목 입력) → notes 상태 갱신 (사이드바/탭/헤더/컨텍스트 즉시 반영).
-     같은 위치에 동일 제목이 이미 있으면 커밋하지 않는다 — 사이드바 rename(handleRenameNoteFromExplorer)과
-     동일한 중복 검사를 공유한다. 거부되면 notes 상태가 바뀌지 않으므로 EditorPanel은 note.title을
-     그대로 다시 보여줘 자동으로 이전 제목으로 되돌아간다. */
+  /* ?명듃 ?쒕ぉ 蹂寃??먮뵒???곷떒 ?쒕ぉ ?낅젰) ??notes ?곹깭 媛깆떊 (?ъ씠?쒕컮/???ㅻ뜑/而⑦뀓?ㅽ듃 利됱떆 諛섏쁺).
+     媛숈? ?꾩튂???숈씪 ?쒕ぉ???대? ?덉쑝硫?而ㅻ컠?섏? ?딅뒗?????ъ씠?쒕컮 rename(handleRenameNoteFromExplorer)怨?
+     ?숈씪??以묐났 寃?щ? 怨듭쑀?쒕떎. 嫄곕??섎㈃ notes ?곹깭媛 諛붾뚯? ?딆쑝誘濡?EditorPanel? note.title??
+     洹몃?濡??ㅼ떆 蹂댁뿬以??먮룞?쇰줈 ?댁쟾 ?쒕ぉ?쇰줈 ?섎룎?꾧컙?? */
   const handleTitleChange = useCallback((noteId: string, newTitle: string) => {
     const note = notes.find((n) => n.id === noteId);
     if (!note) return;
     if (newTitle !== note.title && checkNoteDuplicate(newTitle, note.folderId)) {
-      pushToast("이미 같은 이름의 노트가 있습니다.", "err");
+      pushToast("?대? 媛숈? ?대쫫???명듃媛 ?덉뒿?덈떎.", "err");
       return;
     }
     const oldTitle = note.title;
     draftDirtyNoteIdsRef.current.add(noteId);
 
-    // 새 노트가 "새 노트"/"새 노트1" 같은 기본 제목으로 만들어지는 순간 graph optimistic
-    // 캐시(pending-created-note-cache.ts)에도 그 제목이 그대로 기록된다 — 사용자가 곧바로
-    // 제목을 바꾸고 서버 저장/그래프 새로고침을 기다리지 않은 채 /graph로 이동하면, optimistic
-    // 노드가 옛 제목으로 보이는 원인이었다. 제목이 실제로 바뀔 때마다 캐시도 함께 갱신해
-    // notes[] state와 어긋나지 않게 한다. 위키링크로 만든 노트(A→B)든 일반 새 노트든 구분 없이
-    // 적용되고, 이 노트가 다른 pending 항목의 위키링크 소스였다면 그 sourceTitle도 함께
-    // 맞춰준다(현재 edge 합성 자체는 id 기준이라 동작에 영향은 없지만 캐시 내용을 일관되게
-    // 유지한다).
+    // ???명듃媛 "???명듃"/"???명듃1" 媛숈? 湲곕낯 ?쒕ぉ?쇰줈 留뚮뱾?댁????쒓컙 graph optimistic
+    // 罹먯떆(pending-created-note-cache.ts)?먮룄 洹??쒕ぉ??洹몃?濡?湲곕줉?쒕떎 ???ъ슜?먭? 怨㏓컮濡?
+    // ?쒕ぉ??諛붽씀怨??쒕쾭 ???洹몃옒???덈줈怨좎묠??湲곕떎由ъ? ?딆? 梨?/graph濡??대룞?섎㈃, optimistic
+    // ?몃뱶媛 ???쒕ぉ?쇰줈 蹂댁씠???먯씤?댁뿀?? ?쒕ぉ???ㅼ젣濡?諛붾??뚮쭏??罹먯떆???④퍡 媛깆떊??
+    // notes[] state? ?닿툔?섏? ?딄쾶 ?쒕떎. ?꾪궎留곹겕濡?留뚮뱺 ?명듃(A?묪)???쇰컲 ???명듃??援щ텇 ?놁씠
+    // ?곸슜?섍퀬, ???명듃媛 ?ㅻⅨ pending ??ぉ???꾪궎留곹겕 ?뚯뒪??ㅻ㈃ 洹?sourceTitle???④퍡
+    // 留욎떠以???꾩옱 edge ?⑹꽦 ?먯껜??id 湲곗??대씪 ?숈옉???곹뼢? ?놁?留?罹먯떆 ?댁슜???쇨??섍쾶
+    // ?좎??쒕떎).
     if (!USE_MOCK_NOTES && newTitle !== oldTitle) {
       updatePendingCreatedNoteTitle(noteId, newTitle);
     }
 
-    // 제목이 실제로 바뀐 경우에만, 그 이름을 가리키던 다른 노트의 위키링크를 새 제목으로
-    // 갱신한다 — 그래야 노트1에 남은 `[[이전제목]]`이 이름 변경 뒤에도 그대로 A를
-    // 가리키고(에디터 링크/그래프 모두 title 문자열 매칭으로 존재 여부를 판단하므로), 이름이
-    // 바뀐 순간 "존재하지 않는 노트" 상태로 끊어져 보이는 문제가 생기지 않는다. 영향받는
-    // 노트 목록을 먼저(state 갱신 전에) 계산해둬야 백그라운드 저장 대상을 알 수 있다.
+    // ?쒕ぉ???ㅼ젣濡?諛붾?寃쎌슦?먮쭔, 洹??대쫫??媛由ы궎???ㅻⅨ ?명듃???꾪궎留곹겕瑜????쒕ぉ?쇰줈
+    // 媛깆떊?쒕떎 ??洹몃옒???명듃1???⑥? `[[?댁쟾?쒕ぉ]]`???대쫫 蹂寃??ㅼ뿉??洹몃?濡?A瑜?
+    // 媛由ы궎怨??먮뵒??留곹겕/洹몃옒??紐⑤몢 title 臾몄옄??留ㅼ묶?쇰줈 議댁옱 ?щ?瑜??먮떒?섎?濡?, ?대쫫??
+    // 諛붾??쒓컙 "議댁옱?섏? ?딅뒗 ?명듃" ?곹깭濡??딆뼱??蹂댁씠??臾몄젣媛 ?앷린吏 ?딅뒗?? ?곹뼢諛쏅뒗
+    // ?명듃 紐⑸줉??癒쇱?(state 媛깆떊 ?꾩뿉) 怨꾩궛?대뫊??諛깃렇?쇱슫???????곸쓣 ?????덈떎.
     const relinked = oldTitle === newTitle
       ? []
       : notes
@@ -909,10 +910,10 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     );
 
     if (relinked.length > 0 && !USE_MOCK_NOTES) {
-      // 위키링크가 갱신된 다른 노트들도 최소한 한 번은 백그라운드로 저장해야, 그래프/마인드맵처럼
-      // 서버에서 새로 노트를 읽어오는 화면에서도 이름 변경이 반영된다(로컬 state만 바꾸면 이번
-      // 세션의 에디터 화면에는 바로 보이지만, 서버에는 예전 텍스트가 그대로 남는다). 실패해도
-      // 사용자가 그 노트를 열어 직접 저장하면 되는 best-effort 보강이라 조용히 무시한다.
+      // ?꾪궎留곹겕媛 媛깆떊???ㅻⅨ ?명듃?ㅻ룄 理쒖냼????踰덉? 諛깃렇?쇱슫?쒕줈 ??ν빐?? 洹몃옒??留덉씤?쒕㏊泥섎읆
+      // ?쒕쾭?먯꽌 ?덈줈 ?명듃瑜??쎌뼱?ㅻ뒗 ?붾㈃?먯꽌???대쫫 蹂寃쎌씠 諛섏쁺?쒕떎(濡쒖뺄 state留?諛붽씀硫??대쾲
+      // ?몄뀡???먮뵒???붾㈃?먮뒗 諛붾줈 蹂댁씠吏留? ?쒕쾭?먮뒗 ?덉쟾 ?띿뒪?멸? 洹몃?濡??⑤뒗??. ?ㅽ뙣?대룄
+      // ?ъ슜?먭? 洹??명듃瑜??댁뼱 吏곸젒 ??ν븯硫??섎뒗 best-effort 蹂닿컯?대씪 議곗슜??臾댁떆?쒕떎.
       void Promise.allSettled(
         relinked.map(({ note: target, result }) => {
           const updated = { ...target, content: result.content };
@@ -934,7 +935,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }
   }, [notes, checkNoteDuplicate, pushToast]);
 
-  /* 노트 본문 변경(에디터 onUpdate 디바운스) → notes 상태 갱신, 탭 전환 후에도 내용 유지 */
+  /* ?명듃 蹂몃Ц 蹂寃??먮뵒??onUpdate ?붾컮?댁뒪) ??notes ?곹깭 媛깆떊, ???꾪솚 ?꾩뿉???댁슜 ?좎? */
   const handleContentChange = useCallback((noteId: string, newContentHtml: string) => {
     let didChange = false;
     setNotes((prev) => {
@@ -949,23 +950,23 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }
   }, []);
 
-  /* 노트 전체 타이포그래피(기본 글꼴 크기 배율/레벨별 개별 크기/문서 기본 글꼴) 변경 — 선택
-     텍스트 전용 BubbleToolbar 설정과 별개로 노트 단위로 저장한다. undefined면 커스터마이징
-     해제(기본값으로 되돌리기) */
+  /* ?명듃 ?꾩껜 ??댄룷洹몃옒??湲곕낯 湲瑗??ш린 諛곗쑉/?덈꺼蹂?媛쒕퀎 ?ш린/臾몄꽌 湲곕낯 湲瑗? 蹂寃????좏깮
+     ?띿뒪???꾩슜 BubbleToolbar ?ㅼ젙怨?蹂꾧컻濡??명듃 ?⑥쐞濡???ν븳?? undefined硫?而ㅼ뒪?곕쭏?댁쭠
+     ?댁젣(湲곕낯媛믪쑝濡??섎룎由ш린) */
   const handleTypographyChange = useCallback((noteId: string, next: MockNote["typography"]) => {
     setNotes((prev) =>
       prev.map((n) => (n.id === noteId ? { ...n, typography: next, updatedAt: Date.now() } : n))
     );
   }, []);
 
-  /* pane(분할 패널) 단위 Ctrl+Wheel 에디터 뷰 줌 — handleTypographyChange(노트 문서 자체의
-     서식, notes[]에 저장)와 별개로 paneFontScale(세션 UI 상태)만 갱신한다. */
+  /* pane(遺꾪븷 ?⑤꼸) ?⑥쐞 Ctrl+Wheel ?먮뵒??酉?以???handleTypographyChange(?명듃 臾몄꽌 ?먯껜??
+     ?쒖떇, notes[]?????? 蹂꾧컻濡?paneFontScale(?몄뀡 UI ?곹깭)留?媛깆떊?쒕떎. */
   const handlePaneFontScaleChange = useCallback((paneId: string, next: number) => {
     setPaneFontScale((prev) => (prev[paneId] === next ? prev : { ...prev, [paneId]: next }));
   }, []);
 
-  /* D&D drop → 분할이 허용된 상태에서만 새 패널에 탭 1개로 초기화한다.
-     단일 탭/단일 패널 상태에서는 EditorPanel 쪽에서 replace로 흘려보내고 여기로 오지 않는다. */
+  /* D&D drop ??遺꾪븷???덉슜???곹깭?먯꽌留????⑤꼸????1媛쒕줈 珥덇린?뷀븳??
+     ?⑥씪 ???⑥씪 ?⑤꼸 ?곹깭?먯꽌??EditorPanel 履쎌뿉??replace濡??섎젮蹂대궡怨??ш린濡??ㅼ? ?딅뒗?? */
   const handleDrop = useCallback((paneId: string, zone: DropZone, noteId: string) => {
     if (!canSplitPane(paneId)) return;
     const newLeafId = uid();
@@ -984,15 +985,15 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }));
   }, [canSplitPane]);
 
-  /* 탭을 드래그해서 다른 패널의 "본문"(zone)에 떨어뜨려 분할을 만들 때의 이동 버전 — handleDrop과
-     달리 새 분할을 만든 뒤 원본 패널에서 그 탭을 제거한다(복제 방지). 분할이 금지된
-     단일 탭/단일 패널 상태에서는 호출되지 않는다. 원본이 마지막 탭이었으면
-     closePaneOrClearTabs로 원본 패널을 정리한다(분할 취소 또는 빈 탭 상태 복귀).
-     sourcePaneId === targetPaneId(패널이 1개뿐일 때 자기 자신의 본문에 드롭해 처음으로 분할하는
-     가장 흔한 경우)를 막지 않는다 — splitNodeAt은 원본 leaf를 그대로 한쪽 children으로 보존하고
-     새 leaf만 추가하므로(lib/notes/paneUtils.ts), source===target이어도 트리/paneTabs 갱신
-     로직이 동일하게 안전하게 동작한다. 예전엔 여기서 무조건 no-op 처리해, 패널이 1개뿐인 상태에서
-     탭을 드래그해 분할 미리보기는 뜨지만 실제로 드롭하면 아무 변화가 없는 버그가 있었다. */
+  /* ??쓣 ?쒕옒洹명빐???ㅻⅨ ?⑤꼸??"蹂몃Ц"(zone)???⑥뼱?⑤젮 遺꾪븷??留뚮뱾 ?뚯쓽 ?대룞 踰꾩쟾 ??handleDrop怨?
+     ?щ━ ??遺꾪븷??留뚮뱺 ???먮낯 ?⑤꼸?먯꽌 洹???쓣 ?쒓굅?쒕떎(蹂듭젣 諛⑹?). 遺꾪븷??湲덉???
+     ?⑥씪 ???⑥씪 ?⑤꼸 ?곹깭?먯꽌???몄텧?섏? ?딅뒗?? ?먮낯??留덉?留???씠?덉쑝硫?
+     closePaneOrClearTabs濡??먮낯 ?⑤꼸???뺣━?쒕떎(遺꾪븷 痍⑥냼 ?먮뒗 鍮????곹깭 蹂듦?).
+     sourcePaneId === targetPaneId(?⑤꼸??1媛쒕퓧?????먭린 ?먯떊??蹂몃Ц???쒕∼??泥섏쓬?쇰줈 遺꾪븷?섎뒗
+     媛???뷀븳 寃쎌슦)瑜?留됱? ?딅뒗????splitNodeAt? ?먮낯 leaf瑜?洹몃?濡??쒖そ children?쇰줈 蹂댁〈?섍퀬
+     ??leaf留?異붽??섎?濡?lib/notes/paneUtils.ts), source===target?댁뼱???몃━/paneTabs 媛깆떊
+     濡쒖쭅???숈씪?섍쾶 ?덉쟾?섍쾶 ?숈옉?쒕떎. ?덉쟾???ш린??臾댁“嫄?no-op 泥섎━?? ?⑤꼸??1媛쒕퓧???곹깭?먯꽌
+     ??쓣 ?쒕옒洹명빐 遺꾪븷 誘몃━蹂닿린???⑥?留??ㅼ젣濡??쒕∼?섎㈃ ?꾨Т 蹂?붽? ?녿뒗 踰꾧렇媛 ?덉뿀?? */
   const handleMoveTabToSplit = useCallback((
     sourcePaneId: string,
     sourceTabId: string,
@@ -1036,7 +1037,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     });
   }, [paneTabs, closePaneOrClearTabs, canSplitPane]);
 
-  /* 탭 활성화 (같은 패널 내 탭 전환) */
+  /* ???쒖꽦??(媛숈? ?⑤꼸 ?????꾪솚) */
   const handleTabActivate = useCallback((paneId: string, tabId: string) => {
     const nextTab = paneTabs[paneId]?.tabs.find((tab) => tab.id === tabId);
     setPaneTabs((prev) => {
@@ -1051,8 +1052,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }));
   }, [paneTabs]);
 
-  /* 탭 닫기 — 활성 탭을 닫으면 인접 탭으로 이동. 마지막 탭이면 closePaneOrClearTabs 정책을 따른다
-     (화면분할이면 패널 제거, 단일 패널이면 빈 시작 화면으로 복귀) — 더 이상 닫기를 막지 않는다. */
+  /* ???リ린 ???쒖꽦 ??쓣 ?レ쑝硫??몄젒 ??쑝濡??대룞. 留덉?留???씠硫?closePaneOrClearTabs ?뺤콉???곕Ⅸ??
+     (?붾㈃遺꾪븷?대㈃ ?⑤꼸 ?쒓굅, ?⑥씪 ?⑤꼸?대㈃ 鍮??쒖옉 ?붾㈃?쇰줈 蹂듦?) ?????댁긽 ?リ린瑜?留됱? ?딅뒗?? */
   const handleTabClose = useCallback((paneId: string, tabId: string) => {
     const current = paneTabs[paneId];
     if (!current) return;
@@ -1083,32 +1084,32 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }
   }, [paneTabs, closePaneOrClearTabs]);
 
-  /* 새 노트 생성 (선택된 폴더 또는 지정된 폴더 안에 생성), 지정한 패널의 새 탭으로 연다.
-     title을 주면(위키링크에서 생성하는 경우) 그 제목으로 바로 생성한다. linkFromNoteId를 주면
-     (위키링크로 생성한 경우) 로그인 사용자에 한해 백엔드 노트 id가 확정되는 즉시 그 노트에서
-     새로 만든 노트로의 NoteLink를 만들어 마인드맵 edge에 반영한다(게스트는 그래프가 매 렌더마다
-     draft markdown의 [[..]]을 다시 파싱해 edge를 만들므로 별도 처리가 필요 없다). */
+  /* ???명듃 ?앹꽦 (?좏깮???대뜑 ?먮뒗 吏?뺣맂 ?대뜑 ?덉뿉 ?앹꽦), 吏?뺥븳 ?⑤꼸??????쑝濡??곕떎.
+     title??二쇰㈃(?꾪궎留곹겕?먯꽌 ?앹꽦?섎뒗 寃쎌슦) 洹??쒕ぉ?쇰줈 諛붾줈 ?앹꽦?쒕떎. linkFromNoteId瑜?二쇰㈃
+     (?꾪궎留곹겕濡??앹꽦??寃쎌슦) 濡쒓렇???ъ슜?먯뿉 ?쒗빐 諛깆뿏???명듃 id媛 ?뺤젙?섎뒗 利됱떆 洹??명듃?먯꽌
+     ?덈줈 留뚮뱺 ?명듃濡쒖쓽 NoteLink瑜?留뚮뱾??留덉씤?쒕㏊ edge??諛섏쁺?쒕떎(寃뚯뒪?몃뒗 洹몃옒?꾧? 留??뚮뜑留덈떎
+     draft markdown??[[..]]???ㅼ떆 ?뚯떛??edge瑜?留뚮뱾誘濡?蹂꾨룄 泥섎━媛 ?꾩슂 ?녿떎). */
   const createNote = useCallback((folderId: string | undefined, paneId: string, title?: string, linkFromNoteId?: string, favorite?: boolean) => {
-    /* 게스트 노트 생성 제한 */
+    /* 寃뚯뒪???명듃 ?앹꽦 ?쒗븳 */
     if (isGuest && notes.length >= 10) {
-      pushToast("체험 모드에서는 노트를 최대 10개까지 생성할 수 있습니다.", "err");
+      pushToast("泥댄뿕 紐⑤뱶?먯꽌???명듃瑜?理쒕? 10媛쒓퉴吏 ?앹꽦?????덉뒿?덈떎.", "err");
       return "";
     }
-    /* 명시적 title이 주어진 경우(위키링크 생성 등)는 사용자의 의도된 이름이므로 기존처럼 중복이면
-       막는다. 반면 기본값("새 노트")은 자동 생성값이라 막는 대신 자동 넘버링한다:
-       새 노트 → 새 노트1 → 새 노트2 … 처럼 같은 위치에서 비어있는 이름을 찾아 사용한다. */
+    /* 紐낆떆??title??二쇱뼱吏?寃쎌슦(?꾪궎留곹겕 ?앹꽦 ?????ъ슜?먯쓽 ?섎룄???대쫫?대?濡?湲곗〈泥섎읆 以묐났?대㈃
+       留됰뒗?? 諛섎㈃ 湲곕낯媛?"???명듃")? ?먮룞 ?앹꽦媛믪씠??留됰뒗 ????먮룞 ?섎쾭留곹븳??
+       ???명듃 ?????명듃1 ?????명듃2 ??泥섎읆 媛숈? ?꾩튂?먯꽌 鍮꾩뼱?덈뒗 ?대쫫??李얠븘 ?ъ슜?쒕떎. */
     let noteTitle: string;
     if (title) {
       if (checkNoteDuplicate(title, folderId ?? null)) {
-        pushToast("같은 위치에 동일한 이름의 노트가 이미 있습니다.", "err");
+        pushToast("媛숈? ?꾩튂???숈씪???대쫫???명듃媛 ?대? ?덉뒿?덈떎.", "err");
         return "";
       }
       noteTitle = title;
     } else {
-      noteTitle = "새 노트";
+      noteTitle = "???명듃";
       let suffix = 1;
       while (checkNoteDuplicate(noteTitle, folderId ?? null)) {
-        noteTitle = `새 노트${suffix}`;
+        noteTitle = `???명듃${suffix}`;
         suffix += 1;
       }
     }
@@ -1118,13 +1119,13 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     const localNoteId = newNote.id;
     const newTabId = uid();
 
-    // 위키링크로 만들었든(linkFromNoteId 있음) 일반 "+ 새 노트"/우클릭 새 노트든(linkFromNoteId
-    // 없음) 관계없이, 아직 draft id도 없는 이 순간(local id) sessionStorage에 optimistic 기록을
-    // 남긴다 — /notes에서 만든 노트가 서버 저장을 기다리지 않고도 별도로 새로 마운트되는
-    // /graph에 즉시 반영되게 하기 위함이다(lib/notes/pending-created-note-cache.ts 참고).
-    // linkFromNoteId가 있으면 sourceNoteId/sourceTitle도 함께 기록해 graph-screen이 optimistic
-    // edge(노트1→A 연결선)까지 합성할 수 있게 한다 — 없으면(일반 새 노트) node만 optimistic
-    // 처리된다.
+    // ?꾪궎留곹겕濡?留뚮뱾?덈뱺(linkFromNoteId ?덉쓬) ?쇰컲 "+ ???명듃"/?고겢由????명듃??linkFromNoteId
+    // ?놁쓬) 愿怨꾩뾾?? ?꾩쭅 draft id???녿뒗 ???쒓컙(local id) sessionStorage??optimistic 湲곕줉??
+    // ?④릿????/notes?먯꽌 留뚮뱺 ?명듃媛 ?쒕쾭 ??μ쓣 湲곕떎由ъ? ?딄퀬??蹂꾨룄濡??덈줈 留덉슫?몃릺??
+    // /graph??利됱떆 諛섏쁺?섍쾶 ?섍린 ?꾪븿?대떎(lib/notes/pending-created-note-cache.ts 李멸퀬).
+    // linkFromNoteId媛 ?덉쑝硫?sourceNoteId/sourceTitle???④퍡 湲곕줉??graph-screen??optimistic
+    // edge(?명듃1?묨 ?곌껐??源뚯? ?⑹꽦?????덇쾶 ?쒕떎 ???놁쑝硫??쇰컲 ???명듃) node留?optimistic
+    // 泥섎━?쒕떎.
     if (!USE_MOCK_NOTES) {
       addPendingCreatedNote({
         localKey: localNoteId,
@@ -1140,10 +1141,10 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setPaneTabs((prev) => {
       const current = prev[paneId];
       const newTab: Tab = { id: newTabId, kind: "note", noteId: newNote.id };
-      // 현재 활성 탭이 없거나(진짜 Welcome), 있어도 그 노트를 찾을 수 없는 "제목 없음" 상태
-      // (삭제된 노트를 가리키는 등)라면 새 탭을 옆에 추가하지 않고 그 자리를 실제 노트로
-      // 교체한다 — Welcome Board/깨진 탭에서 새 노트를 만들면 새 탭이 따로 생기고 깨진 탭은
-      // 그대로 남던 문제가 있었다.
+      // ?꾩옱 ?쒖꽦 ??씠 ?녾굅??吏꾩쭨 Welcome), ?덉뼱??洹??명듃瑜?李얠쓣 ???녿뒗 "?쒕ぉ ?놁쓬" ?곹깭
+      // (??젣???명듃瑜?媛由ы궎?????쇰㈃ ????쓣 ?놁뿉 異붽??섏? ?딄퀬 洹??먮━瑜??ㅼ젣 ?명듃濡?
+      // 援먯껜?쒕떎 ??Welcome Board/源⑥쭊 ??뿉?????명듃瑜?留뚮뱾硫?????씠 ?곕줈 ?앷린怨?源⑥쭊 ???
+      // 洹몃?濡??⑤뜕 臾몄젣媛 ?덉뿀??
       const activeTab = current?.tabs.find((t) => t.id === current.activeTabId);
       const activeIsEmptyOrBroken =
         !activeTab || (activeTab.kind === "note" && !notes.some((n) => n.id === activeTab.noteId));
@@ -1174,14 +1175,14 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
           draftDirtyNoteIdsRef.current.add(draft.noteId);
           prevActiveNoteIdRef.current = draft.noteId;
           onActiveNoteChange?.(draft.noteId);
-          // 이 노트가 위키링크 optimistic 캐시(sessionStorage)에 local id로 기록돼 있었다면
-          // 실제 noteId로 갱신한다 — 위키링크와 무관한 일반 새 노트 생성에서는 아무 항목도
-          // 찾지 못해 조용히 no-op이다.
+          // ???명듃媛 ?꾪궎留곹겕 optimistic 罹먯떆(sessionStorage)??local id濡?湲곕줉???덉뿀?ㅻ㈃
+          // ?ㅼ젣 noteId濡?媛깆떊?쒕떎 ???꾪궎留곹겕? 臾닿????쇰컲 ???명듃 ?앹꽦?먯꽌???꾨Т ??ぉ??
+          // 李얠? 紐삵빐 議곗슜??no-op?대떎.
           updatePendingCreatedNoteId(localNoteId, draft.noteId);
 
-          // 이 노트(방금 draft id가 확정된 노트) 자체가, 조금 전 위키링크로 다른 노트를 만들 때
-          // "아직 local id라 바로 저장하지 못한 소스 노트"였을 수 있다 — 그랬다면 pending 표시가
-          // 남아있을 테니, 이제 실제 noteId가 생겼으니 최신 본문으로 한 번 더 저장을 시도한다.
+          // ???명듃(諛⑷툑 draft id媛 ?뺤젙???명듃) ?먯껜媛, 議곌툑 ???꾪궎留곹겕濡??ㅻⅨ ?명듃瑜?留뚮뱾 ??
+          // "?꾩쭅 local id??諛붾줈 ??ν븯吏 紐삵븳 ?뚯뒪 ?명듃"??????덈떎 ??洹몃옱?ㅻ㈃ pending ?쒖떆媛
+          // ?⑥븘?덉쓣 ?뚮땲, ?댁젣 ?ㅼ젣 noteId媛 ?앷꼈?쇰땲 理쒖떊 蹂몃Ц?쇰줈 ??踰?????μ쓣 ?쒕룄?쒕떎.
           if (pendingWikiLinkFlushRef.current.has(localNoteId)) {
             pendingWikiLinkFlushRef.current.delete(localNoteId);
             const latestNote = latestSessionRef.current.notes.find((n) => n.id === draft.noteId);
@@ -1190,17 +1191,17 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
                 .then((persisted) => {
                   if (persisted) draftDirtyNoteIdsRef.current.delete(draft.noteId);
                 })
-                .catch((error) => warnWikiLinkFailure("pending source note 저장 재시도 실패", error));
+                .catch((error) => warnWikiLinkFailure("pending source note ????ъ떆???ㅽ뙣", error));
             }
           }
 
-          // 이 노트 자신이 위키링크로 방금 만들어진 새 노트(target)라면, "지금 활성 탭인 동안만"
-          // 저장하는 draft autosave effect에 기대지 않고 title/content를 즉시 독립적으로
-          // 저장한다 — 안 그러면 사용자가 이 탭이 열리자마자 바로 다른 곳으로 이동했을 때 이
-          // 노트가 draft id만 발급받고 실제 내용은 서버에 한 번도 저장되지 못한 채(제목도 빈
-          // 상태로) 남아 "사라진 것처럼" 보이거나 그래프에도 나타나지 않는다. 서버 NoteLink(그래프
-          // edge) 생성은 이 저장이 끝난(또는 실패한) 뒤에 시도해, 최소한 이 노트가 실제로 존재하는
-          // 상태에서 링크를 걸도록 순서를 맞춘다.
+          // ???명듃 ?먯떊???꾪궎留곹겕濡?諛⑷툑 留뚮뱾?댁쭊 ???명듃(target)?쇰㈃, "吏湲??쒖꽦 ??씤 ?숈븞留?
+          // ??ν븯??draft autosave effect??湲곕?吏 ?딄퀬 title/content瑜?利됱떆 ?낅┰?곸쑝濡?
+          // ??ν븳??????洹몃윭硫??ъ슜?먭? ????씠 ?대━?먮쭏??諛붾줈 ?ㅻⅨ 怨녹쑝濡??대룞?덉쓣 ????
+          // ?명듃媛 draft id留?諛쒓툒諛쏄퀬 ?ㅼ젣 ?댁슜? ?쒕쾭????踰덈룄 ??λ릺吏 紐삵븳 梨??쒕ぉ??鍮?
+          // ?곹깭濡? ?⑥븘 "?щ씪吏?寃껋쿂?? 蹂댁씠嫄곕굹 洹몃옒?꾩뿉???섑??섏? ?딅뒗?? ?쒕쾭 NoteLink(洹몃옒??
+          // edge) ?앹꽦? ????μ씠 ?앸궃(?먮뒗 ?ㅽ뙣?? ?ㅼ뿉 ?쒕룄?? 理쒖냼?????명듃媛 ?ㅼ젣濡?議댁옱?섎뒗
+          // ?곹깭?먯꽌 留곹겕瑜?嫄몃룄濡??쒖꽌瑜?留욎텣??
           const createdNoteSnapshot = { ...newNote, id: draft.noteId };
           const persistCreatedNote = USE_MOCK_NOTES
             ? Promise.resolve(true)
@@ -1210,14 +1211,14 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
                   return persisted;
                 })
                 .catch((error) => {
-                  warnWikiLinkFailure("새로 만든 노트 저장 실패", error);
+                  warnWikiLinkFailure("?덈줈 留뚮뱺 ?명듃 ????ㅽ뙣", error);
                   return false;
                 });
 
           void persistCreatedNote.then(() => {
-            // 소스 노트가 아직 로컬(미확정) id면 그 노트 자체가 생성 중이라는 뜻이다 — 그 노트의
-            // local id를 key로 pending 등록해두면, 그 노트가 자기 draft id를 확정 짓는 순간(바로
-            // 아래 pendingWikiLinkEdgeRef 확인 블록)에 실제 sourceNoteId로 링크 생성을 재시도한다.
+            // ?뚯뒪 ?명듃媛 ?꾩쭅 濡쒖뺄(誘명솗?? id硫?洹??명듃 ?먯껜媛 ?앹꽦 以묒씠?쇰뒗 ?살씠????洹??명듃??
+            // local id瑜?key濡?pending ?깅줉?대몢硫? 洹??명듃媛 ?먭린 draft id瑜??뺤젙 吏볥뒗 ?쒓컙(諛붾줈
+            // ?꾨옒 pendingWikiLinkEdgeRef ?뺤씤 釉붾줉)???ㅼ젣 sourceNoteId濡?留곹겕 ?앹꽦???ъ떆?꾪븳??
             if (linkFromNoteId && linkFromNoteId.startsWith("note_")) {
               void createWorkspaceNoteLink(linkFromNoteId, {
                 targetNoteId: draft.noteId,
@@ -1225,7 +1226,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
                 createIfMissing: false,
               })
                 .then(() => removePendingCreatedNoteByNoteId(draft.noteId))
-                .catch((error) => warnWikiLinkFailure("NoteLink 생성 실패(source/target 모두 확정된 경로)", error));
+                .catch((error) => warnWikiLinkFailure("NoteLink ?앹꽦 ?ㅽ뙣(source/target 紐⑤몢 ?뺤젙??寃쎈줈)", error));
             } else if (linkFromNoteId) {
               pendingWikiLinkEdgeRef.current.set(linkFromNoteId, {
                 targetNoteId: draft.noteId,
@@ -1234,10 +1235,10 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
             }
           });
 
-          // 이 노트(방금 draft id가 확정된 노트) 자신이 "아직 local id라 링크를 못 걸었던
-          // 소스 노트"로 pending 등록돼 있었다면, 이제 실제 sourceNoteId가 생겼으니 링크 생성을
-          // 재시도한다. source/target 어느 쪽이 늦게 확정되든 항상 이 두 지점(위/아래) 중
-          // 하나에서 잡힌다.
+          // ???명듃(諛⑷툑 draft id媛 ?뺤젙???명듃) ?먯떊??"?꾩쭅 local id??留곹겕瑜?紐?嫄몄뿀??
+          // ?뚯뒪 ?명듃"濡?pending ?깅줉???덉뿀?ㅻ㈃, ?댁젣 ?ㅼ젣 sourceNoteId媛 ?앷꼈?쇰땲 留곹겕 ?앹꽦??
+          // ?ъ떆?꾪븳?? source/target ?대뒓 履쎌씠 ??쾶 ?뺤젙?섎뱺 ??긽 ????吏?????꾨옒) 以?
+          // ?섎굹?먯꽌 ?≫엺??
           if (pendingWikiLinkEdgeRef.current.has(localNoteId)) {
             const edge = pendingWikiLinkEdgeRef.current.get(localNoteId)!;
             pendingWikiLinkEdgeRef.current.delete(localNoteId);
@@ -1247,47 +1248,47 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
               createIfMissing: false,
             })
               .then(() => removePendingCreatedNoteByNoteId(edge.targetNoteId))
-              .catch((error) => warnWikiLinkFailure("NoteLink 생성 실패(pending edge 재시도 경로)", error));
+              .catch((error) => warnWikiLinkFailure("NoteLink ?앹꽦 ?ㅽ뙣(pending edge ?ъ떆??寃쎈줈)", error));
           }
 
-          // 즐겨찾기 영역에서 직접 만든 루트 노트는 자동 즐겨찾기 — draft id가 확정된 뒤에야
-          // 실제 noteId를 알 수 있으므로 여기서 호출한다(로컬 favorite:true는 이미 makeBlankNote
-          // 직후 반영해 화면엔 처음부터 별이 보인다).
+          // 利먭꺼李얘린 ?곸뿭?먯꽌 吏곸젒 留뚮뱺 猷⑦듃 ?명듃???먮룞 利먭꺼李얘린 ??draft id媛 ?뺤젙???ㅼ뿉??
+          // ?ㅼ젣 noteId瑜??????덉쑝誘濡??ш린???몄텧?쒕떎(濡쒖뺄 favorite:true???대? makeBlankNote
+          // 吏곹썑 諛섏쁺???붾㈃??泥섏쓬遺??蹂꾩씠 蹂댁씤??.
           if (favorite) {
             void putFavorite("NOTE", draft.noteId, true).catch(() => {});
           }
         })
         .catch((error) => {
-          setLoadError(error instanceof Error ? error.message : "새 노트 임시저장 ID를 발급받지 못했습니다.");
+          setLoadError(error instanceof Error ? error.message : "???명듃 ?꾩떆???ID瑜?諛쒓툒諛쏆? 紐삵뻽?듬땲??");
         });
     }
 
     return newNote.id;
   }, [isGuest, notes, checkNoteDuplicate, pushToast, onActiveNoteChange]);
 
-  /* 사이드바 "+ 새 노트" 버튼 → 현재 선택된 폴더 안에, 활성 패널의 새 탭으로 생성.
-     favorite=true는 즐겨찾기 영역의 루트 생성 버튼에서만 쓴다(정책: 즐겨찾기 영역에서 직접
-     만든 루트 노트/폴더는 자동 즐겨찾기, 즐겨찾기 폴더 안의 하위 항목은 자동 즐겨찾기하지 않음). */
+  /* ?ъ씠?쒕컮 "+ ???명듃" 踰꾪듉 ???꾩옱 ?좏깮???대뜑 ?덉뿉, ?쒖꽦 ?⑤꼸??????쑝濡??앹꽦.
+     favorite=true??利먭꺼李얘린 ?곸뿭??猷⑦듃 ?앹꽦 踰꾪듉?먯꽌留??대떎(?뺤콉: 利먭꺼李얘린 ?곸뿭?먯꽌 吏곸젒
+     留뚮뱺 猷⑦듃 ?명듃/?대뜑???먮룞 利먭꺼李얘린, 利먭꺼李얘린 ?대뜑 ?덉쓽 ?섏쐞 ??ぉ? ?먮룞 利먭꺼李얘린?섏? ?딆쓬). */
   const handleNewNote = useCallback((folderId?: string, favorite?: boolean) => {
     createNote(folderId, primaryPaneId, undefined, undefined, favorite);
   }, [createNote, primaryPaneId]);
 
-  /* "새 파일 생성하기" / Ctrl+N — 항상 새 탭으로 추가한다. 탭이 0개(Welcome 상태)인 패널이면
-     createNote가 빈 탭 배열에 첫 탭을 넣는 것과 동일하게 동작해 자연스럽게 Welcome을 해제한다. */
-  /* "새 노트 생성하기"(Welcome Screen 버튼 / Ctrl+N)는 사이드바에서 선택된 폴더와 무관하게
-     항상 루트/미분류로 만든다 — 폴더 컨텍스트를 따라가는 "노트 탐색기 상단 + 새 노트"
-     버튼(handleNewNote)과는 의도적으로 다른 정책이다. */
+  /* "???뚯씪 ?앹꽦?섍린" / Ctrl+N ????긽 ????쑝濡?異붽??쒕떎. ??씠 0媛?Welcome ?곹깭)???⑤꼸?대㈃
+     createNote媛 鍮???諛곗뿴??泥???쓣 ?ｋ뒗 寃껉낵 ?숈씪?섍쾶 ?숈옉???먯뿰?ㅻ읇寃?Welcome???댁젣?쒕떎. */
+  /* "???명듃 ?앹꽦?섍린"(Welcome Screen 踰꾪듉 / Ctrl+N)???ъ씠?쒕컮?먯꽌 ?좏깮???대뜑? 臾닿??섍쾶
+     ??긽 猷⑦듃/誘몃텇瑜섎줈 留뚮뱺?????대뜑 而⑦뀓?ㅽ듃瑜??곕씪媛??"?명듃 ?먯깋湲??곷떒 + ???명듃"
+     踰꾪듉(handleNewNote)怨쇰뒗 ?섎룄?곸쑝濡??ㅻⅨ ?뺤콉?대떎. */
   const requestNewNote = useCallback((paneId: string) => {
     createNote(undefined, paneId);
   }, [createNote]);
 
-  /* 탭 바의 "+" 버튼 → 해당 패널에 즉시 새(빈) 노트를 만든다.
-     requestNewNote(Ctrl+N과 동일 정책)를 그대로 재사용한다. */
+  /* ??諛붿쓽 "+" 踰꾪듉 ???대떦 ?⑤꼸??利됱떆 ??鍮? ?명듃瑜?留뚮뱺??
+     requestNewNote(Ctrl+N怨??숈씪 ?뺤콉)瑜?洹몃?濡??ъ궗?⑺븳?? */
   const handleNewTab = useCallback((paneId: string) => {
     requestNewNote(paneId);
   }, [requestNewNote]);
 
-  /* 탭 닫기 변형: 우클릭 메뉴의 "다른 탭 닫기" — 고정된 탭은 보존 */
+  /* ???リ린 蹂?? ?고겢由?硫붾돱??"?ㅻⅨ ???リ린" ??怨좎젙????? 蹂댁〈 */
   const handleCloseOtherTabs = useCallback((paneId: string, keepTabId: string) => {
     setPaneTabs((prev) => {
       const current = prev[paneId];
@@ -1298,13 +1299,13 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setState((prev) => ({ ...prev, activeId: paneId }));
   }, []);
 
-  /* "모두 닫기" — closePaneOrClearTabs와 동일한 정책(화면분할이면 패널 제거, 단일 패널이면
-     /notes 시작 화면 — 새 파일/새 폴더 생성하기 — 으로 복귀)을 그대로 재사용한다. */
+  /* "紐⑤몢 ?リ린" ??closePaneOrClearTabs? ?숈씪???뺤콉(?붾㈃遺꾪븷?대㈃ ?⑤꼸 ?쒓굅, ?⑥씪 ?⑤꼸?대㈃
+     /notes ?쒖옉 ?붾㈃ ?????뚯씪/???대뜑 ?앹꽦?섍린 ???쇰줈 蹂듦?)??洹몃?濡??ъ궗?⑺븳?? */
   const handleCloseAllTabs = useCallback((paneId: string) => {
     closePaneOrClearTabs(paneId);
   }, [closePaneOrClearTabs]);
 
-  /* 탭 고정/고정 해제 토글 */
+  /* ??怨좎젙/怨좎젙 ?댁젣 ?좉? */
   const handleTogglePinTab = useCallback((paneId: string, tabId: string) => {
     setPaneTabs((prev) => {
       const current = prev[paneId];
@@ -1314,8 +1315,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     });
   }, []);
 
-  /* 우클릭 메뉴의 "우측 분할"/"하단 분할" — 분할이 허용된 상태에서만 해당 탭의 노트를
-     새 패널에 그대로 연다 */
+  /* ?고겢由?硫붾돱??"?곗륫 遺꾪븷"/"?섎떒 遺꾪븷" ??遺꾪븷???덉슜???곹깭?먯꽌留??대떦 ??쓽 ?명듃瑜?
+     ???⑤꼸??洹몃?濡??곕떎 */
   const handleSplitTab = useCallback((paneId: string, tabId: string, direction: "horizontal" | "vertical") => {
     if (!canSplitPane(paneId)) return;
     const current = paneTabs[paneId];
@@ -1333,28 +1334,28 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }));
   }, [paneTabs, canSplitPane]);
 
-  /* 사이드바 노트 드래그 시작/종료 — 본문 드롭=교체, 탭바 드롭=탭추가로 구분된다 (EditorPanel/TabBar 참고) */
+  /* ?ъ씠?쒕컮 ?명듃 ?쒕옒洹??쒖옉/醫낅즺 ??蹂몃Ц ?쒕∼=援먯껜, ??컮 ?쒕∼=??텛媛濡?援щ텇?쒕떎 (EditorPanel/TabBar 李멸퀬) */
   const handleSidebarDragStart = useCallback((noteId: string) => setDragPayload({ kind: "note", noteId }), []);
   const handleDragEnd = useCallback(() => setDragPayload(null), []);
 
-  /* 탭 Hold & Drag 시작 — 본문 드롭은 기존 분할 메커니즘(zone), 탭바 드롭은 같은 패널 내 재정렬 */
+  /* ??Hold & Drag ?쒖옉 ??蹂몃Ц ?쒕∼? 湲곗〈 遺꾪븷 硫붿빱?덉쬁(zone), ??컮 ?쒕∼? 媛숈? ?⑤꼸 ???ъ젙??*/
   const handleTabDragStart = useCallback((paneId: string, tabId: string, noteId: string) => {
     setDragPayload({ kind: "tab", paneId, tabId, noteId });
   }, []);
 
-  /* 방어적 안전망: 드롭이 어떤 onDrop 핸들러에도 닿지 않거나(예: 패널 바깥/사이드바로 도로 드롭,
-     같은 자리로의 no-op 이동처럼 브라우저가 dragend를 안정적으로 쏘지 않는 경로) dragPayload가
-     영구히 남으면 본문 위 DnD 오버레이가 사라지지 않은 채 계속 클릭을 가로챈다 — 에디터를 한
-     번 클릭해도 그 첫 클릭이 오버레이에 막혀 아무 반응이 없고, 두 번째 클릭(더블클릭)에야
-     실제 에디터에 닿아 포커스가 잡히는 것처럼 보이는 원인이다. dragend/drop 외에 blur/tab
-     전환에서도 한 번 더 정리한다.
-     주의: pointerup/pointercancel은 여기 넣으면 안 된다 — 탭/사이드바 노트의 네이티브 HTML5
-     드래그가 시작되는 순간(dragstart) 브라우저가 그 포인터의 캡처를 OS 레벨 드래그로 넘기며
-     pointercancel을 쏘는 게 표준 동작이다(드래그 "실패"가 아니라 "시작" 신호). 이 리스너가
-     있으면 dragPayload가 set되자마자(다음 tick 전에) 곧바로 null로 리셋돼, 본문 위 분할/교체
-     오버레이가 뜨기도 전에 사라져서 드롭이 오버레이의 onDrop이 아니라 에디터
-     contentEditable의 브라우저 기본 텍스트 드롭으로 새어 들어갔다 — 탭을 에디터로 드래그하면
-     화면분할 대신 noteId 텍스트가 그대로 삽입되던 회귀의 원인이었다. */
+  /* 諛⑹뼱???덉쟾留? ?쒕∼???대뼡 onDrop ?몃뱾?ъ뿉???우? ?딄굅???? ?⑤꼸 諛붽묑/?ъ씠?쒕컮濡??꾨줈 ?쒕∼,
+     媛숈? ?먮━濡쒖쓽 no-op ?대룞泥섎읆 釉뚮씪?곗?媛 dragend瑜??덉젙?곸쑝濡??섏? ?딅뒗 寃쎈줈) dragPayload媛
+     ?곴뎄???⑥쑝硫?蹂몃Ц ??DnD ?ㅻ쾭?덉씠媛 ?щ씪吏吏 ?딆? 梨?怨꾩냽 ?대┃??媛濡쒖콌?????먮뵒?곕? ??
+     踰??대┃?대룄 洹?泥??대┃???ㅻ쾭?덉씠??留됲? ?꾨Т 諛섏쓳???녾퀬, ??踰덉㎏ ?대┃(?붾툝?대┃)?먯빞
+     ?ㅼ젣 ?먮뵒?곗뿉 ?우븘 ?ъ빱?ㅺ? ?≫엳??寃껋쿂??蹂댁씠???먯씤?대떎. dragend/drop ?몄뿉 blur/tab
+     ?꾪솚?먯꽌????踰????뺣━?쒕떎.
+     二쇱쓽: pointerup/pointercancel? ?ш린 ?ｌ쑝硫????쒕떎 ?????ъ씠?쒕컮 ?명듃???ㅼ씠?곕툕 HTML5
+     ?쒕옒洹멸? ?쒖옉?섎뒗 ?쒓컙(dragstart) 釉뚮씪?곗?媛 洹??ъ씤?곗쓽 罹≪쿂瑜?OS ?덈꺼 ?쒕옒洹몃줈 ?섍린硫?
+     pointercancel???섎뒗 寃??쒖? ?숈옉?대떎(?쒕옒洹?"?ㅽ뙣"媛 ?꾨땲??"?쒖옉" ?좏샇). ??由ъ뒪?덇?
+     ?덉쑝硫?dragPayload媛 set?섏옄留덉옄(?ㅼ쓬 tick ?꾩뿉) 怨㏓컮濡?null濡?由ъ뀑?? 蹂몃Ц ??遺꾪븷/援먯껜
+     ?ㅻ쾭?덉씠媛 ?④린???꾩뿉 ?щ씪?몄꽌 ?쒕∼???ㅻ쾭?덉씠??onDrop???꾨땲???먮뵒??
+     contentEditable??釉뚮씪?곗? 湲곕낯 ?띿뒪???쒕∼?쇰줈 ?덉뼱 ?ㅼ뼱媛붾떎 ????쓣 ?먮뵒?곕줈 ?쒕옒洹명븯硫?
+     ?붾㈃遺꾪븷 ???noteId ?띿뒪?멸? 洹몃?濡??쎌엯?섎뜕 ?뚭????먯씤?댁뿀?? */
   useEffect(() => {
     if (!dragPayload) return;
     const clear = () => setDragPayload(null);
@@ -1371,7 +1372,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     };
   }, [dragPayload]);
 
-  /* "파일로 이동하기" / Ctrl+O */
+  /* "?뚯씪濡??대룞?섍린" / Ctrl+O */
   const requestQuickSwitcher = useCallback((paneId: string, tabId: string) => {
     setQuickSwitcher({ paneId, tabId });
   }, []);
@@ -1382,7 +1383,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     const tabsState = paneTabs[paneId];
     const active = tabsState?.tabs.find((t) => t.id === tabId);
     if (!active) {
-      // Welcome 상태(탭 0개)에서 연 Quick Switcher — 그 패널에 첫 탭으로 연다.
+      // Welcome ?곹깭(??0媛??먯꽌 ??Quick Switcher ??洹??⑤꼸??泥???쑝濡??곕떎.
       handleReplaceActiveTab(paneId, noteId);
     } else {
       openNoteInPane(paneId, noteId);
@@ -1390,20 +1391,20 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setQuickSwitcher(null);
   }, [quickSwitcher, paneTabs, handleReplaceActiveTab, openNoteInPane]);
 
-  /* 폴더 생성 — 루트(parentFolderId=null) 또는 특정 폴더 하위에 인라인으로 추가 */
-  /* 폴더 생성/이름변경/이동/삭제는 모두 백엔드 /api/v1/folders에 실제로 반영해야 한다 — 노트와
-     달리 폴더는 actor 제약이 없어 guest도 만들 수 있고, 그래서 게스트 폴더가 회원가입 후에도
-     승계되려면(claim 시 workspaceService.reassignGuestFolders) 처음부터 Postgres에 있어야
-     한다. 실패하면 토스트만 띄우고 로컬 상태는 그대로 둔다(화면에서만 사라지는 일 방지). */
+  /* ?대뜑 ?앹꽦 ??猷⑦듃(parentFolderId=null) ?먮뒗 ?뱀젙 ?대뜑 ?섏쐞???몃씪?몄쑝濡?異붽? */
+  /* ?대뜑 ?앹꽦/?대쫫蹂寃??대룞/??젣??紐⑤몢 諛깆뿏??/api/v1/folders???ㅼ젣濡?諛섏쁺?댁빞 ?쒕떎 ???명듃?
+     ?щ━ ?대뜑??actor ?쒖빟???놁뼱 guest??留뚮뱾 ???덇퀬, 洹몃옒??寃뚯뒪???대뜑媛 ?뚯썝媛???꾩뿉??
+     ?밴퀎?섎젮硫?claim ??workspaceService.reassignGuestFolders) 泥섏쓬遺??Postgres???덉뼱??
+     ?쒕떎. ?ㅽ뙣?섎㈃ ?좎뒪?몃쭔 ?꾩슦怨?濡쒖뺄 ?곹깭??洹몃?濡??붾떎(?붾㈃?먯꽌留??щ씪吏????諛⑹?). */
   const handleCreateFolder = useCallback((parentFolderId: string | null, name: string, favorite?: boolean) => {
-    /* 게스트 폴더 생성 제한 */
+    /* 寃뚯뒪???대뜑 ?앹꽦 ?쒗븳 */
     if (isGuest && folders.length >= 10) {
-      pushToast("체험 모드에서는 폴더를 최대 10개까지 생성할 수 있습니다.", "err");
+      pushToast("泥댄뿕 紐⑤뱶?먯꽌???대뜑瑜?理쒕? 10媛쒓퉴吏 ?앹꽦?????덉뒿?덈떎.", "err");
       return;
     }
-    /* 같은 depth 동일 이름 폴더 중복 방지 */
+    /* 媛숈? depth ?숈씪 ?대쫫 ?대뜑 以묐났 諛⑹? */
     if (checkFolderDuplicate(name, parentFolderId)) {
-      pushToast("같은 위치에 동일한 이름의 폴더가 이미 있습니다.", "err");
+      pushToast("媛숈? ?꾩튂???숈씪???대쫫???대뜑媛 ?대? ?덉뒿?덈떎.", "err");
       return;
     }
     if (USE_MOCK_NOTES) {
@@ -1413,18 +1414,18 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     void createWorkspaceFolder(name, parentFolderId)
       .then((created) => {
         setFolders((prev) => [...prev, { ...workspaceFolderToMock(created), favorite: favorite || undefined }]);
-        // 즐겨찾기 영역에서 직접 만든 루트 폴더는 자동 즐겨찾기.
+        // 利먭꺼李얘린 ?곸뿭?먯꽌 吏곸젒 留뚮뱺 猷⑦듃 ?대뜑???먮룞 利먭꺼李얘린.
         if (favorite) void putFavorite("FOLDER", created.folderId, true).catch(() => {});
       })
       .catch((error) => {
-        pushToast(error instanceof Error ? error.message : "폴더를 만들지 못했습니다.", "err");
+        pushToast(error instanceof Error ? error.message : "?대뜑瑜?留뚮뱾吏 紐삵뻽?듬땲??", "err");
       });
   }, [isGuest, folders, checkFolderDuplicate, pushToast]);
 
   const handleRenameFolder = useCallback((folderId: string, newName: string) => {
     const folder = folders.find((f) => f.id === folderId);
     if (folder && checkFolderDuplicate(newName, folder.parentFolderId, folderId)) {
-      pushToast("같은 위치에 동일한 이름의 폴더가 이미 있습니다.", "err");
+      pushToast("媛숈? ?꾩튂???숈씪???대쫫???대뜑媛 ?대? ?덉뒿?덈떎.", "err");
       return;
     }
     if (USE_MOCK_NOTES) {
@@ -1433,12 +1434,12 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }
     void patchWorkspaceFolder(folderId, { name: newName })
       .then((updated) => {
-        // 같은 depth에 이미 같은 이름이 있으면 서버가 "이름 2"처럼 자동으로 바꿔서 응답한다 —
-        // 입력값(newName)이 아니라 실제로 저장된 이름(updated.name)을 화면에 반영해야 한다.
+        // 媛숈? depth???대? 媛숈? ?대쫫???덉쑝硫??쒕쾭媛 "?대쫫 2"泥섎읆 ?먮룞?쇰줈 諛붽퓭???묐떟?쒕떎 ??
+        // ?낅젰媛?newName)???꾨땲???ㅼ젣濡???λ맂 ?대쫫(updated.name)???붾㈃??諛섏쁺?댁빞 ?쒕떎.
         setFolders((prev) => prev.map((f) => (f.id === folderId ? { ...f, name: updated.name } : f)));
       })
       .catch((error) => {
-        pushToast(error instanceof Error ? error.message : "폴더 이름을 바꾸지 못했습니다.", "err");
+        pushToast(error instanceof Error ? error.message : "?대뜑 ?대쫫??諛붽씀吏 紐삵뻽?듬땲??", "err");
       });
   }, [folders, checkFolderDuplicate, pushToast]);
 
@@ -1446,9 +1447,9 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setFolders((prev) => prev.map((f) => (f.id === folderId ? { ...f, color } : f)));
   }, []);
 
-  /* 즐겨찾기 설정/해제 — 낙관적으로 먼저 반영하고, 백엔드 PUT이 실패하면 원래 값으로 되돌리며
-     토스트로 알린다. USE_MOCK_NOTES(순수 로컬 데모, 백엔드 없음) 모드는 다른 폴더/노트 CRUD와
-     동일하게 로컬 상태만 바꾸고 네트워크 호출 자체를 건너뛴다. */
+  /* 利먭꺼李얘린 ?ㅼ젙/?댁젣 ???숆??곸쑝濡?癒쇱? 諛섏쁺?섍퀬, 諛깆뿏??PUT???ㅽ뙣?섎㈃ ?먮옒 媛믪쑝濡??섎룎由щŉ
+     ?좎뒪?몃줈 ?뚮┛?? USE_MOCK_NOTES(?쒖닔 濡쒖뺄 ?곕え, 諛깆뿏???놁쓬) 紐⑤뱶???ㅻⅨ ?대뜑/?명듃 CRUD?
+     ?숈씪?섍쾶 濡쒖뺄 ?곹깭留?諛붽씀怨??ㅽ듃?뚰겕 ?몄텧 ?먯껜瑜?嫄대꼫?대떎. */
   const handleToggleFolderFavorite = useCallback((folderId: string) => {
     const current = folders.find((f) => f.id === folderId)?.favorite ?? false;
     const next = !current;
@@ -1458,7 +1459,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     if (USE_MOCK_NOTES) return;
     void putFavorite("FOLDER", folderId, next).catch((error) => {
       setFolders((prev) => prev.map((f) => (f.id === folderId ? { ...f, favorite: current } : f)));
-      pushToast(error instanceof Error ? error.message : "즐겨찾기를 저장하지 못했습니다.", "err");
+      pushToast(error instanceof Error ? error.message : "利먭꺼李얘린瑜???ν븯吏 紐삵뻽?듬땲??", "err");
     });
   }, [folders, pushToast]);
 
@@ -1471,17 +1472,17 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     if (USE_MOCK_NOTES) return;
     void putFavorite("NOTE", noteId, next).catch((error) => {
       setNotes((prev) => prev.map((n) => (n.id === noteId ? { ...n, favorite: current } : n)));
-      pushToast(error instanceof Error ? error.message : "즐겨찾기를 저장하지 못했습니다.", "err");
+      pushToast(error instanceof Error ? error.message : "利먭꺼李얘린瑜???ν븯吏 紐삵뻽?듬땲??", "err");
     });
   }, [notes, pushToast]);
 
-  /* 노트 삭제(들) — 같은 노트가 여러 패널에 중복으로 열려 있을 수 있으므로(의도된 기능) 모든
-     패널을 훑어 해당 노트를 가리키는 탭을 전부 제거한다. 탭 제거로 0개가 된 패널은: 분할의
-     일부면 closeNode로 트리에서 제거(분할 취소), 유일하게 남은 leaf면 tabs:[]로 비워 Welcome
-     보드가 보이게 한다(closePaneOrClearTabs와 동일한 정책). 폴더 cascade 삭제처럼 여러 노트를
-     한 번에 지울 때 이 함수를 노트마다 따로 호출하면 매 호출이 같은(stale) paneTabs/state
-     클로저를 봐서 두 번째 호출부터 첫 번째 호출의 변경을 못 보는 문제가 있어, 항상 noteId
-     집합 전체를 한 번에 받아 한 번의 일관된 계산으로 처리한다. */
+  /* ?명듃 ??젣(?? ??媛숈? ?명듃媛 ?щ윭 ?⑤꼸??以묐났?쇰줈 ?대젮 ?덉쓣 ???덉쑝誘濡??섎룄??湲곕뒫) 紐⑤뱺
+     ?⑤꼸???묒뼱 ?대떦 ?명듃瑜?媛由ы궎????쓣 ?꾨? ?쒓굅?쒕떎. ???쒓굅濡?0媛쒓? ???⑤꼸?: 遺꾪븷??
+     ?쇰?硫?closeNode濡??몃━?먯꽌 ?쒓굅(遺꾪븷 痍⑥냼), ?좎씪?섍쾶 ?⑥? leaf硫?tabs:[]濡?鍮꾩썙 Welcome
+     蹂대뱶媛 蹂댁씠寃??쒕떎(closePaneOrClearTabs? ?숈씪???뺤콉). ?대뜑 cascade ??젣泥섎읆 ?щ윭 ?명듃瑜?
+     ??踰덉뿉 吏???????⑥닔瑜??명듃留덈떎 ?곕줈 ?몄텧?섎㈃ 留??몄텧??媛숈?(stale) paneTabs/state
+     ?대줈?瑜?遊먯꽌 ??踰덉㎏ ?몄텧遺??泥?踰덉㎏ ?몄텧??蹂寃쎌쓣 紐?蹂대뒗 臾몄젣媛 ?덉뼱, ??긽 noteId
+     吏묓빀 ?꾩껜瑜???踰덉뿉 諛쏆븘 ??踰덉쓽 ?쇨???怨꾩궛?쇰줈 泥섎━?쒕떎. */
   const applyLocalNotesDeletion = useCallback((noteIds: Set<string>) => {
     if (noteIds.size === 0) return;
     setNotes((prev) => prev.filter((n) => !noteIds.has(n.id)));
@@ -1507,9 +1508,9 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
           removedPaneIds.add(paneId);
         }
       } else {
-        // 유일하게 남은 leaf라 닫을 수 없는 경우 — 삭제된 노트를 계속 가리키지 않도록 비워둔다
-        // (Welcome 보드 전환은 paneTabs 기준이라 여기서 비우지 않아도 화면엔 문제없지만, 다음
-        // 새로고침까지 root에 죽은 noteId가 남아있는 상태를 막는다).
+        // ?좎씪?섍쾶 ?⑥? leaf???レ쓣 ???녿뒗 寃쎌슦 ????젣???명듃瑜?怨꾩냽 媛由ы궎吏 ?딅룄濡?鍮꾩썙?붾떎
+        // (Welcome 蹂대뱶 ?꾪솚? paneTabs 湲곗??대씪 ?ш린??鍮꾩슦吏 ?딆븘???붾㈃??臾몄젣?놁?留? ?ㅼ쓬
+        // ?덈줈怨좎묠源뚯? root??二쎌? noteId媛 ?⑥븘?덈뒗 ?곹깭瑜?留됰뒗??.
         nextRoot = setNoteOnLeaf(nextRoot, paneId, "");
       }
     }
@@ -1548,26 +1549,28 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     applyLocalNotesDeletion(new Set([noteId]));
   }, [applyLocalNotesDeletion]);
 
-  /* 노트 삭제 — 백엔드 DELETE /api/v1/notes/{noteId}?mode=trash를 먼저 호출하고, 성공해야만
-     탭/패널/notes를 정리한다. 서버에 한 번도 닿지 않은 순수 로컬 노트(아직 draft id도 발급받지
-     못한 "note-"로 시작하는 임시 id)는 호출할 게 없으니 바로 정리한다. 실패하면 토스트만
-     띄우고 화면은 그대로 둔다(실패해도 화면에서만 사라지는 일 방지). */
+  /* ?명듃 ??젣 ??諛깆뿏??DELETE /api/v1/notes/{noteId}?mode=trash瑜?癒쇱? ?몄텧?섍퀬, ?깃났?댁빞留?
+     ???⑤꼸/notes瑜??뺣━?쒕떎. ?쒕쾭????踰덈룄 ?우? ?딆? ?쒖닔 濡쒖뺄 ?명듃(?꾩쭅 draft id??諛쒓툒諛쏆?
+     紐삵븳 "note-"濡??쒖옉?섎뒗 ?꾩떆 id)???몄텧??寃??놁쑝??諛붾줈 ?뺣━?쒕떎. ?ㅽ뙣?섎㈃ ?좎뒪?몃쭔
+     ?꾩슦怨??붾㈃? 洹몃?濡??붾떎(?ㅽ뙣?대룄 ?붾㈃?먯꽌留??щ씪吏????諛⑹?). */
   const handleDeleteNote = useCallback((noteId: string) => {
-    if (USE_MOCK_NOTES || !noteId.startsWith("note_")) {
+  void (async () => {
+    const desktopVault = await shouldUseDesktopVault();
+    if (USE_MOCK_NOTES || (!desktopVault && !noteId.startsWith("note_"))) {
       applyLocalNoteDeletion(noteId);
       return;
     }
-    void deleteWorkspaceNote(noteId, "trash")
-      .then(() => applyLocalNoteDeletion(noteId))
-      .catch((error) => {
-        pushToast(error instanceof Error ? error.message : "노트를 삭제하지 못했습니다.", "err");
-      });
-  }, [applyLocalNoteDeletion, pushToast]);
+    await deleteWorkspaceNote(noteId, "trash");
+    applyLocalNoteDeletion(noteId);
+  })().catch((error) => {
+    pushToast(error instanceof Error ? error.message : "노트를 삭제하지 못했습니다.", "err");
+  });
+}, [applyLocalNoteDeletion, pushToast]);
 
-  /* 폴더 삭제 — 하위 폴더/노트를 부모로 승격하지 않고 전부 cascade로 삭제한다(orphan folder/
-     note를 만들지 않기 위한 정책). 백엔드가 Postgres 쪽(폴더 자체 + 이미 flush된 노트)을
-     cascade 삭제해 권위 있는 처리를 하고, 그 응답으로 받은 폴더 id 집합을 기준으로 프론트가
-     로컬 notes/folders/탭에서도(아직 draft 단계라 백엔드가 모르는 노트까지 포함) 정리한다. */
+  /* ?대뜑 ??젣 ???섏쐞 ?대뜑/?명듃瑜?遺紐⑤줈 ?밴꺽?섏? ?딄퀬 ?꾨? cascade濡???젣?쒕떎(orphan folder/
+     note瑜?留뚮뱾吏 ?딄린 ?꾪븳 ?뺤콉). 諛깆뿏?쒓? Postgres 履??대뜑 ?먯껜 + ?대? flush???명듃)??
+     cascade ??젣??沅뚯쐞 ?덈뒗 泥섎━瑜??섍퀬, 洹??묐떟?쇰줈 諛쏆? ?대뜑 id 吏묓빀??湲곗??쇰줈 ?꾨줎?멸?
+     濡쒖뺄 notes/folders/??뿉?쒕룄(?꾩쭅 draft ?④퀎??諛깆뿏?쒓? 紐⑤Ⅴ???명듃源뚯? ?ы븿) ?뺣━?쒕떎. */
   const handleDeleteFolder = useCallback((folderId: string) => {
     const target = folders.find((f) => f.id === folderId);
     if (!target) return;
@@ -1598,70 +1601,74 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     void deleteWorkspaceFolder(folderId, "trash")
       .then(() => applyLocally())
       .catch((error) => {
-        pushToast(error instanceof Error ? error.message : "폴더를 삭제하지 못했습니다.", "err");
+        pushToast(error instanceof Error ? error.message : "?대뜑瑜???젣?섏? 紐삵뻽?듬땲??", "err");
       });
   }, [folders, notes, applyLocalNotesDeletion, pushToast]);
 
-  /* 다중 삭제 — 탐색기에서 Ctrl/Shift 다중 선택 후 Delete 키 또는 컨텍스트 메뉴로 호출된다.
-     폴더 삭제는 cascade(하위 포함)이므로 먼저 폴더를 처리해 중복 처리를 방지한다.
-     노트는 handleDeleteNote(단건)와 동일한 정책으로 처리한다 — 서버에 이미 존재하는 노트("note_"
-     접두사)는 DELETE API가 성공한 것만 로컬에서 지운다(이전에는 API 호출을 fire-and-forget으로
-     쏘고 실패 여부와 무관하게 로컬에서 먼저 지워버려서, 삭제가 실패해도 화면에서는 사라졌다가
-     새로고침하면 되살아나는 것처럼 보이는 불일치가 있었다). 아직 서버에 없는 로컬 전용 초안
-     노트는 바로 지운다. */
+  /* ?ㅼ쨷 ??젣 ???먯깋湲곗뿉??Ctrl/Shift ?ㅼ쨷 ?좏깮 ??Delete ???먮뒗 而⑦뀓?ㅽ듃 硫붾돱濡??몄텧?쒕떎.
+     ?대뜑 ??젣??cascade(?섏쐞 ?ы븿)?대?濡?癒쇱? ?대뜑瑜?泥섎━??以묐났 泥섎━瑜?諛⑹??쒕떎.
+     ?명듃??handleDeleteNote(?④굔)? ?숈씪???뺤콉?쇰줈 泥섎━?쒕떎 ???쒕쾭???대? 議댁옱?섎뒗 ?명듃("note_"
+     ?묐몢????DELETE API媛 ?깃났??寃껊쭔 濡쒖뺄?먯꽌 吏?대떎(?댁쟾?먮뒗 API ?몄텧??fire-and-forget?쇰줈
+     ?섍퀬 ?ㅽ뙣 ?щ?? 臾닿??섍쾶 濡쒖뺄?먯꽌 癒쇱? 吏?뚮쾭?ㅼ꽌, ??젣媛 ?ㅽ뙣?대룄 ?붾㈃?먯꽌???щ씪議뚮떎媛
+     ?덈줈怨좎묠?섎㈃ ?섏궡?꾨굹??寃껋쿂??蹂댁씠??遺덉씪移섍? ?덉뿀??. ?꾩쭅 ?쒕쾭???녿뒗 濡쒖뺄 ?꾩슜 珥덉븞
+     ?명듃??諛붾줈 吏?대떎. */
   const handleDeleteMultiple = useCallback((noteIds: string[], folderIds: string[]) => {
-    /* 폴더를 먼저 삭제(cascade로 하위 노트/폴더가 함께 사라지므로 순서가 중요) */
+    /* ?대뜑瑜?癒쇱? ??젣(cascade濡??섏쐞 ?명듃/?대뜑媛 ?④퍡 ?щ씪吏誘濡??쒖꽌媛 以묒슂) */
     for (const fid of folderIds) {
       handleDeleteFolder(fid);
     }
     if (noteIds.length === 0) return;
 
-    if (USE_MOCK_NOTES) {
-      applyLocalNotesDeletion(new Set(noteIds));
-      return;
-    }
+    void (async () => {
+  const desktopVault = await shouldUseDesktopVault();
+  if (USE_MOCK_NOTES) {
+    applyLocalNotesDeletion(new Set(noteIds));
+    return;
+  }
 
-    const localOnlyIds = noteIds.filter((id) => !id.startsWith("note_"));
-    const serverIds = noteIds.filter((id) => id.startsWith("note_"));
-    if (localOnlyIds.length > 0) applyLocalNotesDeletion(new Set(localOnlyIds));
-    if (serverIds.length === 0) return;
+  const localOnlyIds = desktopVault ? [] : noteIds.filter((id) => !id.startsWith("note_"));
+  const serverIds = desktopVault ? noteIds : noteIds.filter((id) => id.startsWith("note_"));
+  if (localOnlyIds.length > 0) applyLocalNotesDeletion(new Set(localOnlyIds));
+  if (serverIds.length === 0) return;
 
-    void Promise.allSettled(serverIds.map((nid) => deleteWorkspaceNote(nid, "trash"))).then((results) => {
-      const succeeded = new Set<string>();
-      let failedCount = 0;
-      results.forEach((result, index) => {
-        if (result.status === "fulfilled") succeeded.add(serverIds[index]);
-        else failedCount += 1;
-      });
-      if (succeeded.size > 0) applyLocalNotesDeletion(succeeded);
-      if (failedCount > 0) {
-        pushToast(`${failedCount}개의 노트를 삭제하지 못했습니다.`, "err");
-      }
-    });
+  const results = await Promise.allSettled(serverIds.map((nid) => deleteWorkspaceNote(nid, "trash")));
+  const succeeded = new Set<string>();
+  let failedCount = 0;
+  results.forEach((result, index) => {
+    if (result.status === "fulfilled") succeeded.add(serverIds[index]);
+    else failedCount += 1;
+  });
+  if (succeeded.size > 0) applyLocalNotesDeletion(succeeded);
+  if (failedCount > 0) {
+    pushToast(`${failedCount}개의 노트를 삭제하지 못했습니다.`, "err");
+  }
+})().catch((error) => {
+  pushToast(error instanceof Error ? error.message : "노트를 삭제하지 못했습니다.", "err");
+});
   }, [handleDeleteFolder, applyLocalNotesDeletion, pushToast]);
 
   const handleSelectFolder = useCallback((folderId: string | null) => {
     setSelectedFolderId(folderId);
   }, []);
 
-  /* 탐색기에서 노트 이름 변경 (중복 체크 포함) */
+  /* ?먯깋湲곗뿉???명듃 ?대쫫 蹂寃?(以묐났 泥댄겕 ?ы븿) */
   const handleRenameNoteFromExplorer = useCallback((noteId: string, newTitle: string) => {
     const note = notes.find((n) => n.id === noteId);
     if (!note) return;
     if (checkNoteDuplicate(newTitle, note.folderId)) {
-      pushToast("같은 위치에 동일한 이름의 노트가 이미 있습니다.", "err");
+      pushToast("媛숈? ?꾩튂???숈씪???대쫫???명듃媛 ?대? ?덉뒿?덈떎.", "err");
       return;
     }
     handleTitleChange(noteId, newTitle);
   }, [notes, checkNoteDuplicate, handleTitleChange, pushToast]);
 
-  /* 노트 탐색기 드래그앤드랍 — 노트를 폴더/루트로 이동, 또는 같은 레벨에서 순서 변경.
-     폴더 이동(handleMoveFolderToParent)과 달리 이 핸들러는 로컬 notes state만 갱신하고 서버에는
-     반영하지 않아서, 게스트 상태에서 노트를 폴더 안으로 옮긴 뒤(내용은 더 안 건드리고) 새로고침
-     하거나 로그인/claim하면 서버(Redis draft/Postgres)에는 이동 전 folderId가 그대로 남아있어
-     루트로(또는 원래 폴더로) 되돌아가 보이는 버그가 있었다 — draft autosave effect는 activeNote의
-     title/content 변화에만 반응해(2073번째 줄 근처 deps) folderId만 바뀐 백그라운드 노트는 절대
-     저장 신호를 못 받는다. 폴더 이동과 동일하게 이동 즉시 best-effort로 서버에도 반영한다. */
+  /* ?명듃 ?먯깋湲??쒕옒洹몄븻?쒕엻 ???명듃瑜??대뜑/猷⑦듃濡??대룞, ?먮뒗 媛숈? ?덈꺼?먯꽌 ?쒖꽌 蹂寃?
+     ?대뜑 ?대룞(handleMoveFolderToParent)怨??щ━ ???몃뱾?щ뒗 濡쒖뺄 notes state留?媛깆떊?섍퀬 ?쒕쾭?먮뒗
+     諛섏쁺?섏? ?딆븘?? 寃뚯뒪???곹깭?먯꽌 ?명듃瑜??대뜑 ?덉쑝濡???릿 ???댁슜? ????嫄대뱶由ш퀬) ?덈줈怨좎묠
+     ?섍굅??濡쒓렇??claim?섎㈃ ?쒕쾭(Redis draft/Postgres)?먮뒗 ?대룞 ??folderId媛 洹몃?濡??⑥븘?덉뼱
+     猷⑦듃濡??먮뒗 ?먮옒 ?대뜑濡? ?섎룎?꾧? 蹂댁씠??踰꾧렇媛 ?덉뿀????draft autosave effect??activeNote??
+     title/content 蹂?붿뿉留?諛섏쓳??2073踰덉㎏ 以?洹쇱쿂 deps) folderId留?諛붾?諛깃렇?쇱슫???명듃???덈?
+     ????좏샇瑜?紐?諛쏅뒗?? ?대뜑 ?대룞怨??숈씪?섍쾶 ?대룞 利됱떆 best-effort濡??쒕쾭?먮룄 諛섏쁺?쒕떎. */
   const handleMoveNoteToFolder = useCallback((noteId: string, targetFolderId: string | null) => {
     const note = notes.find((n) => n.id === noteId);
     if (note) {
@@ -1669,7 +1676,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         (n) => n.id !== noteId && (n.folderId ?? null) === (targetFolderId ?? null) && n.title.trim() === note.title.trim()
       );
       if (titleConflict) {
-        pushToast("이동할 위치에 동일한 이름의 노트가 이미 있습니다.", "err");
+        pushToast("?대룞???꾩튂???숈씪???대쫫???명듃媛 ?대? ?덉뒿?덈떎.", "err");
         return;
       }
     }
@@ -1683,7 +1690,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         : null;
     if (persistMove) {
       void persistMove.catch((error) => {
-        pushToast(error instanceof Error ? error.message : "노트 이동을 저장하지 못했습니다.", "err");
+        pushToast(error instanceof Error ? error.message : "?명듃 ?대룞????ν븯吏 紐삵뻽?듬땲??", "err");
       });
     }
   }, [notes, pushToast]);
@@ -1692,11 +1699,11 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setNotes((prev) => reorderNoteRelativeTo(prev, noteId, referenceNoteId, position));
   }, []);
 
-  /* 폴더 이동 — 자기 자신/하위 폴더로의 이동은 folderDnd의 canFolderMoveUnder가 차단(null 반환 시 무시) */
+  /* ?대뜑 ?대룞 ???먭린 ?먯떊/?섏쐞 ?대뜑濡쒖쓽 ?대룞? folderDnd??canFolderMoveUnder媛 李⑤떒(null 諛섑솚 ??臾댁떆) */
   const handleMoveFolderToParent = useCallback((folderId: string, targetParentId: string | null) => {
-    /* 이동 목적지에 같은 이름의 형제 폴더가 있으면 막는다 */
+    /* ?대룞 紐⑹쟻吏??媛숈? ?대쫫???뺤젣 ?대뜑媛 ?덉쑝硫?留됰뒗??*/
     if (checkFolderDuplicate(folders.find((f) => f.id === folderId)?.name ?? "", targetParentId, folderId)) {
-      pushToast("이동할 위치에 동일한 이름의 폴더가 이미 있습니다.", "err");
+      pushToast("?대룞???꾩튂???숈씪???대쫫???대뜑媛 ?대? ?덉뒿?덈떎.", "err");
       return;
     }
     const next = moveFolderUnder(folders, folderId, targetParentId);
@@ -1705,16 +1712,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       setFolders(next);
       return;
     }
-    // 백엔드 FolderPatchRequest는 parentFolderId가 null이면 "변경 없음"으로 보고, 빈 문자열이면
-    // "루트로 이동(null)"으로 정규화한다 — 그래서 루트로 옮길 때는 null이 아니라 ""를 보내야 한다.
+    // 諛깆뿏??FolderPatchRequest??parentFolderId媛 null?대㈃ "蹂寃??놁쓬"?쇰줈 蹂닿퀬, 鍮?臾몄옄?댁씠硫?
+    // "猷⑦듃濡??대룞(null)"?쇰줈 ?뺢퇋?뷀븳????洹몃옒??猷⑦듃濡???만 ?뚮뒗 null???꾨땲??""瑜?蹂대궡???쒕떎.
     void patchWorkspaceFolder(folderId, { parentFolderId: targetParentId ?? "" })
       .then((updated) => {
-        // 옮긴 위치(목적지)에 같은 이름이 이미 있으면 서버가 이름을 자동으로 바꿔서 응답한다 —
-        // 그 경우를 반영해 표시 이름도 함께 갈아끼운다.
+        // ??릿 ?꾩튂(紐⑹쟻吏)??媛숈? ?대쫫???대? ?덉쑝硫??쒕쾭媛 ?대쫫???먮룞?쇰줈 諛붽퓭???묐떟?쒕떎 ??
+        // 洹?寃쎌슦瑜?諛섏쁺???쒖떆 ?대쫫???④퍡 媛덉븘?쇱슫??
         setFolders(next.map((f) => (f.id === folderId ? { ...f, name: updated.name } : f)));
       })
       .catch((error) => {
-        pushToast(error instanceof Error ? error.message : "폴더를 이동하지 못했습니다.", "err");
+        pushToast(error instanceof Error ? error.message : "?대뜑瑜??대룞?섏? 紐삵뻽?듬땲??", "err");
       });
   }, [folders, checkFolderDuplicate, pushToast]);
 
@@ -1722,7 +1729,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setFolders((prev) => reorderFolderRelativeTo(prev, folderId, referenceFolderId, position) ?? prev);
   }, []);
 
-  /* 버블 툴바의 AI 버튼(요약/다시쓰기) → 우측 인라인 AI 패널에 mock 요청 전달 */
+  /* 踰꾨툝 ?대컮??AI 踰꾪듉(?붿빟/?ㅼ떆?곌린) ???곗륫 ?몃씪??AI ?⑤꼸??mock ?붿껌 ?꾨떖 */
   const handleAiAction = useCallback((type: AiActionType, text: string) => {
     aiNonceRef.current += 1;
     setAiRequest({ type, text, nonce: aiNonceRef.current });
@@ -1751,25 +1758,25 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ── 세션 영속화 (persistKey 지정 시) ──────────────────────────── */
+  /* ?? ?몄뀡 ?곸냽??(persistKey 吏???? ???????????????????????????? */
 
-  // initialTab(프로퍼티)을 ref로도 들고 있는다 — applyHydration은 actor 전환(이벤트, 아래
-  // handleExternalRefresh) 시점에도 안전하게 호출돼야 해서 deps 없는 안정된 identity로 만들고
-  // 싶은데, 그러려면 클로저로 직접 initialTab을 참조할 수 없다(그 시점엔 stale할 수 있음).
+  // initialTab(?꾨줈?쇳떚)??ref濡쒕룄 ?ㅺ퀬 ?덈뒗????applyHydration? actor ?꾪솚(?대깽?? ?꾨옒
+  // handleExternalRefresh) ?쒖젏?먮룄 ?덉쟾?섍쾶 ?몄텧?쇱빞 ?댁꽌 deps ?녿뒗 ?덉젙??identity濡?留뚮뱾怨?
+  // ?띠??? 洹몃윭?ㅻ㈃ ?대줈?濡?吏곸젒 initialTab??李몄“?????녿떎(洹??쒖젏??stale?????덉쓬).
   const initialTabRef = useRef(initialTab);
   useEffect(() => {
     initialTabRef.current = initialTab;
   }, [initialTab]);
 
-  /* 주어진 key의 저장된 세션을 읽어 state/paneTabs(+ mock 모드면 notes/folders)에 반영한다.
-     mount 시(첫 effect)와 actor 전환(handleExternalRefresh, 아래)에서 공유한다 — 예전에는 mount
-     effect 안에만 이 로직이 있어서, actor가 바뀔 때 "resolveActorPersistKey가 돌려준 key가
-     이전과 같은 값"인 경우(예: 토큰 만료로 여러 401이 거의 동시에 도착해 로그아웃 처리가
-     중복 호출되는 경우) effectivePersistKey가 실제로는 안 바뀌어 이 effect가 재실행되지
-     않고, 그 사이 notes/folders만 비워져 직전 actor의 탭이 빈 패널로 덩그러니 남는 문제가
-     있었다 — 이제는 actor 전환 쪽에서 key가 바뀌었는지와 무관하게 항상 명시적으로 호출한다.
-     attachInitialTab=false면 "지금 URL이 가리키는 노트를 탭에 끼워넣기"를 건너뛴다(actor
-     전환 시점의 URL은 새 actor와 무관할 수 있어서 mount 때만 적용). */
+  /* 二쇱뼱吏?key????λ맂 ?몄뀡???쎌뼱 state/paneTabs(+ mock 紐⑤뱶硫?notes/folders)??諛섏쁺?쒕떎.
+     mount ??泥?effect)? actor ?꾪솚(handleExternalRefresh, ?꾨옒)?먯꽌 怨듭쑀?쒕떎 ???덉쟾?먮뒗 mount
+     effect ?덉뿉留???濡쒖쭅???덉뼱?? actor媛 諛붾???"resolveActorPersistKey媛 ?뚮젮以 key媛
+     ?댁쟾怨?媛숈? 媛???寃쎌슦(?? ?좏겙 留뚮즺濡??щ윭 401??嫄곗쓽 ?숈떆???꾩갑??濡쒓렇?꾩썐 泥섎━媛
+     以묐났 ?몄텧?섎뒗 寃쎌슦) effectivePersistKey媛 ?ㅼ젣濡쒕뒗 ??諛붾뚯뼱 ??effect媛 ?ъ떎?됰릺吏
+     ?딄퀬, 洹??ъ씠 notes/folders留?鍮꾩썙??吏곸쟾 actor????씠 鍮??⑤꼸濡??⑷렇?щ땲 ?⑤뒗 臾몄젣媛
+     ?덉뿀?????댁젣??actor ?꾪솚 履쎌뿉??key媛 諛붾뚯뿀?붿?? 臾닿??섍쾶 ??긽 紐낆떆?곸쑝濡??몄텧?쒕떎.
+     attachInitialTab=false硫?"吏湲?URL??媛由ы궎???명듃瑜???뿉 ?쇱썙?ｊ린"瑜?嫄대꼫?대떎(actor
+     ?꾪솚 ?쒖젏??URL? ??actor? 臾닿??????덉뼱??mount ?뚮쭔 ?곸슜). */
   const applyHydration = useCallback((key: string | undefined, attachInitialTab: boolean) => {
     if (!key) {
       hydratedRef.current = true;
@@ -1788,8 +1795,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       hydratedRef.current = true;
       return;
     }
-    // 이전 버전(Welcome이 kind:"start" 탭으로 저장되던 시절)의 세션이 남아있을 수 있으므로,
-    // "note"가 아닌 탭은 걸러내고 activeTabId가 사라진 탭을 가리키면 첫 탭으로 재조정한다.
+    // ?댁쟾 踰꾩쟾(Welcome??kind:"start" ??쑝濡???λ릺???쒖젅)???몄뀡???⑥븘?덉쓣 ???덉쑝誘濡?
+    // "note"媛 ?꾨땶 ??? 嫄몃윭?닿퀬 activeTabId媛 ?щ씪吏???쓣 媛由ы궎硫?泥???쑝濡??ъ“?뺥븳??
     let nextPaneTabs: Record<string, PaneTabsState> = Object.fromEntries(
       Object.entries(saved.paneTabs).map(([paneId, tabsState]) => {
         const tabs = tabsState.tabs.filter((t) => t.kind === "note" && t.noteId.trim().length > 0);
@@ -1799,9 +1806,9 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         return [paneId, { tabs, activeTabId }];
       })
     );
-    // saved.paneTabs에는 트리에 없는 고아 항목이 섞여 있을 수 있으므로(과거 레이스로 생긴 것
-    // 포함), "정말 비어있는 세션인지"는 saved.root에 실제로 있는 leaf만 기준으로 판정한다 —
-    // isWorkspaceEmpty와 동일한 기준(collectLeafIds)을 써야 두 판정이 어긋나지 않는다.
+    // saved.paneTabs?먮뒗 ?몃━???녿뒗 怨좎븘 ??ぉ???욎뿬 ?덉쓣 ???덉쑝誘濡?怨쇨굅 ?덉씠?ㅻ줈 ?앷릿 寃?
+    // ?ы븿), "?뺣쭚 鍮꾩뼱?덈뒗 ?몄뀡?몄?"??saved.root???ㅼ젣濡??덈뒗 leaf留?湲곗??쇰줈 ?먯젙?쒕떎 ??
+    // isWorkspaceEmpty? ?숈씪??湲곗?(collectLeafIds)???⑥빞 ???먯젙???닿툔?섏? ?딅뒗??
     const hasAnyRealTabs = collectLeafIds(saved.root).some(
       (leafId) => (nextPaneTabs[leafId]?.tabs.length ?? 0) > 0
     );
@@ -1812,9 +1819,9 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       hydratedRef.current = true;
       return;
     }
-    // 복원된 세션 위에서, initialTab이 note를 가리키면 그 노트를 활성 패널의 탭으로 연다.
-    // 후보는 항상 saved.root에 실제로 있는 leaf 중에서만 고른다 — 고아 paneTabs 키를 활성
-    // 패널로 고르면 트리에 없는 paneId가 activeId가 되어버린다.
+    // 蹂듭썝???몄뀡 ?꾩뿉?? initialTab??note瑜?媛由ы궎硫?洹??명듃瑜??쒖꽦 ?⑤꼸????쑝濡??곕떎.
+    // ?꾨낫????긽 saved.root???ㅼ젣濡??덈뒗 leaf 以묒뿉?쒕쭔 怨좊Ⅸ????怨좎븘 paneTabs ?ㅻ? ?쒖꽦
+    // ?⑤꼸濡?怨좊Ⅴ硫??몃━???녿뒗 paneId媛 activeId媛 ?섏뼱踰꾨┛??
     const realLeafIds = collectLeafIds(saved.root);
     const nextActiveId =
       realLeafIds.includes(saved.activeId) && (nextPaneTabs[saved.activeId]?.tabs.length ?? 0) > 0
@@ -1838,12 +1845,12 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setPaneTabs(nextPaneTabs);
     setNotes(saved.notes);
     setFolders(saved.folders);
-    // 옛 세션에는 이 필드가 없을 수 있으므로 기본값(빈 맵 = 모든 pane 100%)으로 fallback한다.
+    // ???몄뀡?먮뒗 ???꾨뱶媛 ?놁쓣 ???덉쑝誘濡?湲곕낯媛?鍮?留?= 紐⑤뱺 pane 100%)?쇰줈 fallback?쒕떎.
     setPaneFontScale(saved.paneFontScale ?? {});
     hydratedRef.current = true;
   }, []);
 
-  // mount 시 1회: 저장된 세션 복원 → initialTab이 note면 그 노트를 활성 패널 탭으로 연다
+  // mount ??1?? ??λ맂 ?몄뀡 蹂듭썝 ??initialTab??note硫?洹??명듃瑜??쒖꽦 ?⑤꼸 ??쑝濡??곕떎
   useEffect(() => {
     applyHydration(effectivePersistKey, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1853,14 +1860,14 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     if (USE_MOCK_NOTES) return;
     let active = true;
 
-    // attachInitialTab=false는 applyHydration의 같은 이름 파라미터와 동일한 의도다 — actor(guest/
-    // user) 전환 직후에는 resolveActorPersistKey가 claim mapping으로 이미 pane tree/tabs를
-    // 올바르게 복원해뒀으므로, "URL의 initialTab을 다시 열거나, 그 노트를 못 찾으면 첫 번째
-    // 노트로 대체"하는 이 함수 자신의 폴백을 또 타면 안 된다. 예전에는 이 폴백이 isInitialLoad와
-    // 무관하게 `initialTab.kind === "note"`(로그인 전 특정 노트 URL을 보고 있었던 경우)만으로도
-    // 발동해, claim 직후 activeId가 가리키는 pane(3분할 중 하나)이 방금 복원된 정상 노트 대신
-    // "그 시점에 서버가 아직 못 찾은 초기 노트 → nextNotes[0](엉뚱한 첫 번째 노트)"로 갈아끼워지는
-    // 회귀가 있었다.
+    // attachInitialTab=false??applyHydration??媛숈? ?대쫫 ?뚮씪誘명꽣? ?숈씪???섎룄????actor(guest/
+    // user) ?꾪솚 吏곹썑?먮뒗 resolveActorPersistKey媛 claim mapping?쇰줈 ?대? pane tree/tabs瑜?
+    // ?щ컮瑜닿쾶 蹂듭썝?대??쇰?濡? "URL??initialTab???ㅼ떆 ?닿굅?? 洹??명듃瑜?紐?李얠쑝硫?泥?踰덉㎏
+    // ?명듃濡??泥??섎뒗 ???⑥닔 ?먯떊???대갚?????硫????쒕떎. ?덉쟾?먮뒗 ???대갚??isInitialLoad?
+    // 臾닿??섍쾶 `initialTab.kind === "note"`(濡쒓렇?????뱀젙 ?명듃 URL??蹂닿퀬 ?덉뿀??寃쎌슦)留뚯쑝濡쒕룄
+    // 諛쒕룞?? claim 吏곹썑 activeId媛 媛由ы궎??pane(3遺꾪븷 以??섎굹)??諛⑷툑 蹂듭썝???뺤긽 ?명듃 ???
+    // "洹??쒖젏???쒕쾭媛 ?꾩쭅 紐?李얠? 珥덇린 ?명듃 ??nextNotes[0](?됰슧??泥?踰덉㎏ ?명듃)"濡?媛덉븘?쇱썙吏??
+    // ?뚭?媛 ?덉뿀??
     function loadFromServer(openNoteId?: string, isInitialLoad = false, attachInitialTab = true) {
       setLoadError(null);
       const targetNoteId = openNoteId ?? (attachInitialTab && initialTab.kind === "note" ? initialTab.noteId : null);
@@ -1883,20 +1890,20 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
               ...persisted,
               title: draft.title?.trim() || persisted.title,
               content: draft.markdown ?? "",
-              // draft가 더 최신 폴더 배치를 들고 있을 수 있다(아직 flush 전 — 예: 방금 폴더를
-              // 옮긴 직후). draft.folderId는 항상 "현재 배치 전체"를 담아 보내므로(부분 patch
-              // 아님) undefined가 아니라 null도 유효한 값(루트)으로 그대로 반영한다.
+              // draft媛 ??理쒖떊 ?대뜑 諛곗튂瑜??ㅺ퀬 ?덉쓣 ???덈떎(?꾩쭅 flush ?????? 諛⑷툑 ?대뜑瑜?
+              // ??릿 吏곹썑). draft.folderId????긽 "?꾩옱 諛곗튂 ?꾩껜"瑜??댁븘 蹂대궡誘濡?遺遺?patch
+              // ?꾨떂) undefined媛 ?꾨땲??null???좏슚??媛?猷⑦듃)?쇰줈 洹몃?濡?諛섏쁺?쒕떎.
               folderId: draft.folderId ?? undefined,
               updatedAt: draftSavedAt,
-              // version은 draft.baseVersion을 절대 쓰지 않는다 — Redis draft autosave(1.5초
-              // 디바운스, note.id.startsWith("note_")면 persisted 여부와 무관하게 계속 돈다)는
-              // Ctrl+S 실제 저장 후에도 지워지거나 갱신되지 않아, 여기서 draft.baseVersion을
-              // 반영하면 방금 올라간 persisted.version(Postgres 진짜 버전)을 그 전 스냅샷 값으로
-              // 되돌려버린다. 그 상태로 다음 Ctrl+S가 나가면 항상 409(NOTE_VERSION_CONFLICT)가
-              // 나고, 저장 성공 → notes-refresh → 이 merge → version 롤백 → 다음 저장 409 가
-              // 무한 반복된다(claim 직후처럼 notes-refresh가 잦으면 특히 잘 드러남). content/
-              // title/folderId와 달리 version은 "다음 저장의 낙관적 동시성 토큰"이므로 항상
-              // persisted.version(서버의 실제 최신 값)을 그대로 써야 한다.
+              // version? draft.baseVersion???덈? ?곗? ?딅뒗????Redis draft autosave(1.5珥?
+              // ?붾컮?댁뒪, note.id.startsWith("note_")硫?persisted ?щ?? 臾닿??섍쾶 怨꾩냽 ?덈떎)??
+              // Ctrl+S ?ㅼ젣 ????꾩뿉??吏?뚯?嫄곕굹 媛깆떊?섏? ?딆븘, ?ш린??draft.baseVersion??
+              // 諛섏쁺?섎㈃ 諛⑷툑 ?щ씪媛?persisted.version(Postgres 吏꾩쭨 踰꾩쟾)??洹????ㅻ깄??媛믪쑝濡?
+              // ?섎룎?ㅻ쾭由곕떎. 洹??곹깭濡??ㅼ쓬 Ctrl+S媛 ?섍?硫???긽 409(NOTE_VERSION_CONFLICT)媛
+              // ?섍퀬, ????깃났 ??notes-refresh ????merge ??version 濡ㅻ갚 ???ㅼ쓬 ???409 媛
+              // 臾댄븳 諛섎났?쒕떎(claim 吏곹썑泥섎읆 notes-refresh媛 ??쑝硫??뱁엳 ???쒕윭??. content/
+              // title/folderId? ?щ━ version? "?ㅼ쓬 ??μ쓽 ?숆????숈떆???좏겙"?대?濡???긽
+              // persisted.version(?쒕쾭???ㅼ젣 理쒖떊 媛???洹몃?濡??⑥빞 ?쒕떎.
               version: persisted.version,
               persisted: true,
             };
@@ -1910,8 +1917,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
           setNotes(nextNotes);
           setFolders(nextFolders);
 
-          // 즐겨찾기 초기 상태 — 노트/폴더 목록 자체의 로딩을 막지 않도록 별도로, 비차단으로
-          // 가져온다. 실패해도 노트/폴더 목록은 이미 정상 로드됐으므로 조용히 무시한다.
+          // 利먭꺼李얘린 珥덇린 ?곹깭 ???명듃/?대뜑 紐⑸줉 ?먯껜??濡쒕뵫??留됱? ?딅룄濡?蹂꾨룄濡? 鍮꾩감?⑥쑝濡?
+          // 媛?몄삩?? ?ㅽ뙣?대룄 ?명듃/?대뜑 紐⑸줉? ?대? ?뺤긽 濡쒕뱶?먯쑝誘濡?議곗슜??臾댁떆?쒕떎.
           void getWorkspaceFavorites()
             .then(({ noteIds, folderIds }) => {
               if (!active) return;
@@ -1924,12 +1931,12 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
             })
             .catch(() => {});
 
-          // state.activeId는 이 effect가 마운트 시점에 캡처한 값이라(아래 deps: []), 그 사이
-          // 세션 복원(useEffect, 위쪽) 등으로 실제 트리의 paneId가 바뀌어도 갱신되지 않는다. 이
-          // 네트워크 응답은 마운트 이후 한참 뒤(라운드트립)에 도착하므로, 항상 최신 상태를 들고
-          // 있는 latestSessionRef에서 "지금 실제로 보이는 패널"을 다시 계산해야 한다 — 그렇지
-          // 않으면 트리에 없는 옛 paneId로 노트를 열어, 화면엔 반영되지 않고 고아 paneTabs
-          // 항목만 남는 버그가 생긴다(라우팅으로 연 노트가 안 보이고 Welcome처럼 보이던 원인).
+          // state.activeId????effect媛 留덉슫???쒖젏??罹≪쿂??媛믪씠???꾨옒 deps: []), 洹??ъ씠
+          // ?몄뀡 蹂듭썝(useEffect, ?꾩そ) ?깆쑝濡??ㅼ젣 ?몃━??paneId媛 諛붾뚯뼱??媛깆떊?섏? ?딅뒗?? ??
+          // ?ㅽ듃?뚰겕 ?묐떟? 留덉슫???댄썑 ?쒖갭 ???쇱슫?쒗듃由????꾩갑?섎?濡? ??긽 理쒖떊 ?곹깭瑜??ㅺ퀬
+          // ?덈뒗 latestSessionRef?먯꽌 "吏湲??ㅼ젣濡?蹂댁씠???⑤꼸"???ㅼ떆 怨꾩궛?댁빞 ?쒕떎 ??洹몃젃吏
+          // ?딆쑝硫??몃━???녿뒗 ??paneId濡??명듃瑜??댁뼱, ?붾㈃??諛섏쁺?섏? ?딄퀬 怨좎븘 paneTabs
+          // ??ぉ留??⑤뒗 踰꾧렇媛 ?앷릿???쇱슦?낆쑝濡????명듃媛 ??蹂댁씠怨?Welcome泥섎읆 蹂댁씠???먯씤).
           const livePaneId = resolveVisiblePaneId(latestSessionRef.current.root, latestSessionRef.current.activeId);
           if (targetNoteId && nextNotes.some((note) => note.id === targetNoteId)) {
             handleReplaceActiveTab(livePaneId, targetNoteId);
@@ -1944,7 +1951,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
           }
         })
         .catch((error) => {
-          if (active) setLoadError(error instanceof Error ? error.message : "Workspace-Service에서 노트를 불러오지 못했습니다.");
+          if (active) setLoadError(error instanceof Error ? error.message : "Workspace-Service?먯꽌 ?명듃瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲??");
         })
         .finally(() => {
           if (!active) return;
@@ -1958,42 +1965,42 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
 
     loadFromServer(undefined, true);
 
-    // Import 등 NotesWorkspace 외부(별도 마운트된 화면)에서 노트가 새로 생성된 경우, 이 컴포넌트는
-    // 라우트 전환에도 리마운트되지 않아(레이아웃에서 한 번만 마운트) mount 시점 fetch만으로는 새
-    // 노트를 못 본다. 외부에서 이 이벤트를 쏘면 목록을 다시 불러오고, 지정한 노트를 바로 연다.
+    // Import ??NotesWorkspace ?몃?(蹂꾨룄 留덉슫?몃맂 ?붾㈃)?먯꽌 ?명듃媛 ?덈줈 ?앹꽦??寃쎌슦, ??而댄룷?뚰듃??
+    // ?쇱슦???꾪솚?먮룄 由щ쭏?댄듃?섏? ?딆븘(?덉씠?꾩썐?먯꽌 ??踰덈쭔 留덉슫?? mount ?쒖젏 fetch留뚯쑝濡쒕뒗 ??
+    // ?명듃瑜?紐?蹂몃떎. ?몃??먯꽌 ???대깽?몃? ?섎㈃ 紐⑸줉???ㅼ떆 遺덈윭?ㅺ퀬, 吏?뺥븳 ?명듃瑜?諛붾줈 ?곕떎.
     function handleExternalRefresh(event: Event) {
       const detail = (event as CustomEvent<{ noteId?: string; resetWorkspace?: boolean; syncRefresh?: boolean }>).detail;
-      // 로그인/회원가입/로그아웃으로 actor(guest/user)가 바뀐 경우(auth-api.ts의
-      // claimGuestDraftsAfterAuth/clearAuthSession)에는 resetWorkspace:true로 호출된다.
-      // localStorage 키 자체를 다시 계산해 갈아끼운다(resolveActorPersistKey가 guest->user
-      // 1회 승계도 처리). applyHydration을 "키가 실제로 바뀌었는지"와 무관하게 항상 직접
-      // 호출한다 — effectivePersistKey state의 변화 감지(아래 effect)에만 의존하면, 토큰
-      // 만료로 401이 거의 동시에 여러 번 와서 resetWorkspace가 중복 호출되는 경우처럼
-      // resolveActorPersistKey가 "이전과 같은 키"를 돌려줄 때 effect가 재실행되지 않아 직전
-      // actor의 탭이 빈 패널로 남는 문제가 있었다. attachInitialTab=false로 호출해 "지금 URL의
-      // 노트를 탭에 끼워넣기"는 건너뛴다(actor가 막 바뀐 시점의 URL은 새 actor와 무관할 수
-      // 있음). 승계됐다면 방금 게스트가 쓰던 탭 그대로, 로그아웃이라 게스트 키에 예전 세션이
-      // 있었다면 그걸로, 둘 다 없으면 빈 Welcome으로 그려진다 — 그래서 여기서 직접 탭/패널을
-      // 비우지 않는다(승계된 탭을 비워버리면 "이어받기"가 깨짐). notes/folders도 먼저 비우지
-      // 않고, 방금 applyHydration이 복원한 스냅샷을 유지한 채 loadFromServer가 새 actor 기준
-      // 최신값으로 조용히 교체한다 — 그렇지 않으면 탐색기가 "빈 상태 → Redis/DB 결과"로
-      // 한 번 더 깜빡인다.
+      // 濡쒓렇???뚯썝媛??濡쒓렇?꾩썐?쇰줈 actor(guest/user)媛 諛붾?寃쎌슦(auth-api.ts??
+      // claimGuestDraftsAfterAuth/clearAuthSession)?먮뒗 resetWorkspace:true濡??몄텧?쒕떎.
+      // localStorage ???먯껜瑜??ㅼ떆 怨꾩궛??媛덉븘?쇱슫??resolveActorPersistKey媛 guest->user
+      // 1???밴퀎??泥섎━). applyHydration??"?ㅺ? ?ㅼ젣濡?諛붾뚯뿀?붿?"? 臾닿??섍쾶 ??긽 吏곸젒
+      // ?몄텧?쒕떎 ??effectivePersistKey state??蹂??媛먯?(?꾨옒 effect)?먮쭔 ?섏〈?섎㈃, ?좏겙
+      // 留뚮즺濡?401??嫄곗쓽 ?숈떆???щ윭 踰????resetWorkspace媛 以묐났 ?몄텧?섎뒗 寃쎌슦泥섎읆
+      // resolveActorPersistKey媛 "?댁쟾怨?媛숈? ??瑜??뚮젮以???effect媛 ?ъ떎?됰릺吏 ?딆븘 吏곸쟾
+      // actor????씠 鍮??⑤꼸濡??⑤뒗 臾몄젣媛 ?덉뿀?? attachInitialTab=false濡??몄텧??"吏湲?URL??
+      // ?명듃瑜???뿉 ?쇱썙?ｊ린"??嫄대꼫?대떎(actor媛 留?諛붾??쒖젏??URL? ??actor? 臾닿?????
+      // ?덉쓬). ?밴퀎?먮떎硫?諛⑷툑 寃뚯뒪?멸? ?곕뜕 ??洹몃?濡? 濡쒓렇?꾩썐?대씪 寃뚯뒪???ㅼ뿉 ?덉쟾 ?몄뀡??
+      // ?덉뿀?ㅻ㈃ 洹멸구濡? ?????놁쑝硫?鍮?Welcome?쇰줈 洹몃젮吏꾨떎 ??洹몃옒???ш린??吏곸젒 ???⑤꼸??
+      // 鍮꾩슦吏 ?딅뒗???밴퀎????쓣 鍮꾩썙踰꾨━硫?"?댁뼱諛쏄린"媛 源⑥쭚). notes/folders??癒쇱? 鍮꾩슦吏
+      // ?딄퀬, 諛⑷툑 applyHydration??蹂듭썝???ㅻ깄?룹쓣 ?좎???梨?loadFromServer媛 ??actor 湲곗?
+      // 理쒖떊媛믪쑝濡?議곗슜??援먯껜?쒕떎 ??洹몃젃吏 ?딆쑝硫??먯깋湲곌? "鍮??곹깭 ??Redis/DB 寃곌낵"濡?
+      // ??踰???源쒕묀?몃떎.
       if (detail?.resetWorkspace && persistKey) {
         const nextKey = resolveActorPersistKey(persistKey);
         setActorPersistKey(nextKey);
         applyHydration(nextKey, false);
         setTabMode({});
         draftDirtyNoteIdsRef.current.clear();
-        // actor(guest/user)가 바뀌면 이전 actor의 local id는 더 이상 어떤 노트로도 확정되지
-        // 않으므로, 그 id를 key로 건 pending 표시도 함께 비운다(그대로 둬도 다시 매치될 일은
-        // 없지만, 다음 actor 세션에서 우연히 같은 값이 재사용될 여지를 만들지 않기 위함).
+        // actor(guest/user)媛 諛붾뚮㈃ ?댁쟾 actor??local id?????댁긽 ?대뼡 ?명듃濡쒕룄 ?뺤젙?섏?
+        // ?딆쑝誘濡? 洹?id瑜?key濡?嫄?pending ?쒖떆???④퍡 鍮꾩슫??洹몃?濡??щ룄 ?ㅼ떆 留ㅼ튂???쇱?
+        // ?놁?留? ?ㅼ쓬 actor ?몄뀡?먯꽌 ?곗뿰??媛숈? 媛믪씠 ?ъ궗?⑸맆 ?ъ?瑜?留뚮뱾吏 ?딄린 ?꾪븿).
         pendingWikiLinkFlushRef.current.clear();
         pendingWikiLinkEdgeRef.current.clear();
         clearPendingCreatedNotes();
       }
-      // resetWorkspace(actor 전환)면 applyHydration이 이미 claim mapping까지 반영해 pane
-      // tree/tabs를 복원해뒀으므로, 이 새로고침 자체는 attachInitialTab=false로 호출해 그
-      // 복원 결과를 initialTab 폴백으로 덮어쓰지 않는다.
+      // resetWorkspace(actor ?꾪솚)硫?applyHydration???대? claim mapping源뚯? 諛섏쁺??pane
+      // tree/tabs瑜?蹂듭썝?대??쇰?濡? ???덈줈怨좎묠 ?먯껜??attachInitialTab=false濡??몄텧??洹?
+      // 蹂듭썝 寃곌낵瑜?initialTab ?대갚?쇰줈 ??뼱?곗? ?딅뒗??
       if (detail?.syncRefresh) {
         setIsSyncRefreshLoading(true);
       }
@@ -2012,7 +2019,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 마운트 후 initialTab이 바뀌면(클라이언트 라우팅으로 다른 노트로 이동) 해당 노트를 연다
+  // 留덉슫????initialTab??諛붾뚮㈃(?대씪?댁뼵???쇱슦?낆쑝濡??ㅻⅨ ?명듃濡??대룞) ?대떦 ?명듃瑜??곕떎
   useEffect(() => {
     const key = initialTab.kind === "note" ? initialTab.noteId : "start";
     if (prevInitialKeyRef.current === key) return;
@@ -2027,22 +2034,22 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       .then((draft) => {
         if (!draft) return;
         setNotes((prev) => prev.some((note) => note.id === draft.noteId) ? prev : [workspaceDraftToMock(draft), ...prev]);
-        // 같은 이유로 state.activeId 대신 항상 최신값을 들고 있는 latestSessionRef 기준으로 푼다.
+        // 媛숈? ?댁쑀濡?state.activeId ?????긽 理쒖떊媛믪쓣 ?ㅺ퀬 ?덈뒗 latestSessionRef 湲곗??쇰줈 ?쇰떎.
         const livePaneId = resolveVisiblePaneId(latestSessionRef.current.root, latestSessionRef.current.activeId);
         handleReplaceActiveTab(livePaneId, draft.noteId);
       })
       .catch((error) => {
-        setLoadError(error instanceof Error ? error.message : "임시저장 노트를 불러오지 못했습니다.");
+        setLoadError(error instanceof Error ? error.message : "?꾩떆????명듃瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲??");
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialTab.kind === "note" ? initialTab.noteId : "start"]);
 
-  /* noteId가 있지만 실제로 notes 배열에 없는(삭제됐거나 애초에 존재한 적 없는 — 예: 유효하지
-     않은 URL로 직접 진입, 초기화 직후 세션 복원 등) "제목 없음" 탭을 정리한다. 그런 탭은
-     EditorPanel이 Welcome Board와 동일한 화면을 보여주게 만드는데(EditorPanel.tsx의 `!note`
-     분기), 애초에 탭 목록에 남아있으면 안 된다 — Welcome Board는 탭이 아니라 진짜 empty
-     state여야 한다. 초기 로드/세션 복원이 끝나기 전에는 건드리지 않는다(그 사이 아직 notes가
-     덜 채워졌을 뿐인 정상 탭까지 지워버리는 걸 막기 위해). */
+  /* noteId媛 ?덉?留??ㅼ젣濡?notes 諛곗뿴???녿뒗(??젣?먭굅???좎큹??議댁옱?????녿뒗 ???? ?좏슚?섏?
+     ?딆? URL濡?吏곸젒 吏꾩엯, 珥덇린??吏곹썑 ?몄뀡 蹂듭썝 ?? "?쒕ぉ ?놁쓬" ??쓣 ?뺣━?쒕떎. 洹몃윴 ???
+     EditorPanel??Welcome Board? ?숈씪???붾㈃??蹂댁뿬二쇨쾶 留뚮뱶?붾뜲(EditorPanel.tsx??`!note`
+     遺꾧린), ?좎큹????紐⑸줉???⑥븘?덉쑝硫????쒕떎 ??Welcome Board????씠 ?꾨땲??吏꾩쭨 empty
+     state?ъ빞 ?쒕떎. 珥덇린 濡쒕뱶/?몄뀡 蹂듭썝???앸굹湲??꾩뿉??嫄대뱶由ъ? ?딅뒗??洹??ъ씠 ?꾩쭅 notes媛
+     ??梨꾩썙議뚯쓣 肉먯씤 ?뺤긽 ??퉴吏 吏?뚮쾭由щ뒗 嫄?留됯린 ?꾪빐). */
   useEffect(() => {
     if (isInitialWorkspaceLoading || !hydratedRef.current) return;
     const noteIds = new Set(notes.map((n) => n.id));
@@ -2066,10 +2073,10 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     });
   }, [notes, isInitialWorkspaceLoading]);
 
-  // 변경 사항을 디바운스 저장 (백그라운드 자동저장 — 실패해도 조용히 무시, 수동 저장이 실패 상태를 노출).
-  // 다만 "모든 탭을 닫아 Welcome으로 돌아간" 전환만은 디바운스 없이 즉시 기록한다 — 350ms 안에
-  // 새로고침하면 그 직전(탭이 남아있던) 세션이 그대로 복원되어 닫은 탭/분할이 되살아나는
-  // 버그가 있었다(타이핑 중 자동저장과 달리 구조 변경은 지연시킬 이유가 없다).
+  // 蹂寃??ы빆???붾컮?댁뒪 ???(諛깃렇?쇱슫???먮룞??????ㅽ뙣?대룄 議곗슜??臾댁떆, ?섎룞 ??μ씠 ?ㅽ뙣 ?곹깭瑜??몄텧).
+  // ?ㅻ쭔 "紐⑤뱺 ??쓣 ?レ븘 Welcome?쇰줈 ?뚯븘媛? ?꾪솚留뚯? ?붾컮?댁뒪 ?놁씠 利됱떆 湲곕줉?쒕떎 ??350ms ?덉뿉
+  // ?덈줈怨좎묠?섎㈃ 洹?吏곸쟾(??씠 ?⑥븘?덈뜕) ?몄뀡??洹몃?濡?蹂듭썝?섏뼱 ?レ? ??遺꾪븷???섏궡?꾨굹??
+  // 踰꾧렇媛 ?덉뿀????댄븨 以??먮룞??κ낵 ?щ━ 援ъ“ 蹂寃쎌? 吏?곗떆???댁쑀媛 ?녿떎).
   useEffect(() => {
     if (!effectivePersistKey || !hydratedRef.current) return;
     const delay = isWorkspaceEmpty ? 0 : 350;
@@ -2080,13 +2087,13 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
           normalizeEmptyWorkspaceSession({ root: state.root, activeId: state.activeId, paneTabs, notes, folders, paneFontScale })
         );
       } catch {
-        // 백그라운드 자동저장 실패는 무시
+        // 諛깃렇?쇱슫???먮룞????ㅽ뙣??臾댁떆
       }
     }, delay);
     return () => window.clearTimeout(handle);
   }, [effectivePersistKey, state, paneTabs, notes, folders, paneFontScale]);
 
-  // Ctrl+S가 항상 최신 세션을 즉시 기록할 수 있도록 매 변경마다 ref에 스냅샷 보관
+  // Ctrl+S媛 ??긽 理쒖떊 ?몄뀡??利됱떆 湲곕줉?????덈룄濡?留?蹂寃쎈쭏??ref???ㅻ깄??蹂닿?
   useEffect(() => {
     latestSessionRef.current = normalizeEmptyWorkspaceSession({
       root: state.root,
@@ -2125,15 +2132,15 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     };
   }, [activeNote?.id, activeNote?.title, activeNote?.content]);
 
-  // 대표 활성 노트가 바뀌면 URL 갱신 콜백 호출
+  // ????쒖꽦 ?명듃媛 諛붾뚮㈃ URL 媛깆떊 肄쒕갚 ?몄텧
   useEffect(() => {
     if (prevActiveNoteIdRef.current === activeNoteId) return;
     prevActiveNoteIdRef.current = activeNoteId;
     onActiveNoteChange?.(activeNoteId ?? null);
   }, [activeNoteId, onActiveNoteChange]);
 
-  /* Ctrl+S 수동 저장 — 활성 에디터에 디바운스 중인 본문/제목을 즉시 반영하도록 신호를 보낸 뒤,
-     약간의 지연 후 최신 세션 스냅샷을 즉시 localStorage에 기록한다. */
+  /* Ctrl+S ?섎룞 ??????쒖꽦 ?먮뵒?곗뿉 ?붾컮?댁뒪 以묒씤 蹂몃Ц/?쒕ぉ??利됱떆 諛섏쁺?섎룄濡??좏샇瑜?蹂대궦 ??
+     ?쎄컙??吏????理쒖떊 ?몄뀡 ?ㅻ깄?룹쓣 利됱떆 localStorage??湲곕줉?쒕떎. */
   const saveActiveNoteToBackend = useCallback(async () => {
     const noteId = latestSessionRef.current.paneTabs[latestSessionRef.current.activeId]?.tabs.find(
       (tab) => tab.id === latestSessionRef.current.paneTabs[latestSessionRef.current.activeId]?.activeTabId
@@ -2156,8 +2163,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     if (!note.persisted && !note.id.startsWith("note_")) {
       const created = await createWorkspaceNote(note);
       let nextVersion = created.version;
-      // 같은 폴더에 같은 제목이 이미 있으면 서버가 "제목 2"처럼 자동으로 바꿔서 응답한다 —
-      // 로컬에 타이핑된 제목이 아니라 실제로 저장된 제목을 반영해야 한다.
+      // 媛숈? ?대뜑??媛숈? ?쒕ぉ???대? ?덉쑝硫??쒕쾭媛 "?쒕ぉ 2"泥섎읆 ?먮룞?쇰줈 諛붽퓭???묐떟?쒕떎 ??
+      // 濡쒖뺄????댄븨???쒕ぉ???꾨땲???ㅼ젣濡???λ맂 ?쒕ぉ??諛섏쁺?댁빞 ?쒕떎.
       let finalTitle = created.title;
       const savedId = created.noteId;
       if (note.typography) {
@@ -2230,11 +2237,11 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     };
   }, []);
 
-  /** POST /api/v1/exports는 SSOT 계약대로 계속 호출하지만(작업 기록), 현재 백엔드 구현은
-      MVP 스텁이라 존재하지 않는 cdn.brainx.com URL만 돌려줘 실제 다운로드가 되지 않는다
-      (브라우저가 그 도메인을 찾지 못해 그냥 아무 일도 안 일어난 것처럼 보임). 백엔드가 실제
-      파일을 렌더링하기 전까지는, 이미 메모리에 있는 노트 HTML을 여기서 직접 변환해
-      내려준다(exportNoteContent.ts) — 그래서 백엔드 호출은 실패해도 무시한다(best-effort). */
+  /** POST /api/v1/exports??SSOT 怨꾩빟?濡?怨꾩냽 ?몄텧?섏?留??묒뾽 湲곕줉), ?꾩옱 諛깆뿏??援ы쁽?
+      MVP ?ㅽ뀅?대씪 議댁옱?섏? ?딅뒗 cdn.brainx.com URL留??뚮젮以??ㅼ젣 ?ㅼ슫濡쒕뱶媛 ?섏? ?딅뒗??
+      (釉뚮씪?곗?媛 洹??꾨찓?몄쓣 李얠? 紐삵빐 洹몃깷 ?꾨Т ?쇰룄 ???쇱뼱??寃껋쿂??蹂댁엫). 諛깆뿏?쒓? ?ㅼ젣
+      ?뚯씪???뚮뜑留곹븯湲??꾧퉴吏?? ?대? 硫붾え由ъ뿉 ?덈뒗 ?명듃 HTML???ш린??吏곸젒 蹂?섑빐
+      ?대젮以??exportNoteContent.ts) ??洹몃옒??諛깆뿏???몄텧? ?ㅽ뙣?대룄 臾댁떆?쒕떎(best-effort). */
   const handleExport = useCallback(async (format: ExportFormat) => {
     if (!activeNote) return;
     setExportingFormat(format);
@@ -2243,8 +2250,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       const { downloadPdfFile, downloadTextFile, htmlToMarkdown, htmlToPlainText, safeFileName } =
         await import("@/lib/notes/exportNoteContent");
       const fileName = safeFileName(activeNote.title);
-      // 에디터 HTML 우선, 없으면 content가 마크다운인지 판별 후 직접 변환한다.
-      // 노션 가져오기 등 마크다운으로 저장된 노트는 "<"로 시작하지 않는다.
+      // ?먮뵒??HTML ?곗꽑, ?놁쑝硫?content媛 留덊겕?ㅼ슫?몄? ?먮퀎 ??吏곸젒 蹂?섑븳??
+      // ?몄뀡 媛?몄삤湲???留덊겕?ㅼ슫?쇰줈 ??λ맂 ?명듃??"<"濡??쒖옉?섏? ?딅뒗??
       const rawContent = activeNote.content;
       const html =
         activeEditorHandle?.getHTML() ||
@@ -2256,7 +2263,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       } else {
         await downloadPdfFile(activeNote.title, html, `${fileName}.pdf`);
       }
-      pushToast(`${format} 내보내기를 시작했어요`, "ok");
+      pushToast(`${format} 내보내기를 시작했어요.`, "ok");
     } catch (error) {
       pushToast(error instanceof Error ? error.message : "내보내기에 실패했습니다.", "err");
     } finally {
@@ -2266,7 +2273,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }
   }, [activeNote, activeEditorHandle, pushToast]);
 
-  /* ── 키보드 단축키 (Ctrl/Cmd+N 새 파일, Ctrl/Cmd+O 파일로 이동, Ctrl/Cmd+S 저장) ── */
+  /* ?? ?ㅻ낫???⑥텞??(Ctrl/Cmd+N ???뚯씪, Ctrl/Cmd+O ?뚯씪濡??대룞, Ctrl/Cmd+S ??? ?? */
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (!(e.ctrlKey || e.metaKey)) return;
@@ -2288,8 +2295,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [primaryPaneId, paneTabs, requestNewNote, requestQuickSwitcher, handleManualSave]);
 
-  // 위키링크([[노트]]) 기능에 필요한 컨텍스트 — 노트 목록 조회/존재 확인/이동/생성을 에디터
-  // 깊숙이(NoteEditor → CodeBlockView 같은 중첩 단계 없이도) 어디서든 쓸 수 있게 한다.
+  // ?꾪궎留곹겕([[?명듃]]) 湲곕뒫???꾩슂??而⑦뀓?ㅽ듃 ???명듃 紐⑸줉 議고쉶/議댁옱 ?뺤씤/?대룞/?앹꽦???먮뵒??
+  // 源딆닕??NoteEditor ??CodeBlockView 媛숈? 以묒꺽 ?④퀎 ?놁씠?? ?대뵒?쒕뱺 ?????덇쾶 ?쒕떎.
   const wikiLinkNoteRefs = useMemo(
     () => notes.map((n) => ({ id: n.id, title: n.title, folderId: n.folderId ?? null })),
     [notes]
@@ -2311,27 +2318,18 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         const sourceNoteId = activeNoteId;
         const sourceNote = sourceNoteId ? notes.find((n) => n.id === sourceNoteId) : undefined;
 
-        // 1) 위키링크 자동완성이 방금 삽입한 [[title]]은 400ms 디바운스 타이머로만 동기화가
-        // 예약된 상태다 — createNote가 탭을 새 노트로 즉시 전환하면 그 타이머가 flush 없이
-        // clear되어 원본 노트에 방금 넣은 링크가 유실된다(되돌아오면 예전 텍스트가 보이는 원인).
-        // 탭을 전환하기 전에 현재 활성 에디터의 대기 중인 저장을 먼저 notes[] state로 흘려보낸다.
+        // Flush any pending editor save before creating and navigating to a new note.
         activeEditorHandle?.flushPendingSave();
 
         if (sourceNote) {
-          // 2) notes[] state로의 반영은 setState 배치 때문에 이 시점에 아직 이 클로저의 `notes`에
-          // 보이지 않을 수 있다 — 그래서 state 갱신을 기다리지 않고 지금 이 순간의 실제 에디터
-          // 내용을 직접 읽는다. sourceHtml(WikiLinkAutocomplete가 .run() 직후 같은 동기 실행
-          // 안에서 읽어 넘긴 값)이 있으면 그 값을 최우선으로 신뢰한다 — activeEditorHandle을
-          // 통해 다시 읽으면 그 사이 리렌더/탭 전환이 끼어들 여지가 있다.
+          // Use the freshest content source available before local state catches up.
           let latestContent = sourceHtml ?? activeEditorHandle?.getHTML() ?? sourceNote.content;
 
-          // 방어적 검증/보정 — 라이브에딧(atom↔텍스트) 전환 타이밍 등으로 방금 넣은 [[title]]에
-          // 닫는 ]]가 아직 안 붙었거나([[title 상태), title이 빈 채로 남았다면([[]]) 그 자리에서
-          // 바로 고친다(본문 끝에 새로 덧붙이면 깨진 조각과 새 링크가 중복으로 남는다).
+          // Ensure the requested wiki link exists even if autocomplete timing lagged.
           if (!contentHasWikiLinkTo(latestContent, title)) {
             if (process.env.NODE_ENV !== "production") {
               console.warn(
-                `[wiki-link] "${title}" 링크가 문서에서 닫힌 상태로 확인되지 않아 보정합니다.`,
+                '[wiki-link] "' + title + '" was missing from the source note and has been repaired.',
                 { sourceNoteId: sourceNote.id }
               );
             }
@@ -2346,10 +2344,10 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
             draftDirtyNoteIdsRef.current.add(sourceNote.id);
           }
 
-          // 3) activeNote가 바뀌는 순간 취소되는 draft autosave effect(1500ms 디바운스, activeNote
-          // 기준)에 기대지 않고, 지금 이 순간 독립적인 네트워크 요청으로 소스 노트를 저장한다 —
-          // 바로 다음 줄에서 탭을 A로 전환해도 이미 시작된 이 요청은 취소되지 않고 끝까지
-          // 진행된다. 이게 이번에 고치는 race condition의 핵심이다.
+          // 3) activeNote媛 諛붾뚮뒗 ?쒓컙 痍⑥냼?섎뒗 draft autosave effect(1500ms ?붾컮?댁뒪, activeNote
+          // 湲곗?)??湲곕?吏 ?딄퀬, 吏湲????쒓컙 ?낅┰?곸씤 ?ㅽ듃?뚰겕 ?붿껌?쇰줈 ?뚯뒪 ?명듃瑜???ν븳????
+          // 諛붾줈 ?ㅼ쓬 以꾩뿉????쓣 A濡??꾪솚?대룄 ?대? ?쒖옉?????붿껌? 痍⑥냼?섏? ?딄퀬 ?앷퉴吏
+          // 吏꾪뻾?쒕떎. ?닿쾶 ?대쾲??怨좎튂??race condition???듭떖?대떎.
           if (!USE_MOCK_NOTES) {
             const noteToPersist = { ...sourceNote, content: latestContent };
             void persistNoteBestEffort(noteToPersist)
@@ -2357,40 +2355,40 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
                 if (persisted) {
                   draftDirtyNoteIdsRef.current.delete(sourceNote.id);
                 } else {
-                  // 소스 노트 자신이 아직 draft id 발급 전(local id)이라 지금은 저장할 방법이
-                  // 없다 — 그 노트의 draft id가 확정되는 시점(createNote의 issueWorkspaceNoteDraftId
-                  // .then)에 한 번 더 저장을 시도하도록 표시해둔다. 그동안에도 notes[] state와
-                  // 화면(에디터 재방문)에는 [[title]]이 이미 반영돼 있어 이번 세션 안에서 유실되지
-                  // 않는다.
+                  // ?뚯뒪 ?명듃 ?먯떊???꾩쭅 draft id 諛쒓툒 ??local id)?대씪 吏湲덉? ??ν븷 諛⑸쾿??
+                  // ?녿떎 ??洹??명듃??draft id媛 ?뺤젙?섎뒗 ?쒖젏(createNote??issueWorkspaceNoteDraftId
+                  // .then)????踰?????μ쓣 ?쒕룄?섎룄濡??쒖떆?대몦?? 洹몃룞?덉뿉??notes[] state?
+                  // ?붾㈃(?먮뵒???щ갑臾??먮뒗 [[title]]???대? 諛섏쁺???덉뼱 ?대쾲 ?몄뀡 ?덉뿉???좎떎?섏?
+                  // ?딅뒗??
                   pendingWikiLinkFlushRef.current.add(sourceNote.id);
                 }
               })
               .catch((error) => {
-                // best-effort — 실패해도 draftDirtyNoteIdsRef에 여전히 남아 있어 다음 저장 기회
-                // (수동 저장/그 노트 재방문 시 draft autosave)에 다시 시도된다.
-                warnWikiLinkFailure("source note 즉시 저장 실패", error);
+                // best-effort ???ㅽ뙣?대룄 draftDirtyNoteIdsRef???ъ쟾???⑥븘 ?덉뼱 ?ㅼ쓬 ???湲고쉶
+                // (?섎룞 ???洹??명듃 ?щ갑臾???draft autosave)???ㅼ떆 ?쒕룄?쒕떎.
+                warnWikiLinkFailure("source note 利됱떆 ????ㅽ뙣", error);
               });
           }
         }
 
-        // 4) 그 다음에 새 노트를 만들고 A 탭으로 이동한다. createNote 자체가(위키링크 여부와
-        // 무관하게 모든 새 노트 생성에서) sessionStorage optimistic 기록을 남긴다 — linkFromNoteId를
-        // 넘기면 그래프가 optimistic edge까지 합성한다.
+        // 4) 洹??ㅼ쓬?????명듃瑜?留뚮뱾怨?A ??쑝濡??대룞?쒕떎. createNote ?먯껜媛(?꾪궎留곹겕 ?щ??
+        // 臾닿??섍쾶 紐⑤뱺 ???명듃 ?앹꽦?먯꽌) sessionStorage optimistic 湲곕줉???④릿????linkFromNoteId瑜?
+        // ?섍린硫?洹몃옒?꾧? optimistic edge源뚯? ?⑹꽦?쒕떎.
         createNote(undefined, primaryPaneId, title, sourceNoteId ?? undefined);
       },
     }),
     [wikiLinkNoteRefs, wikiLinkFolderRefs, handleNoteClick, createNote, primaryPaneId, activeEditorHandle, activeNoteId, notes]
   );
 
-  // 노트/탭/패널 데이터 초기화가 끝나기 전에는 워크스페이스 전체를 로딩 상태로 대체한다 —
-  // Welcome 보드나 탐색기처럼 일부 영역만 먼저 깜빡이며 빈 상태로 그려지는 것을 막는다.
+  // ?명듃/???⑤꼸 ?곗씠??珥덇린?붽? ?앸굹湲??꾩뿉???뚰겕?ㅽ럹?댁뒪 ?꾩껜瑜?濡쒕뵫 ?곹깭濡??泥댄븳????
+  // Welcome 蹂대뱶???먯깋湲곗쿂???쇰? ?곸뿭留?癒쇱? 源쒕묀?대ŉ 鍮??곹깭濡?洹몃젮吏??寃껋쓣 留됰뒗??
   if (isInitialWorkspaceLoading || isSyncRefreshLoading) {
     return (
       <WorkspaceLoadingShell
         explorerOpen={explorerOpen}
         contextOpen={contextOpen}
         contextPanelSize={contextPanelSize}
-        message={isSyncRefreshLoading ? "동기화 중.." : "불러오는 중…"}
+        message={isSyncRefreshLoading ? "동기화 중..." : "불러오는 중..."}
       />
     );
   }
@@ -2478,7 +2476,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     <SplitThemeContext.Provider value={AUTO_THEME}>
         <div className="flex h-full overflow-hidden">
 
-        {/* ── 좌측: 노트 탐색기 ──────────────────────── */}
+        {/* ?? 醫뚯륫: ?명듃 ?먯깋湲????????????????????????? */}
         {explorerOpen && (
           <NotesExplorer
             notes={notes}
@@ -2508,16 +2506,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
           />
         )}
 
-        {/* ── 중앙: 에디터 영역 ───────────────────────── */}
+        {/* ?? 以묒븰: ?먮뵒???곸뿭 ????????????????????????? */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
 
-          {/* 툴바 */}
+          {/* ?대컮 */}
           <div className="flex shrink-0 items-center gap-3 border-b border-line/50 px-2 py-2">
             <span className="text-[12px] font-medium text-txt2">
-              {panelCount}개 패널
+              {panelCount}媛??⑤꼸
             </span>
             <span className="text-[11px] text-txt3/60">
-              · 노트 클릭 = 현재 탭 교체 · 본문에 드롭 = 교체 · 탭바에 드롭 = 탭 추가
+              쨌 ?명듃 ?대┃ = ?꾩옱 ??援먯껜 쨌 蹂몃Ц???쒕∼ = 援먯껜 쨌 ??컮???쒕∼ = ??異붽?
             </span>
             <div className="flex-1" />
             {loadError ? <span className="text-[11px] font-medium text-red-400">{loadError}</span> : null}
@@ -2541,7 +2539,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
               <button
                 type="button"
                 onClick={() => setMoreMenuOpen((current) => !current)}
-                title="더 보기"
+                title="??蹂닿린"
                 className={cx(
                   "inline-flex h-[26px] w-[26px] items-center justify-center rounded-lg border transition-colors",
                   moreMenuOpen
@@ -2554,7 +2552,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
             {moreMenuOpen && (
               <div
                 role="menu"
-                aria-label="더 보기 메뉴"
+                aria-label="??蹂닿린 硫붾돱"
                 className="absolute right-0 top-[calc(100%+4px)] z-[1200] w-44 overflow-hidden rounded-lg border border-line/60 py-1"
                   style={{
                     background: "rgb(var(--surface))",
@@ -2605,7 +2603,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
                           className="flex w-full items-center justify-between px-3 py-1.5 text-left text-[12px] text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt disabled:cursor-not-allowed disabled:text-txt3/50"
                         >
                           <span>{format}</span>
-                          {exportingFormat === format && <span className="text-[10px] text-txt3">내보내는 중…</span>}
+                          {exportingFormat === format && <span className="text-[10px] text-txt3">내보내는 중...</span>}
                         </button>
                       ))}
                     </div>
@@ -2628,11 +2626,11 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
             </button>
           </div>
 
-          {/* 에디터 + 우측 컨텍스트 패널 — 컨텍스트 패널은 고정 폭이었는데, Split View
-              (PaneTreeRenderer.tsx)가 패널 사이 리사이즈에 쓰는 것과 같은
-              Group/Panel/Separator(react-resizable-panels)를 그대로 재사용해 드래그로 폭을
-              조절할 수 있게 했다 — 새 리사이즈 로직을 따로 만들지 않아 동작이 이미 검증된
-              컴포넌트를 그대로 쓴다. */}
+          {/* ?먮뵒??+ ?곗륫 而⑦뀓?ㅽ듃 ?⑤꼸 ??而⑦뀓?ㅽ듃 ?⑤꼸? 怨좎젙 ??씠?덈뒗?? Split View
+              (PaneTreeRenderer.tsx)媛 ?⑤꼸 ?ъ씠 由ъ궗?댁쫰???곕뒗 寃껉낵 媛숈?
+              Group/Panel/Separator(react-resizable-panels)瑜?洹몃?濡??ъ궗?⑺빐 ?쒕옒洹몃줈 ??쓣
+              議곗젅?????덇쾶 ?덈떎 ????由ъ궗?댁쫰 濡쒖쭅???곕줈 留뚮뱾吏 ?딆븘 ?숈옉???대? 寃利앸맂
+              而댄룷?뚰듃瑜?洹몃?濡??대떎. */}
           <div className="flex flex-1 overflow-hidden">
             {contextOpen ? (
               <>
@@ -2640,7 +2638,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
                   {mainContent}
                 </div>
 
-                {/* 우측 패널 리사이즈 핸들 */}
+                {/* ?곗륫 ?⑤꼸 由ъ궗?댁쫰 ?몃뱾 */}
                 <div
                   role="separator"
                   aria-orientation="vertical"

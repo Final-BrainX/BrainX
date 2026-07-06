@@ -1580,6 +1580,7 @@ function GraphScreenInner() {
   const selectedSummary = (selected?.summary ?? "").trim();
   const noteDetailPanelVisible = selected !== null && !bridgeMode && !linkMode;
   const hasGraphData = notes.length > 0;
+  const hasActionableNotes = rawNotes.length > 0;
   const noteIndexStatusUnavailable = rawNotes.some((note) => note.indexStatusUnavailable);
   const aiReadyNoteLabel = noteIndexStatusUnavailable ? "선택 가능한 노트" : "색인된 노트";
   const aiClusterUsableNoteCount = useMemo(
@@ -1652,6 +1653,10 @@ function GraphScreenInner() {
         .map((suggestion) => ({ group, suggestion }))
     ),
     [linkAcceptStates, linkGroups]
+  );
+  const resolveAiRequestNoteId = useCallback(
+    (noteId: string) => notes.find((note) => note.id === noteId)?.aiSourceNoteId ?? noteId,
+    [notes]
   );
 
   useEffect(() => {
@@ -2034,7 +2039,7 @@ function GraphScreenInner() {
     setBridgeError(null);
     setBridgeSaveStates({});
     try {
-      const result = await createBridgeConcepts({ noteIds: bridgeSelectedIds });
+      const result = await createBridgeConcepts({ noteIds: bridgeSelectedIds.map(resolveAiRequestNoteId) });
       setBridgeRecommendations(result.recommendations);
       setBridgeStatus("success");
       if (result.recommendations.length > 0) {
@@ -2070,7 +2075,7 @@ function GraphScreenInner() {
         const sourceNote = notes.find((note) => note.id === sourceNoteId);
         if (!sourceNote) continue;
         setLinkProgress({ current: index + 1, total: linkSelectedIds.length });
-        const result = await createLinkSuggestions({ noteId: sourceNoteId });
+        const result = await createLinkSuggestions({ noteId: resolveAiRequestNoteId(sourceNoteId) });
         const suggestions = filterLinkSuggestions(sourceNoteId, result.suggestions, notes, edges);
         if (suggestions.length > 0) {
           groups.push({
@@ -2286,14 +2291,14 @@ function GraphScreenInner() {
   }, [refreshGraph]);
 
   useEffect(() => {
-    if (!aiClusterPanelEnabled || !hasGraphData) {
+    if (!aiClusterPanelEnabled || !hasActionableNotes) {
       setClusterLatest(null);
       setClusterError(null);
       setClusterStatus("idle");
       return;
     }
     void refreshClusterLatest({ showError: false });
-  }, [aiClusterPanelEnabled, graphDataVersion, hasGraphData, refreshClusterLatest]);
+  }, [aiClusterPanelEnabled, graphDataVersion, hasActionableNotes, refreshClusterLatest]);
 
   useEffect(() => {
     if (!hasGraphData) {
@@ -2691,17 +2696,17 @@ function GraphScreenInner() {
             ))}
           </div>
 
-          <button
-            type="button"
-            aria-pressed={bridgeMode}
-            disabled={!hasGraphData}
-            onClick={toggleBridgeMode}
-            className={cx(
-              "inline-flex h-8 items-center justify-center gap-1.5 rounded-xl px-3 text-[13px] font-semibold shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary/60",
-              !hasGraphData
-                ? "cursor-not-allowed bg-surface2/60 text-txt3/50"
-                : bridgeMode
-                  ? "bg-primary text-white hover:bg-primary/90"
+            <button
+              type="button"
+              aria-pressed={bridgeMode}
+              disabled={!hasActionableNotes}
+              onClick={toggleBridgeMode}
+              className={cx(
+                "inline-flex h-8 items-center justify-center gap-1.5 rounded-xl px-3 text-[13px] font-semibold shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary/60",
+                !hasActionableNotes
+                  ? "cursor-not-allowed bg-surface2/60 text-txt3/50"
+                  : bridgeMode
+                    ? "bg-primary text-white hover:bg-primary/90"
                   : "bg-accent text-white hover:bg-accent/90"
             )}
           >
@@ -2716,11 +2721,11 @@ function GraphScreenInner() {
           <button
             type="button"
             aria-pressed={linkMode}
-            disabled={!hasGraphData}
+            disabled={!hasActionableNotes}
             onClick={toggleLinkMode}
             className={cx(
               "inline-flex h-8 items-center justify-center gap-1.5 rounded-xl px-3 text-[13px] font-semibold shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary/60",
-              !hasGraphData
+              !hasActionableNotes
                 ? "cursor-not-allowed bg-surface2/60 text-txt3/50"
                 : linkMode
                   ? "bg-primary text-white hover:bg-primary/90"

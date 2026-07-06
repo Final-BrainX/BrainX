@@ -84,6 +84,7 @@ export type BrainxDesktopVaultFolder = {
 
 export type BrainxDesktopVaultNote = {
   noteId: string;
+  remoteNoteId?: string | null;
   title: string;
   markdown: string;
   folderId: string | null;
