@@ -1138,6 +1138,10 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     const newNote = makeBlankNote(folderId);
     newNote.title = noteTitle;
     if (favorite) newNote.favorite = true;
+    /* handleCreateFolder와 동일한 정책: currentWorkspaceId가 있으면(non-default Workspace)
+       새 노트를 그 Workspace 소속으로 표시해 visibleNotes/QuickSwitcher 필터에서 즉시 사라지지
+       않게 한다. currentWorkspaceId가 null(default Workspace 또는 Guest)이면 기존 동작 유지. */
+    if (currentWorkspaceId) newNote.documentGroupId = currentWorkspaceId;
     const localNoteId = newNote.id;
     const newTabId = uid();
 
@@ -1286,7 +1290,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }
 
     return newNote.id;
-  }, [isGuest, notes, checkNoteDuplicate, pushToast, onActiveNoteChange]);
+  }, [isGuest, notes, checkNoteDuplicate, pushToast, onActiveNoteChange, currentWorkspaceId]);
 
   /* 사이드바 "+ 새 노트" 버튼 → 현재 선택된 폴더 안에, 활성 패널의 새 탭으로 생성.
      favorite=true는 즐겨찾기 영역의 루트 생성 버튼에서만 쓴다(정책: 즐겨찾기 영역에서 직접

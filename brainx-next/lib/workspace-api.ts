@@ -351,6 +351,7 @@ export async function getNote(noteId: string) {
       title: note.title,
       markdown: note.markdown,
       folder: folder ? { folderId: folder.folderId, name: folder.name } : null,
+      documentGroupId: note.documentGroupId ?? null,
       tags: note.tags,
       version: note.version,
       createdAt: note.createdAt,
