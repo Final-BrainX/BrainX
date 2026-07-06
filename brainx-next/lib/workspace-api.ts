@@ -67,6 +67,7 @@ export type WorkspaceNoteCreatePayload = {
   markdown?: string | null;
   folderId?: string | null;
   tags?: string[];
+  documentGroupId?: string | null;
 };
 
 export type WorkspaceNoteLinkCreateRequest = {
@@ -530,6 +531,9 @@ export async function createWorkspaceNoteFromPayload(payload: WorkspaceNoteCreat
   return authedRequest<NoteCreated>("/api/v1/notes", {
     method: "POST",
     body: JSON.stringify({
+      // documentGroupId를 생략하면(undefined -> JSON.stringify가 키를 빼먹음) saveWorkspaceNoteDraft와
+      // 동일하게 서버가 호출자의 default Workspace로 채운다(Ticket6). Guest/미선택 상태는 기존과 동일.
+      documentGroupId: payload.documentGroupId ?? undefined,
       title: payload.title,
       markdown: payload.markdown ?? null,
       folderId: payload.folderId ?? null,

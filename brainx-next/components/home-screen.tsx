@@ -13,7 +13,6 @@ import {
   AI_CLUSTER_MAX_CLUSTERS,
   AI_CLUSTER_MAX_NOTES,
   AI_CLUSTER_MIN_NOTES,
-  DEFAULT_DOCUMENT_GROUP_ID,
   UNASSIGNED_CLUSTER_ID,
   applyAiClustersToNotes,
   isAiFeatureReadyNote,
@@ -67,7 +66,15 @@ function recommendationText(value: unknown) {
   return title || reason;
 }
 
-function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; workspaceStats: WorkspaceUserStatsData | null }) {
+function UserInsightDashboard({
+  notes,
+  workspaceStats,
+  currentWorkspaceId,
+}: {
+  notes: BrainXNote[];
+  workspaceStats: WorkspaceUserStatsData | null;
+  currentWorkspaceId: string | null;
+}) {
   const router = useRouter();
   const { pushToast } = useBrainX();
   const [topicView, setTopicView] = useState<"bubble" | "trend">("bubble");
@@ -85,8 +92,12 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
   const totalWords = summary.totalWords;
   const recentActivityTitle = workspaceStats?.activities?.[0]?.title?.trim() || null;
   const currentSession = readAuthSession();
-  const aiClusterPanelEnabled = !!currentSession?.accessToken && !isDevAuthSession(currentSession);
-  const aiInsightPanelEnabled = (!!currentSession?.accessToken && !isDevAuthSession(currentSession)) || Boolean(DEV_USER_ID);
+  // Ticket16: AI 클러스터/인사이트는 "default" 문자열이 아니라 현재 선택된 Workspace의 실제
+  // documentGroupId가 있을 때만 호출한다 — Guest/미선택 상태(currentWorkspaceId=null)는 기존과
+  // 동일하게 패널을 비활성 상태로 유지한다.
+  const aiClusterPanelEnabled = !!currentSession?.accessToken && !isDevAuthSession(currentSession) && !!currentWorkspaceId;
+  const aiInsightPanelEnabled =
+    ((!!currentSession?.accessToken && !isDevAuthSession(currentSession)) || Boolean(DEV_USER_ID)) && !!currentWorkspaceId;
   const aiClusterProjection = useMemo(
     () => aiClusterPanelEnabled ? applyAiClustersToNotes(notes, clusterLatest) : { notes, clusters: null },
     [aiClusterPanelEnabled, clusterLatest, notes]
@@ -218,7 +229,7 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
 
   const refreshInsightLatest = useCallback(
     async ({ showError = false }: { showError?: boolean } = {}) => {
-      if (!aiInsightPanelEnabled) {
+      if (!aiInsightPanelEnabled || !currentWorkspaceId) {
         setInsightLatest(null);
         setInsightError(null);
         setInsightStatus("idle");
@@ -230,7 +241,7 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
       setInsightStatus((current) => current === "generating" ? current : "loading");
 
       try {
-        const latest = await getLatestInsightReport({ documentGroupId: DEFAULT_DOCUMENT_GROUP_ID });
+        const latest = await getLatestInsightReport({ documentGroupId: currentWorkspaceId });
         if (requestId !== insightRequestIdRef.current) return null;
         setInsightLatest(latest);
         setInsightError(null);
@@ -245,12 +256,12 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
         return null;
       }
     },
-    [aiInsightPanelEnabled, pushToast]
+    [aiInsightPanelEnabled, currentWorkspaceId, pushToast]
   );
 
   const refreshClusterLatest = useCallback(
     async ({ showError = false }: { showError?: boolean } = {}) => {
-      if (!aiClusterPanelEnabled) {
+      if (!aiClusterPanelEnabled || !currentWorkspaceId) {
         setClusterLatest(null);
         setClusterError(null);
         setClusterStatus("idle");
@@ -262,7 +273,7 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
       setClusterStatus((current) => current === "analyzing" ? current : "loading");
 
       try {
-        const latest = await getLatestClusterJob({ documentGroupId: DEFAULT_DOCUMENT_GROUP_ID });
+        const latest = await getLatestClusterJob({ documentGroupId: currentWorkspaceId });
         if (requestId !== clusterRequestIdRef.current) return null;
         setClusterLatest(latest);
         setClusterError(null);
@@ -277,11 +288,11 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
         return null;
       }
     },
-    [aiClusterPanelEnabled, pushToast]
+    [aiClusterPanelEnabled, currentWorkspaceId, pushToast]
   );
 
   const requestAiClusterAnalysis = useCallback(async () => {
-    if (aiClusterButtonDisabled) return;
+    if (aiClusterButtonDisabled || !currentWorkspaceId) return;
     const requestId = clusterRequestIdRef.current + 1;
     clusterRequestIdRef.current = requestId;
     setClusterStatus("analyzing");
@@ -290,7 +301,7 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
     try {
       const job = await requestClusterJob({
         scope: {
-          documentGroupId: DEFAULT_DOCUMENT_GROUP_ID,
+          documentGroupId: currentWorkspaceId,
           maxNotes: AI_CLUSTER_MAX_NOTES,
         },
         algorithmOptions: {
@@ -314,10 +325,10 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
       setClusterStatus("error");
       pushToast(message, "err");
     }
-  }, [aiClusterButtonDisabled, aiClusterUsableNoteCount, pushToast, refreshClusterLatest]);
+  }, [aiClusterButtonDisabled, aiClusterUsableNoteCount, currentWorkspaceId, pushToast, refreshClusterLatest]);
 
   const requestAiInsightReport = useCallback(async () => {
-    if (aiInsightButtonDisabled) return;
+    if (aiInsightButtonDisabled || !currentWorkspaceId) return;
     const requestId = insightRequestIdRef.current + 1;
     insightRequestIdRef.current = requestId;
     setInsightStatus("generating");
@@ -326,14 +337,14 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
     try {
       const report = await requestInsightReport({
         scope: {
-          documentGroupId: DEFAULT_DOCUMENT_GROUP_ID,
+          documentGroupId: currentWorkspaceId,
           maxNotes: AI_CLUSTER_MAX_NOTES,
         },
         includeLearningRecommendations: true,
       });
       if (requestId !== insightRequestIdRef.current) return;
       setInsightLatest((current) => ({
-        documentGroupId: DEFAULT_DOCUMENT_GROUP_ID,
+        documentGroupId: currentWorkspaceId,
         searchableNoteCount: current?.searchableNoteCount ?? aiClusterUsableNoteCount,
         latestNoteUpdatedAt: current?.latestNoteUpdatedAt ?? null,
         state: report.status === "FAILED" ? "FAILED" : "FRESH",
@@ -351,7 +362,7 @@ function UserInsightDashboard({ notes, workspaceStats }: { notes: BrainXNote[]; 
       setInsightStatus("error");
       pushToast(message, "err");
     }
-  }, [aiInsightButtonDisabled, aiClusterUsableNoteCount, pushToast, refreshInsightLatest]);
+  }, [aiInsightButtonDisabled, aiClusterUsableNoteCount, currentWorkspaceId, pushToast, refreshInsightLatest]);
 
   useEffect(() => {
     let active = true;
@@ -898,7 +909,7 @@ export function HomeScreen() {
         </div>
       </div>
 
-      <UserInsightDashboard notes={notes} workspaceStats={workspaceStats} />
+      <UserInsightDashboard notes={notes} workspaceStats={workspaceStats} currentWorkspaceId={currentWorkspaceId} />
     </div>
   );
 }

@@ -12,7 +12,6 @@ import {
   AI_CLUSTER_MAX_CLUSTERS,
   AI_CLUSTER_MAX_NOTES,
   AI_CLUSTER_MIN_NOTES,
-  DEFAULT_DOCUMENT_GROUP_ID,
   applyAiClustersToNotes,
   deriveNoteClusterMeta,
   isAiFeatureReadyNote,
@@ -25,6 +24,7 @@ import { readPendingCreatedNotes, removePendingCreatedNoteByNoteId } from "@/lib
 import { createWorkspaceNote, getNote, hasWorkspaceUserIdentity, listWorkspaceNoteDrafts, updateWorkspaceNoteContent, WorkspaceApiError, type NoteCreated } from "@/lib/workspace-api";
 import { contentHasWikiLinkTo } from "@/lib/wiki-links";
 import { useBrainX } from "@/components/brainx-provider";
+import { useWorkspace } from "@/components/workspace-provider";
 import { Avatar, Badge, Btn, Card, Icon } from "@/components/brainx-ui";
 import { cx } from "@/lib/utils";
 import { ReactFlow, ReactFlowProvider, SelectionMode, useNodesState, useEdgesState, useReactFlow, useStoreApi, type Edge, type Node, type SelectionRect, type Transform } from "@xyflow/react";
@@ -1529,7 +1529,10 @@ function GraphScreenInner() {
   const optimisticGraphNotesRef = useRef<Record<string, BrainXNote>>({});
   const currentSession = readAuthSession();
   const hasRealLogin = !!currentSession?.accessToken && !isDevAuthSession(currentSession);
-  const aiClusterPanelEnabled = hasRealLogin && !USE_MOCK_GRAPH && !USE_MOCK_GRAPH_CLUSTERS;
+  const { currentWorkspaceId } = useWorkspace();
+  // Ticket16: "default" 문자열 대신 현재 선택된 Workspace의 실제 documentGroupId가 있을 때만
+  // AI 클러스터링을 활성화한다 — Guest/미선택 상태(currentWorkspaceId=null)는 기존과 동일하게 비활성.
+  const aiClusterPanelEnabled = hasRealLogin && !!currentWorkspaceId && !USE_MOCK_GRAPH && !USE_MOCK_GRAPH_CLUSTERS;
   const rawNotes = aiClusterPanelEnabled ? (liveNotes ?? []) : (liveNotes ?? mockNotes);
   const aiClusterProjection = useMemo(
     () => aiClusterPanelEnabled ? applyAiClustersToNotes(rawNotes, clusterLatest) : { notes: rawNotes, clusters: null },
@@ -1785,7 +1788,7 @@ function GraphScreenInner() {
 
   const refreshClusterLatest = useCallback(
     async ({ showError = false }: { showError?: boolean } = {}) => {
-      if (!aiClusterPanelEnabled) {
+      if (!aiClusterPanelEnabled || !currentWorkspaceId) {
         setClusterLatest(null);
         setClusterError(null);
         setClusterStatus("idle");
@@ -1797,7 +1800,7 @@ function GraphScreenInner() {
       setClusterStatus((current) => current === "analyzing" ? current : "loading");
 
       try {
-        const latest = await getLatestClusterJob({ documentGroupId: DEFAULT_DOCUMENT_GROUP_ID });
+        const latest = await getLatestClusterJob({ documentGroupId: currentWorkspaceId });
         if (!graphMountedRef.current || requestId !== clusterRequestIdRef.current) return null;
         setClusterLatest(latest);
         setClusterError(null);
@@ -1812,11 +1815,11 @@ function GraphScreenInner() {
         return null;
       }
     },
-    [aiClusterPanelEnabled, pushToast]
+    [aiClusterPanelEnabled, currentWorkspaceId, pushToast]
   );
 
   const requestAiClusterAnalysis = useCallback(async () => {
-    if (aiClusterButtonDisabled) return;
+    if (aiClusterButtonDisabled || !currentWorkspaceId) return;
     const requestId = clusterRequestIdRef.current + 1;
     clusterRequestIdRef.current = requestId;
     setClusterStatus("analyzing");
@@ -1825,7 +1828,7 @@ function GraphScreenInner() {
     try {
       const job = await requestClusterJob({
         scope: {
-          documentGroupId: DEFAULT_DOCUMENT_GROUP_ID,
+          documentGroupId: currentWorkspaceId,
           maxNotes: AI_CLUSTER_MAX_NOTES,
         },
         algorithmOptions: {
@@ -1851,7 +1854,7 @@ function GraphScreenInner() {
       setClusterStatus("error");
       pushToast(message, "err");
     }
-  }, [aiClusterButtonDisabled, aiClusterUsableNoteCount, pushToast, refreshClusterLatest]);
+  }, [aiClusterButtonDisabled, aiClusterUsableNoteCount, currentWorkspaceId, pushToast, refreshClusterLatest]);
 
   const clearBridgeState = () => {
     setBridgeSelectedIds([]);

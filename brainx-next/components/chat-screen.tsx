@@ -15,6 +15,7 @@ import {
 } from "@/lib/intelligence-api";
 import { createWorkspaceNoteFromPayload } from "@/lib/workspace-api";
 import { useBrainX } from "@/components/brainx-provider";
+import { useWorkspace } from "@/components/workspace-provider";
 import {
   buildChatDraftMarkdown,
   CHAT_DRAFT_NOTE_TAGS,
@@ -64,6 +65,7 @@ const CHAT_SUGGESTIONS = [
 export function ChatScreen() {
   const router = useRouter();
   const { pushToast, notes, effectiveTheme } = useBrainX();
+  const { currentWorkspaceId } = useWorkspace();
   const isLight = effectiveTheme === "light";
   const [threads, setThreads] = useState<ChatThreadListItem[]>([]);
   const [threadCursor, setThreadCursor] = useState<string | null>(null);
@@ -348,6 +350,7 @@ export function ChatScreen() {
           setThreadStatus(targetStatus);
         }
         thread = await createChatThread({
+          documentGroupId: currentWorkspaceId ?? undefined,
           title: threadTitleFromQuestion(trimmed),
           initialMessage: trimmed,
           modelId: model.id,
@@ -464,6 +467,7 @@ export function ChatScreen() {
         markdown,
         folderId: null,
         tags: CHAT_DRAFT_NOTE_TAGS,
+        documentGroupId: currentWorkspaceId ?? undefined,
       });
       setDraftSaveStates((current) => ({
         ...current,

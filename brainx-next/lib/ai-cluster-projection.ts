@@ -18,7 +18,6 @@ type NormalizedAiCluster = AiClusterMeta & {
   noteIds: string[];
 };
 
-export const DEFAULT_DOCUMENT_GROUP_ID = "default";
 export const AI_CLUSTER_MIN_NOTES = 5;
 export const AI_CLUSTER_MAX_NOTES = 50;
 export const AI_CLUSTER_MAX_CLUSTERS = 6;
