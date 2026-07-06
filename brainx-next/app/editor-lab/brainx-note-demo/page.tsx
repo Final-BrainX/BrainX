@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { notFound } from "next/navigation";
 
 const NoteDemoLayout = dynamic(
   () => import("@/components/editor-lab/brainx-note-demo/NoteDemoLayout"),
@@ -18,5 +19,10 @@ const NoteDemoLayout = dynamic(
 );
 
 export default function BrainXNoteDemoPage() {
+  // 배포(next build/start, NODE_ENV=production) 환경에서는 실험용 데모 라우트를 404 처리한다.
+  // 로컬 개발(next dev)에서는 그대로 접근 가능하게 유지한다.
+  if (process.env.NODE_ENV === "production") {
+    notFound();
+  }
   return <NoteDemoLayout />;
 }
