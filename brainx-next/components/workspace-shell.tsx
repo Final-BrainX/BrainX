@@ -25,7 +25,6 @@ import {
   clearAuthSession,
   isDevAuthSession,
   isSameAuthSession,
-  logout,
   readAuthSession,
   type AuthSession,
 } from "@/lib/auth-api";
@@ -1082,7 +1081,7 @@ function TopBar({
 }: {
   onOpenSettings: (tab?: SettingsTab) => void;
 }) {
-  const { pushToast, t } = useBrainX();
+  const { t } = useBrainX();
   const router = useRouter();
   const pathname = usePathname();
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -1094,8 +1093,8 @@ function TopBar({
   const [notifications, setNotifications] = useState<MyNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
-  const [loggingOut, setLoggingOut] = useState(false);
-  const isGuest = !session?.accessToken;
+  const isDemoSession = isDevAuthSession(session);
+  const isGuest = !session?.accessToken || isDemoSession;
 
   useEffect(() => {
     const syncSession = () => {
@@ -1392,31 +1391,15 @@ function TopBar({
             <div className="relative shrink-0">
               <button
                 type="button"
-                disabled={loggingOut}
-                onClick={async () => {
+                onClick={() => {
                   setNotificationOpen(false);
                   if (isGuest) {
                     setGuestMenuOpen((current) => !current);
                     return;
                   }
-                  if (loggingOut) return;
-                  setLoggingOut(true);
-                  try {
-                    await logout();
-                    pushToast("로그아웃되었습니다.", "ok");
-                  } catch (error) {
-                    pushToast(
-                      error instanceof Error
-                        ? error.message
-                        : "로그아웃에 실패했습니다.",
-                      "err",
-                    );
-                  } finally {
-                    setLoggingOut(false);
-                  }
-                  window.location.replace("/");
+                  onOpenSettings("profile");
                 }}
-                className="tutorial-target-profile group relative flex h-8 items-center gap-1.5 rounded-lg px-2 transition-colors hover:bg-surface2/60 disabled:opacity-60"
+                className="tutorial-target-profile group relative flex h-8 items-center gap-1.5 rounded-lg px-2 transition-colors hover:bg-surface2/60"
               >
                 <Avatar
                   name={displayName}
@@ -1436,10 +1419,7 @@ function TopBar({
                 ) : null}
                 {!isGuest ? (
                   <span className={topTooltipClass}>
-                    <span className="flex items-center gap-1">
-                      <Icon name="logout" size={12} />
-                      로그아웃
-                    </span>
+                    사용자 프로필
                     <div
                       className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt"
                       style={{ zIndex: -1 }}
@@ -1470,7 +1450,7 @@ function TopBar({
                     }}
                     className="flex h-9 w-full items-center rounded-lg px-2 text-left text-[13px] font-medium text-txt hover:bg-surface2/60"
                   >
-                    로그인
+                    로그인하기
                   </button>
                 </div>
               ) : null}
@@ -1523,16 +1503,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
         handleExplorerState,
       );
   }, []);
-
-  useEffect(() => {
-    if (pathname === "/mypage") {
-      if (readAuthSession()?.accessToken) {
-        setSettingsTab("profile");
-        setSettingsOpen(true);
-      }
-      router.replace("/home");
-    }
-  }, [pathname, router]);
 
   const openSettings = (tab: SettingsTab = "profile") => {
     setSettingsTab(tab);

@@ -20,7 +20,7 @@ services:
     ports:
       - "9092:29092"
     volumes:
-      - brainx_kafka_data:/bitnami/kafka
+      - brainx_kafka_data:/var/lib/kafka/data
     healthcheck:
       test:
         [
