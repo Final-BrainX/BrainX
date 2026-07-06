@@ -1,6 +1,7 @@
 "use client";
 
 import type { ComponentType, MouseEventHandler, ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import {
   ArrowLeft,
   BarChart3,
@@ -320,22 +321,29 @@ export function Avatar({
 export function Toggle({
   on,
   onChange,
-  size = "md"
+  size = "md",
+  disabled,
+  ariaLabel
 }: {
   on: boolean;
   onChange: (value: boolean) => void;
   size?: "sm" | "md";
+  disabled?: boolean;
+  ariaLabel?: string;
 }) {
-  const width = size === "sm" ? 38 : 46;
-  const height = size === "sm" ? 22 : 26;
+  const width = size === "sm" ? 44 : 52;
+  const height = size === "sm" ? 24 : 28;
   const knob = height - 6;
   return (
     <button
+      type="button"
       onClick={() => onChange(!on)}
+      disabled={disabled}
+      aria-label={ariaLabel}
       style={{ width, height }}
       className={cx(
-        "relative rounded-full transition-colors duration-300",
-        on ? "bg-primary" : "bg-surface2 border border-line"
+        "relative rounded-full transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-50",
+        on ? "bg-primary shadow-soft" : "bg-surface2 border border-line/70 hover:bg-surface2/80"
       )}
     >
       <span
@@ -348,11 +356,19 @@ export function Toggle({
 
 export function ThemeToggle() {
   const { effectiveTheme, setTheme } = useBrainX();
+  const pathname = usePathname();
+  const disabledOnSpecialPage = pathname?.startsWith("/mypage") || pathname?.startsWith("/import") || pathname?.startsWith("/support") || pathname?.startsWith("/notifications");
   return (
     <button
-      onClick={() => setTheme(effectiveTheme === "dark" ? "light" : "dark")}
-      className="h-9 w-9 grid place-items-center rounded-xl border border-line/60 text-txt2 hover:text-txt hover:bg-surface2/60 transition-colors"
-      title={effectiveTheme === "dark" ? "Light mode" : "Dark mode"}
+      onClick={() => {
+        if (disabledOnSpecialPage) return;
+        setTheme(effectiveTheme === "dark" ? "light" : "dark");
+      }}
+      className={`h-9 w-9 grid place-items-center rounded-xl border border-line/60 text-txt2 transition-colors ${
+        disabledOnSpecialPage ? "cursor-not-allowed opacity-40" : "hover:bg-surface2/60 hover:text-txt"
+      }`}
+      title={disabledOnSpecialPage ? "이 페이지에서는 테마 변경을 적용하지 않습니다" : effectiveTheme === "dark" ? "Light mode" : "Dark mode"}
+      aria-disabled={disabledOnSpecialPage}
       type="button"
     >
       <Icon name={effectiveTheme === "dark" ? "sun" : "moon"} size={17} />

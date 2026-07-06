@@ -7,6 +7,7 @@ import {
   buildAuthPath,
   issueTemporaryPassword,
   loginLocal,
+  isDevAuthSession,
   readAuthSession,
   readAuthSessionPersistence,
   readRecentSocialLoginProvider,
@@ -63,7 +64,7 @@ export function LoginScreen() {
 
   useEffect(() => {
     const session = readAuthSession();
-    if (!session?.accessToken) return;
+    if (!session?.accessToken || isDevAuthSession(session)) return;
     router.replace(isElectronDesktop() && returnTo === "/home" ? "/" : resolveAuthReturnTo(returnTo));
   }, [returnTo, router]);
 

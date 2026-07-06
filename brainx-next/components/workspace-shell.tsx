@@ -1446,6 +1446,7 @@ function TopBar({
                     type="button"
                     onClick={() => {
                       setGuestMenuOpen(false);
+                      clearAuthSession();
                       router.push(buildAuthPath("/login", pathname));
                     }}
                     className="flex h-9 w-full items-center rounded-lg px-2 text-left text-[13px] font-medium text-txt hover:bg-surface2/60"
