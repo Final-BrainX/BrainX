@@ -35,6 +35,7 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health", "/actuator/prometheus", "/h2-console/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/share-links/*").permitAll()
                         .requestMatchers(
+                                "/api/v1/workspaces", "/api/v1/workspaces/**",
                                 "/api/v1/workspace/**",
                                 "/api/v1/notes", "/api/v1/notes/**",
                                 "/api/v1/folders", "/api/v1/folders/**",

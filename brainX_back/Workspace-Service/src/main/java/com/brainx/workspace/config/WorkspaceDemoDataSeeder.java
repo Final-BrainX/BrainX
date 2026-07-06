@@ -32,10 +32,11 @@ public class WorkspaceDemoDataSeeder {
             return;
         }
 
-        FolderData backend = workspaceService.createFolder(DEMO_USER_ID, new FolderCreateRequest("Backend", null));
-        FolderData ai = workspaceService.createFolder(DEMO_USER_ID, new FolderCreateRequest("AI", null));
+        FolderData backend = workspaceService.createFolder(DEMO_USER_ID, new FolderCreateRequest(null, "Backend", null));
+        FolderData ai = workspaceService.createFolder(DEMO_USER_ID, new FolderCreateRequest(null, "AI", null));
 
         workspaceService.createNote(DEMO_USER_ID, new NoteCreateRequest(
+                null,
                 "Spring Security JWT 정리",
                 """
                 <h1>Spring Security JWT 정리</h1>
@@ -46,6 +47,7 @@ public class WorkspaceDemoDataSeeder {
                 List.of("backend", "spring", "jwt")
         ));
         workspaceService.createNote(DEMO_USER_ID, new NoteCreateRequest(
+                null,
                 "MSA 서비스 경계 메모",
                 """
                 <h1>MSA 서비스 경계 메모</h1>
@@ -56,6 +58,7 @@ public class WorkspaceDemoDataSeeder {
                 List.of("backend", "msa", "architecture")
         ));
         workspaceService.createNote(DEMO_USER_ID, new NoteCreateRequest(
+                null,
                 "RAG 파이프라인 아이디어",
                 """
                 <h1>RAG 파이프라인 아이디어</h1>

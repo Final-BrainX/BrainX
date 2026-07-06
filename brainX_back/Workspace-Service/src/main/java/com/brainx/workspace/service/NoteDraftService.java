@@ -53,7 +53,8 @@ public class NoteDraftService {
         redisTemplate.opsForSet().add(dirtyKey, noteId);
         redisTemplate.expire(dirtyKey, ttl);
 
-        return new NoteDraftSaveData(noteId, actorType.toUpperCase(Locale.ROOT), savedAt, expiresAt, "DRAFT_SAVED");
+        String documentGroupId = normalizeDocumentGroupId(request.documentGroupId());
+        return new NoteDraftSaveData(noteId, documentGroupId, actorType.toUpperCase(Locale.ROOT), savedAt, expiresAt, "DRAFT_SAVED");
     }
 
     public NoteDraftIdData issueDraftId(Actor actor) {
@@ -82,6 +83,7 @@ public class NoteDraftService {
         String folderId = (String) payload.get("folderId");
         return new NoteDraftData(
                 (String) payload.get("noteId"),
+                normalizeDocumentGroupId((String) payload.get("documentGroupId")),
                 (String) payload.get("actorType"),
                 (String) payload.getOrDefault("title", "Untitled"),
                 (String) payload.get("markdown"),
@@ -182,6 +184,7 @@ public class NoteDraftService {
         payload.put("actorType", actor.type().name());
         payload.put("actorId", actor.id());
         payload.put("noteId", noteId);
+        payload.put("documentGroupId", normalizeDocumentGroupId(request.documentGroupId()));
         payload.put("title", request.title() == null ? "" : request.title());
         payload.put("markdown", request.markdown());
         // 빈 문자열로 저장해 "루트"와 "필드 없음(과거 draft)"을 구분한다 — getDraft에서 빈
@@ -204,5 +207,13 @@ public class NoteDraftService {
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Failed to deserialize note draft.", exception);
         }
+    }
+
+    private String normalizeDocumentGroupId(String documentGroupId) {
+        if (documentGroupId == null) {
+            return null;
+        }
+        String trimmed = documentGroupId.trim();
+        return trimmed.isBlank() ? null : trimmed;
     }
 }

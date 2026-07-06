@@ -24,6 +24,7 @@ public class Note {
     private String noteId;
     @Column(nullable = false)
     private String userId;
+    private String documentGroupId;
     @Column(nullable = false)
     private String title;
     @Column(columnDefinition = "text", nullable = false)
@@ -49,8 +50,13 @@ public class Note {
     private Instant lastViewedAt;
 
     public Note(String noteId, String userId, String title, String markdown, String folderId, List<String> tags, Instant now) {
+        this(noteId, userId, null, title, markdown, folderId, tags, now);
+    }
+
+    public Note(String noteId, String userId, String documentGroupId, String title, String markdown, String folderId, List<String> tags, Instant now) {
         this.noteId = noteId;
         this.userId = userId;
+        this.documentGroupId = documentGroupId;
         this.title = title;
         this.markdown = markdown == null ? "" : markdown;
         this.folderId = folderId;
@@ -108,6 +114,26 @@ public class Note {
 
     public void moveToFolder(String folderId, Instant now) {
         this.folderId = folderId;
+        this.version++;
+        this.updatedAt = now;
+    }
+
+    public void moveToFolder(String documentGroupId, String folderId, String title, List<String> tags,
+                             Boolean archived, String typographyJson, Instant now) {
+        this.documentGroupId = documentGroupId;
+        this.folderId = folderId;
+        if (title != null && !title.isBlank()) {
+            this.title = title;
+        }
+        if (tags != null) {
+            this.tags = sanitizeTags(tags);
+        }
+        if (archived != null) {
+            this.archived = archived;
+        }
+        if (typographyJson != null) {
+            this.typographyJson = typographyJson.isBlank() ? null : typographyJson;
+        }
         this.version++;
         this.updatedAt = now;
     }
