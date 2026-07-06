@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { notFound } from "next/navigation";
 import { Sun, Moon, ArrowRight, Star, Zap, Clock } from "lucide-react";
 import { useBrainX } from "@/components/brainx-provider";
 import { cx } from "@/lib/utils";
@@ -157,6 +158,11 @@ function MiniLayoutPreview({ isLight }: { isLight: boolean }) {
 }
 
 export default function EditorLabPage() {
+  // 배포(next build/start, NODE_ENV=production) 환경에서는 실험용 데모 라우트를 404 처리한다.
+  // 로컬 개발(next dev)에서는 그대로 접근 가능하게 유지한다.
+  if (process.env.NODE_ENV === "production") {
+    notFound();
+  }
   const { theme, setTheme } = useBrainX();
   const isLight = theme === "light";
 

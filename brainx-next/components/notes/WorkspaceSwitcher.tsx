@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useWorkspace } from "@/components/workspace-provider";
+import { getWorkspaceDisplayName } from "@/lib/workspace-api";
 import { Icon } from "@/components/brainx-ui";
 import { cx } from "@/lib/utils";
 
@@ -40,7 +41,7 @@ export default function WorkspaceSwitcher({ onCreateWorkspace }: Props) {
 
   const currentWorkspace = workspaces.find((workspace) => workspace.documentGroupId === currentWorkspaceId) ?? null;
   const isInitialLoading = isLoading && workspaces.length === 0;
-  const buttonLabel = isInitialLoading ? "불러오는 중…" : currentWorkspace?.name ?? "Workspace";
+  const buttonLabel = isInitialLoading ? "불러오는 중…" : currentWorkspace ? getWorkspaceDisplayName(currentWorkspace) : "Workspace";
 
   return (
     <div ref={rootRef} className="relative w-56 shrink-0">
@@ -86,7 +87,7 @@ export default function WorkspaceSwitcher({ onCreateWorkspace }: Props) {
                     active ? "bg-surface2/60 text-primary" : "text-txt2 hover:bg-surface2/50 hover:text-txt"
                   )}
                 >
-                  <span className="min-w-0 truncate">{workspace.name}</span>
+                  <span className="min-w-0 truncate">{getWorkspaceDisplayName(workspace)}</span>
                   {active ? <Icon name="check" size={14} className="shrink-0" /> : null}
                 </button>
               );

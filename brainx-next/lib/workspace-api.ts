@@ -67,6 +67,7 @@ export type WorkspaceNoteCreatePayload = {
   markdown?: string | null;
   folderId?: string | null;
   tags?: string[];
+  documentGroupId?: string | null;
 };
 
 export type WorkspaceNoteLinkCreateRequest = {
@@ -179,6 +180,30 @@ export type WorkspaceSummaryData = {
 type WorkspaceListData = {
   workspaces: WorkspaceSummaryData[];
 };
+
+/** NotesWorkspace.tsx의 matchesCurrentWorkspace와 동일한 판정 로직 — 현재 선택된 Workspace
+    기준으로 documentGroupId가 "보여도 되는지" 판단한다. currentWorkspaceId===null(Guest 또는
+    Workspace 미선택)이면 항상 true(전체 노출, 기존 동작 유지)이고, default Workspace가
+    선택돼 있으면 documentGroupId가 없는(레거시) 항목도 함께 노출한다. TopBar 전역 검색처럼
+    NotesWorkspace 바깥에서도 같은 Workspace 스코프 판정이 필요한 곳에서 재사용한다. */
+export function matchesWorkspaceScope(
+  documentGroupId: string | null | undefined,
+  currentWorkspaceId: string | null,
+  workspaces: WorkspaceSummaryData[]
+): boolean {
+  if (currentWorkspaceId === null) return true;
+  if ((documentGroupId ?? null) === currentWorkspaceId) return true;
+  const currentWorkspace = workspaces.find((w) => w.documentGroupId === currentWorkspaceId) ?? null;
+  return currentWorkspace?.isDefault === true && (documentGroupId ?? null) === null;
+}
+
+/** 회원가입 시 Backend가 만들어 주는 default Workspace의 실제 저장된 name 값은 "Default"
+    문자열 그대로다(DB 변경 없음, 표시만 바꾼다). WorkspaceSwitcher/Home처럼 Workspace 이름을
+    사용자에게 보여주는 모든 곳에서 이 함수로 통일해, isDefault인 Workspace만 "기본 Workspace"로
+    표시하고 그 외에는 사용자가 지은 실제 이름을 그대로 보여준다. */
+export function getWorkspaceDisplayName(workspace: Pick<WorkspaceSummaryData, "name" | "isDefault">): string {
+  return workspace.isDefault ? "기본 Workspace" : workspace.name;
+}
 
 export async function shouldUseDesktopVault() {
   if (!isElectronDesktop()) return false;
@@ -467,7 +492,7 @@ export async function createWorkspace(name: string): Promise<WorkspaceSummaryDat
   });
 }
 
-export async function createWorkspaceFolder(name: string, parentFolderId: string | null) {
+export async function createWorkspaceFolder(name: string, parentFolderId: string | null, documentGroupId?: string | null) {
   if (await shouldUseDesktopVault()) {
     const created = await createDesktopVaultFolder(name, parentFolderId);
     return {
@@ -479,7 +504,9 @@ export async function createWorkspaceFolder(name: string, parentFolderId: string
   }
   return authedRequest<WorkspaceFolderItem>("/api/v1/folders", {
     method: "POST",
-    body: JSON.stringify({ name, parentFolderId }),
+    // SSOT FolderCreateRequest.documentGroupId: createNote()/saveWorkspaceNoteDraft()와 동일한
+    // 이유로 생략하면(undefined) default Workspace로 귀속되는 기존 동작을 그대로 유지한다.
+    body: JSON.stringify({ name, parentFolderId, documentGroupId: documentGroupId ?? undefined }),
   });
 }
 
@@ -530,6 +557,9 @@ export async function createWorkspaceNoteFromPayload(payload: WorkspaceNoteCreat
   return authedRequest<NoteCreated>("/api/v1/notes", {
     method: "POST",
     body: JSON.stringify({
+      // documentGroupId를 생략하면(undefined -> JSON.stringify가 키를 빼먹음) saveWorkspaceNoteDraft와
+      // 동일하게 서버가 호출자의 default Workspace로 채운다(Ticket6). Guest/미선택 상태는 기존과 동일.
+      documentGroupId: payload.documentGroupId ?? undefined,
       title: payload.title,
       markdown: payload.markdown ?? null,
       folderId: payload.folderId ?? null,
@@ -543,7 +573,8 @@ export async function createWorkspaceNote(note: MockNote) {
     title: note.title,
     markdown: note.content,
     folderId: note.folderId ?? null,
-    tags: note.tags
+    tags: note.tags,
+    documentGroupId: note.documentGroupId
   });
 }
 

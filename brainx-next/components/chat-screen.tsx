@@ -13,8 +13,9 @@ import {
   type ChatThreadData,
   type ChatThreadListStatus,
 } from "@/lib/intelligence-api";
-import { createWorkspaceNoteFromPayload } from "@/lib/workspace-api";
+import { createWorkspaceNoteFromPayload, matchesWorkspaceScope } from "@/lib/workspace-api";
 import { useBrainX } from "@/components/brainx-provider";
+import { useWorkspace } from "@/components/workspace-provider";
 import {
   buildChatDraftMarkdown,
   CHAT_DRAFT_NOTE_TAGS,
@@ -64,6 +65,7 @@ const CHAT_SUGGESTIONS = [
 export function ChatScreen() {
   const router = useRouter();
   const { pushToast, notes, effectiveTheme } = useBrainX();
+  const { currentWorkspaceId, workspaces } = useWorkspace();
   const isLight = effectiveTheme === "light";
   const [threads, setThreads] = useState<ChatThreadListItem[]>([]);
   const [threadCursor, setThreadCursor] = useState<string | null>(null);
@@ -94,6 +96,15 @@ export function ChatScreen() {
   const detailRequestIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
+  // NotesExplorer/TopBar 검색과 동일한 정책 — 사이드바에는 현재 Workspace 소속 스레드만 보여준다.
+  // currentWorkspaceId가 null(Guest 또는 Workspace 미선택)이면 matchesWorkspaceScope가 항상
+  // true라 기존처럼 전체 목록이 그대로 보인다. threads(원본 상태)는 페이지네이션/dedup 등 다른
+  // 로직이 그대로 참조해야 하므로 건드리지 않고, 렌더링에만 이 필터링된 목록을 쓴다.
+  const visibleThreads = useMemo(
+    () => threads.filter((thread) => matchesWorkspaceScope(thread.documentGroupId, currentWorkspaceId, workspaces)),
+    [threads, currentWorkspaceId, workspaces]
+  );
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -109,6 +120,15 @@ export function ChatScreen() {
     void loadThreadPage(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadStatus]);
+
+  // Workspace 전환 시 이전 Workspace의 스레드가 화면/전송 대상으로 계속 남지 않도록 초기화한다.
+  // visibleThreads는 currentWorkspaceId 변경에 이미 반응하지만, activeThread/activeThreadId는
+  // 별도 상태라 그대로 두면 (1) 메인 패널이 이전 Workspace 대화를 계속 보여주고 (2) ask()가
+  // activeThread를 재사용해 새 메시지가 이전 Workspace의 스레드로 전송된다.
+  useEffect(() => {
+    clearActiveThread();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentWorkspaceId]);
 
   useEffect(() => {
     if (!deleteCandidate) return;
@@ -348,6 +368,7 @@ export function ChatScreen() {
           setThreadStatus(targetStatus);
         }
         thread = await createChatThread({
+          documentGroupId: currentWorkspaceId ?? undefined,
           title: threadTitleFromQuestion(trimmed),
           initialMessage: trimmed,
           modelId: model.id,
@@ -464,6 +485,7 @@ export function ChatScreen() {
         markdown,
         folderId: null,
         tags: CHAT_DRAFT_NOTE_TAGS,
+        documentGroupId: currentWorkspaceId ?? undefined,
       });
       setDraftSaveStates((current) => ({
         ...current,
@@ -528,7 +550,7 @@ export function ChatScreen() {
   return (
     <div data-route className="flex h-full">
       <ChatThreadSidebar
-        threads={threads}
+        threads={visibleThreads}
         activeThreadId={activeThreadId}
         threadStatus={threadStatus}
         threadActionOpenId={threadActionOpenId}

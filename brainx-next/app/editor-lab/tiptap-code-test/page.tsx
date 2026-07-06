@@ -3,6 +3,7 @@
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { cx } from "@/lib/utils";
 
 const TipTapCodeEditor = dynamic(
@@ -36,6 +37,11 @@ const ShikiComparison = dynamic(
 type Tab = "editor" | "comparison";
 
 export default function TipTapCodeTestPage() {
+  // 배포(next build/start, NODE_ENV=production) 환경에서는 실험용 데모 라우트를 404 처리한다.
+  // 로컬 개발(next dev)에서는 그대로 접근 가능하게 유지한다.
+  if (process.env.NODE_ENV === "production") {
+    notFound();
+  }
   const [tab, setTab] = useState<Tab>("editor");
 
   return (
