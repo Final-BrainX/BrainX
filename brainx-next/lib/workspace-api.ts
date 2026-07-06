@@ -180,7 +180,7 @@ type WorkspaceListData = {
   workspaces: WorkspaceSummaryData[];
 };
 
-async function shouldUseDesktopVault() {
+export async function shouldUseDesktopVault() {
   if (!isElectronDesktop()) return false;
   const config = await getBrainxDesktopConfig();
   return Boolean(config?.activeVault);

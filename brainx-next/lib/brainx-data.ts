@@ -11,6 +11,7 @@ export type BrainXCluster = {
 
 export type BrainXNote = {
   id: string;
+  aiSourceNoteId?: string | null;
   title: string;
   markdown: string;
   searchIndexStatus?: "NOT_INDEXED" | "PROVISIONAL" | "STALE" | "INDEXED" | "FAILED" | "REMOVED" | "UNKNOWN";

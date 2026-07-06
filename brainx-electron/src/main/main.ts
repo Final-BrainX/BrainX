@@ -118,6 +118,7 @@ type VaultSyncStateFile = {
   noteMappings: Record<string, { remoteNoteId: string }>;
   folderMappings: Record<string, { remoteFolderId: string }>;
   assetMappings: Record<string, { remoteAssetId: string; checksum: string | null; syncedAt: string | null }>;
+  deletedRemoteNoteIds: string[];
 };
 
 type VaultSyncConflict = {
@@ -190,11 +191,26 @@ function toVaultSummary(vaultPath: string, name = path.basename(vaultPath)): Bra
     id: crypto.createHash("sha1").update(vaultPath).digest("hex"),
     name,
     vaultPath,
-    notesPath: path.join(vaultPath, "notes"),
-    assetsPath: path.join(vaultPath, "assets"),
+    notesPath: vaultPath,
+    assetsPath: vaultPath,
     exportsPath: path.join(vaultPath, "exports"),
     lastOpenedAt: new Date().toISOString(),
   };
+}
+
+function normalizeVaultSummary(vault: BrainxDesktopVaultSummary): BrainxDesktopVaultSummary {
+  return {
+    ...vault,
+    lastOpenedAt: vault.lastOpenedAt || new Date(0).toISOString(),
+  };
+}
+
+function sortVaultsByRecent(vaults: BrainxDesktopVaultSummary[]) {
+  return [...vaults].sort((left, right) => {
+    const leftTime = Number.isFinite(Date.parse(left.lastOpenedAt)) ? Date.parse(left.lastOpenedAt) : 0;
+    const rightTime = Number.isFinite(Date.parse(right.lastOpenedAt)) ? Date.parse(right.lastOpenedAt) : 0;
+    return rightTime - leftTime;
+  });
 }
 
 function getActiveVault() {
@@ -235,8 +251,176 @@ function sanitizeSlug(value: string, fallback: string) {
   return normalized || fallback;
 }
 
-function buildNoteFileName(noteId: string, title: string) {
-  return `${sanitizeSlug(title, noteId)}-${noteId}.md`;
+function sanitizeFileComponent(value: string, fallback: string) {
+  const normalized = value
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[. ]+$/g, "");
+  const candidate = normalized || fallback.trim() || "Untitled";
+  return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(candidate) ? `${candidate}_` : candidate;
+}
+
+function buildNoteFileName(title: string) {
+  return `${sanitizeFileComponent(title, "Untitled")}.md`;
+}
+
+function getVaultFolderPathSegments(index: VaultIndexFile, folderId: string | null) {
+  if (!folderId) return [] as string[];
+  const segments: string[] = [];
+  const visited = new Set<string>();
+  let currentFolderId: string | null = folderId;
+  while (currentFolderId) {
+    if (visited.has(currentFolderId)) {
+      throw new Error("Vault folder hierarchy contains a cycle.");
+    }
+    visited.add(currentFolderId);
+    const folder = index.folders.find((item) => item.folderId === currentFolderId);
+    if (!folder) {
+      break;
+    }
+    segments.unshift(sanitizeFileComponent(folder.name, "Folder"));
+    currentFolderId = folder.parentFolderId ?? null;
+  }
+  return segments;
+}
+
+function buildVaultRelativeDirectory(index: VaultIndexFile, folderId: string | null) {
+  const segments = getVaultFolderPathSegments(index, folderId);
+  return segments.length > 0 ? path.join(...segments) : "";
+}
+
+function buildUniqueRelativeFilePath(
+  existingRelativePaths: string[],
+  directoryRelativePath: string,
+  desiredFileName: string,
+  excludeRelativePath?: string
+) {
+  const parsed = path.parse(desiredFileName);
+  const baseName = sanitizeFileComponent(parsed.name || desiredFileName, "Untitled");
+  const extension = parsed.ext || "";
+  const siblingPaths = new Set(
+    existingRelativePaths
+      .filter((candidate) => candidate !== excludeRelativePath)
+      .map((candidate) => path.normalize(candidate).toLowerCase())
+  );
+  let suffix = 1;
+  let candidateName = `${baseName}${extension}`;
+  let candidateRelativePath = directoryRelativePath
+    ? path.join(directoryRelativePath, candidateName)
+    : candidateName;
+  while (siblingPaths.has(path.normalize(candidateRelativePath).toLowerCase())) {
+    suffix += 1;
+    candidateName = `${baseName} ${suffix}${extension}`;
+    candidateRelativePath = directoryRelativePath
+      ? path.join(directoryRelativePath, candidateName)
+      : candidateName;
+  }
+  return candidateRelativePath;
+}
+
+function ensureDirectoryForFile(filePath: string) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+}
+
+function moveFileIfNeeded(sourcePath: string, destinationPath: string) {
+  if (path.normalize(sourcePath).toLowerCase() === path.normalize(destinationPath).toLowerCase()) {
+    return;
+  }
+  ensureDirectoryForFile(destinationPath);
+  fs.renameSync(sourcePath, destinationPath);
+}
+
+function relocateDirectoryIfNeeded(vaultRoot: string, sourceRelativePath: string, destinationRelativePath: string) {
+  if (!sourceRelativePath || !destinationRelativePath) return;
+  if (path.normalize(sourceRelativePath).toLowerCase() === path.normalize(destinationRelativePath).toLowerCase()) {
+    return;
+  }
+  const sourcePath = path.join(vaultRoot, sourceRelativePath);
+  if (!fs.existsSync(sourcePath)) {
+    return;
+  }
+  const destinationPath = path.join(vaultRoot, destinationRelativePath);
+  fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+  fs.renameSync(sourcePath, destinationPath);
+}
+
+function rewriteRelativePathPrefix(relativePath: string, sourcePrefix: string, destinationPrefix: string) {
+  const normalizedRelative = path.normalize(relativePath);
+  const normalizedSource = path.normalize(sourcePrefix);
+  const normalizedDestination = path.normalize(destinationPrefix);
+  if (normalizedRelative === normalizedSource) {
+    return normalizedDestination;
+  }
+  const sourceWithSep = `${normalizedSource}${path.sep}`;
+  if (!normalizedRelative.startsWith(sourceWithSep)) {
+    return relativePath;
+  }
+  return path.join(normalizedDestination, normalizedRelative.slice(sourceWithSep.length));
+}
+
+function resolveLegacyVaultFilePath(vault: BrainxDesktopVaultSummary, storedRelativePath: string, legacyDirectoryName: "notes" | "assets") {
+  const currentPath = path.join(vault.vaultPath, storedRelativePath);
+  if (fs.existsSync(currentPath)) {
+    return currentPath;
+  }
+  const legacyPath = path.join(vault.vaultPath, legacyDirectoryName, storedRelativePath);
+  if (fs.existsSync(legacyPath)) {
+    return legacyPath;
+  }
+  return currentPath;
+}
+
+function migrateLegacyVaultLayout(vault: BrainxDesktopVaultSummary) {
+  const index = readVaultIndex(vault);
+  let changed = false;
+
+  const nextNotePaths = new Set<string>();
+  for (const note of index.notes) {
+    const directoryRelativePath = buildVaultRelativeDirectory(index, note.folderId ?? null);
+    const desiredRelativePath = buildUniqueRelativeFilePath(
+      Array.from(nextNotePaths),
+      directoryRelativePath,
+      buildNoteFileName(note.title),
+      note.fileName
+    );
+    const currentPath = resolveLegacyVaultFilePath(vault, note.fileName, "notes");
+    const desiredPath = path.join(vault.vaultPath, desiredRelativePath);
+    if (fs.existsSync(currentPath) && path.normalize(currentPath).toLowerCase() !== path.normalize(desiredPath).toLowerCase()) {
+      moveFileIfNeeded(currentPath, desiredPath);
+      changed = true;
+    }
+    if (note.fileName !== desiredRelativePath) {
+      note.fileName = desiredRelativePath;
+      changed = true;
+    }
+    nextNotePaths.add(desiredRelativePath);
+  }
+
+  const nextAssetPaths = new Set<string>();
+  for (const asset of index.assets) {
+    const desiredRelativePath = buildUniqueRelativeFilePath(
+      Array.from(nextAssetPaths),
+      "",
+      sanitizeFileComponent(asset.fileName, asset.assetId),
+      asset.relativePath
+    );
+    const currentPath = resolveLegacyVaultFilePath(vault, asset.relativePath, "assets");
+    const desiredPath = path.join(vault.vaultPath, desiredRelativePath);
+    if (fs.existsSync(currentPath) && path.normalize(currentPath).toLowerCase() !== path.normalize(desiredPath).toLowerCase()) {
+      moveFileIfNeeded(currentPath, desiredPath);
+      changed = true;
+    }
+    if (asset.relativePath !== desiredRelativePath) {
+      asset.relativePath = desiredRelativePath;
+      changed = true;
+    }
+    nextAssetPaths.add(desiredRelativePath);
+  }
+
+  if (changed) {
+    persistVaultIndex(vault, index);
+  }
 }
 
 function ensureUniqueFolderName(
@@ -285,8 +469,6 @@ function ensureUniqueNoteTitle(
 
 function ensureVaultStructure(vault: BrainxDesktopVaultSummary) {
   fs.mkdirSync(vault.vaultPath, { recursive: true });
-  fs.mkdirSync(vault.notesPath, { recursive: true });
-  fs.mkdirSync(vault.assetsPath, { recursive: true });
   fs.mkdirSync(vault.exportsPath, { recursive: true });
   fs.mkdirSync(getVaultConfigDirectory(vault), { recursive: true });
 
@@ -300,8 +482,8 @@ function ensureVaultStructure(vault: BrainxDesktopVaultSummary) {
           vaultId: vault.id,
           name: vault.name,
           createdAt: new Date().toISOString(),
-          notesDir: "notes",
-          assetsDir: "assets",
+          notesDir: ".",
+          assetsDir: ".",
           exportsDir: "exports",
           syncPolicy: {
             mode: "local-only",
@@ -320,19 +502,28 @@ function ensureVaultStructure(vault: BrainxDesktopVaultSummary) {
   if (!fs.existsSync(indexPath)) {
     fs.writeFileSync(indexPath, JSON.stringify(createDefaultVaultIndex(vault), null, 2), "utf8");
   }
+
+  migrateLegacyVaultLayout(vault);
 }
 
 function upsertVault(vault: BrainxDesktopVaultSummary) {
-  ensureVaultStructure(vault);
-  const existingIndex = vaultState.recentVaults.findIndex((item) => item.id === vault.id);
+  const normalizedVault = normalizeVaultSummary(vault);
+  ensureVaultStructure(normalizedVault);
+  const existingIndex = vaultState.recentVaults.findIndex((item) => item.id === normalizedVault.id);
   if (existingIndex >= 0) {
     vaultState.recentVaults.splice(existingIndex, 1);
   }
-  vaultState.recentVaults.unshift(vault);
-  vaultState.recentVaults = vaultState.recentVaults.slice(0, 12);
-  vaultState.activeVaultId = vault.id;
+  vaultState.recentVaults.unshift(normalizedVault);
+  vaultState.recentVaults = sortVaultsByRecent(vaultState.recentVaults).slice(0, 12);
+  vaultState.activeVaultId = normalizedVault.id;
   persistVaultState();
-  return vault;
+  return normalizedVault;
+}
+
+function touchVault(vaultId: string, touchedAt = new Date().toISOString()) {
+  const vault = vaultState.recentVaults.find((item) => item.id === vaultId);
+  if (!vault) return null;
+  return upsertVault({ ...vault, lastOpenedAt: touchedAt });
 }
 
 function loadStorageState() {
@@ -354,13 +545,13 @@ function loadVaultState() {
     const raw = fs.readFileSync(getVaultStateFilePath(), "utf8");
     const parsed = JSON.parse(raw) as Partial<VaultStateFile>;
     vaultState.activeVaultId = parsed.activeVaultId ?? null;
-    vaultState.recentVaults = Array.isArray(parsed.recentVaults) ? parsed.recentVaults : [];
+    vaultState.recentVaults = Array.isArray(parsed.recentVaults) ? parsed.recentVaults.map(normalizeVaultSummary) : [];
   } catch {
     vaultState.activeVaultId = null;
     vaultState.recentVaults = [];
   }
 
-  vaultState.recentVaults = vaultState.recentVaults.filter((vault) => fs.existsSync(vault.vaultPath));
+  vaultState.recentVaults = sortVaultsByRecent(vaultState.recentVaults.filter((vault) => fs.existsSync(vault.vaultPath)));
 
   if (vaultState.activeVaultId && !vaultState.recentVaults.some((vault) => vault.id === vaultState.activeVaultId)) {
     vaultState.activeVaultId = null;
@@ -429,6 +620,7 @@ function readVaultSyncState(vault: BrainxDesktopVaultSummary): VaultSyncStateFil
       noteMappings: parsed.noteMappings ?? {},
       folderMappings: parsed.folderMappings ?? {},
       assetMappings: parsed.assetMappings ?? {},
+      deletedRemoteNoteIds: Array.isArray(parsed.deletedRemoteNoteIds) ? parsed.deletedRemoteNoteIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0) : [],
     };
   } catch {
     return {
@@ -437,6 +629,7 @@ function readVaultSyncState(vault: BrainxDesktopVaultSummary): VaultSyncStateFil
       noteMappings: {},
       folderMappings: {},
       assetMappings: {},
+      deletedRemoteNoteIds: [],
     };
   }
 }
@@ -509,12 +702,12 @@ function getVaultAssetById(vault: BrainxDesktopVaultSummary, assetId: string) {
   }
   return {
     asset,
-    assetPath: path.join(vault.assetsPath, asset.relativePath),
+    assetPath: path.join(vault.vaultPath, asset.relativePath),
   };
 }
 
 function getVaultAssetFilePath(vault: BrainxDesktopVaultSummary, asset: BrainxDesktopVaultAsset) {
-  return path.join(vault.assetsPath, asset.relativePath);
+  return path.join(vault.vaultPath, asset.relativePath);
 }
 
 function hashBufferSha256(buffer: Buffer) {
@@ -596,7 +789,7 @@ function normalizeVaultSyncPolicy(
 }
 
 function readVaultNoteMarkdown(vault: BrainxDesktopVaultSummary, fileName: string) {
-  const notePath = path.join(vault.notesPath, fileName);
+  const notePath = resolveLegacyVaultFilePath(vault, fileName, "notes");
   try {
     return fs.readFileSync(notePath, "utf8");
   } catch {
@@ -605,12 +798,13 @@ function readVaultNoteMarkdown(vault: BrainxDesktopVaultSummary, fileName: strin
 }
 
 function writeVaultNoteMarkdown(vault: BrainxDesktopVaultSummary, fileName: string, markdown: string) {
-  const notePath = path.join(vault.notesPath, fileName);
+  const notePath = path.join(vault.vaultPath, fileName);
+  ensureDirectoryForFile(notePath);
   fs.writeFileSync(notePath, markdown, "utf8");
 }
 
 function deleteVaultNoteFile(vault: BrainxDesktopVaultSummary, fileName: string) {
-  const notePath = path.join(vault.notesPath, fileName);
+  const notePath = path.join(vault.vaultPath, fileName);
   if (fs.existsSync(notePath)) {
     fs.rmSync(notePath, { force: true });
   }
@@ -618,6 +812,7 @@ function deleteVaultNoteFile(vault: BrainxDesktopVaultSummary, fileName: string)
 
 function readVaultSnapshot(vault: BrainxDesktopVaultSummary): BrainxDesktopVaultSnapshot {
   const index = readVaultIndex(vault);
+  const syncState = readVaultSyncState(vault);
   return {
     vault,
     syncPolicy: index.syncPolicy,
@@ -625,6 +820,7 @@ function readVaultSnapshot(vault: BrainxDesktopVaultSummary): BrainxDesktopVault
     assets: index.assets,
     notes: index.notes.map((note) => ({
       ...note,
+      remoteNoteId: syncState.noteMappings[note.noteId]?.remoteNoteId ?? null,
       markdown: readVaultNoteMarkdown(vault, note.fileName),
     })),
   };
@@ -888,6 +1084,12 @@ function createVaultNoteRecord(
   const now = new Date().toISOString();
   const noteId = `vault_note_${crypto.randomUUID()}`;
   const title = ensureUniqueNoteTitle(index.notes, options.title.trim() || "Untitled", options.folderId ?? null);
+  const directoryRelativePath = buildVaultRelativeDirectory(index, options.folderId ?? null);
+  const fileName = buildUniqueRelativeFilePath(
+    index.notes.map((note) => note.fileName),
+    directoryRelativePath,
+    buildNoteFileName(title)
+  );
   return {
     noteId,
     title,
@@ -898,7 +1100,7 @@ function createVaultNoteRecord(
     createdAt: now,
     updatedAt: now,
     typography: null,
-    fileName: buildNoteFileName(noteId, title),
+    fileName,
   };
 }
 
@@ -917,7 +1119,7 @@ function createImportedAssetMarkdown(asset: BrainxDesktopVaultAsset) {
     `# ${path.basename(asset.fileName, path.extname(asset.fileName)) || asset.fileName}`,
     "",
     `- Imported asset: ${asset.fileName}`,
-    `- Vault path: assets/${asset.relativePath}`,
+    `- Vault path: ${asset.relativePath}`,
     `- MIME type: ${asset.mimeType}`,
     `- Size: ${asset.size} bytes`,
   ].join("\n");
@@ -928,13 +1130,20 @@ function createVaultAssetRecord(
   vault: BrainxDesktopVaultSummary,
   fileName: string,
   mimeType: string,
-  buffer: Buffer
+  buffer: Buffer,
+  folderId: string | null = null
 ) {
   const now = new Date().toISOString();
-  const extension = path.extname(fileName) || ".bin";
   const assetId = `vault_asset_${crypto.randomUUID()}`;
-  const relativePath = `${sanitizeSlug(path.basename(fileName, extension), assetId)}-${assetId}${extension}`;
-  fs.writeFileSync(path.join(vault.assetsPath, relativePath), buffer);
+  const directoryRelativePath = buildVaultRelativeDirectory(index, folderId);
+  const relativePath = buildUniqueRelativeFilePath(
+    index.assets.map((asset) => asset.relativePath),
+    directoryRelativePath,
+    sanitizeFileComponent(fileName, `${assetId}${path.extname(fileName) || ".bin"}`)
+  );
+  const assetPath = path.join(vault.vaultPath, relativePath);
+  ensureDirectoryForFile(assetPath);
+  fs.writeFileSync(assetPath, buffer);
   const asset: BrainxDesktopVaultAsset = {
     assetId,
     fileName,
@@ -988,11 +1197,7 @@ async function importExtractedVaultDirectory(
       if (entry.name === ".brainx") continue;
       const fullPath = path.join(directoryPath, entry.name);
       if (entry.isDirectory()) {
-        if (
-          entry.name === path.basename(vault.notesPath) ||
-          entry.name === path.basename(vault.assetsPath) ||
-          entry.name === path.basename(vault.exportsPath)
-        ) {
+        if (entry.name === "notes" || entry.name === "assets" || entry.name === path.basename(vault.exportsPath)) {
           continue;
         }
         await walk(fullPath);
@@ -1026,7 +1231,7 @@ async function importExtractedVaultDirectory(
           continue;
         }
 
-        const asset = createVaultAssetRecord(index, vault, entry.name, guessMimeType(fullPath), buffer);
+        const asset = createVaultAssetRecord(index, vault, entry.name, guessMimeType(fullPath), buffer, parentFolderId);
         const note = createVaultNoteRecord(index, {
           title: path.basename(entry.name, path.extname(entry.name)),
           markdown: createImportedAssetMarkdown(asset),
@@ -1092,6 +1297,27 @@ async function remoteWorkspaceBinaryRequest(pathName: string, init?: RequestInit
     throw new Error(`Remote asset request failed (${response.status}).`);
   }
   return response;
+}
+
+async function deleteRemoteWorkspaceNote(remoteNoteId: string) {
+  const session = readStoredAuthSession();
+  if (!session?.accessToken) {
+    throw new Error("Desktop manual sync requires an authenticated BrainX session.");
+  }
+
+  const response = await fetch(`${getDesktopApiOrigin()}/api/v1/notes/${remoteNoteId}?mode=trash`, {
+    method: "DELETE",
+    headers: buildRemoteWorkspaceHeaders(session),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | { success?: boolean; message?: string; error?: { message?: string } }
+    | null;
+  if (response.status === 404) {
+    return;
+  }
+  if (!response.ok || !payload?.success) {
+    throw new Error(payload?.message ?? payload?.error?.message ?? `Remote note delete failed (${response.status}).`);
+  }
 }
 
 async function uploadVaultAssetToRemote(
@@ -1257,6 +1483,13 @@ async function runManualVaultSync(vault: BrainxDesktopVaultSummary): Promise<Bra
 
   try {
     const syncState = readVaultSyncState(vault);
+    if (syncState.deletedRemoteNoteIds.length > 0) {
+      const pendingDeletedRemoteNoteIds = [...new Set(syncState.deletedRemoteNoteIds)];
+      for (const remoteNoteId of pendingDeletedRemoteNoteIds) {
+        await deleteRemoteWorkspaceNote(remoteNoteId);
+      }
+      syncState.deletedRemoteNoteIds = [];
+    }
     const remoteFoldersData = await remoteWorkspaceRequest<{
       folders: Array<{ folderId: string; name: string; parentFolderId: string | null; updatedAt?: string }>;
     }>("/api/v1/folders/tree");
@@ -1921,7 +2154,9 @@ function registerIpc() {
 
   ipcMain.handle("brainx-desktop:get-vault-snapshot", () => {
     const vault = getActiveVault();
-    return vault ? readVaultSnapshot(vault) : null;
+    if (!vault) return null;
+    const touchedVault = touchVault(vault.id) ?? vault;
+    return readVaultSnapshot(touchedVault);
   });
 
   ipcMain.handle("brainx-desktop:create-vault-folder", (_event, options: BrainxDesktopCreateVaultFolderOptions) => {
@@ -1929,6 +2164,8 @@ function registerIpc() {
     const index = readVaultIndex(vault);
     const folder = createVaultFolderRecord(index, options);
     index.folders.unshift(folder);
+    const folderPath = path.join(vault.vaultPath, buildVaultRelativeDirectory(index, folder.folderId));
+    fs.mkdirSync(folderPath, { recursive: true });
     persistVaultIndex(vault, index);
     return folder;
   });
@@ -1941,10 +2178,19 @@ function registerIpc() {
       throw new Error("Vault folder not found.");
     }
 
+    const currentRelativePath = buildVaultRelativeDirectory(index, folder.folderId);
+    const affectedFolderIds = collectDescendantFolderIds(index.folders, folder.folderId);
+
     if (typeof options.name === "string" && options.name.trim()) {
       folder.name = ensureUniqueFolderName(index.folders, options.name, options.parentFolderId ?? folder.parentFolderId, folder.folderId);
     }
     if (options.parentFolderId !== undefined) {
+      if (options.parentFolderId === folder.folderId) {
+        throw new Error("Vault folder cannot be moved into itself.");
+      }
+      if (options.parentFolderId && collectDescendantFolderIds(index.folders, folder.folderId).has(options.parentFolderId)) {
+        throw new Error("Vault folder cannot be moved into its descendant.");
+      }
       folder.parentFolderId = options.parentFolderId;
     }
     if (options.color !== undefined) {
@@ -1953,6 +2199,20 @@ function registerIpc() {
     if (options.favorite !== undefined) {
       folder.favorite = options.favorite;
     }
+
+    const nextRelativePath = buildVaultRelativeDirectory(index, folder.folderId);
+    if (currentRelativePath && nextRelativePath) {
+      relocateDirectoryIfNeeded(vault.vaultPath, currentRelativePath, nextRelativePath);
+      index.notes.forEach((note) => {
+        if (note.folderId && affectedFolderIds.has(note.folderId)) {
+          note.fileName = rewriteRelativePathPrefix(note.fileName, currentRelativePath, nextRelativePath);
+        }
+      });
+      index.assets.forEach((asset) => {
+        asset.relativePath = rewriteRelativePathPrefix(asset.relativePath, currentRelativePath, nextRelativePath);
+      });
+    }
+
     folder.updatedAt = new Date().toISOString();
     persistVaultIndex(vault, index);
     return folder;
@@ -1962,9 +2222,37 @@ function registerIpc() {
     const vault = requireActiveVault();
     const index = readVaultIndex(vault);
     const deletedFolderIds = collectDescendantFolderIds(index.folders, options.folderId);
+    const deletedRelativeDirectories = Array.from(deletedFolderIds)
+      .map((folderId) => buildVaultRelativeDirectory(index, folderId))
+      .filter(Boolean);
     const notesToDelete = index.notes.filter((note) => note.folderId && deletedFolderIds.has(note.folderId));
     notesToDelete.forEach((note) => deleteVaultNoteFile(vault, note.fileName));
     index.notes = index.notes.filter((note) => !(note.folderId && deletedFolderIds.has(note.folderId)));
+    index.assets = index.assets.filter((asset) => {
+      const normalizedAssetPath = path.normalize(asset.relativePath);
+      const shouldDelete = deletedRelativeDirectories.some((relativeDirectory) => {
+        const normalizedDirectory = path.normalize(relativeDirectory);
+        return (
+          normalizedAssetPath === normalizedDirectory ||
+          normalizedAssetPath.startsWith(`${normalizedDirectory}${path.sep}`)
+        );
+      });
+      if (shouldDelete) {
+        const assetPath = path.join(vault.vaultPath, asset.relativePath);
+        if (fs.existsSync(assetPath)) {
+          fs.rmSync(assetPath, { force: true });
+        }
+      }
+      return !shouldDelete;
+    });
+    deletedRelativeDirectories
+      .sort((left, right) => right.length - left.length)
+      .forEach((relativeDirectory) => {
+        const folderPath = path.join(vault.vaultPath, relativeDirectory);
+        if (fs.existsSync(folderPath)) {
+          fs.rmSync(folderPath, { recursive: true, force: true });
+        }
+      });
     index.folders = index.folders.filter((folder) => !deletedFolderIds.has(folder.folderId));
     persistVaultIndex(vault, index);
     return {
@@ -2008,8 +2296,14 @@ function registerIpc() {
     if (!note) {
       throw new Error("Vault note not found.");
     }
-    const nextTitle = ensureUniqueNoteTitle(index.notes, options.title.trim() || note.title, options.folderId ?? note.folderId, note.noteId);
-    const nextFileName = buildNoteFileName(note.noteId, nextTitle);
+    const nextFolderId = options.folderId !== undefined ? options.folderId : note.folderId;
+    const nextTitle = ensureUniqueNoteTitle(index.notes, options.title.trim() || note.title, nextFolderId, note.noteId);
+    const nextFileName = buildUniqueRelativeFilePath(
+      index.notes.map((item) => item.fileName),
+      buildVaultRelativeDirectory(index, nextFolderId),
+      buildNoteFileName(nextTitle),
+      note.fileName
+    );
     const currentMarkdown = readVaultNoteMarkdown(vault, note.fileName);
     if (nextFileName !== note.fileName) {
       writeVaultNoteMarkdown(vault, nextFileName, currentMarkdown);
@@ -2017,7 +2311,7 @@ function registerIpc() {
       note.fileName = nextFileName;
     }
     note.title = nextTitle;
-    note.folderId = options.folderId ?? null;
+    note.folderId = nextFolderId;
     note.tags = options.tags ?? [];
     note.typography = options.typography ?? null;
     note.version += 1;
@@ -2033,12 +2327,19 @@ function registerIpc() {
     };
   });
 
-  ipcMain.handle("brainx-desktop:delete-vault-note", (_event, options: BrainxDesktopDeleteVaultNoteOptions) => {
+  ipcMain.handle("brainx-desktop:delete-vault-note", async (_event, options: BrainxDesktopDeleteVaultNoteOptions) => {
     const vault = requireActiveVault();
     const index = readVaultIndex(vault);
     const note = index.notes.find((item) => item.noteId === options.noteId);
     if (!note) {
       return { noteId: options.noteId, deletedAt: new Date().toISOString(), purgeAt: null };
+    }
+    const syncState = readVaultSyncState(vault);
+    const mappedRemoteNoteId = syncState.noteMappings[note.noteId]?.remoteNoteId ?? null;
+    if (mappedRemoteNoteId) {
+      syncState.deletedRemoteNoteIds = Array.from(new Set([...syncState.deletedRemoteNoteIds, mappedRemoteNoteId]));
+      delete syncState.noteMappings[note.noteId];
+      persistVaultSyncState(vault, syncState);
     }
     deleteVaultNoteFile(vault, note.fileName);
     index.notes = index.notes.filter((item) => item.noteId !== options.noteId);
