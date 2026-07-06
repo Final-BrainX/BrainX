@@ -474,18 +474,21 @@ export function readAuthSession() {
   if (typeof window === "undefined") return null;
   try {
     const raw = getLocalStoredValue(AUTH_SESSION_KEY) ?? getSessionStoredValue(AUTH_SESSION_KEY);
-    return raw ? (JSON.parse(raw) as AuthSession) : canUseDevAuthBypass() ? DEV_AUTH_SESSION : null;
+    return raw ? (JSON.parse(raw) as AuthSession) : null;
   } catch {
-    return canUseDevAuthBypass() ? DEV_AUTH_SESSION : null;
+    return null;
   }
 }
 
 export function ensureDevAuthSession() {
-  if (typeof window === "undefined" || !canUseDevAuthBypass()) return null;
-  const session = readAuthSession();
-  if (session?.accessToken) return session;
-  saveAuthSession(DEV_AUTH_SESSION);
-  return DEV_AUTH_SESSION;
+  if (typeof window === "undefined") return null;
+  return readAuthSession();
+}
+
+export function startDemoSession() {
+  if (typeof window === "undefined") return null;
+  saveAuthSession(DEMO_AUTH_SESSION);
+  return DEMO_AUTH_SESSION;
 }
 
 export function clearAuthSession() {

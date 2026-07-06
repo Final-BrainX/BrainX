@@ -1027,7 +1027,6 @@ export function MyPageScreen() {
       .catch((error) => {
         const isAuthError = error instanceof AuthRequiredError;
         pushToast(isAuthError ? error.message : error instanceof Error ? error.message : "내 정보를 불러오지 못했습니다.", "err");
-        router.replace("/login");
       })
       .finally(() => {
         if (mounted) setLoading(false);

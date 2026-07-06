@@ -20,7 +20,6 @@ import {
   clearAuthSession,
   isDevAuthSession,
   isSameAuthSession,
-  logout,
   readAuthSession,
   type AuthSession,
 } from "@/lib/auth-api";
@@ -927,8 +926,8 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [notifications, setNotifications] = useState<MyNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [loggingOut, setLoggingOut] = useState(false);
-  const isGuest = !session?.accessToken;
+  const isDemoSession = isDevAuthSession(session);
+  const isGuest = !session?.accessToken || isDemoSession;
 
   useEffect(() => {
     const syncSession = () => {
@@ -1164,24 +1163,14 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
           <div className="relative">
             <button
               type="button"
-              disabled={loggingOut}
-              onClick={async () => {
+              disabled={false}
+              onClick={() => {
                 setNotificationOpen(false);
                 if (isGuest) {
                   setGuestMenuOpen((current) => !current);
                   return;
                 }
-                if (loggingOut) return;
-                setLoggingOut(true);
-                try {
-                  await logout();
-                  pushToast("로그아웃되었습니다.", "ok");
-                } catch (error) {
-                  pushToast(error instanceof Error ? error.message : "로그아웃에 실패했습니다.", "err");
-                } finally {
-                  setLoggingOut(false);
-                }
-                window.location.replace("/");
+                onOpenSettings("profile");
               }}
               className="tutorial-target-profile group relative flex h-8 items-center gap-1.5 rounded-lg px-2 transition-colors hover:bg-surface2/60 disabled:opacity-60"
             >
@@ -1219,13 +1208,13 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
                 <div className="my-2 h-px bg-line/50" />
                 <button
                   type="button"
-                  onClick={() => {
-                    setGuestMenuOpen(false);
-                    router.push(buildAuthPath("/login", pathname));
-                  }}
-                  className="flex h-9 w-full items-center rounded-lg px-2 text-left text-[13px] font-medium text-txt hover:bg-surface2/60"
-                >
-                  로그인
+                    onClick={() => {
+                      setGuestMenuOpen(false);
+                      router.push(buildAuthPath("/login", pathname));
+                    }}
+                    className="flex h-9 w-full items-center rounded-lg px-2 text-left text-[13px] font-medium text-txt hover:bg-surface2/60"
+                  >
+                  로그인하기
                 </button>
               </div>
             ) : null}
@@ -1267,16 +1256,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     window.addEventListener("brainx-toggle-notes-explorer", handleExplorerState);
     return () => window.removeEventListener("brainx-toggle-notes-explorer", handleExplorerState);
   }, []);
-
-  useEffect(() => {
-    if (pathname === "/mypage") {
-      if (readAuthSession()?.accessToken) {
-        setSettingsTab("profile");
-        setSettingsOpen(true);
-      }
-      router.replace("/home");
-    }
-  }, [pathname, router]);
 
   const openSettings = (tab: SettingsTab = "profile") => {
     setSettingsTab(tab);
