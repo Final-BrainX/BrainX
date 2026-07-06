@@ -37,7 +37,7 @@ class NoteDraftServiceTest {
         NoteDraftService service = new NoteDraftService(redisTemplate, new ObjectMapper());
         ReflectionTestUtils.setField(service, "draftTtlSeconds", 60L);
 
-        NoteDraftSaveRequest request = new NoteDraftSaveRequest("Draft title", "hello draft", null, 3, Instant.parse("2026-06-25T00:00:00Z"));
+        NoteDraftSaveRequest request = new NoteDraftSaveRequest("dgrp_default_usr_123", "Draft title", "hello draft", null, 3, Instant.parse("2026-06-25T00:00:00Z"));
 
         var userResult = service.saveDraft(new Actor(ActorType.USER, "usr_123"), "note_1", request);
         var guestResult = service.saveDraft(new Actor(ActorType.GUEST, "gst_abc"), "note_1", request);
@@ -46,6 +46,8 @@ class NoteDraftServiceTest {
         verify(valueOperations).set(eq("workspace:note:draft:guest:gst_abc:note_1"), any(String.class), eq(Duration.ofSeconds(60)));
         verify(setOperations).add("workspace:note:dirty:user:usr_123", "note_1");
         verify(setOperations).add("workspace:note:dirty:guest:gst_abc", "note_1");
+        assertThat(userResult.documentGroupId()).isEqualTo("dgrp_default_usr_123");
+        assertThat(guestResult.documentGroupId()).isEqualTo("dgrp_default_usr_123");
         assertThat(userResult.actorType()).isEqualTo("USER");
         assertThat(guestResult.actorType()).isEqualTo("GUEST");
     }
@@ -70,7 +72,7 @@ class NoteDraftServiceTest {
         ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get("workspace:note:draft:user:usr_123:note_1")).thenReturn("""
-                {"actorType":"USER","actorId":"usr_123","noteId":"note_1","title":"Draft title","markdown":"hello draft","baseVersion":3,"clientSavedAt":"2026-06-25T00:00:00Z","savedAt":"2026-06-25T00:00:01Z"}
+                {"actorType":"USER","actorId":"usr_123","noteId":"note_1","documentGroupId":"dgrp_default_usr_123","title":"Draft title","markdown":"hello draft","baseVersion":3,"clientSavedAt":"2026-06-25T00:00:00Z","savedAt":"2026-06-25T00:00:01Z"}
                 """);
         when(redisTemplate.getExpire("workspace:note:draft:user:usr_123:note_1")).thenReturn(30L);
 
@@ -80,6 +82,7 @@ class NoteDraftServiceTest {
         var result = service.getDraft(new Actor(ActorType.USER, "usr_123"), "note_1");
 
         assertThat(result).isNotNull();
+        assertThat(result.documentGroupId()).isEqualTo("dgrp_default_usr_123");
         assertThat(result.actorType()).isEqualTo("USER");
         assertThat(result.title()).isEqualTo("Draft title");
         assertThat(result.markdown()).isEqualTo("hello draft");

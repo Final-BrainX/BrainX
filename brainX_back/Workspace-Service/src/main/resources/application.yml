@@ -26,6 +26,8 @@ spring:
       mode: ${SPRING_SQL_INIT_MODE:always}
       schema-locations:
         - classpath:db/migration/V20260702_01__repair_workspace_note_links_link_type.sql
+        - classpath:db/migration/V20260705_01__add_document_groups_and_workspace_document_group_id.sql
+        - classpath:db/migration/V20260705_02__backfill_default_workspace_document_groups.sql
   data:
     redis:
       host: ${REDIS_HOST:localhost}

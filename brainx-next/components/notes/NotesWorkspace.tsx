@@ -60,6 +60,7 @@ import { exportNote, uploadAndImportFile, type ExportFormat } from "@/lib/ingest
 import { ShareLinkModal } from "./ShareLinkModal";
 import { markdownToHtml } from "./NoteEditor";
 import { useBrainX } from "@/components/brainx-provider";
+import { useWorkspace } from "@/components/workspace-provider";
 import { consumePendingNoteClaim, readAuthSession } from "@/lib/auth-api";
 
 export type InitialTab = { kind: "note"; noteId: string } | { kind: "start" };
@@ -416,6 +417,7 @@ function resolveVisiblePaneId(root: PaneNode, activeId: string): string {
 }
 
 export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteChange }: NotesWorkspaceProps) {
+  const { currentWorkspaceId, workspaces } = useWorkspace();
   // 최초 1회만 생성되는 초기값 (pane root와 paneTabs가 같은 paneId를 공유해야 함)
   const initRef = useRef<ReturnType<typeof createInitialPaneState> | null>(null);
   if (!initRef.current) initRef.current = createInitialPaneState(initialTab);
@@ -596,6 +598,27 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     const session = readAuthSession();
     return !session?.accessToken;
   }, []);
+  const currentWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.documentGroupId === currentWorkspaceId) ?? null,
+    [workspaces, currentWorkspaceId]
+  );
+  const includeLegacyNullDocumentGroup = currentWorkspaceId === null || currentWorkspace?.isDefault === true;
+  const matchesCurrentWorkspace = useCallback(
+    (documentGroupId: string | null | undefined) => {
+      if (currentWorkspaceId === null) return true;
+      if ((documentGroupId ?? null) === currentWorkspaceId) return true;
+      return includeLegacyNullDocumentGroup && (documentGroupId ?? null) === null;
+    },
+    [currentWorkspaceId, includeLegacyNullDocumentGroup]
+  );
+  const visibleNotes = useMemo(
+    () => notes.filter((note) => matchesCurrentWorkspace(note.documentGroupId)),
+    [notes, matchesCurrentWorkspace]
+  );
+  const visibleFolders = useMemo(
+    () => folders.filter((folder) => matchesCurrentWorkspace(folder.documentGroupId)),
+    [folders, matchesCurrentWorkspace]
+  );
 
   /* 같은 depth에서 동일 이름의 노트 중복 여부 확인 (노트↔노트만, 폴더와는 허용) */
   const checkNoteDuplicate = useCallback((title: string, folderId: string | null | undefined): boolean => {
@@ -1115,6 +1138,10 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     const newNote = makeBlankNote(folderId);
     newNote.title = noteTitle;
     if (favorite) newNote.favorite = true;
+    /* handleCreateFolder와 동일한 정책: currentWorkspaceId가 있으면(non-default Workspace)
+       새 노트를 그 Workspace 소속으로 표시해 visibleNotes/QuickSwitcher 필터에서 즉시 사라지지
+       않게 한다. currentWorkspaceId가 null(default Workspace 또는 Guest)이면 기존 동작 유지. */
+    if (currentWorkspaceId) newNote.documentGroupId = currentWorkspaceId;
     const localNoteId = newNote.id;
     const newTabId = uid();
 
@@ -1263,7 +1290,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }
 
     return newNote.id;
-  }, [isGuest, notes, checkNoteDuplicate, pushToast, onActiveNoteChange]);
+  }, [isGuest, notes, checkNoteDuplicate, pushToast, onActiveNoteChange, currentWorkspaceId]);
 
   /* 사이드바 "+ 새 노트" 버튼 → 현재 선택된 폴더 안에, 활성 패널의 새 탭으로 생성.
      favorite=true는 즐겨찾기 영역의 루트 생성 버튼에서만 쓴다(정책: 즐겨찾기 영역에서 직접
@@ -1407,7 +1434,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       return;
     }
     if (USE_MOCK_NOTES) {
-      setFolders((prev) => [...prev, { id: `folder-${uid()}`, name, parentFolderId, favorite: favorite || undefined }]);
+      setFolders((prev) => [
+        ...prev,
+        {
+          id: `folder-${uid()}`,
+          name,
+          parentFolderId,
+          documentGroupId: currentWorkspaceId,
+          favorite: favorite || undefined,
+        },
+      ]);
       return;
     }
     void createWorkspaceFolder(name, parentFolderId)
@@ -1419,7 +1455,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       .catch((error) => {
         pushToast(error instanceof Error ? error.message : "폴더를 만들지 못했습니다.", "err");
       });
-  }, [isGuest, folders, checkFolderDuplicate, pushToast]);
+  }, [isGuest, folders, checkFolderDuplicate, pushToast, currentWorkspaceId]);
 
   const handleRenameFolder = useCallback((folderId: string, newName: string) => {
     const folder = folders.find((f) => f.id === folderId);
@@ -2098,6 +2134,95 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     });
   }, [state, paneTabs, notes, folders, paneFontScale]);
 
+  /* Ticket14 2단계: Workspace 전환 시 탐색기/Quick Switcher에서는 이미 사라진(다른 Workspace
+     소속) 노트를 가리키는 탭이 화면에는 계속 열려 편집 가능한 상태로 남는 불일치를 없앤다.
+     정책(A): currentWorkspaceId가 실제로 바뀌면 새 Workspace 기준으로 보이지 않는 노트의 탭을
+     모두 닫는다 — 남는 탭이 없는 패널은 applyLocalNotesDeletion과 동일한 정책(분할의 일부면
+     closeNode로 제거, 유일한 leaf면 비워서 Welcome Board 노출)을 따른다. 노트/폴더 데이터
+     자체는 지우지 않으므로 다시 그 Workspace로 돌아오면 그대로 탐색기에 남아있다.
+     currentWorkspaceId 변경에만 반응해야 하므로(매 노트 편집마다 재실행되면 안 됨) notes/
+     paneTabs/state는 항상 최신값을 들고 있는 latestSessionRef를 통해 읽는다.
+
+     "전환"의 판정은 boolean 1회성 플래그가 아니라 직전 currentWorkspaceId 값을 직접 기억해서
+     비교해야 한다 — WorkspaceProvider는 마운트마다 null로 시작했다가 비동기로 default
+     Workspace를 resolve하므로(새로고침 시 마지막으로 보던 Workspace를 기억하지 않는다), null이
+     한쪽이라도 관여하는 전환(null→default 최초 해석, 조회 실패로 인한 non-null→null 리셋 등)은
+     전부 로딩/초기화 상태이지 사용자가 실제로 고른 전환이 아니다. 이 값을 boolean으로만
+     추적하면 "첫 effect 실행이 null인 채로 소비돼버려서" 정작 막아야 할 null→default 전환을
+     통과시켜, non-default Workspace에서 탭을 열어둔 채 새로고침한 사용자의 탭이 로딩 도중
+     stale로 오판되어 닫히는 회귀가 있었다 — previousWorkspaceId 자체가 null이거나
+     currentWorkspaceId가 null이면 항상 정리를 건너뛰고, 두 값이 모두 non-null이면서 서로 다를
+     때만 실제 전환으로 취급한다. */
+  const previousWorkspaceIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const previousWorkspaceId = previousWorkspaceIdRef.current;
+    previousWorkspaceIdRef.current = currentWorkspaceId;
+    if (!previousWorkspaceId || !currentWorkspaceId) return;
+    if (previousWorkspaceId === currentWorkspaceId) return;
+    const staleNoteIds = new Set(
+      latestSessionRef.current.notes
+        .filter((note) => !matchesCurrentWorkspace(note.documentGroupId))
+        .map((note) => note.id)
+    );
+    if (staleNoteIds.size === 0) return;
+
+    const { paneTabs: currentPaneTabs, root: currentRoot, activeId: currentActiveId } = latestSessionRef.current;
+    const affectedPaneIds = Object.keys(currentPaneTabs).filter((paneId) =>
+      currentPaneTabs[paneId].tabs.some((t) => staleNoteIds.has(t.noteId))
+    );
+    if (affectedPaneIds.length === 0) return;
+
+    let nextRoot = currentRoot;
+    const removedPaneIds = new Set<string>();
+    for (const paneId of affectedPaneIds) {
+      const remainingTabs = currentPaneTabs[paneId].tabs.filter((t) => !staleNoteIds.has(t.noteId));
+      if (remainingTabs.length > 0) continue;
+      if (countLeaves(nextRoot) > 1) {
+        const removed = closeNode(nextRoot, paneId);
+        if (removed) {
+          nextRoot = removed;
+          removedPaneIds.add(paneId);
+        }
+      } else {
+        nextRoot = setNoteOnLeaf(nextRoot, paneId, "");
+      }
+    }
+    if (nextRoot !== currentRoot) {
+      const nextActiveId = removedPaneIds.has(currentActiveId)
+        ? findFirstLeafId(nextRoot) ?? currentActiveId
+        : currentActiveId;
+      setState({ root: nextRoot, activeId: nextActiveId });
+    }
+
+    setPaneTabs((prev) => {
+      const next = { ...prev };
+      for (const paneId of affectedPaneIds) {
+        if (removedPaneIds.has(paneId)) {
+          delete next[paneId];
+          continue;
+        }
+        const current = next[paneId];
+        if (!current) continue;
+        const newTabs = current.tabs.filter((t) => !staleNoteIds.has(t.noteId));
+        const newActiveTabId = newTabs.some((t) => t.id === current.activeTabId)
+          ? current.activeTabId
+          : newTabs[0]?.id ?? "";
+        next[paneId] = { tabs: newTabs, activeTabId: newActiveTabId };
+      }
+      return next;
+    });
+
+    setTabMode((prev) => {
+      const next = { ...prev };
+      for (const paneId of affectedPaneIds) {
+        currentPaneTabs[paneId].tabs.forEach((t) => {
+          if (staleNoteIds.has(t.noteId)) delete next[t.id];
+        });
+      }
+      return next;
+    });
+  }, [currentWorkspaceId, matchesCurrentWorkspace]);
+
   useEffect(() => {
     if (USE_MOCK_NOTES || !hydratedRef.current || !activeNote) return;
     if (!activeNote.id.startsWith("note_")) return;
@@ -2457,7 +2582,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     >
       {welcomeQuickSwitcherOpen ? (
         <QuickSwitcher
-          notes={notes}
+          notes={visibleNotes}
           onSelect={handleQuickSwitcherSelect}
           onClose={() => setQuickSwitcher(null)}
         />
@@ -2481,8 +2606,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         {/* ── 좌측: 노트 탐색기 ──────────────────────── */}
         {explorerOpen && (
           <NotesExplorer
-            notes={notes}
-            folders={folders}
+            notes={visibleNotes}
+            folders={visibleFolders}
             activeNoteId={activeNoteId ?? ""}
             selectedFolderId={selectedFolderId}
             onSelectFolder={handleSelectFolder}
