@@ -1879,75 +1879,7 @@ function GeneralPanel({
 }) {
   return (
     <>
-      <header className="mb-8">
-        <h1 className="text-[24px] font-bold tracking-[-0.01em] text-[#2f2d2a]">일반</h1>
-        <p className="mt-3 text-[13px] text-[#6d6861]">앱 표시와 개인정보 옵션을 관리하세요.</p>
-      </header>
-      <section className="rounded-2xl border border-line/40 bg-surface shadow-soft">
-        <AccountRow
-          className="px-4"
-          title="언어"
-          desc="한 / Eng"
-          action={
-            <div className="inline-flex h-9 items-center rounded-full border border-line/60 bg-surface2/60 p-1 shadow-sm">
-              {[
-                { label: "한", value: "ko" as LanguageCode },
-                { label: "Eng", value: "en" as LanguageCode }
-              ].map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  onClick={() => setLanguage(item.value)}
-                  className={`h-7 rounded-full px-3 text-[13px] font-medium transition ${
-                    language === item.value ? "bg-primary text-white shadow-soft" : "text-txt2 hover:bg-surface hover:text-txt"
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          }
-        />
-        <AccountRow
-          className="px-4"
-          title="테마"
-          desc="현재 설정"
-          action={
-            <div className="inline-flex items-center gap-1.5 rounded-full border border-line/60 bg-surface2/60 p-1 shadow-sm">
-              {[
-                { key: "light", icon: "sun" as const, label: "라이트" },
-                { key: "system", icon: "settings" as const, label: "시스템" },
-                { key: "dark", icon: "moon" as const, label: "다크" }
-              ].map((item, index) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => setTheme(item.key as typeof theme)}
-                  className={`grid h-7 w-7 place-items-center rounded-full transition ${
-                    theme === item.key ? "bg-primary text-white shadow-soft" : "text-txt2 hover:bg-surface hover:text-txt"
-                  }`}
-                  aria-label={item.label}
-                >
-                  <Icon name={item.icon} size={15} />
-                </button>
-              ))}
-            </div>
-          }
-        />
-        <AccountRow
-          className="px-4"
-          title="마케팅 정보 수신"
-          desc="제품 소식과 혜택 안내 수신 동의"
-          action={<ConsentButton checked={consents.marketingOptional} disabled={savingConsent === "marketingOptional"} onChange={(value) => onConsentChange("marketingOptional", value)} />}
-        />
-        <AccountRow
-          className="px-4"
-          title="행동 데이터 분석"
-          desc="서비스 개선을 위한 사용 분석 동의"
-          action={<ConsentButton checked={consents.behaviorAnalyticsOptional} disabled={savingConsent === "behaviorAnalyticsOptional"} onChange={(value) => onConsentChange("behaviorAnalyticsOptional", value)} />}
-        />
-        <AccountRow className="px-4" title="세션" desc="현재 로그인된 기기에서 로그아웃합니다." action={<ModalButton onClick={onLogout}>로그아웃</ModalButton>} />
-      </section>
+      
     </>
   );
 }

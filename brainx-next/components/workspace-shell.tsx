@@ -1518,3 +1518,15 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
           onOpenSettings={openSettings}
           notesExplorerOpen={notesExplorerOpen}
         />
+        <main className="scroll relative z-0 flex-1 min-w-0 overflow-y-auto">
+          {children}
+        </main>
+      </div>
+      <AccountSettingsModal
+        open={settingsOpen}
+        defaultTab={settingsTab}
+        onClose={() => setSettingsOpen(false)}
+      />
+    </div>
+  );
+}
