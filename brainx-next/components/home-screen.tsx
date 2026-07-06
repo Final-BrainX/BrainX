@@ -28,7 +28,7 @@ import {
   type ClusterJobLatestData,
   type InsightReportLatestData,
 } from "@/lib/intelligence-api";
-import { getMyWorkspaceStats, type WorkspaceUserStatsData } from "@/lib/workspace-api";
+import { getMyWorkspaceStats, getWorkspaceDisplayName, type WorkspaceUserStatsData } from "@/lib/workspace-api";
 import { summarizeWorkspaceNotes } from "@/lib/workspace-note-stats";
 import { cx } from "@/lib/utils";
 
@@ -886,7 +886,7 @@ export function HomeScreen() {
             {currentWorkspace ? (
               <span className="inline-flex items-center gap-1 rounded-full border border-line/60 bg-surface2/50 px-2 py-0.5 text-[10px] font-semibold text-txt2">
                 <Icon name="folder" size={10} />
-                {currentWorkspace.name}
+                {getWorkspaceDisplayName(currentWorkspace)}
               </span>
             ) : null}
           </p>

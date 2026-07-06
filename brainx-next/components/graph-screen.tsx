@@ -21,7 +21,7 @@ import {
 } from "@/lib/ai-cluster-projection";
 import { mergeNoteIndexStatuses } from "@/lib/note-index-statuses";
 import { readPendingCreatedNotes, removePendingCreatedNoteByNoteId } from "@/lib/notes/pending-created-note-cache";
-import { createWorkspaceNote, getNote, hasWorkspaceUserIdentity, listWorkspaceNoteDrafts, updateWorkspaceNoteContent, WorkspaceApiError, type NoteCreated } from "@/lib/workspace-api";
+import { createWorkspaceNote, getNote, hasWorkspaceUserIdentity, listWorkspaceNoteDrafts, matchesWorkspaceScope, updateWorkspaceNoteContent, WorkspaceApiError, type NoteCreated } from "@/lib/workspace-api";
 import { contentHasWikiLinkTo } from "@/lib/wiki-links";
 import { useBrainX } from "@/components/brainx-provider";
 import { useWorkspace } from "@/components/workspace-provider";
@@ -1529,7 +1529,7 @@ function GraphScreenInner() {
   const optimisticGraphNotesRef = useRef<Record<string, BrainXNote>>({});
   const currentSession = readAuthSession();
   const hasRealLogin = !!currentSession?.accessToken && !isDevAuthSession(currentSession);
-  const { currentWorkspaceId } = useWorkspace();
+  const { currentWorkspaceId, workspaces } = useWorkspace();
   // Ticket16: "default" 문자열 대신 현재 선택된 Workspace의 실제 documentGroupId가 있을 때만
   // AI 클러스터링을 활성화한다 — Guest/미선택 상태(currentWorkspaceId=null)는 기존과 동일하게 비활성.
   const aiClusterPanelEnabled = hasRealLogin && !!currentWorkspaceId && !USE_MOCK_GRAPH && !USE_MOCK_GRAPH_CLUSTERS;
@@ -1775,8 +1775,18 @@ function GraphScreenInner() {
           }
           return true;
         });
-        setLiveNotes(optimisticNotes.length > 0 ? [...optimisticNotes, ...graphNotes] : graphNotes);
-        setLiveEdges(graphEdgesForFlow(graph));
+        // GraphNodeData(=/api/v1/graph 응답)에는 documentGroupId가 없어 그래프 자체로는 Workspace를
+        // 판정할 수 없다 — mockNotes(useBrainX(), 실제로는 Notes API로 이미 documentGroupId까지
+        // 불러온 전역 노트 목록)와 noteId로 대조해 현재 Workspace 소속만 남긴다. optimisticNotes(방금
+        // 만들어 아직 서버 그래프에 없는 노트)는 이 대조표에 없을 수 있어 필터링하지 않고 그대로
+        // 둔다 — 방금 만든 노트가 순간적으로 사라지는 것이 더 나쁜 회귀다.
+        const docGroupByNoteId = new Map(mockNotes.map((note) => [note.id, note.documentGroupId ?? null]));
+        const scopedGraphNotes = graphNotes.filter((note) =>
+          matchesWorkspaceScope(docGroupByNoteId.get(note.id) ?? null, currentWorkspaceId, workspaces)
+        );
+        const scopedNoteIds = new Set([...scopedGraphNotes.map((note) => note.id), ...optimisticNotes.map((note) => note.id)]);
+        setLiveNotes(optimisticNotes.length > 0 ? [...optimisticNotes, ...scopedGraphNotes] : scopedGraphNotes);
+        setLiveEdges(graphEdgesForFlow(graph).filter((edge) => scopedNoteIds.has(edge.source) && scopedNoteIds.has(edge.target)));
         setGraphDataVersion((version) => version + 1);
       } catch (error) {
         if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
@@ -1788,7 +1798,7 @@ function GraphScreenInner() {
         }
       }
     },
-    [pushToast]
+    [pushToast, mockNotes, currentWorkspaceId, workspaces]
   );
 
   const refreshClusterLatest = useCallback(

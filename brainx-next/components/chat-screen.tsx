@@ -13,7 +13,7 @@ import {
   type ChatThreadData,
   type ChatThreadListStatus,
 } from "@/lib/intelligence-api";
-import { createWorkspaceNoteFromPayload } from "@/lib/workspace-api";
+import { createWorkspaceNoteFromPayload, matchesWorkspaceScope } from "@/lib/workspace-api";
 import { useBrainX } from "@/components/brainx-provider";
 import { useWorkspace } from "@/components/workspace-provider";
 import {
@@ -65,7 +65,7 @@ const CHAT_SUGGESTIONS = [
 export function ChatScreen() {
   const router = useRouter();
   const { pushToast, notes, effectiveTheme } = useBrainX();
-  const { currentWorkspaceId } = useWorkspace();
+  const { currentWorkspaceId, workspaces } = useWorkspace();
   const isLight = effectiveTheme === "light";
   const [threads, setThreads] = useState<ChatThreadListItem[]>([]);
   const [threadCursor, setThreadCursor] = useState<string | null>(null);
@@ -95,6 +95,15 @@ export function ChatScreen() {
   >({});
   const detailRequestIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // NotesExplorer/TopBar 검색과 동일한 정책 — 사이드바에는 현재 Workspace 소속 스레드만 보여준다.
+  // currentWorkspaceId가 null(Guest 또는 Workspace 미선택)이면 matchesWorkspaceScope가 항상
+  // true라 기존처럼 전체 목록이 그대로 보인다. threads(원본 상태)는 페이지네이션/dedup 등 다른
+  // 로직이 그대로 참조해야 하므로 건드리지 않고, 렌더링에만 이 필터링된 목록을 쓴다.
+  const visibleThreads = useMemo(
+    () => threads.filter((thread) => matchesWorkspaceScope(thread.documentGroupId, currentWorkspaceId, workspaces)),
+    [threads, currentWorkspaceId, workspaces]
+  );
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -532,7 +541,7 @@ export function ChatScreen() {
   return (
     <div data-route className="flex h-full">
       <ChatThreadSidebar
-        threads={threads}
+        threads={visibleThreads}
         activeThreadId={activeThreadId}
         threadStatus={threadStatus}
         threadActionOpenId={threadActionOpenId}

@@ -16,6 +16,8 @@ import {
   type AgentThreadListData,
 } from "@/lib/intelligence-api";
 import { useBrainX } from "@/components/brainx-provider";
+import { useWorkspace } from "@/components/workspace-provider";
+import { matchesWorkspaceScope } from "@/lib/workspace-api";
 import { Avatar, Icon } from "@/components/brainx-ui";
 import { cx } from "@/lib/utils";
 
@@ -189,6 +191,7 @@ function ActionCard({
 export function AgentScreen() {
   const router = useRouter();
   const { pushToast, effectiveTheme } = useBrainX();
+  const { currentWorkspaceId, workspaces } = useWorkspace();
   const isLight = effectiveTheme === "light";
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -207,6 +210,14 @@ export function AgentScreen() {
   const activeTitle = activeThread?.title ?? "새 Agent 대화";
   const composerDisabled = streaming;
   const modelPickerLocked = Boolean(activeThread);
+
+  // Chat과 동일한 정책 — 사이드바에는 현재 Workspace 소속 스레드만 보여준다. currentWorkspaceId가
+  // null(Guest 또는 Workspace 미선택)이면 matchesWorkspaceScope가 항상 true라 기존처럼 전체
+  // 목록이 그대로 보인다.
+  const visibleThreads = useMemo(
+    () => threads.filter((thread) => matchesWorkspaceScope(thread.documentGroupId, currentWorkspaceId, workspaces)),
+    [threads, currentWorkspaceId, workspaces]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -327,6 +338,7 @@ export function AgentScreen() {
   async function ensureThread(prompt: string) {
     if (activeThread) return activeThread;
     const created = await createAgentThread({
+      documentGroupId: currentWorkspaceId ?? undefined,
       title: titleFromPrompt(prompt),
       initialMessage: prompt,
       modelId: model.id,
@@ -441,10 +453,10 @@ export function AgentScreen() {
           </button>
         </div>
         <div className="scroll flex-1 space-y-1 overflow-y-auto p-3">
-          {threadsLoading && threads.length === 0 ? (
+          {threadsLoading && visibleThreads.length === 0 ? (
             <div className="p-3 text-[13px] text-txt3">Agent 대화를 불러오는 중입니다.</div>
           ) : null}
-          {threads.map((thread) => {
+          {visibleThreads.map((thread) => {
             const active = activeThread?.threadId === thread.threadId;
             return (
               <button

@@ -197,6 +197,14 @@ export function matchesWorkspaceScope(
   return currentWorkspace?.isDefault === true && (documentGroupId ?? null) === null;
 }
 
+/** 회원가입 시 Backend가 만들어 주는 default Workspace의 실제 저장된 name 값은 "Default"
+    문자열 그대로다(DB 변경 없음, 표시만 바꾼다). WorkspaceSwitcher/Home처럼 Workspace 이름을
+    사용자에게 보여주는 모든 곳에서 이 함수로 통일해, isDefault인 Workspace만 "기본 Workspace"로
+    표시하고 그 외에는 사용자가 지은 실제 이름을 그대로 보여준다. */
+export function getWorkspaceDisplayName(workspace: Pick<WorkspaceSummaryData, "name" | "isDefault">): string {
+  return workspace.isDefault ? "기본 Workspace" : workspace.name;
+}
+
 export async function shouldUseDesktopVault() {
   if (!isElectronDesktop()) return false;
   const config = await getBrainxDesktopConfig();
