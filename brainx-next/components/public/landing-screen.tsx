@@ -429,7 +429,7 @@ export function LandingScreen() {
 
   const section2Ref = useRef<HTMLDivElement>(null);
   const inView2 = useInView(section2Ref, { root: containerRef, once: true, amount: 1 });
-  const { displayed: t2, isDone: t2Done } = useSingleTyping("생각의 크기에 맞춰", inView2);
+  const { displayed: t2, isDone: t2Done } = useSingleTyping("생각의 크기에 맞추다", inView2);
 
   const section3Ref = useRef<HTMLDivElement>(null);
   const inView3 = useInView(section3Ref, { root: containerRef, once: true, amount: 1 });

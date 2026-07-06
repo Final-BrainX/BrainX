@@ -9,11 +9,16 @@ import { useBrainX } from "@/components/brainx-provider";
 import { Avatar, Badge, Btn, Icon, ThemeToggle } from "@/components/brainx-ui";
 import { BrandLogo } from "@/components/brand-logo";
 import { AccountSettingsModal } from "@/components/utility/account-settings-modal";
+import CreateWorkspaceModal from "@/components/notes/CreateWorkspaceModal";
+import WorkspaceSwitcher from "@/components/notes/WorkspaceSwitcher";
 import { PanelLeftClose, PanelLeft } from "lucide-react";
 import type { BrainXNote } from "@/lib/brainx-data";
 import { addPopupResultListener } from "@/lib/desktop-bridge";
 import { cx, stripMarkdown } from "@/lib/utils";
-import { semanticSearch, type SemanticSearchData } from "@/lib/intelligence-api";
+import {
+  semanticSearch,
+  type SemanticSearchData,
+} from "@/lib/intelligence-api";
 import { formatCreditCount, formatTokenPercent } from "@/lib/token-usage";
 import {
   buildAuthPath,
@@ -30,17 +35,58 @@ import {
   type Subscription,
   type TokenUsageData,
 } from "@/lib/commerce-api";
-import { AuthRequiredError, getMyNotifications, getMyProfile, markMyNotificationRead, type MyNotification } from "@/lib/user-api";
+import {
+  AuthRequiredError,
+  getMyNotifications,
+  getMyProfile,
+  markMyNotificationRead,
+  type MyNotification,
+} from "@/lib/user-api";
 
 const NAV = [
-  { id: "home", labelKey: "nav.home" as const, icon: "home" as const, path: "/home" },
-  { id: "notes", labelKey: "nav.notes" as const, icon: "notes" as const, path: "/notes" },
-  { id: "graph", labelKey: "nav.graph" as const, icon: "graph" as const, path: "/graph" },
-  { id: "chat", labelKey: "nav.chat" as const, icon: "chat" as const, path: "/chat" },
-  { id: "agent", labelKey: "nav.agent" as const, icon: "brain" as const, path: "/agent" },
+  {
+    id: "home",
+    labelKey: "nav.home" as const,
+    icon: "home" as const,
+    path: "/home",
+  },
+  {
+    id: "notes",
+    labelKey: "nav.notes" as const,
+    icon: "notes" as const,
+    path: "/notes",
+  },
+  {
+    id: "graph",
+    labelKey: "nav.graph" as const,
+    icon: "graph" as const,
+    path: "/graph",
+  },
+  {
+    id: "chat",
+    labelKey: "nav.chat" as const,
+    icon: "chat" as const,
+    path: "/chat",
+  },
+  {
+    id: "agent",
+    labelKey: "nav.agent" as const,
+    icon: "brain" as const,
+    path: "/agent",
+  },
 ];
 
-type SettingsTab = "profile" | "general" | "style" | "notifications" | "apiKeys" | "import" | "usage" | "stats" | "support" | "upgrade";
+type SettingsTab =
+  | "profile"
+  | "general"
+  | "style"
+  | "notifications"
+  | "apiKeys"
+  | "import"
+  | "usage"
+  | "stats"
+  | "support"
+  | "upgrade";
 
 function isActive(pathname: string, path: string) {
   if (path === "/notes") return pathname.startsWith("/notes");
@@ -48,7 +94,12 @@ function isActive(pathname: string, path: string) {
 }
 
 function planLabel(subscription: Subscription | null) {
-  if (!subscription || subscription.status === "FREE" || subscription.status === "CANCELLED" || subscription.plan.planId === "free") {
+  if (
+    !subscription ||
+    subscription.status === "FREE" ||
+    subscription.status === "CANCELLED" ||
+    subscription.plan.planId === "free"
+  ) {
     return "Free";
   }
 
@@ -56,7 +107,13 @@ function planLabel(subscription: Subscription | null) {
   return name === "무료" ? "Free" : name || "Free";
 }
 
-const SEARCH_FILTERS = ["최신순", "오래된순", "제목 기준", "내용 기준", "기간 검색"] as const;
+const SEARCH_FILTERS = [
+  "최신순",
+  "오래된순",
+  "제목 기준",
+  "내용 기준",
+  "기간 검색",
+] as const;
 const SEARCH_RESULT_LIMIT = 8;
 const RECENT_RESULT_LIMIT = 5;
 const searchDateFormatter = new Intl.DateTimeFormat("ko-KR", {
@@ -65,7 +122,14 @@ const searchDateFormatter = new Intl.DateTimeFormat("ko-KR", {
 });
 
 type SearchFilter = (typeof SEARCH_FILTERS)[number];
-type SearchMatchField = "제목" | "본문" | "태그" | "최근" | "의미" | "혼합" | "키워드";
+type SearchMatchField =
+  | "제목"
+  | "본문"
+  | "태그"
+  | "최근"
+  | "의미"
+  | "혼합"
+  | "키워드";
 type SemanticSearchStatus = "idle" | "loading" | "success" | "error";
 type SemanticSearchResultItem = SemanticSearchData["results"][number];
 type SearchableNote = {
@@ -143,12 +207,17 @@ function createSearchIndex(notes: BrainXNote[]): SearchableNote[] {
       normalizedTitle: normalizeSearchText(title),
       normalizedBody: normalizeSearchText(body),
       normalizedTags: tags.map(normalizeSearchText),
-      updatedTime: parseSearchDate(note.updatedAt) || parseSearchDate(note.createdAt),
+      updatedTime:
+        parseSearchDate(note.updatedAt) || parseSearchDate(note.createdAt),
     };
   });
 }
 
-function scoreSearchResult(item: SearchableNote, query: string, filter: SearchFilter): SearchResult | null {
+function scoreSearchResult(
+  item: SearchableNote,
+  query: string,
+  filter: SearchFilter,
+): SearchResult | null {
   if (!query) {
     return {
       ...item,
@@ -183,7 +252,10 @@ function scoreSearchResult(item: SearchableNote, query: string, filter: SearchFi
   if (filter === "제목 기준" && titleIncludes) score += 40;
   if (filter === "내용 기준" && bodyIncludes) score += 40;
 
-  const tagSnippet = item.tags.length > 0 ? item.tags.map((tag) => `#${tag}`).join(" ") : "태그가 일치했습니다.";
+  const tagSnippet =
+    item.tags.length > 0
+      ? item.tags.map((tag) => `#${tag}`).join(" ")
+      : "태그가 일치했습니다.";
   return {
     ...item,
     matchField,
@@ -197,9 +269,14 @@ function scoreSearchResult(item: SearchableNote, query: string, filter: SearchFi
   };
 }
 
-function sortSearchResults(a: SearchResult, b: SearchResult, filter: SearchFilter) {
+function sortSearchResults(
+  a: SearchResult,
+  b: SearchResult,
+  filter: SearchFilter,
+) {
   if (filter === "오래된순") return a.updatedTime - b.updatedTime;
-  if (filter === "최신순" || filter === "기간 검색") return b.updatedTime - a.updatedTime;
+  if (filter === "최신순" || filter === "기간 검색")
+    return b.updatedTime - a.updatedTime;
   return b.score - a.score || b.updatedTime - a.updatedTime;
 }
 
@@ -217,7 +294,9 @@ function createKeywordDisplayResult(result: SearchResult): DisplaySearchResult {
   };
 }
 
-function semanticMatchField(matchedType: SemanticSearchResultItem["matchedType"]): SearchMatchField {
+function semanticMatchField(
+  matchedType: SemanticSearchResultItem["matchedType"],
+): SearchMatchField {
   if (matchedType === "HYBRID") return "혼합";
   if (matchedType === "KEYWORD") return "키워드";
   return "의미";
@@ -225,19 +304,26 @@ function semanticMatchField(matchedType: SemanticSearchResultItem["matchedType"]
 
 function createSemanticDisplayResult(
   result: SemanticSearchResultItem,
-  noteById: Map<string, BrainXNote>
+  noteById: Map<string, BrainXNote>,
 ): DisplaySearchResult {
   const note = noteById.get(result.noteId);
   const title = result.title?.trim() || note?.title.trim() || "Untitled";
-  const fallbackBody = note ? stripMarkdown(note.markdown ?? "") || note.summary : "";
-  const snippet = createSearchSnippet(result.excerpt?.trim() || fallbackBody, "");
+  const fallbackBody = note
+    ? stripMarkdown(note.markdown ?? "") || note.summary
+    : "";
+  const snippet = createSearchSnippet(
+    result.excerpt?.trim() || fallbackBody,
+    "",
+  );
   return {
     key: `semantic-${result.noteId}`,
     noteId: result.noteId,
     title,
     snippet,
     tags: note?.tags ?? [],
-    updatedTime: note ? parseSearchDate(note.updatedAt) || parseSearchDate(note.createdAt) : 0,
+    updatedTime: note
+      ? parseSearchDate(note.updatedAt) || parseSearchDate(note.createdAt)
+      : 0,
     matchField: semanticMatchField(result.matchedType),
     source: "semantic",
     score: result.score,
@@ -245,7 +331,9 @@ function createSemanticDisplayResult(
 }
 
 function isAuthExpiredError(error: unknown) {
-  return error instanceof Error && error.message.includes("로그인이 만료되었습니다");
+  return (
+    error instanceof Error && error.message.includes("로그인이 만료되었습니다")
+  );
 }
 
 function isImeComposing(event: KeyboardEvent<HTMLInputElement>) {
@@ -272,8 +360,12 @@ function SearchBar() {
   const { hydrated, notes, pushToast, saveStatus } = useBrainX();
   const query = normalizeSearchText(value);
   const searchIndex = useMemo(() => createSearchIndex(notes), [notes]);
-  const noteById = useMemo(() => new Map(notes.map((note) => [note.id, note])), [notes]);
-  const isLoadingNotes = !hydrated || (saveStatus === "saving" && notes.length === 0);
+  const noteById = useMemo(
+    () => new Map(notes.map((note) => [note.id, note])),
+    [notes],
+  );
+  const isLoadingNotes =
+    !hydrated || (saveStatus === "saving" && notes.length === 0);
   const keywordResults = useMemo(() => {
     const matches = searchIndex
       .map((item) => scoreSearchResult(item, query, filter))
@@ -283,23 +375,31 @@ function SearchBar() {
   }, [filter, query, searchIndex]);
   const keywordDisplayResults = useMemo(
     () => keywordResults.map(createKeywordDisplayResult),
-    [keywordResults]
+    [keywordResults],
   );
   const semanticDisplayResults = useMemo(
-    () => semanticState.results.map((result) => createSemanticDisplayResult(result, noteById)),
-    [noteById, semanticState.results]
+    () =>
+      semanticState.results.map((result) =>
+        createSemanticDisplayResult(result, noteById),
+      ),
+    [noteById, semanticState.results],
   );
   const semanticQueryIsCurrent = semanticState.query === query;
-  const semanticIsLoading = semantic && semanticQueryIsCurrent && semanticState.status === "loading";
-  const hasFreshSemanticResponse = semantic
-    && query.length >= 2
-    && semanticQueryIsCurrent
-    && (semanticState.status === "success" || semanticState.status === "error");
-  const useSemanticResults = semantic
-    && semanticQueryIsCurrent
-    && semanticState.status === "success"
-    && semanticDisplayResults.length > 0;
-  const results = useSemanticResults ? semanticDisplayResults : keywordDisplayResults;
+  const semanticIsLoading =
+    semantic && semanticQueryIsCurrent && semanticState.status === "loading";
+  const hasFreshSemanticResponse =
+    semantic &&
+    query.length >= 2 &&
+    semanticQueryIsCurrent &&
+    (semanticState.status === "success" || semanticState.status === "error");
+  const useSemanticResults =
+    semantic &&
+    semanticQueryIsCurrent &&
+    semanticState.status === "success" &&
+    semanticDisplayResults.length > 0;
+  const results = useSemanticResults
+    ? semanticDisplayResults
+    : keywordDisplayResults;
   const activeResult = results[activeIndex] ?? null;
   const panelVisible = resultOpen;
   const semanticStatusLabel = !query
@@ -333,7 +433,11 @@ function SearchBar() {
     if (!resultOpen && !filterOpen) return;
 
     function handlePointerDown(event: PointerEvent) {
-      if (rootRef.current && event.target instanceof Node && !rootRef.current.contains(event.target)) {
+      if (
+        rootRef.current &&
+        event.target instanceof Node &&
+        !rootRef.current.contains(event.target)
+      ) {
         setResultOpen(false);
         setFilterOpen(false);
       }
@@ -384,7 +488,7 @@ function SearchBar() {
           query: requestQuery,
           limit: SEARCH_RESULT_LIMIT,
         },
-        { signal: controller.signal }
+        { signal: controller.signal },
       );
       if (controller.signal.aborted) return;
       setSemanticState({
@@ -402,7 +506,8 @@ function SearchBar() {
         status: "error",
         query,
         results: [],
-        error: error instanceof Error ? error.message : "의미 검색에 실패했습니다.",
+        error:
+          error instanceof Error ? error.message : "의미 검색에 실패했습니다.",
       });
     } finally {
       if (semanticAbortRef.current === controller) {
@@ -418,14 +523,19 @@ function SearchBar() {
       return;
     }
 
-    if (isImeComposing(event) && ["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) {
+    if (
+      isImeComposing(event) &&
+      ["ArrowDown", "ArrowUp", "Enter"].includes(event.key)
+    ) {
       return;
     }
 
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setResultOpen(true);
-      setActiveIndex((current) => Math.min(current + 1, Math.max(results.length - 1, 0)));
+      setActiveIndex((current) =>
+        Math.min(current + 1, Math.max(results.length - 1, 0)),
+      );
       return;
     }
 
@@ -454,7 +564,10 @@ function SearchBar() {
   }
 
   return (
-    <div ref={rootRef} className="relative w-full md:flex-1 md:max-w-xl tutorial-target-search">
+    <div
+      ref={rootRef}
+      className="relative w-full md:flex-1 md:max-w-xl tutorial-target-search"
+    >
       <div
         className={cx(
           "group flex h-9 items-center gap-2 rounded-xl border px-3 transition-colors duration-200 focus-within:ring-2 focus-within:ring-primary/35",
@@ -466,7 +579,10 @@ function SearchBar() {
         <Icon
           name={semanticIsLoading ? "refresh" : "search"}
           size={18}
-          className={cx(semantic ? "text-accent" : "text-txt3", semanticIsLoading && "animate-spin")}
+          className={cx(
+            semantic ? "text-accent" : "text-txt3",
+            semanticIsLoading && "animate-spin",
+          )}
         />
         <input
           value={value}
@@ -489,7 +605,9 @@ function SearchBar() {
           role="combobox"
           aria-expanded={panelVisible}
           aria-controls={`${searchId}-results`}
-          aria-activedescendant={activeResult ? `${searchId}-result-${activeIndex}` : undefined}
+          aria-activedescendant={
+            activeResult ? `${searchId}-result-${activeIndex}` : undefined
+          }
           className="min-w-0 flex-1 bg-transparent text-[14px] text-txt outline-none placeholder:text-txt3"
         />
         {value ? (
@@ -523,7 +641,7 @@ function SearchBar() {
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
           )}
         >
-            <Icon name="sparkle" size={13} /> 의미
+          <Icon name="sparkle" size={13} /> 의미
         </button>
         <div className="relative">
           <button
@@ -551,7 +669,8 @@ function SearchBar() {
                     setFilter(item);
                     setFilterOpen(false);
                     setResultOpen(true);
-                    if (item === "기간 검색") pushToast("기간 검색은 준비 중입니다.", "info");
+                    if (item === "기간 검색")
+                      pushToast("기간 검색은 준비 중입니다.", "info");
                   }}
                   className={cx(
                     "flex h-8 w-full items-center justify-between rounded-lg px-3 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35",
@@ -569,15 +688,21 @@ function SearchBar() {
         </div>
       </div>
       {panelVisible ? (
-        <div
-          className="fade-up absolute left-0 right-0 top-[calc(100%+8px)] z-50 overflow-hidden rounded-xl border border-line/70 bg-bg shadow-soft"
-        >
+        <div className="fade-up absolute left-0 right-0 top-[calc(100%+8px)] z-50 overflow-hidden rounded-xl border border-line/70 bg-bg shadow-soft">
           <div className="flex min-w-0 items-center justify-between gap-3 border-b border-line/50 px-3 py-2">
             <div className="min-w-0 truncate text-[12px] font-semibold text-txt">
-              {useSemanticResults ? "의미 검색 결과" : query ? "검색 결과" : "최근 노트"}
+              {useSemanticResults
+                ? "의미 검색 결과"
+                : query
+                  ? "검색 결과"
+                  : "최근 노트"}
             </div>
             <div aria-live="polite" className="shrink-0 text-[11px] text-txt3">
-              {isLoadingNotes && !useSemanticResults ? "불러오는 중…" : semantic ? semanticStatusLabel : resultCountLabel}
+              {isLoadingNotes && !useSemanticResults
+                ? "불러오는 중…"
+                : semantic
+                  ? semanticStatusLabel
+                  : resultCountLabel}
             </div>
           </div>
           {semantic ? (
@@ -585,7 +710,10 @@ function SearchBar() {
               <Icon
                 name={semanticIsLoading ? "refresh" : "sparkle"}
                 size={14}
-                className={cx("mt-0.5 shrink-0 text-accent", semanticIsLoading && "animate-spin")}
+                className={cx(
+                  "mt-0.5 shrink-0 text-accent",
+                  semanticIsLoading && "animate-spin",
+                )}
               />
               <span className="min-w-0 break-words">
                 {semanticIsLoading
@@ -609,12 +737,18 @@ function SearchBar() {
             className="max-h-[340px] overflow-y-auto py-1"
           >
             {isLoadingNotes && !useSemanticResults ? (
-              <div className="px-3 py-5 text-center text-[13px] text-txt3">노트를 불러오는 중…</div>
+              <div className="px-3 py-5 text-center text-[13px] text-txt3">
+                노트를 불러오는 중…
+              </div>
             ) : results.length === 0 && notes.length === 0 ? (
-              <div className="px-3 py-5 text-center text-[13px] text-txt3">검색할 노트가 없습니다.</div>
+              <div className="px-3 py-5 text-center text-[13px] text-txt3">
+                검색할 노트가 없습니다.
+              </div>
             ) : results.length === 0 ? (
               <div className="px-3 py-5 text-center text-[13px] text-txt3">
-                {query ? "일치하는 노트가 없습니다. 다른 키워드로 검색해 보세요." : "최근 노트가 없습니다."}
+                {query
+                  ? "일치하는 노트가 없습니다. 다른 키워드로 검색해 보세요."
+                  : "최근 노트가 없습니다."}
               </div>
             ) : (
               results.map((result, index) => (
@@ -628,15 +762,21 @@ function SearchBar() {
                   onMouseEnter={() => setActiveIndex(index)}
                   className={cx(
                     "flex min-w-0 gap-3 px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40",
-                    index === activeIndex ? "bg-surface2/70" : "hover:bg-surface2/50",
+                    index === activeIndex
+                      ? "bg-surface2/70"
+                      : "hover:bg-surface2/50",
                   )}
                 >
                   <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-line/50 bg-surface2/50 text-txt3">
                     <Icon name="doc" size={15} />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-semibold text-txt">{result.title}</span>
-                    <span className="mt-0.5 block truncate text-[12px] leading-5 text-txt3">{result.snippet}</span>
+                    <span className="block truncate text-[13px] font-semibold text-txt">
+                      {result.title}
+                    </span>
+                    <span className="mt-0.5 block truncate text-[12px] leading-5 text-txt3">
+                      {result.snippet}
+                    </span>
                     <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-txt3">
                       <span
                         className={cx(
@@ -653,7 +793,9 @@ function SearchBar() {
                           #{tag}
                         </span>
                       ))}
-                      <span className="shrink-0 tabular-nums">{formatSearchDate(result.updatedTime)}</span>
+                      <span className="shrink-0 tabular-nums">
+                        {formatSearchDate(result.updatedTime)}
+                      </span>
                     </span>
                   </span>
                 </Link>
@@ -768,11 +910,9 @@ function SidebarItem({
       ) : (
         <Icon name={icon} size={19} className={active ? "text-primary" : ""} />
       )}
-      
+
       {/* Tooltip on Hover */}
-      <span 
-        className="pointer-events-none absolute left-[calc(100%+12px)] z-50 whitespace-nowrap rounded-[6px] px-2.5 py-1.5 text-[12px] font-medium bg-txt text-bg2 shadow-md opacity-0 transition-opacity duration-200 group-hover:opacity-100"
-      >
+      <span className="pointer-events-none absolute left-[calc(100%+12px)] z-50 whitespace-nowrap rounded-[6px] px-2.5 py-1.5 text-[12px] font-medium bg-txt text-bg2 shadow-md opacity-0 transition-opacity duration-200 group-hover:opacity-100">
         {label}
         <div
           className="absolute left-[-4px] top-1/2 h-2.5 w-2.5 -translate-y-1/2 rotate-45 bg-txt"
@@ -783,7 +923,13 @@ function SidebarItem({
   );
 }
 
-function Sidebar({ onOpenSettings, notesExplorerOpen }: { onOpenSettings: (tab?: SettingsTab) => void; notesExplorerOpen?: boolean }) {
+function Sidebar({
+  onOpenSettings,
+  notesExplorerOpen,
+}: {
+  onOpenSettings: (tab?: SettingsTab) => void;
+  notesExplorerOpen?: boolean;
+}) {
   const { t } = useBrainX();
   const [tokenUsage, setTokenUsage] = useState<TokenUsageData | null>(null);
 
@@ -811,9 +957,18 @@ function Sidebar({ onOpenSettings, notesExplorerOpen }: { onOpenSettings: (tab?:
 
     return () => {
       active = false;
-      window.removeEventListener("brainx-auth-session-changed", refreshTokenUsage);
-      window.removeEventListener("brainx-subscription-changed", refreshTokenUsage);
-      window.removeEventListener("brainx-token-usage-changed", refreshTokenUsage);
+      window.removeEventListener(
+        "brainx-auth-session-changed",
+        refreshTokenUsage,
+      );
+      window.removeEventListener(
+        "brainx-subscription-changed",
+        refreshTokenUsage,
+      );
+      window.removeEventListener(
+        "brainx-token-usage-changed",
+        refreshTokenUsage,
+      );
     };
   }, []);
 
@@ -822,9 +977,7 @@ function Sidebar({ onOpenSettings, notesExplorerOpen }: { onOpenSettings: (tab?:
   const monthlyCreditLimit = tokenUsage?.monthlyCreditLimit ?? null;
 
   return (
-    <aside
-      className="relative z-20 hidden h-full w-[50px] shrink-0 flex-col border-r border-line/50 bg-bg2/40 backdrop-blur-xl transition-all duration-300 md:flex pt-4"
-    >
+    <aside className="relative z-20 hidden h-full w-[50px] shrink-0 flex-col border-r border-line/50 bg-bg2/40 backdrop-blur-xl transition-all duration-300 md:flex pt-4">
       <nav className="flex-1 space-y-2 px-1">
         {NAV.map((item) => (
           <SidebarItem
@@ -861,12 +1014,17 @@ function Sidebar({ onOpenSettings, notesExplorerOpen }: { onOpenSettings: (tab?:
           >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#8c877f]">AI 크레딧 사용량</div>
+                <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#8c877f]">
+                  AI 크레딧 사용량
+                </div>
                 <div className="mt-2 text-[22px] font-bold tracking-[-0.03em] text-[#2f2d2a]">
                   {formatTokenPercent(usagePercent)}
                 </div>
                 <div className="mt-1 text-[12px] text-[#6d6861]">
-                  {formatCreditCount(usedCredits)} / {monthlyCreditLimit != null ? `${formatCreditCount(monthlyCreditLimit)} 크레딧` : "무제한"}
+                  {formatCreditCount(usedCredits)} /{" "}
+                  {monthlyCreditLimit != null
+                    ? `${formatCreditCount(monthlyCreditLimit)} 크레딧`
+                    : "무제한"}
                 </div>
               </div>
               <div className="rounded-full bg-[#f4efe8] px-2.5 py-1 text-[11px] font-semibold text-[#8c877f]">
@@ -882,13 +1040,17 @@ function Sidebar({ onOpenSettings, notesExplorerOpen }: { onOpenSettings: (tab?:
               <div className="h-2 overflow-hidden rounded-full bg-[#ebe7e1]">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-primary via-accent to-cyan"
-                  style={{ width: `${Math.min(100, Math.max(0, usagePercent))}%` }}
+                  style={{
+                    width: `${Math.min(100, Math.max(0, usagePercent))}%`,
+                  }}
                 />
               </div>
             </div>
 
             <div className="mt-4 flex items-center justify-between border-t border-[#eee7dc] pt-3">
-              <span className="text-[12px] font-medium text-[#4d4944]">자세히 보기</span>
+              <span className="text-[12px] font-medium text-[#4d4944]">
+                자세히 보기
+              </span>
               <span className="grid h-7 w-7 place-items-center rounded-full bg-[#f4efe8] text-[#6d6861]">
                 <Icon name="chevR" size={14} />
               </span>
@@ -910,12 +1072,16 @@ function formatNotificationTime(value: string) {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    hour12: false
+    hour12: false,
   });
 }
 
-function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => void }) {
-  const { pushToast, t } = useBrainX();
+function TopBar({
+  onOpenSettings,
+}: {
+  onOpenSettings: (tab?: SettingsTab) => void;
+}) {
+  const { t } = useBrainX();
   const router = useRouter();
   const pathname = usePathname();
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -926,12 +1092,16 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [notifications, setNotifications] = useState<MyNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const isGuest = !session?.accessToken;
+  const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
+  const isDemoSession = isDevAuthSession(session);
+  const isGuest = !session?.accessToken || isDemoSession;
 
   useEffect(() => {
     const syncSession = () => {
       const nextSession = readAuthSession();
-      setSession((prev) => (isSameAuthSession(prev, nextSession) ? prev : nextSession));
+      setSession((prev) =>
+        isSameAuthSession(prev, nextSession) ? prev : nextSession,
+      );
     };
     syncSession();
     window.addEventListener("brainx-auth-session-changed", syncSession);
@@ -968,7 +1138,11 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
         // AuthRequiredError가 아니므로 여기서 세션을 지우지 않는다 — 일시적 오류로 정상 로그인 사용자를
         // 로그아웃시키지 않기 위함. dev bypass 세션은 애초에 실제 백엔드 검증 대상이 아니므로 건드리지 않는다.
         const session = readAuthSession();
-        if (error instanceof AuthRequiredError && session && !isDevAuthSession(session)) {
+        if (
+          error instanceof AuthRequiredError &&
+          session &&
+          !isDevAuthSession(session)
+        ) {
           clearAuthSession();
         }
       });
@@ -1008,7 +1182,7 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
     window.addEventListener("brainx-subscription-changed", refreshPlan);
     const removePaymentListener = addPopupResultListener(
       PAYMENT_RESULT_MESSAGE_TYPE,
-      () => refreshPlan()
+      () => refreshPlan(),
     );
     const refreshInterval = window.setInterval(refreshPlan, 30000);
 
@@ -1047,12 +1221,18 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
 
     refreshNotifications();
     window.addEventListener("focus", refreshNotifications);
-    window.addEventListener("brainx-auth-session-changed", refreshNotifications);
+    window.addEventListener(
+      "brainx-auth-session-changed",
+      refreshNotifications,
+    );
 
     return () => {
       active = false;
       window.removeEventListener("focus", refreshNotifications);
-      window.removeEventListener("brainx-auth-session-changed", refreshNotifications);
+      window.removeEventListener(
+        "brainx-auth-session-changed",
+        refreshNotifications,
+      );
     };
   }, [session?.accessToken, session?.userId]);
 
@@ -1074,160 +1254,225 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
     "pointer-events-none absolute top-[calc(100%+12px)] left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-[6px] bg-txt px-2.5 py-1.5 text-[12px] font-medium text-bg2 opacity-0 shadow-md transition-opacity duration-200 group-hover:opacity-100";
 
   return (
-    <header className="relative z-[100] border-b border-line/50 bg-bg2/30 backdrop-blur-xl">
-      <div className="flex flex-col gap-3 px-4 py-3 md:h-[50px] md:flex-row md:items-center md:gap-2.5 md:pl-0 md:pr-4 md:py-0">
-        <div className="hidden h-full w-[50px] shrink-0 items-center justify-center border-r border-line/50 md:flex">
-          <button
-            type="button"
-            onClick={() => router.push("/")}
-            className="flex items-center group"
-          >
-            <BrandLogo size={36} shadow />
-          </button>
-        </div>
-        <div className="md:ml-2 md:flex-1 md:max-w-lg">
-          <SearchBar />
-        </div>
-        <div className="flex items-center justify-between gap-2 md:ml-auto md:justify-end">
-          <div className="tutorial-target-darkmode group relative [&>button]:h-8 [&>button]:w-8 [&>button]:rounded-lg [&_svg]:h-[15px] [&_svg]:w-[15px]">
-            <ThemeToggle />
-            <span className={topTooltipClass}>
-              테마 변경
-              <div className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt" style={{ zIndex: -1 }} />
-            </span>
-          </div>
-          <div className="relative">
+    <>
+      <header className="relative z-[100] border-b border-line/50 bg-bg2/30 backdrop-blur-xl">
+        <div className="flex flex-col gap-3 px-4 py-3 md:h-[50px] md:flex-row md:items-center md:gap-2.5 md:pl-0 md:pr-4 md:py-0">
+          <div className="hidden h-full w-[50px] shrink-0 items-center justify-center border-r border-line/50 md:flex">
             <button
               type="button"
-              onClick={() => {
-                setGuestMenuOpen(false);
-                setNotificationOpen((open) => !open);
-              }}
-              className="tutorial-target-notifications group relative grid h-8 w-8 place-items-center rounded-lg border border-line/60 text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt"
+              onClick={() => router.push("/")}
+              className="flex items-center group"
             >
-              <Icon name="bell" size={15} />
-              {unreadCount > 0 ? <span className="absolute right-1 top-1 grid min-h-[16px] min-w-[16px] place-items-center rounded-full bg-accent px-1 text-[10px] font-semibold text-white">{Math.min(unreadCount, 9)}</span> : null}
+              <BrandLogo size={36} shadow />
+            </button>
+          </div>
+          <div className="md:ml-2 md:flex-1 md:max-w-lg">
+            <SearchBar />
+          </div>
+          <div className="flex items-center justify-between gap-2 md:ml-auto md:justify-end">
+            {!isGuest ? (
+              <WorkspaceSwitcher
+                onCreateWorkspace={() => {
+                  setNotificationOpen(false);
+                  setGuestMenuOpen(false);
+                  setCreateWorkspaceOpen(true);
+                }}
+              />
+            ) : null}
+            <div className="tutorial-target-darkmode group relative shrink-0 [&>button]:h-8 [&>button]:w-8 [&>button]:rounded-lg [&_svg]:h-[15px] [&_svg]:w-[15px]">
+              <ThemeToggle />
               <span className={topTooltipClass}>
-                알림
-                <div className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt" style={{ zIndex: -1 }} />
+                테마 변경
+                <div
+                  className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt"
+                  style={{ zIndex: -1 }}
+                />
               </span>
-            </button>
-            {notificationOpen ? (
-              <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-[320px] overflow-hidden rounded-2xl border border-line/70 bg-bg shadow-soft">
-                <div className="flex items-center justify-between border-b border-line/50 px-4 py-3">
-                  <div>
-                    <div className="text-[14px] font-semibold text-txt">알림</div>
-                    <div className="text-[12px] text-txt3">관리자 공지와 주요 안내를 확인할 수 있어요.</div>
-                  </div>
-                  <div className="text-[12px] font-semibold text-accent">{unreadCount}개 미확인</div>
-                </div>
-                <div className="max-h-[360px] overflow-y-auto">
-                  {notifications.length === 0 ? (
-                    <div className="px-4 py-6 text-[13px] text-txt3">새 알림이 없습니다.</div>
-                  ) : (
-                    notifications.map((notification) => (
-                      <button
-                        key={notification.notificationId}
-                        type="button"
-                        onClick={async () => {
-                          if (!notification.read) {
-                            const updated = await markMyNotificationRead(notification.notificationId);
-                            setNotifications((current) => current.map((item) => item.notificationId === updated.notificationId ? updated : item));
-                            setUnreadCount((count) => Math.max(0, count - 1));
-                          }
-                        }}
-                        className={cx(
-                          "w-full border-b border-line/40 px-4 py-3 text-left transition-colors hover:bg-surface2/50",
-                          notification.read ? "bg-transparent" : "bg-accent/[0.06]"
-                        )}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="truncate text-[13px] font-semibold text-txt">{notification.title}</div>
-                            <div className="mt-1 whitespace-pre-wrap text-[12px] leading-5 text-txt2">{notification.body}</div>
-                            <div className="mt-2 text-[11px] text-txt3">
-                              {(notification.sentByAdminName || "BrainX Admin") + " · " + formatNotificationTime(notification.createdAt)}
-                            </div>
-                          </div>
-                          {!notification.read ? <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-accent" /> : null}
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-            ) : null}
-          </div>
-          <div className="mx-1 hidden h-6 w-px bg-line/60 md:block" />
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                setNotificationOpen(false);
-                if (isGuest) {
-                  setGuestMenuOpen((current) => !current);
-                  return;
-                }
-                onOpenSettings();
-              }}
-              className="tutorial-target-profile group relative flex h-8 items-center gap-1.5 rounded-lg px-2 transition-colors hover:bg-surface2/60"
-            >
-              <Avatar name={displayName} size={26} imageUrl={displayImageUrl} />
-              <div className="hidden text-left leading-tight sm:block">
-                <div className="max-w-[110px] truncate text-[12px] font-semibold text-txt">
-                  {displayName}
-                </div>
-                <div className="text-[10px] text-txt3">
-                  {isGuest ? "체험 중" : currentPlan}
-                </div>
-              </div>
-              {isGuest ? <Icon name="chevD" size={12} className="text-txt3" /> : null}
-              {!isGuest ? (
-                <span className={topTooltipClass}>
-                  사용자 프로필
-                  <div className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt" style={{ zIndex: -1 }} />
-                </span>
-              ) : null}
-            </button>
-            {isGuest && guestMenuOpen ? (
-              <div
-                className="fade-up absolute right-0 top-[calc(100%+8px)] z-50 w-64 rounded-xl border border-line/60 bg-surface p-3 shadow-soft"
-                onMouseLeave={() => setGuestMenuOpen(false)}
+            </div>
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setGuestMenuOpen(false);
+                  setNotificationOpen((open) => !open);
+                }}
+                className="tutorial-target-notifications group relative grid h-8 w-8 place-items-center rounded-lg border border-line/60 text-txt2 transition-colors hover:bg-surface2/60 hover:text-txt"
               >
-                <div className="px-1">
-                  <div className="text-[13px] font-semibold text-txt">체험 모드 사용 중</div>
-                  <div className="mt-1 text-[12px] leading-relaxed text-txt2">
-                    가입하면 현재 작성한 노트와 폴더를 계정에 저장할 수 있어요.
+                <Icon name="bell" size={15} />
+                {unreadCount > 0 ? (
+                  <span className="absolute right-1 top-1 grid min-h-[16px] min-w-[16px] place-items-center rounded-full bg-accent px-1 text-[10px] font-semibold text-white">
+                    {Math.min(unreadCount, 9)}
+                  </span>
+                ) : null}
+                <span className={topTooltipClass}>
+                  알림
+                  <div
+                    className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt"
+                    style={{ zIndex: -1 }}
+                  />
+                </span>
+              </button>
+              {notificationOpen ? (
+                <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-[320px] overflow-hidden rounded-2xl border border-line/70 bg-bg shadow-soft">
+                  <div className="flex items-center justify-between border-b border-line/50 px-4 py-3">
+                    <div>
+                      <div className="text-[14px] font-semibold text-txt">
+                        알림
+                      </div>
+                      <div className="text-[12px] text-txt3">
+                        관리자 공지와 주요 안내를 확인할 수 있어요.
+                      </div>
+                    </div>
+                    <div className="text-[12px] font-semibold text-accent">
+                      {unreadCount}개 미확인
+                    </div>
+                  </div>
+                  <div className="max-h-[360px] overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <div className="px-4 py-6 text-[13px] text-txt3">
+                        새 알림이 없습니다.
+                      </div>
+                    ) : (
+                      notifications.map((notification) => (
+                        <button
+                          key={notification.notificationId}
+                          type="button"
+                          onClick={async () => {
+                            if (!notification.read) {
+                              const updated = await markMyNotificationRead(
+                                notification.notificationId,
+                              );
+                              setNotifications((current) =>
+                                current.map((item) =>
+                                  item.notificationId === updated.notificationId
+                                    ? updated
+                                    : item,
+                                ),
+                              );
+                              setUnreadCount((count) => Math.max(0, count - 1));
+                            }
+                          }}
+                          className={cx(
+                            "w-full border-b border-line/40 px-4 py-3 text-left transition-colors hover:bg-surface2/50",
+                            notification.read
+                              ? "bg-transparent"
+                              : "bg-accent/[0.06]",
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-[13px] font-semibold text-txt">
+                                {notification.title}
+                              </div>
+                              <div className="mt-1 whitespace-pre-wrap text-[12px] leading-5 text-txt2">
+                                {notification.body}
+                              </div>
+                              <div className="mt-2 text-[11px] text-txt3">
+                                {(notification.sentByAdminName ||
+                                  "BrainX Admin") +
+                                  " · " +
+                                  formatNotificationTime(
+                                    notification.createdAt,
+                                  )}
+                              </div>
+                            </div>
+                            {!notification.read ? (
+                              <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-accent" />
+                            ) : null}
+                          </div>
+                        </button>
+                      ))
+                    )}
                   </div>
                 </div>
-                <div className="my-2 h-px bg-line/50" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGuestMenuOpen(false);
-                    router.push(buildAuthPath("/login", pathname));
-                  }}
-                  className="flex h-9 w-full items-center rounded-lg px-2 text-left text-[13px] font-medium text-txt hover:bg-surface2/60"
+              ) : null}
+            </div>
+            <div className="mx-1 hidden h-6 w-px bg-line/60 md:block" />
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setNotificationOpen(false);
+                  if (isGuest) {
+                    setGuestMenuOpen((current) => !current);
+                    return;
+                  }
+                  onOpenSettings("profile");
+                }}
+                className="tutorial-target-profile group relative flex h-8 items-center gap-1.5 rounded-lg px-2 transition-colors hover:bg-surface2/60"
+              >
+                <Avatar
+                  name={displayName}
+                  size={26}
+                  imageUrl={displayImageUrl}
+                />
+                <div className="hidden text-left leading-tight sm:block">
+                  <div className="max-w-[110px] truncate text-[12px] font-semibold text-txt">
+                    {displayName}
+                  </div>
+                  <div className="text-[10px] text-txt3">
+                    {isGuest ? "체험 중" : currentPlan}
+                  </div>
+                </div>
+                {isGuest ? (
+                  <Icon name="chevD" size={12} className="text-txt3" />
+                ) : null}
+                {!isGuest ? (
+                  <span className={topTooltipClass}>
+                    사용자 프로필
+                    <div
+                      className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt"
+                      style={{ zIndex: -1 }}
+                    />
+                  </span>
+                ) : null}
+              </button>
+              {isGuest && guestMenuOpen ? (
+                <div
+                  className="fade-up absolute right-0 top-[calc(100%+8px)] z-50 w-64 rounded-xl border border-line/60 bg-surface p-3 shadow-soft"
+                  onMouseLeave={() => setGuestMenuOpen(false)}
                 >
-                  로그인
-                </button>
-              </div>
-            ) : null}
+                  <div className="px-1">
+                    <div className="text-[13px] font-semibold text-txt">
+                      체험 모드 사용 중
+                    </div>
+                    <div className="mt-1 text-[12px] leading-relaxed text-txt2">
+                      가입하면 현재 작성한 노트와 폴더를 계정에 저장할 수
+                      있어요.
+                    </div>
+                  </div>
+                  <div className="my-2 h-px bg-line/50" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGuestMenuOpen(false);
+                      router.push(buildAuthPath("/login", pathname));
+                    }}
+                    className="flex h-9 w-full items-center rounded-lg px-2 text-left text-[13px] font-medium text-txt hover:bg-surface2/60"
+                  >
+                    로그인하기
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
-      </div>
-      <div className="border-t border-line/40 px-4 py-2 md:hidden">
-        <div className="scroll flex gap-2 overflow-x-auto pb-1">
-          {mobileNav.map((item) => (
-            <MobileNavButton
-              key={item.path}
-              {...item}
-              onMyPageClick={onOpenSettings}
-            />
-          ))}
+        <div className="border-t border-line/40 px-4 py-2 md:hidden">
+          <div className="scroll flex gap-2 overflow-x-auto pb-1">
+            {mobileNav.map((item) => (
+              <MobileNavButton
+                key={item.path}
+                {...item}
+                onMyPageClick={onOpenSettings}
+              />
+            ))}
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
+      {createWorkspaceOpen ? (
+        <CreateWorkspaceModal onClose={() => setCreateWorkspaceOpen(false)} />
+      ) : null}
+    </>
   );
 }
 
@@ -1248,19 +1493,16 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
         setNotesExplorerOpen((prev) => !prev);
       }
     };
-    window.addEventListener("brainx-toggle-notes-explorer", handleExplorerState);
-    return () => window.removeEventListener("brainx-toggle-notes-explorer", handleExplorerState);
+    window.addEventListener(
+      "brainx-toggle-notes-explorer",
+      handleExplorerState,
+    );
+    return () =>
+      window.removeEventListener(
+        "brainx-toggle-notes-explorer",
+        handleExplorerState,
+      );
   }, []);
-
-  useEffect(() => {
-    if (pathname === "/mypage") {
-      if (readAuthSession()?.accessToken) {
-        setSettingsTab("profile");
-        setSettingsOpen(true);
-      }
-      router.replace("/home");
-    }
-  }, [pathname, router]);
 
   const openSettings = (tab: SettingsTab = "profile") => {
     setSettingsTab(tab);
@@ -1271,7 +1513,10 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     <div className="flex h-[100svh] w-full flex-col overflow-hidden">
       <TopBar onOpenSettings={openSettings} />
       <div className="relative z-0 flex min-h-0 flex-1">
-        <Sidebar onOpenSettings={openSettings} notesExplorerOpen={notesExplorerOpen} />
+        <Sidebar
+          onOpenSettings={openSettings}
+          notesExplorerOpen={notesExplorerOpen}
+        />
         <main className="scroll relative z-0 flex-1 min-w-0 overflow-y-auto">
           {children}
         </main>

@@ -369,7 +369,7 @@ paths:
       - ConsentRecorded
       x-internal-sync-calls: []
       x-async-boundary: false
-      description: 회원 생성과 JWT 발급은 동기 처리. 기본 플랜/기본 워크스페이스(documentGroup)/웰컴 메일은 이벤트 기반 후처리.
+      description: 회원 생성과 JWT 발급은 동기 처리. 기본 워크스페이스(documentGroup)는 현재 internal API best-effort 후처리로 연결하며, 기본 플랜/웰컴 메일과 UserRegistered 이벤트 기반 확장은 후속 enablement 범위다.
       parameters:
       - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -2884,6 +2884,7 @@ paths:
         description: 홈, 워크스페이스 동기화, 최근 활동 및 검색 UI
       x-produces-events:
       - NoteMetadataChanged
+      - NotesMoved
       x-internal-sync-calls: []
       x-async-boundary: false
       x-implementation-note: If the title changes, Workspace-Service must rescan existing wiki-link references for both the old and new titles so stale edges are removed and newly satisfiable edges are created in the authoritative note-link ledger and graph projection.
@@ -14853,9 +14854,6 @@ components:
       properties:
         name:
           type: string
-        description:
-          type: string
-          nullable: true
       required:
       - name
       additionalProperties: false
@@ -14874,15 +14872,8 @@ components:
           type: string
         name:
           type: string
-        description:
-          type: string
-          nullable: true
         isDefault:
           type: boolean
-        noteCount:
-          type: integer
-        folderCount:
-          type: integer
         createdAt:
           type: string
           format: date-time
@@ -14893,8 +14884,6 @@ components:
       - documentGroupId
       - name
       - isDefault
-      - noteCount
-      - folderCount
       - createdAt
       - updatedAt
       additionalProperties: false
@@ -14909,16 +14898,7 @@ components:
       - workspaces
       additionalProperties: false
     WorkspaceDetailData:
-      allOf:
-      - $ref: '#/components/schemas/WorkspaceSummaryData'
-      - type: object
-        properties:
-          storageBytes:
-            type: integer
-            format: int64
-        required:
-        - storageBytes
-        additionalProperties: false
+      $ref: '#/components/schemas/WorkspaceSummaryData'
     WorkspaceSyncData:
       type: object
       properties:
@@ -14971,6 +14951,8 @@ components:
       properties:
         documentGroupId:
           type: string
+          nullable: true
+          description: 로그인 사용자는 대상 Workspace(documentGroup)를 보낼 수 있다. 기존 클라이언트 호환을 위해 생략하면 호출자의 default Workspace로 귀속된다.
         title:
           type: string
         markdown:
@@ -14984,7 +14966,6 @@ components:
           items:
             type: string
       required:
-      - documentGroupId
       - title
       additionalProperties: false
     NoteCreatedData:
@@ -15458,13 +15439,14 @@ components:
       properties:
         documentGroupId:
           type: string
+          nullable: true
+          description: 로그인 사용자는 대상 Workspace(documentGroup)를 보낼 수 있다. 기존 클라이언트 호환을 위해 생략하면 호출자의 default Workspace로 귀속된다.
         name:
           type: string
         parentFolderId:
           type: string
           nullable: true
       required:
-      - documentGroupId
       - name
       additionalProperties: false
     FolderData:
@@ -15498,13 +15480,14 @@ components:
       properties:
         documentGroupId:
           type: string
+          nullable: true
+          description: 이 응답은 사용자 전체 Folder tree(모든 Workspace 통합)라 top-level 값은 null이다. 각 folder 항목의 documentGroupId를 사용한다.
         folders:
           type: array
           items:
             type: object
             additionalProperties: true
       required:
-      - documentGroupId
       - folders
       additionalProperties: false
     FolderPatchRequest:

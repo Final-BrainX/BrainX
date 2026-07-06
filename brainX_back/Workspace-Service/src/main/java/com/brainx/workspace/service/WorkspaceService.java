@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -39,10 +40,15 @@ public class WorkspaceService {
     private static final Pattern HTML_WIKI_LINK_PATTERN = Pattern.compile("<span\\b[^>]*data-wiki-link[^>]*>.*?</span>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final Pattern RAW_WIKI_LINK_PATTERN = Pattern.compile("\\[\\[([^\\[\\]]+)]]");
     private static final Pattern HTML_ATTRIBUTE_PATTERN = Pattern.compile("([\\w:-]+)\\s*=\\s*([\"'])(.*?)\\2", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    // Gateway-Service(JwtAuthenticationGlobalFilter)가 발급/검증하는 guest id 형식과 동일하다
+    // (gst_[A-Za-z0-9_-]{16,80}). Guest는 Workspace를 가지면 안 되므로 이 prefix로 식별되는
+    // userId에 대해서는 default Workspace 자동 생성을 절대 트리거하지 않는다.
+    private static final String GUEST_ID_PREFIX = "gst_";
 
     private final NoteRepository noteRepository;
     private final NoteVersionRepository noteVersionRepository;
     private final FolderRepository folderRepository;
+    private final WorkspaceRepository workspaceRepository;
     private final NoteLinkRepository noteLinkRepository;
     private final FavoriteRepository favoriteRepository;
     private final RecentActivityRepository recentActivityRepository;
@@ -82,6 +88,45 @@ public class WorkspaceService {
     }
 
     @Transactional(readOnly = true)
+    public WorkspaceListData listWorkspaces(String userId) {
+        return new WorkspaceListData(workspaceRepository.findByUserIdOrderByDefaultFirst(userId).stream()
+                .map(this::workspaceSummaryData)
+                .toList());
+    }
+
+    @Transactional(readOnly = true)
+    public WorkspaceDetailData getWorkspace(String userId, String documentGroupId) {
+        return workspaceDetailData(workspace(userId, documentGroupId));
+    }
+
+    public WorkspaceDetailData createWorkspace(String userId, WorkspaceCreateRequest request) {
+        String name = requireWorkspaceName(request.name());
+        if (workspaceRepository.existsByUserIdAndName(userId, name)) {
+            throw new WorkspaceException(HttpStatus.CONFLICT, "WORKSPACE_NAME_DUPLICATE",
+                    "Workspace name already exists for this user.");
+        }
+
+        Workspace workspace = new Workspace(Ids.workspace(), userId, name, false, Instant.now());
+        workspaceRepository.save(workspace);
+        return workspaceDetailData(workspace);
+    }
+
+    public WorkspaceDetailData patchWorkspace(String userId, String documentGroupId, WorkspacePatchRequest request) {
+        Workspace workspace = workspace(userId, documentGroupId);
+        String name = requireWorkspaceName(request.name());
+        if (Objects.equals(workspace.getName(), name)) {
+            return workspaceDetailData(workspace);
+        }
+        if (workspaceRepository.existsByUserIdAndNameAndDocumentGroupIdNot(userId, name, documentGroupId)) {
+            throw new WorkspaceException(HttpStatus.CONFLICT, "WORKSPACE_NAME_DUPLICATE",
+                    "Workspace name already exists for this user.");
+        }
+
+        workspace.rename(name, Instant.now());
+        return workspaceDetailData(workspace);
+    }
+
+    @Transactional(readOnly = true)
     public NoteListData listNotes(String userId, String folderId, String tag, String q, boolean includeDeleted) {
         String query = q == null ? null : q.trim().toLowerCase(Locale.ROOT);
         List<Map<String, Object>> notes = (includeDeleted
@@ -112,16 +157,16 @@ public class WorkspaceService {
         return desiredName + " " + suffix;
     }
 
-    private String dedupeFolderName(String userId, String parentFolderId, String desiredName, String excludeFolderId) {
-        Set<String> taken = folderRepository.findSiblingsByUserIdAndParentFolderId(userId, parentFolderId).stream()
+    private String dedupeFolderName(String userId, String documentGroupId, String parentFolderId, String desiredName, String excludeFolderId) {
+        Set<String> taken = folderRepository.findSiblingsByUserIdAndDocumentGroupIdAndParentFolderId(userId, documentGroupId, parentFolderId).stream()
                 .filter(folder -> excludeFolderId == null || !folder.getFolderId().equals(excludeFolderId))
                 .map(Folder::getName)
                 .collect(Collectors.toSet());
         return dedupeName(taken, desiredName);
     }
 
-    private String dedupeNoteTitle(String userId, String folderId, String desiredTitle, String excludeNoteId) {
-        Set<String> taken = noteRepository.findSiblingsByUserIdAndFolderId(userId, folderId).stream()
+    private String dedupeNoteTitle(String userId, String documentGroupId, String folderId, String desiredTitle, String excludeNoteId) {
+        Set<String> taken = noteRepository.findSiblingsByUserIdAndDocumentGroupIdAndFolderId(userId, documentGroupId, folderId).stream()
                 .filter(note -> excludeNoteId == null || !note.getNoteId().equals(excludeNoteId))
                 .map(Note::getTitle)
                 .collect(Collectors.toSet());
@@ -130,8 +175,12 @@ public class WorkspaceService {
 
     public NoteCreatedData createNote(String userId, NoteCreateRequest request) {
         Instant now = Instant.now();
-        String title = dedupeNoteTitle(userId, request.folderId(), request.title(), null);
-        Note note = new Note(Ids.note(), userId, title, request.markdown(), request.folderId(), request.tags(), now);
+        requireOwnedWorkspaceIfProvided(userId, request.documentGroupId());
+        String documentGroupId = resolveDocumentGroupId(userId, request.documentGroupId());
+        requireFolderInWorkspace(userId, request.folderId(), documentGroupId,
+                "FOLDER_WORKSPACE_MISMATCH", "Folder does not belong to the target Workspace.");
+        String title = dedupeNoteTitle(userId, documentGroupId, request.folderId(), request.title(), null);
+        Note note = new Note(Ids.note(), userId, documentGroupId, title, request.markdown(), request.folderId(), request.tags(), now);
         noteRepository.save(note);
         syncWikiLinksForNote(note, now);
         syncIncomingWikiLinksForTitle(userId, note.getTitle(), note.getNoteId(), now);
@@ -145,7 +194,8 @@ public class WorkspaceService {
                 "tags", note.getTags(),
                 "version", note.getVersion()
         ));
-        return new NoteCreatedData(note.getNoteId(), note.getTitle(), note.getFolderId(), note.getVersion(), note.getCreatedAt());
+        return new NoteCreatedData(note.getNoteId(), note.getDocumentGroupId(), note.getTitle(), note.getFolderId(), note.getVersion(),
+                note.getCreatedAt());
     }
 
     public ClaimedNoteDraft persistDraft(String userId, NoteDraftData draft) {
@@ -158,8 +208,10 @@ public class WorkspaceService {
             // draft가 Postgres에 처음 들어오는 순간(idle flush 또는 guest->user claim) — 이미
             // 같은 폴더에 같은 제목(기본값 "제목 없음" 포함)이 있으면 충돌하므로 새로 생기는
             // 시점에 한 번만 갈라준다(이미 영속화된 노트를 매 flush마다 다시 검사/리네임하지 않음).
-            title = dedupeNoteTitle(userId, draft.folderId(), title, null);
-            note = new Note(noteId, userId, title, markdown, draft.folderId(), List.of(), now);
+            // dedupe가 documentGroupId를 스코프로 쓰므로 반드시 resolve를 먼저 한다.
+            String documentGroupId = resolveDocumentGroupId(userId, draft.documentGroupId());
+            title = dedupeNoteTitle(userId, documentGroupId, draft.folderId(), title, null);
+            note = new Note(noteId, userId, documentGroupId, title, markdown, draft.folderId(), List.of(), now);
             noteRepository.save(note);
             syncWikiLinksForNote(note, now);
             syncIncomingWikiLinksForTitle(userId, note.getTitle(), note.getNoteId(), now);
@@ -184,7 +236,7 @@ public class WorkspaceService {
         }
         snapshot(note, now);
         activity(userId, note, "updated", now);
-        return new ClaimedNoteDraft(note.getNoteId(), draft.noteId(), note.getTitle(), note.getVersion());
+        return new ClaimedNoteDraft(note.getNoteId(), draft.noteId(), note.getDocumentGroupId(), note.getTitle(), note.getVersion());
     }
 
     @Transactional(readOnly = true)
@@ -194,8 +246,8 @@ public class WorkspaceService {
         // tags는 지연 로딩 컬렉션이라 트랜잭션 안에서 복사해 둬야 세션이 닫힌 뒤 직렬화할 때
         // LazyInitializationException이 나지 않는다.
         List<String> tags = new ArrayList<>(note.getTags());
-        return new NoteDetailData(note.getNoteId(), note.getTitle(), note.getMarkdown(), folder, tags, note.getVersion(),
-                note.getCreatedAt(), note.getUpdatedAt(), new Permissions(true, true), typography(note));
+        return new NoteDetailData(note.getNoteId(), note.getDocumentGroupId(), note.getTitle(), note.getMarkdown(), folder, tags,
+                note.getVersion(), note.getCreatedAt(), note.getUpdatedAt(), new Permissions(true, true), typography(note));
     }
 
     public DeleteNoteData deleteNote(String userId, String noteId, String mode) {
@@ -244,31 +296,71 @@ public class WorkspaceService {
         Note note = note(userId, noteId);
         Instant now = Instant.now();
         String previousTitle = note.getTitle();
-        // 제목/폴더 중 바뀌는 쪽만 반영한 "최종" 값 기준으로 같은 폴더 안 중복을 검사해야 한다 —
-        // 폴더만 옮기고 제목은 그대로인 이동도 목적지에서 충돌할 수 있다.
-        String targetFolderId = request.folderId() != null
-                ? (request.folderId().isBlank() ? null : request.folderId())
-                : note.getFolderId();
+        String requestedDocumentGroupId = trimToNull(request.documentGroupId());
+        boolean movingAcrossWorkspace = requestedDocumentGroupId != null
+                && !Objects.equals(requestedDocumentGroupId, note.getDocumentGroupId());
+        if (requestedDocumentGroupId != null
+                && !movingAcrossWorkspace
+                && request.title() == null
+                && request.folderId() == null
+                && request.tags() == null
+                && request.archived() == null
+                && request.typography() == null
+                && request.order() == null) {
+            return noteMetadataData(note);
+        }
+
         String desiredTitle = (request.title() != null && !request.title().isBlank()) ? request.title() : note.getTitle();
-        String finalTitle = dedupeNoteTitle(userId, targetFolderId, desiredTitle, noteId);
-        note.patchMetadata(finalTitle, request.folderId(), request.tags(), request.archived(), typographyJson(request.typography()), now);
+        String previousFolderId = note.getFolderId();
+        String targetDocumentGroupId = movingAcrossWorkspace ? requestedDocumentGroupId : note.getDocumentGroupId();
+        String targetFolderId;
+        String finalTitle;
+        if (movingAcrossWorkspace) {
+            workspace(userId, targetDocumentGroupId);
+            targetFolderId = null;
+            finalTitle = dedupeNoteTitle(userId, targetDocumentGroupId, null, desiredTitle, noteId);
+            note.moveToFolder(targetDocumentGroupId, null, finalTitle, request.tags(), request.archived(),
+                    typographyJson(request.typography()), now);
+        } else {
+            // 제목/폴더 중 바뀌는 쪽만 반영한 "최종" 값 기준으로 같은 폴더 안 중복을 검사해야 한다 —
+            // 폴더만 옮기고 제목은 그대로인 이동도 목적지에서 충돌할 수 있다.
+            targetFolderId = request.folderId() != null
+                    ? (request.folderId().isBlank() ? null : request.folderId())
+                    : note.getFolderId();
+            if (request.folderId() != null && targetFolderId != null) {
+                requireFolderInWorkspace(userId, targetFolderId, note.getDocumentGroupId(),
+                        "FOLDER_WORKSPACE_MISMATCH", "Folder does not belong to the note's Workspace.");
+            }
+            finalTitle = dedupeNoteTitle(userId, note.getDocumentGroupId(), targetFolderId, desiredTitle, noteId);
+            note.patchMetadata(finalTitle, request.folderId(), request.tags(), request.archived(), typographyJson(request.typography()), now);
+        }
+
         if (!Objects.equals(previousTitle, note.getTitle())) {
             syncIncomingWikiLinksForTitle(userId, previousTitle, noteId, now);
             syncIncomingWikiLinksForTitle(userId, note.getTitle(), noteId, now);
         }
         snapshot(note, now);
         activity(userId, note, "updated", now);
+        if (movingAcrossWorkspace) {
+            eventPublisher.publish("NotesMoved", userId, payload(
+                    "userId", userId,
+                    "documentGroupId", targetDocumentGroupId,
+                    "noteIds", List.of(noteId),
+                    "sourceFolderId", previousFolderId,
+                    "targetFolderId", null
+            ));
+        }
         eventPublisher.publish("NoteMetadataChanged", userId, payload(
                 "noteId", noteId,
                 "userId", userId,
                 "title", note.getTitle(),
-                "folderId", request.folderId(),
+                "folderId", note.getFolderId(),
                 "tags", request.tags(),
                 "archived", request.archived(),
                 "typography", request.typography(),
                 "version", note.getVersion()
         ));
-        return new NoteMetadataData(noteId, note.getTitle(), note.getFolderId(), note.getTags(), note.getVersion(), typography(note), null);
+        return noteMetadataData(note);
     }
 
     @Transactional(readOnly = true)
@@ -313,12 +405,27 @@ public class WorkspaceService {
 
     /** guest draft claim 시 폴더 구조도 함께 승계한다 — 노트와 달리 폴더 생성은 actor 제약이
         없어 guest도 Postgres에 폴더를 만들 수 있는데, claim이 Redis note draft만 옮기고 폴더는
-        그대로 guestId 소유로 남아있던 gap을 메운다. */
+        그대로 guestId 소유(documentGroupId=null)로 남아있던 gap을 메운다. 승계된 폴더는 회원의
+        default Workspace로 귀속시키고, 그 Workspace 안에서 이미 같은 이름이 있으면 Ticket8의
+        dedupeFolderName을 그대로 재사용해 자동 suffix를 적용한다(새 중복 알고리즘을 만들지
+        않는다). 폴더를 하나씩 반영해야 뒤에 처리하는 폴더의 dedupe 조회가 앞서 반영된 형제
+        폴더의 새 이름/documentGroupId를 실제로(오토플러시를 통해) 보고 중복을 정확히 잡는다. */
     @Transactional
     public int reassignGuestFolders(String fromUserId, String toUserId) {
         List<Folder> folders = folderRepository.findByUserIdOrderByNameAsc(fromUserId);
+        if (folders.isEmpty()) {
+            return 0;
+        }
         Instant now = Instant.now();
-        folders.forEach(folder -> folder.reassignOwner(toUserId, now));
+        // toUserId는 항상 로그인된 회원이어야 하지만(claimGuestDrafts가 memberUserId()로 보장),
+        // Guest id로 절대 default Workspace를 만들지 않도록 한 번 더 방어한다.
+        String documentGroupId = isGuestUserId(toUserId) ? null : getOrCreateDefaultWorkspace(toUserId).documentGroupId();
+        for (Folder folder : folders) {
+            String dedupedName = dedupeFolderName(toUserId, documentGroupId, folder.getParentFolderId(),
+                    folder.getName(), folder.getFolderId());
+            folder.patch(dedupedName, null, now);
+            folder.reassignOwner(toUserId, documentGroupId, now);
+        }
         return folders.size();
     }
 
@@ -350,8 +457,12 @@ public class WorkspaceService {
 
     public FolderData createFolder(String userId, FolderCreateRequest request) {
         Instant now = Instant.now();
-        String name = dedupeFolderName(userId, request.parentFolderId(), request.name(), null);
-        Folder folder = new Folder(Ids.folder(), userId, name, request.parentFolderId(), now);
+        requireOwnedWorkspaceIfProvided(userId, request.documentGroupId());
+        String documentGroupId = resolveDocumentGroupId(userId, request.documentGroupId());
+        requireFolderInWorkspace(userId, request.parentFolderId(), documentGroupId,
+                "PARENT_FOLDER_WORKSPACE_MISMATCH", "Parent folder does not belong to the target Workspace.");
+        String name = dedupeFolderName(userId, documentGroupId, request.parentFolderId(), request.name(), null);
+        Folder folder = new Folder(Ids.folder(), userId, documentGroupId, name, request.parentFolderId(), now);
         folderRepository.save(folder);
         eventPublisher.publish("FolderCreated", userId, payload(
                 "folderId", folder.getFolderId(), "userId", userId, "name", folder.getName(), "parentFolderId", folder.getParentFolderId()
@@ -361,7 +472,7 @@ public class WorkspaceService {
 
     @Transactional(readOnly = true)
     public FolderTreeData folderTree(String userId) {
-        return new FolderTreeData(folderRepository.findByUserIdOrderByNameAsc(userId).stream().map(this::folderMap).toList());
+        return new FolderTreeData(null, folderRepository.findByUserIdOrderByNameAsc(userId).stream().map(this::folderMap).toList());
     }
 
     public FolderData patchFolder(String userId, String folderId, FolderPatchRequest request) {
@@ -371,8 +482,19 @@ public class WorkspaceService {
         String targetParentFolderId = request.parentFolderId() != null
                 ? (request.parentFolderId().isBlank() ? null : request.parentFolderId())
                 : folder.getParentFolderId();
+        // parentFolderId가 바뀌는 경우: 자기 자신/하위 폴더로의 순환 이동을 먼저 막고, 그 다음
+        // 대상 부모가 이 폴더와 같은 Workspace에 속하는지 확인한다. Workspace 간 폴더 이동은
+        // 정책상 미지원(2차)이라 요청 스키마 자체에 documentGroupId 필드가 없다.
+        if (request.parentFolderId() != null && targetParentFolderId != null) {
+            if (collectDescendantFolderIds(userId, folderId).contains(targetParentFolderId)) {
+                throw new WorkspaceException(HttpStatus.CONFLICT, "FOLDER_CYCLE_NOT_ALLOWED",
+                        "Cannot move a folder into itself or one of its own descendants.");
+            }
+            requireFolderInWorkspace(userId, targetParentFolderId, folder.getDocumentGroupId(),
+                    "PARENT_FOLDER_WORKSPACE_MISMATCH", "Parent folder does not belong to the folder's Workspace.");
+        }
         String desiredName = (request.name() != null && !request.name().isBlank()) ? request.name() : folder.getName();
-        String finalName = dedupeFolderName(userId, targetParentFolderId, desiredName, folderId);
+        String finalName = dedupeFolderName(userId, folder.getDocumentGroupId(), targetParentFolderId, desiredName, folderId);
         folder.patch(finalName, request.parentFolderId(), Instant.now());
         eventPublisher.publish("FolderChanged", userId, payload(
                 "folderId", folderId, "userId", userId, "name", folder.getName(), "parentFolderId", request.parentFolderId()
@@ -715,7 +837,8 @@ public class WorkspaceService {
     public InternalNoteBulkCreateData bulkCreate(InternalNoteBulkCreateRequest request) {
         List<InternalCreatedNote> created = new ArrayList<>();
         for (InternalNoteCreateItem item : request.notes()) {
-            NoteCreatedData data = createNote(request.userId(), new NoteCreateRequest(item.title(), item.markdown(), request.targetFolderId(), item.tags()));
+            NoteCreatedData data = createNote(request.userId(),
+                    new NoteCreateRequest(null, item.title(), item.markdown(), request.targetFolderId(), item.tags()));
             created.add(new InternalCreatedNote(item.externalId(), data.noteId(), data.version()));
         }
         return new InternalNoteBulkCreateData(created, List.of());
@@ -725,7 +848,8 @@ public class WorkspaceService {
     public InternalNoteSnapshotData snapshot(String noteId) {
         Note note = noteRepository.findById(noteId).orElseThrow(() -> notFound("NOTE_NOT_FOUND", "Note not found."));
         List<String> tags = new ArrayList<>(note.getTags());
-        return new InternalNoteSnapshotData(note.getNoteId(), note.getTitle(), note.getMarkdown(), tags, note.getFolderId(),
+        return new InternalNoteSnapshotData(note.getNoteId(), note.getDocumentGroupId(), note.getTitle(), note.getMarkdown(), tags,
+                note.getFolderId(),
                 note.getVersion(), note.getUpdatedAt());
     }
 
@@ -773,6 +897,38 @@ public class WorkspaceService {
                 notesCreatedToday,
                 recentActivities
         );
+    }
+
+    public InternalDefaultWorkspaceData getOrCreateDefaultWorkspace(String userId) {
+        String normalizedUserId = trimToNull(userId);
+        if (normalizedUserId == null) {
+            throw new WorkspaceException(HttpStatus.BAD_REQUEST, "USER_ID_REQUIRED", "User id is required.");
+        }
+
+        Workspace existingDefault = workspaceRepository.findDefaultWorkspacesByUserId(normalizedUserId).stream()
+                .findFirst()
+                .orElse(null);
+        if (existingDefault != null) {
+            return defaultWorkspaceData(existingDefault);
+        }
+
+        String documentGroupId = defaultDocumentGroupId(normalizedUserId);
+        Workspace existingById = workspaceRepository.findById(documentGroupId).orElse(null);
+        if (existingById != null) {
+            return defaultWorkspaceData(existingById);
+        }
+
+        Instant now = Instant.now();
+        try {
+            Workspace created = workspaceRepository.save(new Workspace(documentGroupId, normalizedUserId, "Default", true, now));
+            return defaultWorkspaceData(created);
+        } catch (DataIntegrityViolationException exception) {
+            Workspace recovered = workspaceRepository.findById(documentGroupId)
+                    .orElseGet(() -> workspaceRepository.findDefaultWorkspacesByUserId(normalizedUserId).stream()
+                            .findFirst()
+                            .orElseThrow(() -> exception));
+            return defaultWorkspaceData(recovered);
+        }
     }
 
     public NoteContentSaveData patchContentInternal(String noteId, InternalNoteContentPatchRequest request) {
@@ -992,6 +1148,11 @@ public class WorkspaceService {
                 .orElseThrow(() -> notFound("FOLDER_NOT_FOUND", "Folder not found."));
     }
 
+    private Workspace workspace(String userId, String documentGroupId) {
+        return workspaceRepository.findByDocumentGroupIdAndUserId(documentGroupId, userId)
+                .orElseThrow(() -> notFound("WORKSPACE_NOT_FOUND", "Workspace not found."));
+    }
+
     private WorkspaceException notFound(String code, String message) {
         return new WorkspaceException(HttpStatus.NOT_FOUND, code, message);
     }
@@ -1006,7 +1167,98 @@ public class WorkspaceService {
     }
 
     private FolderData folderData(Folder folder) {
-        return new FolderData(folder.getFolderId(), folder.getName(), folder.getParentFolderId(), folder.getParentFolderId() == null ? 0 : 1);
+        return new FolderData(folder.getFolderId(), folder.getDocumentGroupId(), folder.getName(), folder.getParentFolderId(),
+                folder.getParentFolderId() == null ? 0 : 1);
+    }
+
+    private NoteMetadataData noteMetadataData(Note note) {
+        return new NoteMetadataData(note.getNoteId(), note.getDocumentGroupId(), note.getTitle(), note.getFolderId(), note.getTags(),
+                note.getVersion(), typography(note), null);
+    }
+
+    private InternalDefaultWorkspaceData defaultWorkspaceData(Workspace workspace) {
+        return new InternalDefaultWorkspaceData(
+                workspace.getDocumentGroupId(),
+                workspace.getUserId(),
+                workspace.getName(),
+                workspace.getIsDefault(),
+                workspace.getCreatedAt(),
+                workspace.getUpdatedAt()
+        );
+    }
+
+    private WorkspaceSummaryData workspaceSummaryData(Workspace workspace) {
+        return new WorkspaceSummaryData(
+                workspace.getDocumentGroupId(),
+                workspace.getName(),
+                workspace.getIsDefault(),
+                workspace.getCreatedAt(),
+                workspace.getUpdatedAt()
+        );
+    }
+
+    private WorkspaceDetailData workspaceDetailData(Workspace workspace) {
+        return new WorkspaceDetailData(
+                workspace.getDocumentGroupId(),
+                workspace.getName(),
+                workspace.getIsDefault(),
+                workspace.getCreatedAt(),
+                workspace.getUpdatedAt()
+        );
+    }
+
+    private String defaultDocumentGroupId(String userId) {
+        return "dgrp_default_" + userId;
+    }
+
+    private String resolveDocumentGroupId(String userId, String requestedDocumentGroupId) {
+        String normalized = trimToNull(requestedDocumentGroupId);
+        if (normalized != null) {
+            return normalized;
+        }
+        if (isGuestUserId(userId)) {
+            // Guest는 Workspace를 가지지 않는다 — documentGroupId를 생략했다고 해서
+            // Guest 세션 id로 default Workspace를 만들어서는 안 된다. Guest가 만든
+            // Folder/Note는 documentGroupId=null로 남는다(레거시 데이터와 동일하게 취급).
+            return null;
+        }
+        return getOrCreateDefaultWorkspace(userId).documentGroupId();
+    }
+
+    private boolean isGuestUserId(String userId) {
+        return userId != null && userId.startsWith(GUEST_ID_PREFIX);
+    }
+
+    /** documentGroupId가 요청에 명시적으로 왔을 때만 호출자 소유인지 확인한다(404).
+        생략된 경우(null/blank)는 resolveDocumentGroupId의 기본값/Guest 처리에 맡긴다. */
+    private void requireOwnedWorkspaceIfProvided(String userId, String requestedDocumentGroupId) {
+        String normalized = trimToNull(requestedDocumentGroupId);
+        if (normalized != null) {
+            workspace(userId, normalized);
+        }
+    }
+
+    /** targetFolderId가 있을 때만, 그 폴더가 호출자 소유이고(404) documentGroupId가 일치하는지
+        확인한다. 대상 폴더 또는 기준 documentGroupId 중 하나라도 null이면(레거시 데이터) 비교를
+        건너뛰어 기존 동작을 깨지 않는다. */
+    private void requireFolderInWorkspace(String userId, String folderId, String documentGroupId,
+                                          String mismatchCode, String mismatchMessage) {
+        if (folderId == null || folderId.isBlank()) {
+            return;
+        }
+        Folder target = folder(userId, folderId);
+        String targetDocumentGroupId = target.getDocumentGroupId();
+        if (targetDocumentGroupId != null && documentGroupId != null && !targetDocumentGroupId.equals(documentGroupId)) {
+            throw new WorkspaceException(HttpStatus.BAD_REQUEST, mismatchCode, mismatchMessage);
+        }
+    }
+
+    private String requireWorkspaceName(String name) {
+        String normalized = trimToNull(name);
+        if (normalized == null) {
+            throw new WorkspaceException(HttpStatus.BAD_REQUEST, "WORKSPACE_NAME_REQUIRED", "Workspace name is required.");
+        }
+        return normalized;
     }
 
     private ShareLinkData shareData(ShareLink share) {
@@ -1014,13 +1266,15 @@ public class WorkspaceService {
     }
 
     private Map<String, Object> noteMap(Note note) {
-        return payload("noteId", note.getNoteId(), "title", note.getTitle(), "markdown", note.getMarkdown(), "folderId", note.getFolderId(),
+        return payload("noteId", note.getNoteId(), "documentGroupId", note.getDocumentGroupId(), "title", note.getTitle(),
+                "markdown", note.getMarkdown(), "folderId", note.getFolderId(),
                 "tags", new ArrayList<>(note.getTags()), "version", note.getVersion(), "createdAt", note.getCreatedAt(), "updatedAt", note.getUpdatedAt(),
                 "deleted", note.isDeleted(), "typography", typography(note));
     }
 
     private Map<String, Object> folderMap(Folder folder) {
-        return payload("folderId", folder.getFolderId(), "name", folder.getName(), "parentFolderId", folder.getParentFolderId(), "depth", folderData(folder).depth());
+        return payload("folderId", folder.getFolderId(), "documentGroupId", folder.getDocumentGroupId(), "name", folder.getName(),
+                "parentFolderId", folder.getParentFolderId(), "depth", folderData(folder).depth());
     }
 
     private Map<String, Object> linkMap(NoteLink link) {
