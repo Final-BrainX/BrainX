@@ -322,6 +322,32 @@ public class WorkspaceService {
         return folders.size();
     }
 
+    /** guest draft claim 시 즐겨찾기도 함께 승계한다 — putFavorite은 USER/GUEST를 가리지 않고
+        actor id를 그대로 favoriteId/userId에 써서 저장하므로(WorkspaceController.putFavorite),
+        claim이 note/folder만 옮기고 즐겨찾기는 그대로 guestId 소유로 남아있던 gap을 메운다.
+        favoriteId가 userId를 포함해 만들어지므로(Ids.favorite) 단순 소유자 필드 변경이 아니라
+        새 id로 재생성한다 — 이미 같은 대상으로 회원 즐겨찾기가 있으면(드물지만) 회원 쪽을 그대로
+        두고 guest 쪽만 지운다. */
+    @Transactional
+    public int reassignGuestFavorites(String fromUserId, String toUserId) {
+        List<Favorite> guestFavorites = favoriteRepository.findByUserId(fromUserId);
+        Instant now = Instant.now();
+        int migrated = 0;
+        for (Favorite favorite : guestFavorites) {
+            boolean alreadyExists = favoriteRepository
+                    .findByUserIdAndTargetTypeAndTargetId(toUserId, favorite.getTargetType(), favorite.getTargetId())
+                    .isPresent();
+            if (!alreadyExists) {
+                favoriteRepository.save(new Favorite(
+                        Ids.favorite(toUserId, favorite.getTargetType(), favorite.getTargetId()),
+                        toUserId, favorite.getTargetType(), favorite.getTargetId(), favorite.isEnabled(), now));
+                migrated++;
+            }
+            favoriteRepository.delete(favorite);
+        }
+        return migrated;
+    }
+
     public FolderData createFolder(String userId, FolderCreateRequest request) {
         Instant now = Instant.now();
         String name = dedupeFolderName(userId, request.parentFolderId(), request.name(), null);
@@ -572,6 +598,14 @@ public class WorkspaceService {
         return new GraphLayoutData(layoutId, now);
     }
 
+    @Transactional(readOnly = true)
+    public List<ShareLinkData> listShareLinks(String userId, String noteId) {
+        note(userId, noteId);
+        return shareLinkRepository.findByNoteIdAndUserId(noteId, userId).stream()
+                .map(this::shareData)
+                .toList();
+    }
+
     public ShareLinkData createShareLink(String userId, ShareLinkCreateRequest request) {
         if (!Set.of("READ", "EDIT").contains(request.permission())) {
             throw new WorkspaceException(HttpStatus.BAD_REQUEST, "INVALID_SHARE_PERMISSION", "permission must be READ or EDIT.");
@@ -586,6 +620,14 @@ public class WorkspaceService {
         return shareData(shareLink);
     }
 
+    private static final java.util.regex.Pattern WIKI_TITLE_RE =
+            java.util.regex.Pattern.compile("data-title=\"([^\"]+)\"");
+    private static final java.util.regex.Pattern INTERNAL_ID_RE =
+            java.util.regex.Pattern.compile("href=\"brainx-note://([^\"]+)\"");
+    // plain [[title]] / [[title#heading]] / [[title|alias]] 형태 (HTML로 재저장되기 전 마크다운)
+    private static final java.util.regex.Pattern PLAIN_WIKI_RE =
+            java.util.regex.Pattern.compile("\\[\\[([^\\[\\]|#\\r\\n]+?)(?:[#|][^\\[\\]]*)?\\]\\]");
+
     @Transactional(readOnly = true)
     public PublicSharedNoteData publicShare(String shareId) {
         ShareLink share = shareLinkRepository.findById(shareId)
@@ -594,8 +636,70 @@ public class WorkspaceService {
             throw new WorkspaceException(HttpStatus.GONE, "SHARE_LINK_EXPIRED", "Share link is not available.");
         }
         Note note = noteRepository.findById(share.getNoteId()).orElseThrow(() -> notFound("NOTE_NOT_FOUND", "Note not found."));
-        return new PublicSharedNoteData(shareId, note.getNoteId(), note.getTitle(), note.getMarkdown(), new ShareAuthor("BrainX user"),
-                share.getPermission(), share.getExpiresAt());
+
+        Map<String, String> linkedShares = resolveLinkedShares(shareId, share.getUserId(), note.getMarkdown());
+
+        return new PublicSharedNoteData(shareId, note.getNoteId(), note.getTitle(), note.getMarkdown(),
+                new ShareAuthor("BrainX user"), share.getPermission(), share.getExpiresAt(), linkedShares);
+    }
+
+    // shareId context로 하위 노트 접근 — 별도 공유 링크 불필요
+    @Transactional(readOnly = true)
+    public PublicSharedNoteData linkedNoteContent(String shareId, String noteId) {
+        ShareLink share = shareLinkRepository.findById(shareId)
+                .orElseThrow(() -> notFound("SHARE_LINK_NOT_FOUND", "Share link not found."));
+        if (share.isRevoked() || share.getExpiresAt().isBefore(Instant.now())) {
+            throw new WorkspaceException(HttpStatus.GONE, "SHARE_LINK_EXPIRED", "Share link is not available.");
+        }
+        Note note = noteRepository.findById(noteId)
+                .filter(n -> n.getUserId().equals(share.getUserId()) && !n.isDeleted())
+                .orElseThrow(() -> notFound("NOTE_NOT_FOUND", "Note not found or not accessible."));
+
+        Map<String, String> linkedShares = resolveLinkedShares(shareId, share.getUserId(), note.getMarkdown());
+        return new PublicSharedNoteData(shareId, note.getNoteId(), note.getTitle(), note.getMarkdown(),
+                new ShareAuthor("BrainX user"), share.getPermission(), share.getExpiresAt(), linkedShares);
+    }
+
+    private Map<String, String> resolveLinkedShares(String shareId, String userId, String html) {
+        if (html == null || html.isBlank()) return Map.of();
+        Map<String, String> result = new java.util.HashMap<>();
+
+        // [[위키 링크]] — data-title 속성으로 noteId 조회 후 /share/{shareId}/note/{noteId} URL 생성
+        var wikiMatcher = WIKI_TITLE_RE.matcher(html);
+        while (wikiMatcher.find()) {
+            String title = wikiMatcher.group(1);
+            if (result.containsKey(title)) continue;
+            noteRepository.findFirstByUserIdAndTitleIgnoreCaseAndDeletedFalse(userId, title)
+                    .ifPresent(n -> result.put(title, publicBaseUrl + "/share/" + shareId + "/note/" + n.getNoteId()));
+        }
+
+        // brainx-note://noteId 직접 링크
+        var idMatcher = INTERNAL_ID_RE.matcher(html);
+        while (idMatcher.find()) {
+            String noteId = idMatcher.group(1);
+            if (result.containsKey(noteId)) continue;
+            noteRepository.findById(noteId)
+                    .filter(n -> n.getUserId().equals(userId) && !n.isDeleted())
+                    .ifPresent(n -> result.put(noteId, publicBaseUrl + "/share/" + shareId + "/note/" + noteId));
+        }
+
+        // plain [[title]] 마크다운 — HTML로 재저장되기 전 노트 대응
+        var plainMatcher = PLAIN_WIKI_RE.matcher(html);
+        while (plainMatcher.find()) {
+            String title = plainMatcher.group(1).trim();
+            if (result.containsKey(title)) continue;
+            noteRepository.findFirstByUserIdAndTitleIgnoreCaseAndDeletedFalse(userId, title)
+                    .ifPresent(n -> result.put(title, publicBaseUrl + "/share/" + shareId + "/note/" + n.getNoteId()));
+        }
+
+        return result;
+    }
+
+    @Transactional(readOnly = true)
+    public ShareLinkData publicShareLinkForNote(String noteId) {
+        return shareLinkRepository.findFirstActiveByNoteId(noteId, Instant.now())
+                .map(this::shareData)
+                .orElseThrow(() -> notFound("SHARE_LINK_NOT_FOUND", "No active share link for this note."));
     }
 
     public ShareLinkData patchShareLink(String userId, String shareId, ShareLinkPatchRequest request) {

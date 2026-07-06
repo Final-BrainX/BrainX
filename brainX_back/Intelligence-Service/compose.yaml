@@ -12,7 +12,7 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/intelligence_service
       - SPRING_DATASOURCE_USERNAME=postgres
       - SPRING_DATASOURCE_PASSWORD=change_me
-      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=validate
       - QDRANT_HOST=qdrant
       - QDRANT_GRPC_PORT=6334
       - QDRANT_COLLECTION
@@ -20,6 +20,10 @@ services:
       - BRAINX_WORKSPACE_SERVICE_TOKEN=local-service-token
       - BRAINX_SECURITY_DEV_AUTH_ENABLED=true
       - BRAINX_SECURITY_DEV_USER_ID=dev-test-user
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_TIMEOUT=2s
+      - BRAINX_REDIS_HEALTH_ENABLED=true
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - BRAINX_EVENTS_CONSUMER_ENABLED=true
       - BRAINX_EVENTS_PRODUCER_ENABLED=true
@@ -27,6 +31,8 @@ services:
       - "8086:8086"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       qdrant:
         condition: service_started

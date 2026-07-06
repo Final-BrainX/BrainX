@@ -21,9 +21,14 @@ import com.brainx.intelligence.assist.domain.AiSuggestionDecision;
 import com.brainx.intelligence.assist.domain.InlineAssistAction;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
+import com.brainx.intelligence.settings.application.port.outbound.StyleProfilePort;
+import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.settings.domain.AiModel;
 import com.brainx.intelligence.settings.domain.AiModelSettings;
+import com.brainx.intelligence.settings.domain.ConversationTone;
+import com.brainx.intelligence.settings.domain.StyleProfile;
 import com.brainx.intelligence.settings.domain.VendorTokenCost;
+import com.brainx.intelligence.settings.domain.WritingStyle;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatChunk;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -54,19 +59,28 @@ class AssistServiceTest {
     private final FakeTokenUsagePort tokenUsagePort = new FakeTokenUsagePort();
     private final FakeAiModelCatalogPort catalogPort = new FakeAiModelCatalogPort();
     private final FakeAssistEventPort assistEventPort = new FakeAssistEventPort();
+    private final FakeStyleProfilePort styleProfilePort = new FakeStyleProfilePort();
+    private final StylePromptCompiler stylePromptCompiler = new StylePromptCompiler(styleProfilePort);
     private final AssistService service = new AssistService(
         properties,
         settingsPort,
         entitlementPort,
         chatPort,
         new AiUsageRecorder(tokenUsagePort, new AiTokenUsageCostEstimator(catalogPort)),
-        assistEventPort
+        assistEventPort,
+        stylePromptCompiler
     );
 
     @BeforeEach
     void setUp() {
         properties.setDefaultModel("fallback-model");
         chatPort.response = new AiChatResponse("generated text", new AiTokenUsage(100, 20, 120, 10, 3));
+        styleProfilePort.profile = new StyleProfile(
+            "user-1",
+            new ConversationTone(Map.of("directness", "high")),
+            new WritingStyle(Map.of("formality", "business", "sentenceLength", "short")),
+            null
+        );
         catalogPort.model = new AiModel(
             "user-model",
             "User model",
@@ -104,7 +118,11 @@ class AssistServiceTest {
         assertThat(chatPort.lastRequest.messages().get(0).content())
             .contains("Before and After are immutable reference context only")
             .contains("return only a replacement for Selected")
-            .contains("Never include, paraphrase, move, summarize, or rewrite Before/After");
+            .contains("Never include, paraphrase, move, summarize, or rewrite Before/After")
+            .contains("Mandatory user style instructions")
+            .contains("every final generated or edited user-facing text segment")
+            .contains("Use this formality/tone: business")
+            .doesNotContain("every final user-facing conversational sentence");
         assertThat(chatPort.lastRequest.messages().get(1).content())
             .contains("Action: REWRITE")
             .contains("Language: en")
@@ -469,6 +487,23 @@ class AssistServiceTest {
         @Override
         public boolean existsByModelId(String modelId) {
             return model != null && model.modelId().equals(modelId);
+        }
+    }
+
+    private static final class FakeStyleProfilePort implements StyleProfilePort {
+
+        private StyleProfile profile;
+
+        @Override
+        public StyleProfile save(StyleProfile styleProfile) {
+            profile = styleProfile;
+            return styleProfile;
+        }
+
+        @Override
+        public Optional<StyleProfile> findStyleProfileByUserId(String userId) {
+            return Optional.ofNullable(profile)
+                .filter(item -> item.userId().equals(userId));
         }
     }
 

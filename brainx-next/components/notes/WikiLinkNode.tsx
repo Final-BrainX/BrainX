@@ -5,18 +5,19 @@ import { NodeSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/stat
 import { ReactNodeViewRenderer, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { FilePlus2 } from "lucide-react";
 import { cx } from "@/lib/utils";
-import { useWikiLinkContext, resolveWikiLinkTitle } from "./WikiLinkContext";
+import { normalizeOptionalWikiLinkText, normalizeWikiLinkText, useWikiLinkContext, resolveWikiLinkTitle } from "./WikiLinkContext";
 
 /** `[[노트]]` / `[[노트|별칭]]` / `[[노트#헤딩]]` / `[[노트#헤딩|별칭]]` 입력 형태를 그대로
     지원한다(Obsidian 문법). `]]`까지 입력하는 순간 nodeInputRule이 매치되어 이 노드로
     변환된다. */
 function parseWikiLinkBody(raw: string) {
-  const [titleAndHeading, aliasPart] = raw.split("|");
+  const normalizedRaw = normalizeWikiLinkText(raw);
+  const [titleAndHeading, aliasPart] = normalizedRaw.split("|");
   const [title, heading] = titleAndHeading.split("#");
   return {
-    title: title.trim(),
-    heading: heading?.trim() || null,
-    alias: aliasPart?.trim() || null,
+    title: normalizeWikiLinkText(title).trim(),
+    heading: normalizeOptionalWikiLinkText(heading),
+    alias: normalizeOptionalWikiLinkText(aliasPart),
   };
 }
 
@@ -28,16 +29,16 @@ function parseWikiLinkBody(raw: string) {
    텍스트를 다시 이 노드로 되돌리면서 다시 마운트된다. */
 function WikiLinkView({ node }: NodeViewProps) {
   const ctx = useWikiLinkContext();
-  const title = (node.attrs.title as string) ?? "";
-  const alias = (node.attrs.alias as string | null) ?? null;
-  const heading = (node.attrs.heading as string | null) ?? null;
+  const title = normalizeWikiLinkText(node.attrs.title).trim();
+  const alias = normalizeOptionalWikiLinkText(node.attrs.alias);
+  const heading = normalizeOptionalWikiLinkText(node.attrs.heading);
 
   const resolved = ctx ? resolveWikiLinkTitle(ctx.notes, title) : null;
   const exists = !!resolved;
   const display = alias ?? title;
 
   const handleClick = () => {
-    if (!ctx) return;
+    if (!ctx || !title) return;
     if (exists) ctx.onNavigate(title);
     else ctx.onCreate(title);
   };
@@ -49,8 +50,14 @@ function WikiLinkView({ node }: NodeViewProps) {
         contentEditable={false}
         onMouseDown={(e) => e.preventDefault()}
         onClick={handleClick}
-        title={exists ? `"${title}" 노트로 이동${heading ? ` (#${heading})` : ""}` : `"${title}" 노트가 없습니다 — 클릭해서 생성`}
-        aria-label={exists ? `${title} 노트로 이동` : `${title} 노트 생성`}
+        title={
+          title
+            ? exists
+              ? `"${title}" 노트로 이동${heading ? ` (#${heading})` : ""}`
+              : `"${title}" 노트가 없습니다 — 클릭해서 생성`
+            : "위키링크 제목을 확인할 수 없습니다."
+        }
+        aria-label={title ? (exists ? `${title} 노트로 이동` : `${title} 노트 생성`) : "손상된 위키링크"}
         className={cx(
           "rounded px-0.5 align-baseline font-medium underline decoration-1 underline-offset-2 transition-colors",
           exists
@@ -59,7 +66,7 @@ function WikiLinkView({ node }: NodeViewProps) {
         )}
       >
         {!exists && <FilePlus2 size={11} className="mr-0.5 inline-block shrink-0 -translate-y-px" />}
-        {display}
+        {display || title || "Untitled"}
       </button>
     </NodeViewWrapper>
   );
@@ -86,13 +93,19 @@ export const WikiLink = Node.create({
       title: { default: "" },
       alias: {
         default: null,
-        parseHTML: (el) => el.getAttribute("data-alias"),
-        renderHTML: (attrs) => (attrs.alias ? { "data-alias": String(attrs.alias) } : {}),
+        parseHTML: (el) => normalizeOptionalWikiLinkText(el.getAttribute("data-alias")),
+        renderHTML: (attrs) => {
+          const alias = normalizeOptionalWikiLinkText(attrs.alias);
+          return alias ? { "data-alias": alias } : {};
+        },
       },
       heading: {
         default: null,
-        parseHTML: (el) => el.getAttribute("data-heading"),
-        renderHTML: (attrs) => (attrs.heading ? { "data-heading": String(attrs.heading) } : {}),
+        parseHTML: (el) => normalizeOptionalWikiLinkText(el.getAttribute("data-heading")),
+        renderHTML: (attrs) => {
+          const heading = normalizeOptionalWikiLinkText(attrs.heading);
+          return heading ? { "data-heading": heading } : {};
+        },
       },
     };
   },
@@ -104,9 +117,9 @@ export const WikiLink = Node.create({
         getAttrs: (el) => {
           if (!(el instanceof HTMLElement)) return false;
           return {
-            title: el.getAttribute("data-title") ?? "",
-            alias: el.getAttribute("data-alias"),
-            heading: el.getAttribute("data-heading"),
+            title: normalizeWikiLinkText(el.getAttribute("data-title")).trim(),
+            alias: normalizeOptionalWikiLinkText(el.getAttribute("data-alias")),
+            heading: normalizeOptionalWikiLinkText(el.getAttribute("data-heading")),
           };
         },
       },
@@ -114,7 +127,8 @@ export const WikiLink = Node.create({
   },
 
   renderHTML({ node, HTMLAttributes }) {
-    const { title, alias } = node.attrs;
+    const title = normalizeWikiLinkText(node.attrs.title).trim();
+    const alias = normalizeOptionalWikiLinkText(node.attrs.alias);
     return [
       "span",
       mergeAttributes(HTMLAttributes, { "data-wiki-link": "true", "data-title": title }),
@@ -147,7 +161,9 @@ export const WikiLink = Node.create({
 });
 
 function wikiLinkRawText(node: { attrs: { title: string; alias: string | null; heading: string | null } }): string {
-  const { title, alias, heading } = node.attrs;
+  const title = normalizeWikiLinkText(node.attrs.title).trim();
+  const alias = normalizeOptionalWikiLinkText(node.attrs.alias);
+  const heading = normalizeOptionalWikiLinkText(node.attrs.heading);
   return `[[${title}${heading ? `#${heading}` : ""}${alias ? `|${alias}` : ""}]]`;
 }
 

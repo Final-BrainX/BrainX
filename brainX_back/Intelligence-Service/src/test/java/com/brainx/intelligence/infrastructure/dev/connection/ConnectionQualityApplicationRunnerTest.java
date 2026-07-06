@@ -121,7 +121,10 @@ class ConnectionQualityApplicationRunnerTest {
                 "target-1",
                 "Target",
                 0.91d,
-                "관련 이유"
+                "관련 이유",
+                "Anchor",
+                0,
+                6
             )));
         }
     }

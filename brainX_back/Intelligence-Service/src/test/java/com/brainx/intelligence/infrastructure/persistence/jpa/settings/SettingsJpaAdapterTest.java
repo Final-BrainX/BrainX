@@ -16,7 +16,6 @@ import org.springframework.test.context.ActiveProfiles;
 
 import com.brainx.intelligence.settings.domain.AiModel;
 import com.brainx.intelligence.settings.domain.AiModelSettings;
-import com.brainx.intelligence.settings.domain.AssistanceStyle;
 import com.brainx.intelligence.settings.domain.ConversationTone;
 import com.brainx.intelligence.settings.domain.StyleProfile;
 import com.brainx.intelligence.settings.domain.WritingStyle;
@@ -49,7 +48,7 @@ class SettingsJpaAdapterTest {
         entityManager.flush();
         entityManager.clear();
 
-        // ai_models는 db/seed 스크립트로 기본 카탈로그가 채워진 상태로 기동되므로,
+        // ai_models는 runtime별 seed가 기본 카탈로그를 채울 수 있으므로,
         // 전체 개수가 아니라 방금 저장한 모델이 포함되어 있는지로 검증한다.
         var models = settingsJpaAdapter.findAll();
 
@@ -95,7 +94,6 @@ class SettingsJpaAdapterTest {
             "user-1",
             new ConversationTone(Map.of("speechLevel", "haeyo", "directness", "high")),
             new WritingStyle(Map.of("formality", "business", "rules", List.of("ko", "technical"))),
-            new AssistanceStyle(Map.of("clarificationPolicy", "only_when_blocking")),
             detectedAt
         ));
         entityManager.flush();
@@ -106,7 +104,26 @@ class SettingsJpaAdapterTest {
         assertThat(found.conversationToneValues()).containsEntry("directness", "high");
         assertThat(found.writingStyleValues()).containsEntry("formality", "business");
         assertThat(found.writingStyleValues()).containsEntry("rules", List.of("ko", "technical"));
-        assertThat(found.assistanceStyleValues()).containsEntry("clarificationPolicy", "only_when_blocking");
         assertThat(found.detectedFromNotesAt()).isEqualTo(detectedAt);
+    }
+
+    @Test
+    void findStyleProfileIgnoresLegacyAssistanceStyleKey() {
+        entityManager.persist(new StyleProfileJpaEntity(
+            "user-legacy",
+            Map.of(
+                "conversationTone", Map.of("directness", "high"),
+                "writingStyle", Map.of("formality", "business"),
+                "assistanceStyle", Map.of("clarificationPolicy", "only_when_blocking")
+            ),
+            null
+        ));
+        entityManager.flush();
+        entityManager.clear();
+
+        var found = settingsJpaAdapter.findStyleProfileByUserId("user-legacy").orElseThrow();
+
+        assertThat(found.conversationToneValues()).containsEntry("directness", "high");
+        assertThat(found.writingStyleValues()).containsEntry("formality", "business");
     }
 }

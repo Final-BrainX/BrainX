@@ -19,7 +19,9 @@ import {
   seedNotes,
   updateNoteDerived
 } from "@/lib/brainx-data";
-import { ensureDevAuthSession, readAuthSession } from "@/lib/auth-api";
+import { getLocalStoredValue, setLocalStoredValue } from "@/lib/client-storage";
+import { clearAuthSession, ensureDevAuthSession, getAuthIdentityKey, readAuthSession } from "@/lib/auth-api";
+import { getBrainxDesktopConfig, isElectronDesktop } from "@/lib/desktop-bridge";
 import { translate, type I18nKey, type LanguageCode } from "@/lib/i18n";
 import { USE_MOCK_NOTES } from "@/lib/workspace-api";
 import { loadWorkspaceBrainXNotes } from "@/lib/workspace-live-notes";
@@ -59,13 +61,14 @@ const NOTES_KEY = "brainx_notes_v1";
 const THEME_KEY = "brainx_theme_v1";
 const LANGUAGE_KEY = "brainx_language_v1";
 const SIDEBAR_KEY = "brainx_sidebar_collapsed_v1";
+const DESKTOP_AUTH_APP_VERSION_KEY = "brainx_desktop_auth_app_version_v1";
 
 const BrainXContext = createContext<BrainXContextValue | null>(null);
 
 function readJson<T>(key: string, fallback: T) {
   if (typeof window === "undefined") return fallback;
   try {
-    const raw = window.localStorage.getItem(key);
+    const raw = getLocalStoredValue(key);
     if (!raw) return fallback;
     return JSON.parse(raw) as T;
   } catch {
@@ -74,18 +77,18 @@ function readJson<T>(key: string, fallback: T) {
 }
 
 function writeJson(key: string, value: unknown) {
-  window.localStorage.setItem(key, JSON.stringify(value));
+  setLocalStoredValue(key, JSON.stringify(value));
 }
 
 function readTheme(): ThemeMode {
   if (typeof window === "undefined") return "light";
-  const stored = window.localStorage.getItem(THEME_KEY);
+  const stored = getLocalStoredValue(THEME_KEY);
   return stored === "dark" || stored === "light" || stored === "system" ? stored : "light";
 }
 
 function readLanguage(): LanguageCode {
   if (typeof window === "undefined") return "ko";
-  return window.localStorage.getItem(LANGUAGE_KEY) === "en" ? "en" : "ko";
+  return getLocalStoredValue(LANGUAGE_KEY) === "en" ? "en" : "ko";
 }
 
 function getSystemTheme(): EffectiveTheme {
@@ -95,7 +98,7 @@ function getSystemTheme(): EffectiveTheme {
 
 function readSidebarCollapsed() {
   if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(SIDEBAR_KEY) === "true";
+  return getLocalStoredValue(SIDEBAR_KEY) === "true";
 }
 
 function readNotes(): BrainXNote[] {
@@ -118,22 +121,50 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const notesRef = useRef(notes);
+  const [authIdentityKey, setAuthIdentityKey] = useState(() => getAuthIdentityKey(readAuthSession()));
 
   useEffect(() => {
     notesRef.current = notes;
   }, [notes]);
 
   useEffect(() => {
-    ensureDevAuthSession();
-    const nextTheme = readTheme();
-    const nextLanguage = readLanguage();
-    const nextSidebarCollapsed = readSidebarCollapsed();
-    const nextNotes = readNotes();
-    setTheme(nextTheme);
-    setLanguage(nextLanguage);
-    setSidebarCollapsed(nextSidebarCollapsed);
-    setNotes(nextNotes);
-    setHydrated(true);
+    let active = true;
+
+    async function bootstrap() {
+      ensureDevAuthSession();
+
+      if (isElectronDesktop()) {
+        try {
+          const config = await getBrainxDesktopConfig();
+          const currentVersion = config?.appVersion?.trim();
+          if (currentVersion) {
+            const storedVersion = getLocalStoredValue(DESKTOP_AUTH_APP_VERSION_KEY);
+            if (storedVersion && storedVersion !== currentVersion && readAuthSession()?.accessToken) {
+              clearAuthSession();
+            }
+            setLocalStoredValue(DESKTOP_AUTH_APP_VERSION_KEY, currentVersion);
+          }
+        } catch {
+          // ignore desktop config read failures during boot
+        }
+      }
+
+      if (!active) return;
+      const nextTheme = readTheme();
+      const nextLanguage = readLanguage();
+      const nextSidebarCollapsed = readSidebarCollapsed();
+      const nextNotes = readNotes();
+      setTheme(nextTheme);
+      setLanguage(nextLanguage);
+      setSidebarCollapsed(nextSidebarCollapsed);
+      setNotes(nextNotes);
+      setHydrated(true);
+    }
+
+    void bootstrap();
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -141,42 +172,56 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
     const handle = window.setTimeout(() => {
       try {
         writeJson(NOTES_KEY, notes);
-        setSaveStatus("saved");
+        setSaveStatus((prev) => (prev === "saved" ? prev : "saved"));
       } catch {
-        setSaveStatus("error");
+        setSaveStatus((prev) => (prev === "error" ? prev : "error"));
       }
     }, 350);
-    setSaveStatus("saving");
+    setSaveStatus((prev) => (prev === "saving" ? prev : "saving"));
     return () => window.clearTimeout(handle);
   }, [hydrated, notes]);
 
   useEffect(() => {
     if (!hydrated || USE_MOCK_NOTES) return;
+    const syncAuthIdentity = () => {
+      const nextSession = readAuthSession();
+      const nextIdentityKey = getAuthIdentityKey(nextSession);
+      setAuthIdentityKey((prev) => (prev === nextIdentityKey ? prev : nextIdentityKey));
+    };
+    window.addEventListener("brainx-auth-session-changed", syncAuthIdentity);
+    return () => {
+      window.removeEventListener("brainx-auth-session-changed", syncAuthIdentity);
+    };
+  }, [hydrated]);
+
+  useEffect(() => {
+    if (!hydrated || USE_MOCK_NOTES) return;
     let active = true;
+    let requestNonce = 0;
 
     const loadLiveNotes = () => {
-      setSaveStatus("saving");
+      const nextNonce = requestNonce + 1;
+      requestNonce = nextNonce;
+      setSaveStatus((prev) => (prev === "saving" ? prev : "saving"));
       loadWorkspaceBrainXNotes()
         .then((nextNotes) => {
-          if (!active) return;
+          if (!active || requestNonce !== nextNonce) return;
           setNotes(nextNotes);
-          setSaveStatus("saved");
+          setSaveStatus((prev) => (prev === "saved" ? prev : "saved"));
         })
         .catch(() => {
-          if (!active) return;
-          setSaveStatus("error");
+          if (!active || requestNonce !== nextNonce) return;
+          setSaveStatus((prev) => (prev === "error" ? prev : "error"));
         });
     };
 
     loadLiveNotes();
-    window.addEventListener("brainx-auth-session-changed", loadLiveNotes);
     window.addEventListener("brainx:notes-refresh", loadLiveNotes);
     return () => {
       active = false;
-      window.removeEventListener("brainx-auth-session-changed", loadLiveNotes);
       window.removeEventListener("brainx:notes-refresh", loadLiveNotes);
     };
-  }, [hydrated]);
+  }, [authIdentityKey, hydrated]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -190,7 +235,7 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
 
     try {
       applyTheme();
-      window.localStorage.setItem(THEME_KEY, theme);
+      setLocalStoredValue(THEME_KEY, theme);
     } catch {
       // ignore storage issues
     }
@@ -205,7 +250,7 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
     if (!hydrated) return;
     try {
       document.documentElement.lang = language;
-      window.localStorage.setItem(LANGUAGE_KEY, language);
+      setLocalStoredValue(LANGUAGE_KEY, language);
     } catch {
       // ignore storage issues
     }
@@ -214,7 +259,7 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!hydrated) return;
     try {
-      window.localStorage.setItem(SIDEBAR_KEY, String(sidebarCollapsed));
+      setLocalStoredValue(SIDEBAR_KEY, String(sidebarCollapsed));
     } catch {
       // ignore storage issues
     }

@@ -1,7 +1,8 @@
 
 "use client";
 
-import { clearAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { clearAuthSession, isDevAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { DEV_USER_ID } from "@/lib/dev-user";
 import type { components } from "@/lib/generated/intelligence-openapi";
 
 type Schemas = components["schemas"];
@@ -21,6 +22,12 @@ export type ChatThreadDeleteData = Schemas["ChatThreadDeleteData"];
 export type ChatThreadListData = Schemas["ChatThreadListData"];
 export type ChatMessageCreateRequest = Schemas["ChatMessageCreateRequest"];
 export type ChatThreadDetailData = Schemas["ChatThreadDetailData"];
+export type AgentThreadCreateRequest = Schemas["AgentThreadCreateRequest"];
+export type AgentMessageCreateRequest = Schemas["AgentMessageCreateRequest"];
+export type AgentThreadData = Schemas["AgentThreadData"];
+export type AgentThreadListData = Schemas["AgentThreadListData"];
+export type AgentThreadDetailData = Schemas["AgentThreadDetailData"];
+export type AgentActionData = Schemas["AgentActionData"];
 export type LinkSuggestionsRequest = Schemas["LinkSuggestionsRequest"];
 export type LinkSuggestionsData = Schemas["LinkSuggestionsData"];
 export type BridgeConceptsRequest = Schemas["BridgeConceptsRequest"];
@@ -28,6 +35,9 @@ export type BridgeConceptsData = Schemas["BridgeConceptsData"];
 export type ClusterJobCreateRequest = Schemas["ClusterJobCreateRequest"];
 export type ClusterJobData = Schemas["ClusterJobData"];
 export type ClusterJobLatestData = Schemas["ClusterJobLatestData"];
+export type InsightReportCreateRequest = Schemas["InsightReportCreateRequest"];
+export type InsightReportData = Schemas["InsightReportData"];
+export type InsightReportLatestData = Schemas["InsightReportLatestData"];
 export type AiModelsData = Schemas["AiModelsData"];
 export type AiModelSettingsPutRequest = Schemas["AiModelSettingsPutRequest"];
 export type AiModelSettingsData = Schemas["AiModelSettingsData"];
@@ -45,6 +55,16 @@ export type ChatMessageDoneEvent = {
   messageId: string;
 };
 
+export type AgentMessageDoneEvent = {
+  messageId: string;
+};
+
+export type ChatRouteEvent = {
+  route?: string;
+  reason?: string;
+  routerModel?: string;
+};
+
 export type ChatThreadListStatus = "active" | "archived";
 
 export type IntelligenceRequestOptions = {
@@ -55,6 +75,10 @@ export type IntelligenceRequestOptions = {
 export type IntelligenceStreamHandlers<TDone> = IntelligenceRequestOptions & {
   onDelta?: (text: string) => void;
   onDone?: (data: TDone) => void;
+  onRoute?: (data: ChatRouteEvent) => void;
+  onActionProposed?: (data: AgentActionData) => void;
+  onActionStatus?: (data: AgentActionData) => void;
+  onActionResult?: (data: AgentActionData) => void;
   onError?: (error: unknown) => void;
 };
 
@@ -71,7 +95,6 @@ export class IntelligenceAuthRequiredError extends Error {
 }
 
 const INTELLIGENCE_API_BASE_URL = "";
-const DEV_USER_ID = process.env.NEXT_PUBLIC_WORKSPACE_DEV_USER_ID?.trim();
 
 function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
   return response.message ?? response.error?.message ?? fallback;
@@ -149,6 +172,14 @@ async function readSseStream<TDone>(
       if (frame.event === "delta") {
         const text = typeof parsed === "object" && parsed && "text" in parsed ? String(parsed.text ?? "") : frame.data;
         handlers.onDelta?.(text);
+      } else if (frame.event === "route") {
+        handlers.onRoute?.(routeEventFrom(parsed));
+      } else if (frame.event === "action_proposed") {
+        handlers.onActionProposed?.(parsed as AgentActionData);
+      } else if (frame.event === "action_status") {
+        handlers.onActionStatus?.(parsed as AgentActionData);
+      } else if (frame.event === "action_result") {
+        handlers.onActionResult?.(parsed as AgentActionData);
       } else if (frame.event === "done") {
         donePayload = parsed as TDone;
         handlers.onDone?.(donePayload);
@@ -161,7 +192,15 @@ async function readSseStream<TDone>(
   const tail = buffer.trim();
   if (tail) {
     const frame = parseSseFrame(tail);
-    if (frame.event === "done") {
+    if (frame.event === "route") {
+      handlers.onRoute?.(routeEventFrom(parseJson(frame.data)));
+    } else if (frame.event === "action_proposed") {
+      handlers.onActionProposed?.(parseJson(frame.data) as AgentActionData);
+    } else if (frame.event === "action_status") {
+      handlers.onActionStatus?.(parseJson(frame.data) as AgentActionData);
+    } else if (frame.event === "action_result") {
+      handlers.onActionResult?.(parseJson(frame.data) as AgentActionData);
+    } else if (frame.event === "done") {
       donePayload = parseJson(frame.data) as TDone;
       handlers.onDone?.(donePayload);
     }
@@ -185,6 +224,16 @@ function parseSseFrame(raw: string): SseFrame {
   return { event, data: data.join("\n") };
 }
 
+function routeEventFrom(value: unknown): ChatRouteEvent {
+  if (!value || typeof value !== "object") return {};
+  const record = value as Record<string, unknown>;
+  return {
+    route: typeof record.route === "string" ? record.route : undefined,
+    reason: typeof record.reason === "string" ? record.reason : undefined,
+    routerModel: typeof record.routerModel === "string" ? record.routerModel : undefined
+  };
+}
+
 function parseJson(value: string): unknown {
   if (!value) return null;
   try {
@@ -202,12 +251,15 @@ function notifyTokenUsageChanged() {
 
 function buildHeaders(headers?: HeadersInit, options?: IntelligenceRequestOptions) {
   const session = readAuthSession();
+  const useAuthenticatedSession = Boolean(session?.accessToken) && !isDevAuthSession(session);
   const next = new Headers(headers);
   next.set("Content-Type", "application/json");
   if (session?.accessToken) {
     next.set("Authorization", `${session.tokenType ?? "Bearer"} ${session.accessToken}`);
   }
-  if (DEV_USER_ID) {
+  // workspace-api.ts/graph-api.ts와 동일한 기준 — 실제 인증 세션이 있으면 dev X-User-Id를
+  // 덧붙이지 않는다(진짜 로그인 사용자 위에 로컬 dev 사용자를 덮어씌우지 않기 위함).
+  if (DEV_USER_ID && !useAuthenticatedSession) {
     next.set("X-User-Id", DEV_USER_ID);
   }
   if (options?.idempotencyKey) {
@@ -353,6 +405,76 @@ export function deleteChatThread(threadId: string, options?: IntelligenceRequest
   );
 }
 
+export function createAgentThread(payload: AgentThreadCreateRequest, options?: IntelligenceRequestOptions) {
+  return authedRequest<AgentThreadData>(
+    "/api/v1/ai/agent-threads",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    options
+  );
+}
+
+export function listAgentThreads(params: { limit?: number } = {}, options?: IntelligenceRequestOptions) {
+  const searchParams = new URLSearchParams();
+  if (params.limit) {
+    searchParams.set("limit", String(params.limit));
+  }
+  const query = searchParams.toString();
+  return authedRequest<AgentThreadListData>(
+    `/api/v1/ai/agent-threads${query ? `?${query}` : ""}`,
+    undefined,
+    options
+  );
+}
+
+export function getAgentThread(threadId: string, options?: IntelligenceRequestOptions) {
+  return authedRequest<AgentThreadDetailData>(
+    `/api/v1/ai/agent-threads/${encodeURIComponent(threadId)}`,
+    undefined,
+    options
+  );
+}
+
+export function sendAgentMessageStream(
+  threadId: string,
+  payload: AgentMessageCreateRequest,
+  handlers?: IntelligenceStreamHandlers<AgentMessageDoneEvent>
+) {
+  return streamRequest<AgentMessageDoneEvent>(
+    `/api/v1/ai/agent-threads/${encodeURIComponent(threadId)}/messages`,
+    payload,
+    {
+      ...handlers,
+      onDone: (data) => {
+        notifyTokenUsageChanged();
+        handlers?.onDone?.(data);
+      },
+    }
+  );
+}
+
+export function approveAgentAction(actionId: string, options?: IntelligenceRequestOptions) {
+  return authedRequest<AgentActionData>(
+    `/api/v1/ai/agent-actions/${encodeURIComponent(actionId)}/approve`,
+    {
+      method: "POST",
+    },
+    options
+  );
+}
+
+export function rejectAgentAction(actionId: string, options?: IntelligenceRequestOptions) {
+  return authedRequest<AgentActionData>(
+    `/api/v1/ai/agent-actions/${encodeURIComponent(actionId)}/reject`,
+    {
+      method: "POST",
+    },
+    options
+  );
+}
+
 export function createBridgeConcepts(payload: BridgeConceptsRequest, options?: IntelligenceRequestOptions) {
   return authedRequest<BridgeConceptsData>(
     "/api/v1/ai/bridge-concepts",
@@ -406,6 +528,44 @@ export function getLatestClusterJob(
   const query = searchParams.toString();
   return authedRequest<ClusterJobLatestData>(
     `/api/v1/ai/clusters/latest${query ? `?${query}` : ""}`,
+    undefined,
+    options
+  );
+}
+
+export function requestInsightReport(payload: InsightReportCreateRequest, options?: IntelligenceRequestOptions) {
+  return authedRequest<InsightReportData>(
+    "/api/v1/ai/insight-reports",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    options
+  ).then((data) => {
+    notifyTokenUsageChanged();
+    return data;
+  });
+}
+
+export function getInsightReport(reportId: string, options?: IntelligenceRequestOptions) {
+  return authedRequest<InsightReportData>(
+    `/api/v1/ai/insight-reports/${encodeURIComponent(reportId)}`,
+    undefined,
+    options
+  );
+}
+
+export function getLatestInsightReport(
+  params: { documentGroupId?: string } = {},
+  options?: IntelligenceRequestOptions
+) {
+  const searchParams = new URLSearchParams();
+  if (params.documentGroupId) {
+    searchParams.set("documentGroupId", params.documentGroupId);
+  }
+  const query = searchParams.toString();
+  return authedRequest<InsightReportLatestData>(
+    `/api/v1/ai/insight-reports/latest${query ? `?${query}` : ""}`,
     undefined,
     options
   );

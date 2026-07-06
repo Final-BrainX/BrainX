@@ -1,6 +1,9 @@
 "use client";
 
+import { getPublicApiBaseUrl } from "@/lib/api-base";
+import { getLocalStoredValue } from "@/lib/client-storage";
 import { clearAuthSession, isDevAuthSession, readAuthSession, saveAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { requestDesktopApiJson } from "@/lib/desktop-api-request";
 import type { ThemeMode } from "@/components/brainx-provider";
 import type { LanguageCode } from "@/lib/i18n";
 
@@ -49,7 +52,6 @@ export type MyNotificationsResponse = {
   unreadCount: number;
 };
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 const LANGUAGE_KEY = "brainx_language_v1";
 const THEME_KEY = "brainx_theme_v1";
 const USE_MOCK_USER_API = process.env.NEXT_PUBLIC_USER_USE_MOCK === "true";
@@ -67,12 +69,12 @@ function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
 
 function readStoredLanguage(): LanguageCode {
   if (typeof window === "undefined") return "ko";
-  return window.localStorage.getItem(LANGUAGE_KEY) === "en" ? "en" : "ko";
+  return getLocalStoredValue(LANGUAGE_KEY) === "en" ? "en" : "ko";
 }
 
 function readStoredTheme(): ThemeMode {
   if (typeof window === "undefined") return "system";
-  const stored = window.localStorage.getItem(THEME_KEY);
+  const stored = getLocalStoredValue(THEME_KEY);
   return stored === "dark" || stored === "light" || stored === "system" ? stored : "system";
 }
 
@@ -90,16 +92,21 @@ async function authedRequest<T>(path: string, init?: RequestInit) {
     throw new AuthRequiredError("로그인이 필요합니다.");
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const requestInit: RequestInit = {
     ...init,
     headers: {
       "Content-Type": "application/json",
       Authorization: `${session.tokenType ?? "Bearer"} ${session.accessToken}`,
       ...(init?.headers ?? {})
     }
-  });
-
-  const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
+  };
+  const desktopResponse = await requestDesktopApiJson<ApiResponse<T>>(path, requestInit);
+  const response = desktopResponse
+    ? { ok: desktopResponse.ok, status: desktopResponse.status }
+    : await fetch(`${getPublicApiBaseUrl()}${path}`, requestInit);
+  const payload = desktopResponse
+    ? desktopResponse.payload
+    : ((await (response as Response).json().catch(() => null)) as ApiResponse<T> | null);
   if (response.status === 401 || response.status === 403) {
     clearAuthSession();
     throw new AuthRequiredError();

@@ -13,6 +13,7 @@ import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUse
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkCommand;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkComparison;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkResult;
+import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkSourceCommand;
 import com.brainx.intelligence.autolink.domain.NoteAutoLinkStrategy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -62,6 +63,11 @@ class NoteAutoLinkApplicationRunnerTest {
                 List.of(),
                 new AutoLinkComparison(0, 0, 0)
             );
+        }
+
+        @Override
+        public AutoLinkResult analyzeSourceLinks(AutoLinkSourceCommand command) {
+            throw new UnsupportedOperationException("source-only analysis is not used by this runner");
         }
     }
 }

@@ -59,6 +59,39 @@ class InsightReportJpaAdapterTest {
         assertThat(byIdempotency.reportId()).isEqualTo("report-1");
     }
 
+    @Test
+    void findRecentByUserIdAndDocumentGroupIdReturnsNewestFirstWithinGroup() {
+        adapter.save(report("report-1", "user-1", "group-1", Instant.parse("2026-06-26T00:00:00Z")));
+        adapter.save(report("report-3", "user-1", "group-2", Instant.parse("2026-06-28T00:00:00Z")));
+        adapter.save(report("report-2", "user-1", "group-1", Instant.parse("2026-06-27T00:00:00Z")));
+        adapter.save(report("report-4", "user-2", "group-1", Instant.parse("2026-06-29T00:00:00Z")));
+
+        var recent = adapter.findRecentByUserIdAndDocumentGroupId("user-1", "group-1", 10);
+
+        assertThat(recent)
+            .extracting(InsightReport::reportId)
+            .containsExactly("report-2", "report-1");
+    }
+
+    private static InsightReport report(String reportId, String userId, String documentGroupId, Instant createdAt) {
+        return new InsightReport(
+            reportId,
+            userId,
+            documentGroupId,
+            InsightReportStatus.COMPLETED,
+            Map.of("documentGroupId", documentGroupId, "maxNotes", 10),
+            false,
+            "summary",
+            List.of(),
+            List.of(),
+            "gpt-test",
+            null,
+            null,
+            createdAt,
+            createdAt.plusSeconds(1)
+        );
+    }
+
     static class ObjectMapperConfig {
         @Bean
         ObjectMapper objectMapper() {

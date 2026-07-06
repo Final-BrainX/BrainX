@@ -14,8 +14,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase;
-import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkCommand;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkResult;
+import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkSourceCommand;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkStrategyResult;
 import com.brainx.intelligence.autolink.domain.NoteAutoLinkStrategy;
 import com.brainx.intelligence.connection.application.port.inbound.CreateBridgeConceptsUseCase;
@@ -36,6 +36,7 @@ import com.brainx.intelligence.connection.domain.ConnectionForbiddenException;
 import com.brainx.intelligence.connection.domain.ConnectionNotFoundException;
 import com.brainx.intelligence.connection.domain.ConnectionProviderUnavailableException;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
+import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -70,6 +71,7 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
     private final AiModelSettingsPort aiModelSettingsPort;
     private final AiChatPort aiChatPort;
     private final AiUsageRecorder aiUsageRecorder;
+    private final StylePromptCompiler stylePromptCompiler;
     private final ObjectMapper objectMapper;
 
     public ConnectionService(
@@ -81,6 +83,7 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
         AiModelSettingsPort aiModelSettingsPort,
         AiChatPort aiChatPort,
         AiUsageRecorder aiUsageRecorder,
+        StylePromptCompiler stylePromptCompiler,
         ObjectMapper objectMapper
     ) {
         this.noteSourcePort = noteSourcePort;
@@ -91,6 +94,7 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
         this.aiModelSettingsPort = aiModelSettingsPort;
         this.aiChatPort = aiChatPort;
         this.aiUsageRecorder = aiUsageRecorder;
+        this.stylePromptCompiler = stylePromptCompiler;
         this.objectMapper = objectMapper;
     }
 
@@ -112,10 +116,10 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
             throw new ConnectionForbiddenException("AI capability is not available: " + entitlement.reasonCode());
         }
 
-        AutoLinkResult result = noteAutoLinkUseCase.analyze(new AutoLinkCommand(
+        AutoLinkResult result = noteAutoLinkUseCase.analyzeSourceLinks(new AutoLinkSourceCommand(
             userId,
             documentGroupId,
-            NoteAutoLinkStrategy.VECTOR_LLM,
+            noteId,
             null,
             null
         ));
@@ -123,7 +127,7 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
             throw new ConnectionConflictException("Link suggestion note limit exceeded.");
         }
 
-        AutoLinkStrategyResult strategy = vectorStrategy(result);
+        AutoLinkStrategyResult strategy = linkSuggestionStrategy(result);
         if (strategy == null) {
             return new LinkSuggestionsResult(List.of());
         }
@@ -136,13 +140,19 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
 
         List<LinkSuggestionResult> suggestions = strategy.suggestions().stream()
             .filter(suggestion -> noteId.equals(suggestion.sourceNoteId()))
-            .map(suggestion -> new LinkSuggestionResult(
-                suggestion.suggestionId(),
-                suggestion.targetNoteId(),
-                suggestion.targetTitle(),
-                suggestion.confidence(),
-                suggestion.reason()
-            ))
+            .map(suggestion -> {
+                var anchor = suggestion.anchor();
+                return new LinkSuggestionResult(
+                    suggestion.suggestionId(),
+                    suggestion.targetNoteId(),
+                    suggestion.targetTitle(),
+                    suggestion.confidence(),
+                    suggestion.reason(),
+                    anchor == null ? "" : anchor.matchedText(),
+                    anchor == null ? -1 : anchor.startOffset(),
+                    anchor == null ? -1 : anchor.endOffset()
+                );
+            })
             .toList();
         suggestions.forEach(suggestion -> connectionEventPort.linkSuggestionCreated(new LinkSuggestionCreatedEvent(
             userId,
@@ -163,7 +173,10 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
         String modelId = resolveBridgeModelId(userId);
         int maxRecommendations = bridgeProperties.getMaxRecommendations();
         List<String> bridgeLinkTitles = bridgeLinkTitles(sourceNotes);
-        String systemPrompt = bridgeSystemPrompt(maxRecommendations);
+        String systemPrompt = StylePromptCompiler.appendToSystemPrompt(
+            bridgeSystemPrompt(maxRecommendations),
+            stylePromptCompiler.conversationToneInstructions(userId)
+        );
         String userPrompt = bridgeUserPrompt(sourceNotes, bridgeLinkTitles, maxRecommendations);
         int tokenEstimate = estimateTokens(systemPrompt + "\n" + userPrompt);
 
@@ -393,12 +406,12 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
         }
     }
 
-    private static AutoLinkStrategyResult vectorStrategy(AutoLinkResult result) {
+    private static AutoLinkStrategyResult linkSuggestionStrategy(AutoLinkResult result) {
         if (result == null || result.strategies() == null) {
             return null;
         }
         return result.strategies().stream()
-            .filter(strategy -> strategy.strategy() == NoteAutoLinkStrategy.VECTOR_LLM)
+            .filter(strategy -> strategy.strategy() == NoteAutoLinkStrategy.LLM_ONLY)
             .findFirst()
             .orElse(null);
     }

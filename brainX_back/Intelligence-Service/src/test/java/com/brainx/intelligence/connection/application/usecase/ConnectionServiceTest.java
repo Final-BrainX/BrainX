@@ -16,6 +16,7 @@ import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUse
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkComparison;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkCostEstimate;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkResult;
+import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkSourceCommand;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkStrategyResult;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkSuggestion;
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkUsageSummary;
@@ -35,8 +36,13 @@ import com.brainx.intelligence.connection.domain.ConnectionNotFoundException;
 import com.brainx.intelligence.connection.domain.ConnectionProviderUnavailableException;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
+import com.brainx.intelligence.settings.application.port.outbound.StyleProfilePort;
+import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.settings.domain.AiModel;
 import com.brainx.intelligence.settings.domain.AiModelSettings;
+import com.brainx.intelligence.settings.domain.ConversationTone;
+import com.brainx.intelligence.settings.domain.StyleProfile;
+import com.brainx.intelligence.settings.domain.WritingStyle;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatChunk;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -62,6 +68,8 @@ class ConnectionServiceTest {
     private final FakeAiChatPort aiChatPort = new FakeAiChatPort();
     private final FakeTokenUsagePort tokenUsagePort = new FakeTokenUsagePort();
     private final AiTokenUsageCostEstimator usageCostEstimator = new AiTokenUsageCostEstimator(new FakeAiModelCatalogPort());
+    private final FakeStyleProfilePort styleProfilePort = new FakeStyleProfilePort();
+    private final StylePromptCompiler stylePromptCompiler = new StylePromptCompiler(styleProfilePort);
     private final ConnectionService service = new ConnectionService(
         noteSourcePort,
         entitlementPort,
@@ -71,11 +79,12 @@ class ConnectionServiceTest {
         aiModelSettingsPort,
         aiChatPort,
         new AiUsageRecorder(tokenUsagePort, usageCostEstimator),
+        stylePromptCompiler,
         new ObjectMapper()
     );
 
     @Test
-    void createLinkSuggestionsUsesDefaultDocumentGroupAndFiltersBySourceNote() {
+    void createLinkSuggestionsUsesDefaultDocumentGroupAndSourceOnlyAnalysis() {
         noteSourcePort.source = Optional.of(new ConnectionNoteSource(
             "user-1",
             "default",
@@ -90,15 +99,19 @@ class ConnectionServiceTest {
         var result = service.createLinkSuggestions(new LinkSuggestionsCommand("user-1", "note-1"));
 
         assertThat(noteSourcePort.lastDocumentGroupId).isEqualTo("default");
-        assertThat(autoLinkUseCase.lastCommand.documentGroupId()).isEqualTo("default");
-        assertThat(autoLinkUseCase.lastCommand.strategy()).isEqualTo(NoteAutoLinkStrategy.VECTOR_LLM);
-        assertThat(autoLinkUseCase.lastCommand.maxNotes()).isNull();
-        assertThat(autoLinkUseCase.lastCommand.modelId()).isNull();
+        assertThat(autoLinkUseCase.lastCommand).isNull();
+        assertThat(autoLinkUseCase.lastSourceCommand.documentGroupId()).isEqualTo("default");
+        assertThat(autoLinkUseCase.lastSourceCommand.sourceNoteId()).isEqualTo("note-1");
+        assertThat(autoLinkUseCase.lastSourceCommand.maxNotes()).isNull();
+        assertThat(autoLinkUseCase.lastSourceCommand.modelId()).isNull();
         assertThat(entitlementPort.lastRequest.capability()).isEqualTo("LINK_SUGGESTIONS");
         assertThat(result.suggestions()).hasSize(1);
         assertThat(result.suggestions().getFirst().suggestionId()).isEqualTo("suggestion-1");
         assertThat(result.suggestions().getFirst().targetNoteId()).isEqualTo("target-1");
         assertThat(result.suggestions().getFirst().score()).isEqualTo(0.84d);
+        assertThat(result.suggestions().getFirst().anchorText()).isEqualTo("Anchor");
+        assertThat(result.suggestions().getFirst().anchorStartOffset()).isZero();
+        assertThat(result.suggestions().getFirst().anchorEndOffset()).isEqualTo(6);
         assertThat(connectionEventPort.createdEvents).hasSize(1);
         assertThat(connectionEventPort.createdEvents.getFirst().featureId()).isEqualTo("link-suggestions");
         assertThat(connectionEventPort.createdEvents.getFirst().noteId()).isEqualTo("note-1");
@@ -108,6 +121,12 @@ class ConnectionServiceTest {
     @Test
     void createBridgeConceptsUsesDefaultGroupTitlesTagsAndPublishesUsageEvents() {
         aiModelSettingsPort.settings = Optional.of(new AiModelSettings("user-1", "gpt-user", Map.of()));
+        styleProfilePort.profile = new StyleProfile(
+            "user-1",
+            new ConversationTone(Map.of("warmth", "warm", "directness", "high")),
+            new WritingStyle(Map.of("formality", "business")),
+            null
+        );
         noteSourcePort.bridgeSources = List.of(
             new ConnectionBridgeSourceNote("user-1", "default", "note-1", "Java", List.of("backend")),
             new ConnectionBridgeSourceNote("user-1", "default", "note-2", "Database", List.of("sql", "storage"))
@@ -133,7 +152,12 @@ class ConnectionServiceTest {
         assertThat(entitlementPort.lastRequest.requestedTokenEstimate()).isPositive();
         assertThat(aiChatPort.lastRequest.modelId()).isEqualTo("gpt-user");
         String systemPrompt = aiChatPort.lastRequest.messages().getFirst().content();
-        assertThat(systemPrompt).contains("including both required wiki links exactly as [[title]]");
+        assertThat(systemPrompt)
+            .contains("including both required wiki links exactly as [[title]]")
+            .contains("Mandatory user style instructions")
+            .contains("every final user-facing conversational sentence")
+            .contains("Keep the directness level: high")
+            .doesNotContain("every final generated or edited user-facing text segment");
         String prompt = aiChatPort.lastRequest.messages().get(1).content();
         assertThat(prompt).contains("Java", "backend", "Database", "sql", "[[Java]]", "[[Database]]");
         assertThat(prompt).doesNotContain("markdown body");
@@ -309,6 +333,7 @@ class ConnectionServiceTest {
 
         assertThat(entitlementPort.lastRequest).isNull();
         assertThat(autoLinkUseCase.lastCommand).isNull();
+        assertThat(autoLinkUseCase.lastSourceCommand).isNull();
     }
 
     @Test
@@ -322,6 +347,7 @@ class ConnectionServiceTest {
             .hasMessageContaining("QUOTA_EXHAUSTED");
 
         assertThat(autoLinkUseCase.lastCommand).isNull();
+        assertThat(autoLinkUseCase.lastSourceCommand).isNull();
     }
 
     @Test
@@ -330,7 +356,7 @@ class ConnectionServiceTest {
         autoLinkUseCase.result = new AutoLinkResult(
             "user-1",
             "default",
-            NoteAutoLinkStrategy.VECTOR_LLM,
+            NoteAutoLinkStrategy.LLM_ONLY,
             "LIMIT_EXCEEDED",
             true,
             50,
@@ -361,14 +387,14 @@ class ConnectionServiceTest {
         return new AutoLinkResult(
             "user-1",
             "default",
-            NoteAutoLinkStrategy.VECTOR_LLM,
+            NoteAutoLinkStrategy.LLM_ONLY,
             "COMPLETED",
             false,
             50,
             2,
             2,
             List.of(new AutoLinkStrategyResult(
-                NoteAutoLinkStrategy.VECTOR_LLM,
+                NoteAutoLinkStrategy.LLM_ONLY,
                 status,
                 "gpt-test",
                 2,
@@ -471,11 +497,18 @@ class ConnectionServiceTest {
     private static final class FakeAutoLinkUseCase implements NoteAutoLinkUseCase {
 
         private AutoLinkCommand lastCommand;
+        private AutoLinkSourceCommand lastSourceCommand;
         private AutoLinkResult result = completedResult(List.of());
 
         @Override
         public AutoLinkResult analyze(AutoLinkCommand command) {
             lastCommand = command;
+            return result;
+        }
+
+        @Override
+        public AutoLinkResult analyzeSourceLinks(AutoLinkSourceCommand command) {
+            lastSourceCommand = command;
             return result;
         }
     }
@@ -560,6 +593,23 @@ class ConnectionServiceTest {
         @Override
         public boolean existsByModelId(String modelId) {
             return false;
+        }
+    }
+
+    private static final class FakeStyleProfilePort implements StyleProfilePort {
+
+        private StyleProfile profile;
+
+        @Override
+        public StyleProfile save(StyleProfile styleProfile) {
+            profile = styleProfile;
+            return styleProfile;
+        }
+
+        @Override
+        public Optional<StyleProfile> findStyleProfileByUserId(String userId) {
+            return Optional.ofNullable(profile)
+                .filter(item -> item.userId().equals(userId));
         }
     }
 }

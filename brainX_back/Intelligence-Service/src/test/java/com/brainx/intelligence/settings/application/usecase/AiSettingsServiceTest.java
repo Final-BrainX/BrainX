@@ -136,20 +136,17 @@ class AiSettingsServiceTest {
         var putResult = service.putStyleProfile(new PutStyleProfileCommand(
             "user-1",
             Map.of("speechLevel", "haeyo", "directness", "high"),
-            Map.of("formality", "business", "sentenceLength", "short"),
-            Map.of("clarificationPolicy", "only_when_blocking")
+            Map.of("formality", "business", "sentenceLength", "short")
         ));
 
         assertThat(putResult.conversationTone()).containsEntry("directness", "high");
         assertThat(putResult.writingStyle()).containsEntry("formality", "business");
-        assertThat(putResult.assistanceStyle()).containsEntry("clarificationPolicy", "only_when_blocking");
         assertThat(putResult.detectedFromNotesAt()).isNull();
 
         var getResult = service.getStyleProfile(new GetStyleProfileQuery("user-1"));
 
         assertThat(getResult.conversationTone()).containsEntry("speechLevel", "haeyo");
         assertThat(getResult.writingStyle()).containsEntry("sentenceLength", "short");
-        assertThat(getResult.assistanceStyle()).containsEntry("clarificationPolicy", "only_when_blocking");
         assertThat(getResult.detectedFromNotesAt()).isNull();
     }
 
@@ -159,7 +156,6 @@ class AiSettingsServiceTest {
 
         assertThat(result.conversationTone()).isEmpty();
         assertThat(result.writingStyle()).isEmpty();
-        assertThat(result.assistanceStyle()).isEmpty();
         assertThat(result.detectedFromNotesAt()).isNull();
     }
 

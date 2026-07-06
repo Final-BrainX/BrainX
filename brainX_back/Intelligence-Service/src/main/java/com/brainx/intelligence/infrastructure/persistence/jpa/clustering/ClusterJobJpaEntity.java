@@ -4,6 +4,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import com.brainx.intelligence.clustering.domain.Cluster;
 import com.brainx.intelligence.clustering.domain.ClusterJob;
 import com.brainx.intelligence.clustering.domain.ClusterJobStatus;
@@ -43,14 +46,17 @@ public class ClusterJobJpaEntity {
     private ClusterJobStatus status;
 
     @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "scope_json", nullable = false)
     private String scopeJson;
 
     @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "algorithm_options_json", nullable = false)
     private String algorithmOptionsJson;
 
     @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "clusters_json", nullable = false)
     private String clustersJson;
 

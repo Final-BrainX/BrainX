@@ -7,6 +7,7 @@ import { INTERESTS } from "@/lib/brainx-data";
 import { EMPTY_CONSENTS, requiredConsentsAccepted, type ConsentState } from "@/lib/legal";
 import { cx } from "@/lib/utils";
 import { buildAuthPath, completeOnboarding, readAuthSession, readReturnToParam, resolveAuthReturnTo } from "@/lib/auth-api";
+import { isElectronDesktop } from "@/lib/desktop-bridge";
 import { updateMyProfile } from "@/lib/user-api";
 import { useBrainX } from "@/components/brainx-provider";
 import { Btn, Card, Icon, ThemeToggle } from "@/components/brainx-ui";
@@ -100,7 +101,7 @@ export function OnboardingScreen() {
       }
       pushToast("온보딩이 완료되었습니다.", "ok");
       markAsNewUserFirstLogin();
-      router.push(resolveAuthReturnTo(returnTo));
+      router.push(isElectronDesktop() && returnTo === "/home" ? "/" : resolveAuthReturnTo(returnTo));
     } catch (error) {
       pushToast(error instanceof Error ? error.message : "온보딩 완료에 실패했습니다.", "err");
     } finally {

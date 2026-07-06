@@ -108,6 +108,7 @@ services:
       SERVER_PORT: "8080"
       POSTGRES_HOST: postgres
       REDIS_HOST: redis
+      WORKSPACE_SERVICE_BASE_URL: http://workspace-service:8082
       EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: user-service
     ports:
@@ -233,6 +234,10 @@ services:
       BRAINX_VECTOR_QDRANT_ENABLED: "true"
       BRAINX_WORKSPACE_BASE_URL: http://workspace-service:8082
       BRAINX_WORKSPACE_SERVICE_TOKEN: ${SERVICE_TOKEN:-local-service-token}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_TIMEOUT: 2s
+      BRAINX_REDIS_HEALTH_ENABLED: "true"
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       BRAINX_EVENTS_CONSUMER_ENABLED: "true"
@@ -250,6 +255,8 @@ services:
         condition: service_healthy
       workspace-service:
         condition: service_started
+      redis:
+        condition: service_healthy
       qdrant:
         condition: service_started
       kafka:

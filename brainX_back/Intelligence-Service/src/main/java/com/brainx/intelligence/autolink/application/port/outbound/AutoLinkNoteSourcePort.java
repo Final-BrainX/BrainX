@@ -2,10 +2,13 @@ package com.brainx.intelligence.autolink.application.port.outbound;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 public interface AutoLinkNoteSourcePort {
 
     List<AutoLinkNoteSource> findSearchableNoteSources(String userId, String documentGroupId, int limit);
+
+    Optional<AutoLinkNoteSource> findSearchableNoteSource(String userId, String documentGroupId, String noteId);
 
     record AutoLinkNoteSource(
         String userId,

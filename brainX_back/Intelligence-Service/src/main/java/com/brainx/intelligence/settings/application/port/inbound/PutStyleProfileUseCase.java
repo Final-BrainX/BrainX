@@ -13,15 +13,13 @@ public interface PutStyleProfileUseCase {
     record PutStyleProfileCommand(
         String userId,
         Map<String, Object> conversationTone,
-        Map<String, Object> writingStyle,
-        Map<String, Object> assistanceStyle
+        Map<String, Object> writingStyle
     ) {
     }
 
     record StyleProfileResult(
         Map<String, Object> conversationTone,
         Map<String, Object> writingStyle,
-        Map<String, Object> assistanceStyle,
         Instant detectedFromNotesAt
     ) {
     }

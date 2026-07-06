@@ -25,7 +25,10 @@ public interface CreateLinkSuggestionsUseCase {
         String targetNoteId,
         String targetTitle,
         double score,
-        String reason
+        String reason,
+        String anchorText,
+        int anchorStartOffset,
+        int anchorEndOffset
     ) {
     }
 }

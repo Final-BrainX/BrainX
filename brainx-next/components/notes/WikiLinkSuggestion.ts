@@ -32,6 +32,11 @@ export const WikiLinkSuggestion = Extension.create({
             // Escape 등으로 명시적으로 닫힌 경우 — 같은 위치에서 다시 입력 중이어도 닫힌 상태를
             // 존중한다(메타가 있는 트랜잭션 자체에서만 강제 비활성화).
             if (tr.getMeta(WikiLinkSuggestionKey) === "close") return INACTIVE;
+            // Split View의 다른(포커스 없는) 패널이 sync를 위해 setContent({emitUpdate:false})를
+            // 호출할 때 tiptap이 자동으로 다는 'preventUpdate' meta — 그 트랜잭션에서 매핑된
+            // 커서가 우연히 "[[…" 뒤에 놓이면 타이핑한 적 없는 패널에도 위키링크 자동완성이
+            // 뜨는 버그가 있었다(SlashCommand.ts와 동일한 원인/수정).
+            if (tr.getMeta("preventUpdate")) return INACTIVE;
 
             const { selection } = tr;
             if (!selection.empty) return INACTIVE;

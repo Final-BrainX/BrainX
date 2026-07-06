@@ -2,6 +2,9 @@ package com.brainx.intelligence.infrastructure.persistence.jpa.events;
 
 import java.time.Instant;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import com.brainx.intelligence.infrastructure.events.consumer.BrainxEventEnvelope;
 import com.brainx.intelligence.infrastructure.events.consumer.EventConsumptionRecord;
 import com.brainx.intelligence.infrastructure.events.consumer.EventConsumptionStatus;
@@ -63,6 +66,7 @@ public class EventConsumptionJpaEntity {
     private String errorCode;
 
     @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "error_message")
     private String errorMessage;
 

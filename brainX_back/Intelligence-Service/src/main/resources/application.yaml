@@ -13,6 +13,7 @@ spring:
     exclude:
       - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration
   ai:
@@ -28,16 +29,20 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
     password: ${SPRING_DATASOURCE_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: ${REDIS_TIMEOUT:2s}
   sql:
     init:
-      mode: always
-      # Hibernate ddl-auto가 먼저 테이블을 만든 뒤에 이 데이터 시드 스크립트가 실행되도록
-      # defer-datasource-initialization을 켠다. 순서가 바뀌면 신규 환경에서 ai_models
-      # 테이블이 아직 없는 상태로 INSERT가 실행되어 기동이 실패한다.
-      data-locations:
-        - classpath:db/seed/V20260703_01__seed_ai_model_catalog.sql
+      mode: never
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    validate-on-migrate: true
   jpa:
-    defer-datasource-initialization: true
     hibernate:
       ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:validate}
     properties:
@@ -196,6 +201,13 @@ brainx:
       context-before: ${BRAINX_DEV_INLINE_ASSIST_CONTEXT_BEFORE:}
       context-after: ${BRAINX_DEV_INLINE_ASSIST_CONTEXT_AFTER:}
       language: ${BRAINX_DEV_INLINE_ASSIST_LANGUAGE:ko}
+    style-profile-quality:
+      enabled: ${BRAINX_DEV_STYLE_PROFILE_QUALITY_ENABLED:false}
+      command: ${BRAINX_DEV_STYLE_PROFILE_QUALITY_COMMAND:run}
+      user-id: ${BRAINX_DEV_STYLE_PROFILE_QUALITY_USER_ID:sample-style-user}
+      note-id: ${BRAINX_DEV_STYLE_PROFILE_QUALITY_NOTE_ID:sample-style-note}
+      model-id: ${BRAINX_DEV_STYLE_PROFILE_QUALITY_MODEL_ID:${OPENAI_CHAT_MODEL:gpt-5.4-mini}}
+      judge-model-id: ${BRAINX_DEV_STYLE_PROFILE_QUALITY_JUDGE_MODEL_ID:${OPENAI_CHAT_MODEL:gpt-5.4-mini}}
     connection-quality:
       enabled: ${BRAINX_DEV_CONNECTION_QUALITY_ENABLED:false}
       command: ${BRAINX_DEV_CONNECTION_QUALITY_COMMAND:run}
@@ -227,6 +239,9 @@ eureka:
     instance-id: ${spring.application.name}:${server.port}
 
 management:
+  health:
+    redis:
+      enabled: ${BRAINX_REDIS_HEALTH_ENABLED:false}
   metrics:
     tags:
       application: ${spring.application.name}

@@ -14,6 +14,7 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { useBrainX } from "@/components/brainx-provider";
 import { Icon, type IconName } from "@/components/brainx-ui";
+import { DesktopVaultSyncStatusSection } from "@/components/utility/desktop-vault-sync-status-section";
 import { ImportScreen } from "@/components/utility/import-screen";
 import { McpApiKeysPanel } from "@/components/utility/mcp-api-keys-panel";
 import { getOAuthAuthorization, logout, readAuthSession, type OAuthProvider } from "@/lib/auth-api";
@@ -44,17 +45,149 @@ import {
 import { getMyWorkspaceStats, type WorkspaceUserStatsData } from "@/lib/workspace-api";
 import { createSupportTicket, getMySupportTicket, getMySupportTickets, type SupportTicket, type SupportTicketDetail, type SupportTicketPayload } from "@/lib/support-api";
 import { getRecentDailySeries, summarizeWorkspaceNotes } from "@/lib/workspace-note-stats";
+import { getBrainxDesktopConfig, isElectronDesktop, type BrainxDesktopVaultSyncMode, type BrainxDesktopVaultSyncPolicy } from "@/lib/desktop-bridge";
+import { getDesktopVaultSyncPolicy, requestDesktopVaultManualSync, setDesktopVaultSyncPolicy } from "@/lib/desktop-vault";
+import { addPopupResultListener, openBrainxPopup } from "@/lib/desktop-bridge";
 import { cx } from "@/lib/utils";
 import type { ThemeMode } from "@/components/brainx-provider";
 import type { LanguageCode } from "@/lib/i18n";
 import { useGuideStore } from "@/lib/use-guide-store";
 import { formatCreditCount, formatResetDate, formatTokenPercent, iconForFeature } from "@/lib/token-usage";
+import {
+  getStyleProfile,
+  IntelligenceAuthRequiredError,
+  putStyleProfile,
+  type StyleProfileData,
+  type StyleProfilePutRequest
+} from "@/lib/intelligence-api";
 
-type TabId = "profile" | "general" | "notifications" | "apiKeys" | "import" | "usage" | "stats" | "support" | "upgrade";
+type TabId = "profile" | "general" | "style" | "notifications" | "apiKeys" | "import" | "usage" | "stats" | "support" | "upgrade";
 type SocialProvider = "google" | "kakao" | "naver";
+type StyleProfileMap = Record<string, unknown>;
+type StyleProfileBase = {
+  conversationTone: StyleProfileMap;
+  writingStyle: StyleProfileMap;
+};
 
 const OAUTH_LINK_INTENT_KEY = "brainx_oauth_link_intent_v1";
 const PROVIDERS: SocialProvider[] = ["google", "kakao", "naver"];
+const CONVERSATION_TONE_KEYS = ["speechLevel", "warmth", "directness", "verbosity", "emoji"] as const;
+const WRITING_STYLE_SCALAR_KEYS = ["speechLevel", "defaultAudience", "defaultPurpose", "formality", "informationDensity", "sentenceLength"] as const;
+type ConversationToneKey = (typeof CONVERSATION_TONE_KEYS)[number];
+type WritingStyleScalarKey = (typeof WRITING_STYLE_SCALAR_KEYS)[number];
+type StylePresetOption = { value: string; label: string };
+type StyleDraft = {
+  conversationTone: Record<ConversationToneKey, string>;
+  writingStyle: Record<WritingStyleScalarKey, string> & { avoid: string };
+};
+
+const EMPTY_STYLE_BASE: StyleProfileBase = { conversationTone: {}, writingStyle: {} };
+
+const CONVERSATION_TONE_FIELDS: {
+  key: ConversationToneKey;
+  title: string;
+  desc: string;
+  options: StylePresetOption[];
+}[] = [
+  {
+    key: "speechLevel",
+    title: "말투",
+    desc: "AI가 사용자에게 답할 때 쓰는 기본 높임말 수준입니다.",
+    options: [
+      { value: "haeyo", label: "해요체" },
+      { value: "formal", label: "격식체" },
+      { value: "banmal", label: "반말" }
+    ]
+  },
+  {
+    key: "warmth",
+    title: "따뜻함",
+    desc: "대화 응답의 온도감과 친근함을 조정합니다.",
+    options: [
+      { value: "neutral", label: "중립" },
+      { value: "warm", label: "따뜻함" },
+      { value: "low", label: "건조함" }
+    ]
+  },
+  {
+    key: "directness",
+    title: "직접성",
+    desc: "추천 이유와 답변을 얼마나 바로 말할지 정합니다.",
+    options: [
+      { value: "balanced", label: "균형" },
+      { value: "high", label: "직접적" },
+      { value: "low", label: "완곡함" }
+    ]
+  },
+  {
+    key: "verbosity",
+    title: "답변 길이",
+    desc: "대화형 설명의 기본 분량을 정합니다.",
+    options: [
+      { value: "balanced", label: "균형" },
+      { value: "concise", label: "간결" },
+      { value: "detailed", label: "자세히" }
+    ]
+  },
+  {
+    key: "emoji",
+    title: "이모지",
+    desc: "사용자-facing 문장에 이모지를 얼마나 허용할지 정합니다.",
+    options: [
+      { value: "off", label: "사용 안 함" },
+      { value: "light", label: "가볍게" },
+      { value: "expressive", label: "풍부하게" }
+    ]
+  }
+];
+
+const WRITING_STYLE_PRESET_FIELDS: {
+  key: WritingStyleScalarKey;
+  title: string;
+  desc: string;
+  options: StylePresetOption[];
+}[] = [
+  {
+    key: "speechLevel",
+    title: "결과물 말투",
+    desc: "초안, 수정, 리포트 결과물에 적용할 말투를 자유롭게 적습니다.",
+    options: [
+      { value: "haeyo", label: "해요체" },
+      { value: "formal", label: "합니다체" },
+      { value: "friendly-polite", label: "친근한 존댓말" }
+    ]
+  },
+  {
+    key: "formality",
+    title: "격식",
+    desc: "초안, 재작성, 리포트 결과물의 기본 격식입니다.",
+    options: [
+      { value: "business", label: "업무형" },
+      { value: "casual", label: "캐주얼" },
+      { value: "academic", label: "학술형" }
+    ]
+  },
+  {
+    key: "informationDensity",
+    title: "정보 밀도",
+    desc: "결과물에 담기는 정보량과 압축 정도를 정합니다.",
+    options: [
+      { value: "balanced", label: "균형" },
+      { value: "light", label: "가볍게" },
+      { value: "dense", label: "밀도 높게" }
+    ]
+  },
+  {
+    key: "sentenceLength",
+    title: "문장 길이",
+    desc: "결과물 문장의 기본 호흡을 정합니다.",
+    options: [
+      { value: "short", label: "짧게" },
+      { value: "medium", label: "보통" },
+      { value: "long", label: "길게" }
+    ]
+  }
+];
 
 const NAV_GROUPS: { label: string; items: { id: TabId; label: string; icon: IconName }[] }[] = [
   {
@@ -62,6 +195,7 @@ const NAV_GROUPS: { label: string; items: { id: TabId; label: string; icon: Icon
     items: [
       { id: "profile", label: "프로필", icon: "user" },
       { id: "general", label: "일반", icon: "settings" },
+      { id: "style", label: "문체", icon: "sparkle" },
       { id: "notifications", label: "알림", icon: "bell" },
       { id: "apiKeys", label: "API Keys", icon: "shield" }
     ]
@@ -85,6 +219,7 @@ const NAV_GROUPS: { label: string; items: { id: TabId; label: string; icon: Icon
 const MOBILE_TABS: { id: TabId; label: string }[] = [
   { id: "profile", label: "프로필" },
   { id: "general", label: "일반" },
+  { id: "style", label: "문체" },
   { id: "notifications", label: "알림" },
   { id: "apiKeys", label: "API Keys" },
   { id: "import", label: "가져오기" },
@@ -218,6 +353,118 @@ function planBadgeLabel(subscription: CommerceSubscription | null) {
 
   const name = subscription.plan.name.trim();
   return name === "무료" ? "Free" : name || "Free";
+}
+
+function emptyStyleDraft(): StyleDraft {
+  return {
+    conversationTone: {
+      speechLevel: "",
+      warmth: "",
+      directness: "",
+      verbosity: "",
+      emoji: ""
+    },
+    writingStyle: {
+      speechLevel: "",
+      defaultAudience: "",
+      defaultPurpose: "",
+      formality: "",
+      informationDensity: "",
+      sentenceLength: "",
+      avoid: ""
+    }
+  };
+}
+
+function styleBaseFromProfile(profile: StyleProfileData | null): StyleProfileBase {
+  return {
+    conversationTone: profile?.conversationTone ?? {},
+    writingStyle: profile?.writingStyle ?? {}
+  };
+}
+
+function scalarStyleValue(value: unknown) {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
+}
+
+function normalizePresetStyleValue(value: unknown, options: StylePresetOption[]) {
+  const text = scalarStyleValue(value).trim();
+  if (!text || options.length === 0) return text;
+  const normalized = text.toLocaleLowerCase();
+  const selectedOption = options.find(
+    (option) => normalized === option.value.toLocaleLowerCase() || normalized === option.label.toLocaleLowerCase()
+  );
+  return selectedOption?.label ?? text;
+}
+
+function conversationToneOptions(key: ConversationToneKey) {
+  return CONVERSATION_TONE_FIELDS.find((field) => field.key === key)?.options ?? [];
+}
+
+function writingStyleOptions(key: WritingStyleScalarKey) {
+  return WRITING_STYLE_PRESET_FIELDS.find((field) => field.key === key)?.options ?? [];
+}
+
+function avoidTextValue(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.map(scalarStyleValue).filter(Boolean).join("\n");
+  }
+  return scalarStyleValue(value);
+}
+
+function draftFromStyleProfile(profile: StyleProfileData | null): StyleDraft {
+  const draft = emptyStyleDraft();
+  const conversationTone = profile?.conversationTone ?? {};
+  const writingStyle = profile?.writingStyle ?? {};
+
+  for (const key of CONVERSATION_TONE_KEYS) {
+    draft.conversationTone[key] = normalizePresetStyleValue(conversationTone[key], conversationToneOptions(key));
+  }
+  for (const key of WRITING_STYLE_SCALAR_KEYS) {
+    draft.writingStyle[key] = normalizePresetStyleValue(writingStyle[key], writingStyleOptions(key));
+  }
+  draft.writingStyle.avoid = avoidTextValue(writingStyle.avoid);
+
+  return draft;
+}
+
+function splitAvoidItems(value: string) {
+  return value
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function applyManagedStyleValue(target: StyleProfileMap, key: string, value: string) {
+  const nextValue = value.trim();
+  if (nextValue) {
+    target[key] = nextValue;
+  } else {
+    delete target[key];
+  }
+}
+
+function stylePayloadFromDraft(base: StyleProfileBase, draft: StyleDraft): StyleProfilePutRequest {
+  const conversationTone: StyleProfileMap = { ...base.conversationTone };
+  const writingStyle: StyleProfileMap = { ...base.writingStyle };
+
+  for (const key of CONVERSATION_TONE_KEYS) {
+    applyManagedStyleValue(conversationTone, key, normalizePresetStyleValue(draft.conversationTone[key], conversationToneOptions(key)));
+  }
+  for (const key of WRITING_STYLE_SCALAR_KEYS) {
+    applyManagedStyleValue(writingStyle, key, normalizePresetStyleValue(draft.writingStyle[key], writingStyleOptions(key)));
+  }
+
+  const avoidItems = splitAvoidItems(draft.writingStyle.avoid);
+  if (avoidItems.length) {
+    writingStyle.avoid = avoidItems;
+  } else {
+    delete writingStyle.avoid;
+  }
+
+  return { conversationTone, writingStyle };
 }
 
 function ModalButton({
@@ -633,9 +880,21 @@ export function AccountSettingsModal({
     try {
       await logout();
       pushToast("로그아웃되었습니다.", "ok");
-      router.replace("/");
     } catch (error) {
       pushToast(error instanceof Error ? error.message : "로그아웃에 실패했습니다.", "err");
+    } finally {
+      // onClose()로 모달을 먼저 닫고 나서 이동하면 "모달이 닫히는 화면"이 한 프레임이라도
+      // 사용자에게 보인다 — 그 중간 상태 없이 바로 페이지를 떠나야 하므로 onClose()는 호출하지
+      // 않는다(페이지 자체가 통째로 교체되므로 모달을 따로 닫을 필요가 없다). 클라이언트
+      // 라우터(router.replace) 대신 하드 네비게이션을 쓰는 이유: logout()의 clearAuthSession()이
+      // 쏘는 "brainx:notes-refresh"(resetWorkspace)를 NotesWorkspace가 받아 activeNoteId를
+      // 바꾸면 layout의 onActiveNoteChange가 거의 같은 틱에 router.replace("/notes"...)를
+      // 호출해 이 redirect와 경합했다 — 이 경합에서 진 첫 클릭은 "/"로 안 가고 "/notes"에 남아,
+      // 두 번째 클릭에야(그땐 세션이 이미 비어있어 resetWorkspace가 다시 안 쏘아져 경합이 없다)
+      // 이동하는 것처럼 보였다. 전체 페이지 이동은 이후 어떤 SPA 라우터 호출과도 경합하지 않는다.
+      // replace(href 아님)를 써서 로그아웃 직전의 보호된 페이지가 history에 남지 않게 하고,
+      // 뒤로가기를 눌러도 그 페이지로 돌아가지 못하게 한다.
+      window.location.replace("/");
     }
   };
   const saveLanguage = async (nextLanguage: LanguageCode) => {
@@ -738,7 +997,12 @@ export function AccountSettingsModal({
           </button>
 
           <div className="border-b border-[#e5e0d8] px-4 py-3 md:hidden">
-            <select value={tab} onChange={(event) => setTab(event.target.value as TabId)} className="h-9 w-full rounded-[7px] border border-[#ded8cf] bg-white px-3 text-[13px]">
+            <select
+              value={tab}
+              aria-label="설정 탭 선택"
+              onChange={(event) => setTab(event.target.value as TabId)}
+              className="h-9 w-full rounded-[7px] border border-[#ded8cf] bg-white px-3 text-[13px]"
+            >
               {MOBILE_TABS.map((item) => (
                 <option key={item.id} value={item.id}>{item.label}</option>
               ))}
@@ -786,6 +1050,7 @@ export function AccountSettingsModal({
                   onConsentChange={saveConsent}
                 />
               ) : null}
+              {tab === "style" ? <StyleProfilePanel /> : null}
               {tab === "notifications" ? <NotificationsPanel /> : null}
               {tab === "apiKeys" ? <McpApiKeysPanel variant="modal" /> : null}
               {tab === "import" ? <ImportScreen /> : null}
@@ -889,6 +1154,16 @@ function ProfilePanel({
       </section>
 
       <section className="mb-9">
+        <SectionLabel>세션</SectionLabel>
+        <AccountRow
+          className="px-4"
+          title="현재 세션"
+          desc="현재 로그인된 기기에서 로그아웃합니다."
+          action={<ModalButton danger onClick={onLogout}>로그아웃</ModalButton>}
+        />
+      </section>
+
+      <section className="mb-9">
         <SectionLabel>계정 보안</SectionLabel>
         <AccountRow title="이메일" desc={<a className="text-[#4a36aa] underline">{email}</a>} action={<span className="text-[12px] text-[#8c877f]">변경 API 없음</span>} />
         {canChangePassword ? (
@@ -924,16 +1199,6 @@ function ProfilePanel({
             </div>
           );
         })}
-      </section>
-
-      <section className="mb-9">
-        <SectionLabel>세션</SectionLabel>
-        <AccountRow
-          className="px-4"
-          title="로그아웃"
-          desc="현재 로그인된 기기에서 로그아웃합니다."
-          action={<ModalButton danger onClick={onLogout}>로그아웃</ModalButton>}
-        />
       </section>
 
       <section>
@@ -1016,6 +1281,115 @@ function ConsentButton({
   );
 }
 
+function DesktopVaultSyncSection() {
+  const { pushToast } = useBrainX();
+  const [supported, setSupported] = useState(false);
+  const [vaultName, setVaultName] = useState<string | null>(null);
+  const [syncPolicy, setSyncPolicy] = useState<BrainxDesktopVaultSyncPolicy | null>(null);
+  const [savingMode, setSavingMode] = useState<BrainxDesktopVaultSyncMode | null>(null);
+  const [manualSyncing, setManualSyncing] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (!isElectronDesktop()) return;
+
+    Promise.all([getBrainxDesktopConfig(), getDesktopVaultSyncPolicy()])
+      .then(([config, policy]) => {
+        if (!active || !config?.activeVault) return;
+        setSupported(true);
+        setVaultName(config.activeVault.name);
+        setSyncPolicy(policy);
+      })
+      .catch(() => {
+        if (!active) return;
+        setSupported(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!supported || !syncPolicy) {
+    return null;
+  }
+
+  const updateMode = async (mode: BrainxDesktopVaultSyncMode) => {
+    if (savingMode || mode === syncPolicy.mode) return;
+    setSavingMode(mode);
+    try {
+      const next = await setDesktopVaultSyncPolicy({ mode });
+      setSyncPolicy(next);
+      pushToast(mode === "local-only" ? "로컬 전용 모드로 전환했어요." : "수동 클라우드 동기화 모드로 전환했어요.", "ok");
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : "동기화 모드를 저장하지 못했습니다.", "err");
+    } finally {
+      setSavingMode(null);
+    }
+  };
+
+  const runManualSync = async () => {
+    if (manualSyncing) return;
+    setManualSyncing(true);
+    try {
+      const job = await requestDesktopVaultManualSync();
+      if (typeof window !== "undefined" && (job.status === "COMPLETED" || job.status === "CONFLICT" || job.status === "SKIPPED")) {
+        window.dispatchEvent(new CustomEvent("brainx:notes-refresh", { detail: { syncRefresh: true } }));
+      }
+      pushToast(job.message, job.status === "QUEUED" ? "ok" : "info");
+      const policy = await getDesktopVaultSyncPolicy();
+      setSyncPolicy(policy);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : "수동 동기화를 시작하지 못했습니다.", "err");
+    } finally {
+      setManualSyncing(false);
+    }
+  };
+
+  return (
+    <section className="mt-5 rounded-[12px] border border-[#e5e0d8] px-4 py-4">
+      <div className="mb-3">
+        <h2 className="text-[14px] font-bold text-[#2f2d2a]">데스크톱 볼트 동기화</h2>
+        <p className="mt-1 text-[12px] leading-5 text-[#6d6861]">
+          현재 vault는 <strong>{vaultName}</strong> 기준으로 동작합니다. 로컬 전용과 수동 동기화를 분리해 둘 수 있습니다.
+        </p>
+      </div>
+
+      <div className="mb-3 flex flex-wrap gap-2">
+        <ModalButton
+          primary={syncPolicy.mode === "local-only"}
+          disabled={savingMode !== null}
+          onClick={() => void updateMode("local-only")}
+        >
+          로컬 전용
+        </ModalButton>
+        <ModalButton
+          primary={syncPolicy.mode === "manual-cloud"}
+          disabled={savingMode !== null}
+          onClick={() => void updateMode("manual-cloud")}
+        >
+          수동 클라우드 동기화
+        </ModalButton>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[10px] bg-[#fbfaf8] px-3 py-3">
+        <div>
+          <div className="text-[12px] font-semibold text-[#36332f]">현재 모드: {syncPolicy.mode === "local-only" ? "로컬 전용" : "수동 클라우드 동기화"}</div>
+          <div className="mt-1 text-[11px] text-[#8c877f]">
+            마지막 동기화: {syncPolicy.lastSyncedAt ? new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(syncPolicy.lastSyncedAt)) : "아직 없음"}
+          </div>
+        </div>
+        <ModalButton
+          onClick={() => void runManualSync()}
+          disabled={manualSyncing || syncPolicy.mode !== "manual-cloud"}
+        >
+          {manualSyncing ? "요청 중" : "수동 Sync 실행"}
+        </ModalButton>
+      </div>
+    </section>
+  );
+}
+
 function GeneralSettingsPanel({
   language,
   theme,
@@ -1066,6 +1440,7 @@ function GeneralSettingsPanel({
           action={<ConsentButton checked={consents.behaviorAnalyticsOptional} disabled={savingConsent === "behaviorAnalyticsOptional"} onChange={(value) => onConsentChange("behaviorAnalyticsOptional", value)} />}
         />
       </section>
+      <DesktopVaultSyncStatusSection />
     </>
   );
 }
@@ -1095,6 +1470,321 @@ function SegmentedControl<T extends string>({
         </button>
       ))}
     </div>
+  );
+}
+
+function StyleProfilePanel() {
+  const router = useRouter();
+  const { pushToast } = useBrainX();
+  const [baseProfile, setBaseProfile] = useState<StyleProfileBase>(EMPTY_STYLE_BASE);
+  const [draft, setDraft] = useState<StyleDraft>(() => emptyStyleDraft());
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setLoadError(null);
+    getStyleProfile()
+      .then((profile) => {
+        if (!active) return;
+        setBaseProfile(styleBaseFromProfile(profile));
+        setDraft(draftFromStyleProfile(profile));
+        setLoadError(null);
+      })
+      .catch((error) => {
+        if (!active) return;
+        const message = error instanceof Error ? error.message : "문체 설정을 불러오지 못했습니다.";
+        setLoadError(message);
+        pushToast(message, "err");
+        if (error instanceof IntelligenceAuthRequiredError) router.replace("/login");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [pushToast, router, reloadNonce]);
+
+  const updateConversationTone = (key: ConversationToneKey, value: string) => {
+    setDraft((current) => ({
+      ...current,
+      conversationTone: { ...current.conversationTone, [key]: value }
+    }));
+  };
+
+  const updateWritingStyle = (key: WritingStyleScalarKey | "avoid", value: string) => {
+    setDraft((current) => ({
+      ...current,
+      writingStyle: { ...current.writingStyle, [key]: value }
+    }));
+  };
+
+  const saveStyleProfile = async () => {
+    if (loadError) return;
+    setSaving(true);
+    try {
+      const saved = await putStyleProfile(stylePayloadFromDraft(baseProfile, draft));
+      setBaseProfile(styleBaseFromProfile(saved));
+      setDraft(draftFromStyleProfile(saved));
+      pushToast("문체 설정이 저장되었습니다.", "ok");
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : "문체 설정 저장에 실패했습니다.", "err");
+      if (error instanceof IntelligenceAuthRequiredError) router.replace("/login");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <header className="mb-8">
+        <h1 className="text-[24px] font-bold tracking-[-0.01em] text-[#2f2d2a]">문체</h1>
+        <p className="mt-3 text-[13px] leading-5 text-[#6d6861]">AI 대화와 생성 결과물에 적용할 기본 문체를 설정하세요.</p>
+      </header>
+
+      {loading ? (
+        <div className="rounded-[12px] border border-[#e5e0d8] px-5 py-10 text-center text-[13px] text-[#8c877f]">문체 설정을 불러오는 중입니다.</div>
+      ) : loadError ? (
+        <div className="rounded-[12px] border border-[#e5e0d8] px-5 py-8 text-center">
+          <p className="text-[13px] font-semibold text-[#3d3934]">문체 설정을 불러오지 못했습니다.</p>
+          <p className="mt-2 break-words text-[12px] leading-5 text-[#6d6861]">{loadError}</p>
+          <div className="mt-5 flex justify-center">
+            <ModalButton onClick={() => setReloadNonce((current) => current + 1)}>
+              <Icon name="refresh" size={13} />
+              다시 시도
+            </ModalButton>
+          </div>
+        </div>
+      ) : (
+        <>
+          <section className="mb-7 rounded-[12px] border border-[#e5e0d8]">
+            <div className="px-4 pt-4">
+              <SectionLabel>대화 톤</SectionLabel>
+            </div>
+            {CONVERSATION_TONE_FIELDS.map((field) => (
+              <StyleFieldRow key={field.key} title={field.title} desc={field.desc}>
+                <StylePresetInput
+                  label={field.title}
+                  value={draft.conversationTone[field.key]}
+                  options={field.options}
+                  disabled={saving}
+                  onChange={(value) => updateConversationTone(field.key, value)}
+                />
+              </StyleFieldRow>
+            ))}
+          </section>
+
+          <section className="mb-7 rounded-[12px] border border-[#e5e0d8]">
+            <div className="px-4 pt-4">
+              <SectionLabel>작성 스타일</SectionLabel>
+            </div>
+            <StyleFieldRow title="대상 독자" desc="생성 결과물이 기본으로 상정할 독자입니다.">
+              <StyleTextInput
+                label="대상 독자"
+                value={draft.writingStyle.defaultAudience}
+                placeholder="예: general_professional"
+                disabled={saving}
+                onChange={(value) => updateWritingStyle("defaultAudience", value)}
+              />
+            </StyleFieldRow>
+            <StyleFieldRow title="작성 목적" desc="초안과 리포트가 우선할 기본 목적입니다.">
+              <StyleTextInput
+                label="작성 목적"
+                value={draft.writingStyle.defaultPurpose}
+                placeholder="예: explain"
+                disabled={saving}
+                onChange={(value) => updateWritingStyle("defaultPurpose", value)}
+              />
+            </StyleFieldRow>
+            {WRITING_STYLE_PRESET_FIELDS.map((field) => (
+              <StyleFieldRow key={field.key} title={field.title} desc={field.desc}>
+                <StylePresetInput
+                  label={field.title}
+                  value={draft.writingStyle[field.key]}
+                  options={field.options}
+                  disabled={saving}
+                  onChange={(value) => updateWritingStyle(field.key, value)}
+                />
+              </StyleFieldRow>
+            ))}
+            <StyleFieldRow title="피할 표현" desc="쉼표나 줄바꿈으로 구분하면 저장 시 목록으로 정리됩니다.">
+              <StyleTextarea
+                label="피할 표현"
+                value={draft.writingStyle.avoid}
+                placeholder="예: 과장 표현, 불필요한 감탄"
+                disabled={saving}
+                onChange={(value) => updateWritingStyle("avoid", value)}
+              />
+            </StyleFieldRow>
+          </section>
+
+          <div className="flex justify-end">
+            <ModalButton primary onClick={saveStyleProfile} disabled={saving || Boolean(loadError)}>
+              <Icon name="check" size={13} />
+              {saving ? "저장 중" : "문체 저장"}
+            </ModalButton>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+function StyleFieldRow({
+  title,
+  desc,
+  children
+}: {
+  title: string;
+  desc: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex min-h-[65px] flex-col gap-3 border-b border-[#e8e3db] px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-5">
+      <div className="min-w-0">
+        <div className="text-[13px] font-semibold text-[#36332f]">{title}</div>
+        <div className="mt-1 text-[12px] leading-5 text-[#6d6861]">{desc}</div>
+      </div>
+      <div className="w-full sm:w-[244px] sm:shrink-0">{children}</div>
+    </div>
+  );
+}
+
+function StylePresetInput({
+  label,
+  value,
+  options,
+  disabled,
+  onChange
+}: {
+  label: string;
+  value: string;
+  options: StylePresetOption[];
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const placeholder = options.length > 0
+    ? `${options.map((option) => option.label).join(", ")} 등 직접 입력`
+    : "직접 입력";
+  const customValue = "__custom__";
+  const normalizedValue = value.trim().toLocaleLowerCase();
+  const selectedOption = options.find(
+    (option) => normalizedValue === option.value.toLocaleLowerCase() || normalizedValue === option.label.toLocaleLowerCase()
+  );
+  const hasCustomText = Boolean(value.trim()) && !selectedOption;
+  const [customOpen, setCustomOpen] = useState(hasCustomText);
+  const showCustomInput = customOpen || hasCustomText;
+  const selectValue = showCustomInput ? customValue : selectedOption?.value ?? "";
+
+  useEffect(() => {
+    if (hasCustomText) {
+      setCustomOpen(true);
+    }
+  }, [hasCustomText]);
+
+  return (
+    <div className="w-full space-y-2">
+      <label className="block w-full">
+        <span className="sr-only">{label}</span>
+        <select
+          value={selectValue}
+          disabled={disabled}
+          aria-label={label}
+          onChange={(event) => {
+            const nextValue = event.target.value;
+            if (nextValue === customValue) {
+              setCustomOpen(true);
+              return;
+            }
+            const nextOption = options.find((option) => option.value === nextValue);
+            setCustomOpen(false);
+            onChange(nextOption?.label ?? "");
+          }}
+          className="h-8 w-full rounded-[7px] border border-[#ded8cf] bg-white px-2.5 text-[12px] text-[#36332f] outline-none placeholder:text-[#aaa39a] focus:border-[#6c55f6] focus-visible:ring-2 focus-visible:ring-[#6c55f6]/20 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <option value="" disabled>선택 또는 직접 입력</option>
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+          <option value={customValue}>직접 입력</option>
+        </select>
+      </label>
+      {showCustomInput ? (
+        <label className="block w-full">
+          <span className="sr-only">{label} 직접 입력</span>
+          <input
+            value={value}
+            disabled={disabled}
+            aria-label={`${label} 직접 입력`}
+            placeholder={placeholder}
+            onChange={(event) => onChange(event.target.value)}
+            className="h-8 w-full rounded-[7px] border border-[#ded8cf] bg-white px-2.5 text-[12px] text-[#36332f] outline-none placeholder:text-[#aaa39a] focus:border-[#6c55f6] focus-visible:ring-2 focus-visible:ring-[#6c55f6]/20 disabled:cursor-not-allowed disabled:opacity-60"
+          />
+        </label>
+      ) : null}
+    </div>
+  );
+}
+
+function StyleTextInput({
+  label,
+  value,
+  placeholder,
+  disabled,
+  onChange
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block w-full">
+      <span className="sr-only">{label}</span>
+      <input
+        value={value}
+        disabled={disabled}
+        aria-label={label}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-8 w-full rounded-[7px] border border-[#ded8cf] bg-white px-2.5 text-[12px] text-[#36332f] outline-none placeholder:text-[#aaa39a] focus:border-[#6c55f6] focus-visible:ring-2 focus-visible:ring-[#6c55f6]/20 disabled:cursor-not-allowed disabled:opacity-60"
+      />
+    </label>
+  );
+}
+
+function StyleTextarea({
+  label,
+  value,
+  placeholder,
+  disabled,
+  onChange
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block w-full">
+      <span className="sr-only">{label}</span>
+      <textarea
+        value={value}
+        disabled={disabled}
+        aria-label={label}
+        placeholder={placeholder}
+        rows={3}
+        onChange={(event) => onChange(event.target.value)}
+        className="min-h-[78px] w-full resize-y rounded-[7px] border border-[#ded8cf] bg-white px-2.5 py-2 text-[12px] leading-5 text-[#36332f] outline-none placeholder:text-[#aaa39a] focus:border-[#6c55f6] focus-visible:ring-2 focus-visible:ring-[#6c55f6]/20 disabled:cursor-not-allowed disabled:opacity-60"
+      />
+    </label>
   );
 }
 
@@ -1283,21 +1973,27 @@ function StatsPanel() {
   useEffect(() => {
     let active = true;
     setLoading(true);
+    const loadStats = () => {
+      setLoading(true);
+      getMyWorkspaceStats()
+        .then((stats) => {
+          if (active) setWorkspaceStats(stats);
+        })
+        .catch((error) => {
+          if (active) setWorkspaceStats(null);
+          pushToast(error instanceof Error ? error.message : "노트 통계를 불러오지 못했습니다.", "err");
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    };
 
-    getMyWorkspaceStats()
-      .then((stats) => {
-        if (active) setWorkspaceStats(stats);
-      })
-      .catch((error) => {
-        if (active) setWorkspaceStats(null);
-        pushToast(error instanceof Error ? error.message : "노트 통계를 불러오지 못했습니다.", "err");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+    loadStats();
+    window.addEventListener("brainx:notes-refresh", loadStats);
 
     return () => {
       active = false;
+      window.removeEventListener("brainx:notes-refresh", loadStats);
     };
   }, [pushToast]);
 
@@ -1645,8 +2341,18 @@ function UpgradePanel({
       }
     }
 
-    window.addEventListener("message", handlePaymentMessage);
-    return () => window.removeEventListener("message", handlePaymentMessage);
+    return addPopupResultListener<{ success?: boolean; message?: string }>(
+      PAYMENT_RESULT_MESSAGE_TYPE,
+      (data) => {
+        setPendingPlanId(null);
+        if (data.success) {
+          pushToast(data.message ?? "결제가 완료되었습니다.", "ok");
+          void refresh();
+        } else {
+          pushToast(data.message ?? "결제가 취소되었습니다.", "err");
+        }
+      }
+    );
   }, [pushToast, refresh]);
 
   const startUpgrade = async (plan: CommercePlan) => {
@@ -1654,10 +2360,15 @@ function UpgradePanel({
     setPendingPlanId(plan.planId);
     const billingCycle = billing === "yearly" ? "YEARLY" : "MONTHLY";
 
-    const popup = window.open(
-      `/billing/checkout?planId=${encodeURIComponent(plan.planId)}&billingCycle=${billingCycle}`,
-      "brainx-payment"
-    );
+    const popup = await openBrainxPopup({
+      url: `/billing/checkout?planId=${encodeURIComponent(plan.planId)}&billingCycle=${billingCycle}`,
+      channel: PAYMENT_RESULT_MESSAGE_TYPE,
+      name: "brainx-payment",
+      width: 1200,
+      height: 860,
+      minWidth: 960,
+      minHeight: 640,
+    });
     if (!popup) {
       pushToast("팝업이 차단되었습니다. 팝업 차단을 해제한 뒤 다시 시도해 주세요.", "err");
       setPendingPlanId(null);

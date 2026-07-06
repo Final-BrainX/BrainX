@@ -299,11 +299,17 @@ class NoteProjectionJpaAdapterTest {
 
         var source = adapter.findLinkSuggestionSourceNote("user-1", "default", "note-1");
         var pending = adapter.findLinkSuggestionSourceNote("user-1", "default", "pending-note");
+        var autoLinkSource = adapter.findSearchableNoteSource("user-1", "default", "note-1");
+        var pendingAutoLinkSource = adapter.findSearchableNoteSource("user-1", "default", "pending-note");
 
         assertThat(source).get()
             .extracting("documentGroupId", "noteId", "title")
             .containsExactly("default", "note-1", "Default note");
         assertThat(pending).isEmpty();
+        assertThat(autoLinkSource).get()
+            .extracting("documentGroupId", "noteId", "title", "markdown")
+            .containsExactly("default", "note-1", "Default note", "default markdown");
+        assertThat(pendingAutoLinkSource).isEmpty();
     }
 
     @Test

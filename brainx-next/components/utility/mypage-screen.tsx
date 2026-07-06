@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { useBrainX } from "@/components/brainx-provider";
 import { Icon, Btn, Card, Toggle, Avatar } from "@/components/brainx-ui";
 import type { BrainXNote } from "@/lib/brainx-data";
-import { getOAuthAuthorization, logout, type OAuthProvider } from "@/lib/auth-api";
+import { getOAuthAuthorization, type OAuthProvider } from "@/lib/auth-api";
 import {
   cancelAccountDeletion,
   changeMyPassword,
@@ -532,13 +532,13 @@ function ActivityDashboard({
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <span className="mb-2 block text-[14px] font-medium text-neutral-700">{children}</span>;
+  return <span className="mb-2 block text-[14px] font-medium text-txt2">{children}</span>;
 }
 
 function ModalSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="border-t border-neutral-200 px-6 py-6 first:border-t-0">
-      <h3 className="mb-4 text-[17px] font-semibold text-neutral-950">{title}</h3>
+    <section className="border-t border-line/40 px-6 py-6 first:border-t-0">
+      <h3 className="mb-4 text-[17px] font-semibold text-txt">{title}</h3>
       {children}
     </section>
   );
@@ -930,14 +930,14 @@ function AccountSettingsModal({
                 <button
                   type="button"
                   onClick={() => setPasswordSectionOpen((open) => !open)}
-                  className="flex h-11 w-full items-center justify-between rounded-xl border border-neutral-300 bg-white px-4 text-left text-[15px] font-medium transition hover:border-neutral-900"
+                  className="flex h-11 w-full items-center justify-between rounded-xl border border-line/60 bg-surface px-4 text-left text-[15px] font-medium text-txt transition hover:border-primary/50"
                   aria-expanded={passwordSectionOpen}
                 >
                   <span>비밀번호 변경</span>
-                  <Icon name="chevD" size={18} className={`transition ${passwordSectionOpen ? "rotate-180" : ""}`} />
+                  <Icon name="chevD" size={18} className={`text-txt3 transition ${passwordSectionOpen ? "rotate-180" : ""}`} />
                 </button>
                 {passwordSectionOpen ? (
-                  <div className="mt-3 grid gap-2 rounded-xl bg-neutral-50 p-3">
+                  <div className="mt-3 grid gap-2 rounded-xl bg-surface2/60 p-3">
                     <PasswordInput
                       placeholder="현재 비밀번호 입력"
                       value={passwords.currentPassword}
@@ -1013,7 +1013,6 @@ export function MyPageScreen() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [coverImage, setCoverImage] = useState("");
   const [activityPeriod, setActivityPeriod] = useState<ActivityPeriod>("week");
-  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -1040,19 +1039,6 @@ export function MyPageScreen() {
   }, [pushToast, router]);
 
   const name = displayName(profile);
-  const handleLogout = async () => {
-    if (loggingOut) return;
-    setLoggingOut(true);
-    try {
-      await logout();
-      pushToast("로그아웃되었습니다.", "ok");
-    } catch (error) {
-      pushToast(error instanceof Error ? error.message : "로그아웃에 실패했습니다.", "err");
-      setLoggingOut(false);
-    }
-    router.replace("/");
-  };
-
   return (
     <div data-route className="min-h-full bg-bg text-txt">
       <div className="mx-auto max-w-[1100px] px-5 pb-16 pt-8 md:px-8 md:pt-10">
@@ -1073,9 +1059,6 @@ export function MyPageScreen() {
             <div className="flex flex-wrap items-center gap-2">
               <Btn variant="soft" icon="settings" onClick={() => setSettingsOpen(true)}>
                 계정 설정
-              </Btn>
-              <Btn variant="soft" icon="logout" onClick={handleLogout} disabled={loggingOut} className="text-red-500 hover:text-red-600">
-                로그아웃
               </Btn>
             </div>
           </div>

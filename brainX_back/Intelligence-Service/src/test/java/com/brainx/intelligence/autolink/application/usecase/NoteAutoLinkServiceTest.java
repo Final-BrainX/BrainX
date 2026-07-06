@@ -7,12 +7,14 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
 import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkCommand;
+import com.brainx.intelligence.autolink.application.port.inbound.NoteAutoLinkUseCase.AutoLinkSourceCommand;
 import com.brainx.intelligence.autolink.application.port.outbound.AutoLinkNoteSourcePort;
 import com.brainx.intelligence.autolink.application.port.outbound.AutoLinkNoteSourcePort.AutoLinkNoteSource;
 import com.brainx.intelligence.autolink.application.port.outbound.AutoLinkUsageCapturePort;
@@ -20,8 +22,13 @@ import com.brainx.intelligence.autolink.domain.NoteAutoLinkStrategy;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteChunkRetrievalPort;
 import com.brainx.intelligence.exploration.domain.NoteChunkSearchResult;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
+import com.brainx.intelligence.settings.application.port.outbound.StyleProfilePort;
+import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.settings.domain.AiModel;
+import com.brainx.intelligence.settings.domain.ConversationTone;
+import com.brainx.intelligence.settings.domain.StyleProfile;
 import com.brainx.intelligence.settings.domain.VendorTokenCost;
+import com.brainx.intelligence.settings.domain.WritingStyle;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
@@ -84,10 +91,74 @@ class NoteAutoLinkServiceTest {
         assertThat(chunkRetrieval.queries).isEmpty();
         assertThat(strategy.suggestions()).hasSize(1);
         assertThat(strategy.suggestions().getFirst().anchor().matchedText()).isEqualTo("Knowledge Graphs");
+        assertThat(aiChatPort.requests.getFirst().messages().getFirst().content())
+            .contains("Mandatory user style instructions")
+            .contains("every final user-facing conversational sentence")
+            .contains("Keep the directness level: high")
+            .doesNotContain("every final generated or edited user-facing text segment");
         assertThat(strategy.filteredInvalidAnchorCount()).isEqualTo(1);
         assertThat(strategy.filteredQualityCount()).isZero();
         assertThat(strategy.usageRecords()).hasSize(2);
         assertThat(strategy.usageSummary().inputTokens()).isEqualTo(20);
+    }
+
+    @Test
+    void sourceOnlyLlmOnlyAnalyzesRequestedSourceOnce() {
+        FakeNoteSourcePort projectionStore = new FakeNoteSourcePort();
+        projectionStore.notes.add(note("source", "Source", "This note mentions Knowledge Graphs."));
+        projectionStore.notes.add(note("target", "Target", "Knowledge Graphs are useful."));
+        projectionStore.notes.add(note("other", "Other", "Another candidate note."));
+        FakeChunkRetrieval chunkRetrieval = new FakeChunkRetrieval();
+        FakeAiChatPort aiChatPort = new FakeAiChatPort();
+        aiChatPort.responses.add("""
+            [{"anchorText":"Knowledge Graphs","targetNoteId":"target","reason":"same topic","confidence":0.8}]
+            """);
+
+        var result = service(projectionStore, chunkRetrieval, aiChatPort).analyzeSourceLinks(new AutoLinkSourceCommand(
+            "user-1",
+            "group-1",
+            "source",
+            50,
+            "gpt-5.4-mini"
+        ));
+
+        var strategy = result.strategies().getFirst();
+        assertThat(result.analyzedNoteCount()).isEqualTo(1);
+        assertThat(strategy.analyzedNoteCount()).isEqualTo(1);
+        assertThat(strategy.llmCallCount()).isEqualTo(1);
+        assertThat(strategy.candidatePairCount()).isEqualTo(2);
+        assertThat(strategy.suggestions()).hasSize(1);
+        assertThat(strategy.suggestions().getFirst().sourceNoteId()).isEqualTo("source");
+        assertThat(strategy.suggestions().getFirst().targetNoteId()).isEqualTo("target");
+        assertThat(chunkRetrieval.queries).isEmpty();
+        assertThat(aiChatPort.requests).hasSize(1);
+        assertThat(aiChatPort.requests.getFirst().messages().get(1).content())
+            .contains("noteId: target")
+            .contains("noteId: other");
+    }
+
+    @Test
+    void sourceOnlyWithoutCandidatesDoesNotCallLlm() {
+        FakeNoteSourcePort projectionStore = new FakeNoteSourcePort();
+        projectionStore.notes.add(note("source", "Source", "This note has no candidates."));
+        FakeChunkRetrieval chunkRetrieval = new FakeChunkRetrieval();
+        FakeAiChatPort aiChatPort = new FakeAiChatPort();
+
+        var result = service(projectionStore, chunkRetrieval, aiChatPort).analyzeSourceLinks(new AutoLinkSourceCommand(
+            "user-1",
+            "group-1",
+            "source",
+            50,
+            "gpt-5.4-mini"
+        ));
+
+        var strategy = result.strategies().getFirst();
+        assertThat(result.status()).isEqualTo("COMPLETED");
+        assertThat(result.analyzedNoteCount()).isEqualTo(1);
+        assertThat(strategy.llmCallCount()).isZero();
+        assertThat(strategy.candidatePairCount()).isZero();
+        assertThat(strategy.suggestions()).isEmpty();
+        assertThat(aiChatPort.requests).isEmpty();
     }
 
     @Test
@@ -393,6 +464,13 @@ class NoteAutoLinkServiceTest {
         assertThat(strategy.filteredWeakRelationCount()).isZero();
         assertThat(strategy.usageRecords()).extracting("featureId")
             .contains("note-auto-link-relation-verifier-chat");
+        assertThat(aiChatPort.requests.getFirst().messages().getFirst().content())
+            .contains("Mandatory user style instructions")
+            .contains("every final user-facing conversational sentence");
+        assertThat(aiChatPort.requests.get(1).messages().getFirst().content())
+            .doesNotContain("Mandatory user style instructions")
+            .doesNotContain("every final user-facing conversational sentence")
+            .doesNotContain("every final generated or edited user-facing text segment");
         assertThat(strategy.usageSummary().inputTokens()).isEqualTo(30);
     }
 
@@ -454,7 +532,8 @@ class NoteAutoLinkServiceTest {
             aiChatPort,
             new AiUsageRecorder(usageCapture, usageCostEstimator),
             new ObjectMapper().findAndRegisterModules(),
-            beanFactory.getBeanProvider(AutoLinkUsageCapturePort.class)
+            beanFactory.getBeanProvider(AutoLinkUsageCapturePort.class),
+            new StylePromptCompiler(new FakeStyleProfilePort())
         );
     }
 
@@ -504,6 +583,20 @@ class NoteAutoLinkServiceTest {
                     && note.markdown() != null)
                 .limit(limit)
                 .toList();
+        }
+
+        @Override
+        public Optional<AutoLinkNoteSource> findSearchableNoteSource(
+            String userId,
+            String documentGroupId,
+            String noteId
+        ) {
+            return notes.stream()
+                .filter(note -> note.userId().equals(userId)
+                    && note.documentGroupId().equals(documentGroupId)
+                    && note.noteId().equals(noteId)
+                    && note.markdown() != null)
+                .findFirst();
         }
     }
 
@@ -601,6 +694,26 @@ class NoteAutoLinkServiceTest {
         @Override
         public boolean existsByModelId(String modelId) {
             return MODEL.modelId().equals(modelId);
+        }
+    }
+
+    private static final class FakeStyleProfilePort implements StyleProfilePort {
+
+        private final StyleProfile profile = new StyleProfile(
+            "user-1",
+            new ConversationTone(Map.of("directness", "high")),
+            new WritingStyle(Map.of("formality", "business")),
+            null
+        );
+
+        @Override
+        public StyleProfile save(StyleProfile styleProfile) {
+            return styleProfile;
+        }
+
+        @Override
+        public Optional<StyleProfile> findStyleProfileByUserId(String userId) {
+            return profile.userId().equals(userId) ? Optional.of(profile) : Optional.empty();
         }
     }
 }

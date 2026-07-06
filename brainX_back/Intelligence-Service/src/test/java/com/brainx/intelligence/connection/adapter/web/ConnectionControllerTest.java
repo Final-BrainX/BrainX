@@ -54,7 +54,10 @@ class ConnectionControllerTest {
                 "target-1",
                 "Target title",
                 0.86d,
-                "related"
+                "related",
+                "Anchor text",
+                12,
+                23
             ))));
 
         mockMvc.perform(post("/api/v1/ai/link-suggestions")
@@ -71,7 +74,10 @@ class ConnectionControllerTest {
             .andExpect(jsonPath("$.data.suggestions[0].targetNoteId").value("target-1"))
             .andExpect(jsonPath("$.data.suggestions[0].targetTitle").value("Target title"))
             .andExpect(jsonPath("$.data.suggestions[0].score").value(0.86d))
-            .andExpect(jsonPath("$.data.suggestions[0].reason").value("related"));
+            .andExpect(jsonPath("$.data.suggestions[0].reason").value("related"))
+            .andExpect(jsonPath("$.data.suggestions[0].anchorText").value("Anchor text"))
+            .andExpect(jsonPath("$.data.suggestions[0].anchorStartOffset").value(12))
+            .andExpect(jsonPath("$.data.suggestions[0].anchorEndOffset").value(23));
 
         verify(createLinkSuggestionsUseCase).createLinkSuggestions(argThat(command ->
             command.userId().equals("user-1") && command.noteId().equals("note-1")

@@ -2,6 +2,9 @@ package com.brainx.intelligence.infrastructure.persistence.jpa.settings;
 
 import java.util.Map;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import com.brainx.intelligence.infrastructure.persistence.jpa.JsonMapAttributeConverter;
 import com.brainx.intelligence.settings.domain.AiModelSettings;
 
@@ -24,6 +27,7 @@ public class AiModelSettingsJpaEntity {
     private String defaultModelId;
 
     @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "user_api_keys", nullable = false)
     @Convert(converter = JsonMapAttributeConverter.class)
     private Map<String, Object> userApiKeys = Map.of();

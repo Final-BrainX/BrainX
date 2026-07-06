@@ -149,7 +149,7 @@ python scripts\capture_inline_assist_cli.py --run-name 20260626-inline-assist-qu
 ## Operational Notes
 
 - `clientContext`는 public contract 변경이므로 SSOT 변경 후 local slice와 frontend generated type을 갱신해야 한다.
-- 운영 DB가 `ddl-auto=validate`이면 `intelligence_chat_messages.client_context` 컬럼 추가와 기존 row `{}` backfill migration이 필요하다.
+- 운영 DB의 `intelligence_chat_messages.client_context` 컬럼과 기존 row `{}` backfill은 Flyway migration으로 적용한다.
 - `brainx-next` dev server는 browser에서 8086을 직접 호출하지 않는다. `/api/intelligence/...` Next route handler가 server-side proxy 역할을 한다.
 - Intelligence Service를 새로 수정한 뒤에는 8086 dev server를 재시작해야 한다. stale backend가 떠 있으면 frontend가 `clientContext`를 보내도 실행 중인 backend가 이를 반영하지 못해 message SSE가 실패할 수 있다.
 

@@ -22,6 +22,10 @@ export interface EditorContextTarget {
   x: number;
   y: number;
   inTable: boolean;
+  /** 우클릭 좌표가 이미지 블록 위였는지 — true면 우클릭 시점에 그 이미지를 NodeSelection으로
+      이미 선택해 두었으므로(NoteEditor.tsx의 onContextMenu), "이미지 삭제"는 deleteSelection만
+      호출하면 된다(표의 deleteTable()과 동일한 패턴). */
+  inImage?: boolean;
 }
 
 function MenuItem({
@@ -146,6 +150,17 @@ export default function EditorContextMenu({
         disabled
         title="브라우저 보안 정책상 Ctrl+V를 사용해 주세요"
       />
+      {target.inImage && (
+        <>
+          <MenuItem
+            icon={<Trash2 size={13} />}
+            label="이미지 삭제"
+            danger
+            onClick={run(() => editor.chain().focus().deleteSelection().run())}
+          />
+          <div className="my-1 border-t border-line/30" />
+        </>
+      )}
       <MenuItem icon={<ImagePlus size={13} />} label="이미지 삽입" onClick={run(onChooseImage)} />
       <MenuItem icon={<Link2 size={13} />} label="이미지 URL로 삽입" onClick={run(onInsertImageUrl)} />
       <MenuItem

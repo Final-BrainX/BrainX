@@ -26,8 +26,12 @@ export interface WikiLinkContextValue {
   resolveTitle: (title: string) => WikiLinkNoteRef | null;
   /** 존재하는 노트로 이동(활성 패널에 연다). */
   onNavigate: (title: string) => void;
-  /** 존재하지 않는 노트를 그 제목으로 즉시 생성하고 연다. */
-  onCreate: (title: string) => void;
+  /** 존재하지 않는 노트를 그 제목으로 즉시 생성하고 연다. sourceHtml을 주면(자동완성이 방금
+      `[[title]]`을 넣은 직후 editor.getHTML()을 그 자리에서 바로 읽은 값) 호출부가 나중에
+      activeEditorHandle.getHTML()을 다시 읽지 않고 이 값을 그대로 신뢰한다 — 삽입과 읽기
+      사이의 시간차(리렌더/탭 전환 등)를 최대한 없애기 위함이다. 없으면(예: 이미 존재하는
+      깨진 링크의 "생성" 클릭처럼 "방금 입력"이 아닌 경우) 기존처럼 활성 에디터에서 다시 읽는다. */
+  onCreate: (title: string, sourceHtml?: string) => void;
 }
 
 export const WikiLinkContext = createContext<WikiLinkContextValue | null>(null);
@@ -36,14 +40,36 @@ export function useWikiLinkContext() {
   return useContext(WikiLinkContext);
 }
 
+export function normalizeWikiLinkText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeWikiLinkText(item)).join(" ").trim();
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    if ("title" in record) return normalizeWikiLinkText(record.title);
+    if ("text" in record) return normalizeWikiLinkText(record.text);
+    if ("value" in record) return normalizeWikiLinkText(record.value);
+  }
+  return "";
+}
+
+export function normalizeOptionalWikiLinkText(value: unknown): string | null {
+  const normalized = normalizeWikiLinkText(value).trim();
+  return normalized || null;
+}
+
 /** 정확히 일치 → 부분 일치(유일할 때만) 순서로 찾는다. 공유 로직이라 Context value를 만드는
     쪽(NotesWorkspace)과 자동완성 쪽(WikiLinkAutocomplete) 모두 이 함수를 쓴다. */
-export function resolveWikiLinkTitle(notes: WikiLinkNoteRef[], title: string): WikiLinkNoteRef | null {
-  const needle = title.trim().toLowerCase();
+export function resolveWikiLinkTitle(notes: WikiLinkNoteRef[], title: unknown): WikiLinkNoteRef | null {
+  const needle = normalizeWikiLinkText(title).trim().toLowerCase();
   if (!needle) return null;
-  const exact = notes.find((n) => n.title.toLowerCase() === needle);
+  const exact = notes.find((n) => normalizeWikiLinkText(n.title).trim().toLowerCase() === needle);
   if (exact) return exact;
-  const partial = notes.filter((n) => n.title.toLowerCase().includes(needle));
+  const partial = notes.filter((n) => normalizeWikiLinkText(n.title).trim().toLowerCase().includes(needle));
   return partial.length === 1 ? partial[0] : null;
 }
 

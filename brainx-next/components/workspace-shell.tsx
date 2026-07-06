@@ -11,6 +11,7 @@ import { BrandLogo } from "@/components/brand-logo";
 import { AccountSettingsModal } from "@/components/utility/account-settings-modal";
 import { PanelLeftClose, PanelLeft } from "lucide-react";
 import type { BrainXNote } from "@/lib/brainx-data";
+import { addPopupResultListener } from "@/lib/desktop-bridge";
 import { cx, stripMarkdown } from "@/lib/utils";
 import { semanticSearch, type SemanticSearchData } from "@/lib/intelligence-api";
 import { formatCreditCount, formatTokenPercent } from "@/lib/token-usage";
@@ -18,6 +19,8 @@ import {
   buildAuthPath,
   clearAuthSession,
   isDevAuthSession,
+  isSameAuthSession,
+  logout,
   readAuthSession,
   type AuthSession,
 } from "@/lib/auth-api";
@@ -35,9 +38,10 @@ const NAV = [
   { id: "notes", labelKey: "nav.notes" as const, icon: "notes" as const, path: "/notes" },
   { id: "graph", labelKey: "nav.graph" as const, icon: "graph" as const, path: "/graph" },
   { id: "chat", labelKey: "nav.chat" as const, icon: "chat" as const, path: "/chat" },
+  { id: "agent", labelKey: "nav.agent" as const, icon: "brain" as const, path: "/agent" },
 ];
 
-type SettingsTab = "profile" | "general" | "notifications" | "apiKeys" | "import" | "usage" | "stats" | "support" | "upgrade";
+type SettingsTab = "profile" | "general" | "style" | "notifications" | "apiKeys" | "import" | "usage" | "stats" | "support" | "upgrade";
 
 function isActive(pathname: string, path: string) {
   if (path === "/notes") return pathname.startsWith("/notes");
@@ -740,6 +744,7 @@ function SidebarItem({
         path === "/notes" && "tutorial-target-notes",
         path === "/graph" && "tutorial-target-mindmap",
         path === "/chat" && "tutorial-target-ai",
+        path === "/agent" && "tutorial-target-agent",
         active
           ? "bg-surface2/80 text-txt"
           : "text-txt2 hover:bg-surface2/50 hover:text-txt",
@@ -922,11 +927,15 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [notifications, setNotifications] = useState<MyNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [loggingOut, setLoggingOut] = useState(false);
   const isGuest = !session?.accessToken;
 
   useEffect(() => {
-    setSession(readAuthSession());
-    const syncSession = () => setSession(readAuthSession());
+    const syncSession = () => {
+      const nextSession = readAuthSession();
+      setSession((prev) => (isSameAuthSession(prev, nextSession) ? prev : nextSession));
+    };
+    syncSession();
     window.addEventListener("brainx-auth-session-changed", syncSession);
     return () =>
       window.removeEventListener("brainx-auth-session-changed", syncSession);
@@ -996,15 +1005,13 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
 
     refreshPlan();
 
-    function handlePaymentMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin) return;
-      if (event.data?.type === PAYMENT_RESULT_MESSAGE_TYPE) refreshPlan();
-    }
-
     window.addEventListener("focus", refreshPlan);
     window.addEventListener("brainx-auth-session-changed", refreshPlan);
     window.addEventListener("brainx-subscription-changed", refreshPlan);
-    window.addEventListener("message", handlePaymentMessage);
+    const removePaymentListener = addPopupResultListener(
+      PAYMENT_RESULT_MESSAGE_TYPE,
+      () => refreshPlan()
+    );
     const refreshInterval = window.setInterval(refreshPlan, 30000);
 
     return () => {
@@ -1012,7 +1019,7 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
       window.removeEventListener("focus", refreshPlan);
       window.removeEventListener("brainx-auth-session-changed", refreshPlan);
       window.removeEventListener("brainx-subscription-changed", refreshPlan);
-      window.removeEventListener("message", handlePaymentMessage);
+      removePaymentListener();
       window.clearInterval(refreshInterval);
     };
   }, [session?.accessToken, session?.userId]);
@@ -1063,6 +1070,7 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
     { label: t("nav.notes"), icon: "notes" as const, path: "/notes" },
     { label: t("nav.graph"), icon: "graph" as const, path: "/graph" },
     { label: t("nav.chat"), icon: "chat" as const, path: "/chat" },
+    { label: t("nav.agent"), icon: "brain" as const, path: "/agent" },
   ];
   const topTooltipClass =
     "pointer-events-none absolute top-[calc(100%+12px)] left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-[6px] bg-txt px-2.5 py-1.5 text-[12px] font-medium text-bg2 opacity-0 shadow-md transition-opacity duration-200 group-hover:opacity-100";
@@ -1156,15 +1164,26 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
           <div className="relative">
             <button
               type="button"
-              onClick={() => {
+              disabled={loggingOut}
+              onClick={async () => {
                 setNotificationOpen(false);
                 if (isGuest) {
                   setGuestMenuOpen((current) => !current);
                   return;
                 }
-                onOpenSettings();
+                if (loggingOut) return;
+                setLoggingOut(true);
+                try {
+                  await logout();
+                  pushToast("로그아웃되었습니다.", "ok");
+                } catch (error) {
+                  pushToast(error instanceof Error ? error.message : "로그아웃에 실패했습니다.", "err");
+                } finally {
+                  setLoggingOut(false);
+                }
+                window.location.replace("/");
               }}
-              className="tutorial-target-profile group relative flex h-8 items-center gap-1.5 rounded-lg px-2 transition-colors hover:bg-surface2/60"
+              className="tutorial-target-profile group relative flex h-8 items-center gap-1.5 rounded-lg px-2 transition-colors hover:bg-surface2/60 disabled:opacity-60"
             >
               <Avatar name={displayName} size={26} imageUrl={displayImageUrl} />
               <div className="hidden text-left leading-tight sm:block">
@@ -1178,7 +1197,10 @@ function TopBar({ onOpenSettings }: { onOpenSettings: (tab?: SettingsTab) => voi
               {isGuest ? <Icon name="chevD" size={12} className="text-txt3" /> : null}
               {!isGuest ? (
                 <span className={topTooltipClass}>
-                  사용자 프로필
+                  <span className="flex items-center gap-1">
+                    <Icon name="logout" size={12} />
+                    로그아웃
+                  </span>
                   <div className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt" style={{ zIndex: -1 }} />
                 </span>
               ) : null}

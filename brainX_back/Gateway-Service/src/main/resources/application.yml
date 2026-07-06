@@ -249,6 +249,16 @@ spring:
                     name: adminServiceCircuitBreaker
                     fallbackUri: forward:/fallback/admin
 
+# resilience4j의 reactor TimeLimiter 기본 timeout-duration은 1s로, 위 httpclient.response-timeout(5s)
+# 보다 먼저 끊겨 정상 응답도 503(fallback)으로 떨어뜨린다. userServiceCircuitBreaker(로그인/OAuth
+# callback이 걸리는 /api/v1/auth/** 라우트)는 외부 OAuth 제공자 호출(token 교환 + 프로필 조회)이
+# 1s를 넘기기 쉬우므로, httpclient 타임아웃이 실제 상한이 되도록 6s로 맞춘다.
+resilience4j:
+  timelimiter:
+    instances:
+      userServiceCircuitBreaker:
+        timeout-duration: 6s
+
 eureka:
   client:
     service-url:
@@ -294,6 +304,8 @@ brainx:
         - /api/v1/plans
         - /api/v1/plans/**
         - /api/v1/assets/*/file
+        - /api/v1/assets/*/slides/*
+        - /api/v1/assets/*/slides/*/video
         - /api/v1/assets/proxy-image
         - /api/v1/mcp/**
         - /mcp

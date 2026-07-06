@@ -19,7 +19,7 @@ function CheckoutSuccessContent() {
     if (!checkoutSessionId || !paymentKey || !orderId || !amount) {
       const errorMessage = "결제 승인 정보가 올바르지 않습니다.";
       setMessage(errorMessage);
-      notifyOpenerAndClosePayment(false, errorMessage);
+      void notifyOpenerAndClosePayment(false, errorMessage);
       return;
     }
 
@@ -30,13 +30,13 @@ function CheckoutSuccessContent() {
         if (cancelled) return;
         const successMessage = `결제가 완료되었습니다. (${result.planId.toUpperCase()} 플랜)`;
         setMessage(successMessage);
-        notifyOpenerAndClosePayment(true, successMessage);
+        void notifyOpenerAndClosePayment(true, successMessage);
       })
       .catch((error) => {
         if (cancelled) return;
         const errorMessage = error instanceof Error ? error.message : "결제 승인에 실패했습니다.";
         setMessage(errorMessage);
-        notifyOpenerAndClosePayment(false, errorMessage);
+        void notifyOpenerAndClosePayment(false, errorMessage);
       });
 
     return () => {

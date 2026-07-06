@@ -26,6 +26,9 @@ import com.brainx.intelligence.infrastructure.security.SecurityConfig;
 import com.brainx.intelligence.infrastructure.web.GlobalApiExceptionHandler;
 import com.brainx.intelligence.insight.application.port.inbound.GetInsightReportUseCase;
 import com.brainx.intelligence.insight.application.port.inbound.GetInsightReportUseCase.GetInsightReportQuery;
+import com.brainx.intelligence.insight.application.port.inbound.GetLatestInsightReportUseCase;
+import com.brainx.intelligence.insight.application.port.inbound.GetLatestInsightReportUseCase.GetLatestInsightReportQuery;
+import com.brainx.intelligence.insight.application.port.inbound.GetLatestInsightReportUseCase.LatestInsightReport;
 import com.brainx.intelligence.insight.application.port.inbound.RequestInsightReportUseCase;
 import com.brainx.intelligence.insight.application.port.inbound.RequestInsightReportUseCase.InsightReportCommand;
 import com.brainx.intelligence.insight.domain.InsightConflictException;
@@ -33,6 +36,7 @@ import com.brainx.intelligence.insight.domain.InsightForbiddenException;
 import com.brainx.intelligence.insight.domain.InsightNotFoundException;
 import com.brainx.intelligence.insight.domain.InsightRecommendation;
 import com.brainx.intelligence.insight.domain.InsightReport;
+import com.brainx.intelligence.insight.domain.InsightReportLatestState;
 import com.brainx.intelligence.insight.domain.InsightReportStatus;
 
 @WebMvcTest(InsightController.class)
@@ -47,6 +51,9 @@ class InsightControllerTest {
 
     @MockitoBean
     private GetInsightReportUseCase getInsightReportUseCase;
+
+    @MockitoBean
+    private GetLatestInsightReportUseCase getLatestInsightReportUseCase;
 
     @Test
     void requestInsightReportReturnsAcceptedWrappedReport() throws Exception {
@@ -96,12 +103,71 @@ class InsightControllerTest {
     }
 
     @Test
+    void getLatestInsightReportReturnsWrappedFreshState() throws Exception {
+        when(getLatestInsightReportUseCase.getLatestInsightReport(any(GetLatestInsightReportQuery.class)))
+            .thenReturn(new LatestInsightReport(
+                "group-1",
+                2,
+                Instant.parse("2026-06-26T00:00:00Z"),
+                InsightReportLatestState.FRESH,
+                report("report-1", InsightReportStatus.COMPLETED)
+            ));
+
+        mockMvc.perform(get("/api/v1/ai/insight-reports/latest")
+                .with(user("user-1"))
+                .param("documentGroupId", "group-1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.documentGroupId").value("group-1"))
+            .andExpect(jsonPath("$.data.searchableNoteCount").value(2))
+            .andExpect(jsonPath("$.data.latestNoteUpdatedAt").value("2026-06-26T00:00:00Z"))
+            .andExpect(jsonPath("$.data.state").value("FRESH"))
+            .andExpect(jsonPath("$.data.report.reportId").value("report-1"))
+            .andExpect(jsonPath("$.data.report.failureMessage").doesNotExist());
+
+        verify(getLatestInsightReportUseCase).getLatestInsightReport(argThat(query ->
+            query.userId().equals("user-1") && query.documentGroupId().equals("group-1")
+        ));
+    }
+
+    @Test
+    void getLatestInsightReportDefaultsDocumentGroupAndAllowsNoReportState() throws Exception {
+        when(getLatestInsightReportUseCase.getLatestInsightReport(any(GetLatestInsightReportQuery.class)))
+            .thenReturn(new LatestInsightReport(
+                "default",
+                0,
+                null,
+                InsightReportLatestState.NO_SOURCE_NOTES,
+                null
+            ));
+
+        mockMvc.perform(get("/api/v1/ai/insight-reports/latest")
+                .with(user("user-1")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.documentGroupId").value("default"))
+            .andExpect(jsonPath("$.data.searchableNoteCount").value(0))
+            .andExpect(jsonPath("$.data.latestNoteUpdatedAt").doesNotExist())
+            .andExpect(jsonPath("$.data.state").value("NO_SOURCE_NOTES"))
+            .andExpect(jsonPath("$.data.report").doesNotExist());
+
+        verify(getLatestInsightReportUseCase).getLatestInsightReport(argThat(query ->
+            query.userId().equals("user-1") && query.documentGroupId().equals("default")
+        ));
+    }
+
+    @Test
     void requestInsightReportRequiresAuthentication() throws Exception {
         mockMvc.perform(post("/api/v1/ai/insight-reports")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"scope": {}}
                     """))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void getLatestInsightReportRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/api/v1/ai/insight-reports/latest"))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
     }
