@@ -20,7 +20,7 @@ import {
   updateNoteDerived
 } from "@/lib/brainx-data";
 import { getLocalStoredValue, setLocalStoredValue } from "@/lib/client-storage";
-import { clearAuthSession, ensureDevAuthSession, getAuthIdentityKey, readAuthSession } from "@/lib/auth-api";
+import { clearAuthSession, getAuthIdentityKey, readAuthSession } from "@/lib/auth-api";
 import { getBrainxDesktopConfig, isElectronDesktop } from "@/lib/desktop-bridge";
 import { translate, type I18nKey, type LanguageCode } from "@/lib/i18n";
 import { USE_MOCK_NOTES } from "@/lib/workspace-api";
@@ -131,8 +131,6 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
     let active = true;
 
     async function bootstrap() {
-      ensureDevAuthSession();
-
       if (isElectronDesktop()) {
         try {
           const config = await getBrainxDesktopConfig();
