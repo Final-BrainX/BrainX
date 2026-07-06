@@ -210,6 +210,12 @@ export function markdownToHtml(md: string): string {
     } else if (line.startsWith("> ")) {
       flushList();
       out.push(`<blockquote><p>${inlineHtml(line.slice(2))}</p></blockquote>`);
+    } else if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
+      // 가로 구분선. serializeNodeAsMarkdown의 horizontalRule 케이스(--- 반환)와 짝을 이루는
+      // 역방향 변환이 이 파서엔 없어서, Notion 가져오기의 divider 블록("---"로 변환됨) 등
+      // 마크다운 원문에 있는 구분선이 전부 리터럴 텍스트 "---"로만 보이는 문제가 있었다.
+      flushList();
+      out.push("<hr>");
     } else if (/^!\[([^\]]*)\]\((\S+)\)$/.exec(line.trim())) {
       // 마크다운 이미지 문법(![alt](url)) — 이전에는 이 분기가 없어서 그냥 일반 문단의
       // 리터럴 텍스트로 보였다(Notion 가져오기 등 마크다운 원문에 흔히 등장).
