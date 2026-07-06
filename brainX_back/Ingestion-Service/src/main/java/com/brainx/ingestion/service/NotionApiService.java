@@ -15,6 +15,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Service
@@ -24,6 +25,21 @@ public class NotionApiService {
     private final RestTemplate restTemplate;
     private final AssetService assetService;
     private final NotionRateLimiter rateLimiter;
+
+    /**
+     * getPageMarkdown / getAllChildPagesDeep / getAllChildDatabasesDeep / getMentionPageRefs가
+     * 전부 같은 pageId(및 column 재귀 시 같은 blockId)에 대해 GET /blocks/{id}/children을
+     * 독립적으로 호출하고 있었다 — 노트 1개당 이 엔드포인트를 4번씩 중복 호출하는 셈이라
+     * 초당 3건인 rate limiter 예산을 불필요하게 낭비해 가져오기 전체가 느려지는 주된 원인이었다.
+     * 같은 blockId 응답을 짧은 시간 안에 재사용하도록 캐시해 실제 호출 수를 1/4로 줄인다.
+     * import 작업 하나가 초 단위로 끝나므로 5분 TTL이면 충분하고, 크기도 다음 캐시 조회 시점에
+     * 만료분을 정리해 무한정 늘어나지 않게 한다.
+     */
+    private final ConcurrentHashMap<String, CachedBlocks> blockChildrenCache = new ConcurrentHashMap<>();
+    private static final long BLOCK_CACHE_TTL_MILLIS = 5 * 60 * 1000L;
+    private static final int BLOCK_CACHE_MAX_SIZE = 2000;
+
+    private record CachedBlocks(List<Map<String, Object>> blocks, long fetchedAtMillis) {}
 
     @Value("${notion.client-id}")
     private String clientId;
@@ -154,21 +170,13 @@ public class NotionApiService {
         return getPageMarkdown(pageId, accessToken, userId, 0);
     }
 
-    @SuppressWarnings("unchecked")
     private String getPageMarkdown(String pageId, String accessToken, String userId, int depth) {
         if (depth > MAX_COLUMN_RECURSION_DEPTH) {
             log.warn("column 중첩 재귀 깊이 초과: pageId={}, depth={}", pageId, depth);
             return "";
         }
         try {
-            rateLimiter.acquire();
-            ResponseEntity<Map> res = restTemplate.exchange(
-                    NOTION_API + "/blocks/" + pageId + "/children?page_size=100",
-                    HttpMethod.GET,
-                    new HttpEntity<>(notionHeaders(accessToken)),
-                    Map.class
-            );
-            List<Map<String, Object>> results = (List<Map<String, Object>>) res.getBody().get("results");
+            List<Map<String, Object>> results = fetchChildrenBlocks(pageId, accessToken);
             return convertBlocksToMarkdown(results, accessToken, userId, depth);
         } catch (Exception e) {
             log.warn("Notion 블록 조회 실패: {}", e.getMessage());
@@ -371,6 +379,41 @@ public class NotionApiService {
         return headers;
     }
 
+    /**
+     * GET /blocks/{blockId}/children의 단일 진입점. getPageMarkdown/collectChildPagesDeep/
+     * collectChildDatabasesDeep/getMentionPageRefs가 전부 이 메서드를 거치게 해, 같은
+     * blockId를 여러 목적으로 여러 번 조회하더라도 실제 HTTP 호출과 rate limiter 소비는
+     * 한 번만 일어나게 한다. 실패 시 예외를 그대로 던지며(각 호출부의 기존 catch에서 처리),
+     * 결과가 없으면 캐시하지 않고 빈 리스트를 반환한다.
+     */
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> fetchChildrenBlocks(String blockId, String accessToken) {
+        CachedBlocks cached = blockChildrenCache.get(blockId);
+        if (cached != null && System.currentTimeMillis() - cached.fetchedAtMillis() < BLOCK_CACHE_TTL_MILLIS) {
+            return cached.blocks();
+        }
+
+        rateLimiter.acquire();
+        ResponseEntity<Map> res = restTemplate.exchange(
+                NOTION_API + "/blocks/" + blockId + "/children?page_size=100",
+                HttpMethod.GET,
+                new HttpEntity<>(notionHeaders(accessToken)),
+                Map.class
+        );
+        List<Map<String, Object>> blocks = (List<Map<String, Object>>) res.getBody().get("results");
+        if (blocks == null) blocks = List.of();
+
+        pruneBlockCacheIfNeeded();
+        blockChildrenCache.put(blockId, new CachedBlocks(blocks, System.currentTimeMillis()));
+        return blocks;
+    }
+
+    private void pruneBlockCacheIfNeeded() {
+        if (blockChildrenCache.size() < BLOCK_CACHE_MAX_SIZE) return;
+        long now = System.currentTimeMillis();
+        blockChildrenCache.entrySet().removeIf(e -> now - e.getValue().fetchedAtMillis() >= BLOCK_CACHE_TTL_MILLIS);
+    }
+
     @SuppressWarnings("unchecked")
     public List<ChildPageRef> getChildPages(String pageId, String accessToken) {
         try {
@@ -415,15 +458,7 @@ public class NotionApiService {
             return;
         }
         try {
-            rateLimiter.acquire();
-            ResponseEntity<Map> res = restTemplate.exchange(
-                    NOTION_API + "/blocks/" + blockId + "/children?page_size=100",
-                    HttpMethod.GET,
-                    new HttpEntity<>(notionHeaders(accessToken)),
-                    Map.class
-            );
-            List<Map<String, Object>> results = (List<Map<String, Object>>) res.getBody().get("results");
-            if (results == null) return;
+            List<Map<String, Object>> results = fetchChildrenBlocks(blockId, accessToken);
 
             for (Map<String, Object> block : results) {
                 String type = (String) block.get("type");
@@ -461,15 +496,7 @@ public class NotionApiService {
             return;
         }
         try {
-            rateLimiter.acquire();
-            ResponseEntity<Map> res = restTemplate.exchange(
-                    NOTION_API + "/blocks/" + blockId + "/children?page_size=100",
-                    HttpMethod.GET,
-                    new HttpEntity<>(notionHeaders(accessToken)),
-                    Map.class
-            );
-            List<Map<String, Object>> results = (List<Map<String, Object>>) res.getBody().get("results");
-            if (results == null) return;
+            List<Map<String, Object>> results = fetchChildrenBlocks(blockId, accessToken);
 
             for (Map<String, Object> block : results) {
                 String type = (String) block.get("type");
@@ -498,15 +525,7 @@ public class NotionApiService {
         List<ChildPageRef> refs = new ArrayList<>();
         Set<String> seenIds = new java.util.LinkedHashSet<>();
         try {
-            rateLimiter.acquire();
-            ResponseEntity<Map> res = restTemplate.exchange(
-                    NOTION_API + "/blocks/" + pageId + "/children?page_size=100",
-                    HttpMethod.GET,
-                    new HttpEntity<>(notionHeaders(accessToken)),
-                    Map.class
-            );
-            List<Map<String, Object>> results = (List<Map<String, Object>>) res.getBody().get("results");
-            if (results == null) return refs;
+            List<Map<String, Object>> results = fetchChildrenBlocks(pageId, accessToken);
 
             for (Map<String, Object> block : results) {
                 String type = (String) block.get("type");

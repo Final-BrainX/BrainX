@@ -2524,6 +2524,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     <PaneTreeRenderer
       node={state.root}
       notes={notes}
+      visibleNotes={visibleNotes}
       activeId={state.activeId}
       dragPayload={dragPayload}
       tabMode={tabMode}
