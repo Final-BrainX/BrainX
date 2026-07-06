@@ -248,12 +248,14 @@ export const ImageBlock = Node.create({
 
   renderHTML({ node, HTMLAttributes }) {
     const { src, alt, assetId } = node.attrs;
-    // 자산 참조 이미지는 src를 굳이 직렬화하지 않는다 — 백엔드 base URL이 바뀌어도
-    // 다음 로드 때 assetId로 다시 계산되도록 한다(PdfBlock과 동일한 패턴).
+    // 자산 참조 이미지는 편집기 재로드 시 assetId로 URL을 다시 계산하지만(백엔드 base URL이
+    // 바뀌어도 안전하도록), 공유 페이지처럼 Tiptap 없이 저장된 HTML을 그대로 렌더링하는
+    // 소비자를 위해 <img src>는 현재 시점 URL로 채워서 함께 직렬화한다.
     if (assetId) {
       return [
         "div",
         mergeAttributes(HTMLAttributes, { "data-image-block": "true", "data-file-name": alt ?? "" }),
+        ["img", { src: getAssetFileUrl(assetId), alt: alt ?? "" }],
       ];
     }
     return [

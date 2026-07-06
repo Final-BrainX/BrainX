@@ -20,12 +20,12 @@ services:
     ports:
       - "9092:29092"
     volumes:
-      - brainx_kafka_data:/bitnami/kafka
+      - brainx_kafka_data:/var/lib/kafka/data
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1",
+          "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1",
         ]
       interval: 10s
       timeout: 10s
