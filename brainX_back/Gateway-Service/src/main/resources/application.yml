@@ -212,7 +212,7 @@ spring:
             - id: workspace-service
               uri: lb://Workspace-Service
               predicates:
-                - Path=/api/v1/workspace/**,/api/v1/notes,/api/v1/notes/**,/api/v1/folders,/api/v1/folders/**,/api/v1/recent-activities,/api/v1/recent-activities/**,/api/v1/tags/**,/api/v1/favorites/**,/api/v1/graph,/api/v1/graph/**,/api/v1/share-links,/api/v1/share-links/**
+                - Path=/api/v1/workspace/**,/api/v1/workspaces,/api/v1/workspaces/**,/api/v1/notes,/api/v1/notes/**,/api/v1/folders,/api/v1/folders/**,/api/v1/recent-activities,/api/v1/recent-activities/**,/api/v1/tags/**,/api/v1/favorites/**,/api/v1/graph,/api/v1/graph/**,/api/v1/share-links,/api/v1/share-links/**
               filters:
                 - name: CircuitBreaker
                   args:
