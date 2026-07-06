@@ -22,6 +22,8 @@ import com.brainx.intelligence.organization.domain.OrganizationConflictException
 import com.brainx.intelligence.organization.domain.OrganizationForbiddenException;
 import com.brainx.intelligence.organization.domain.OrganizationNotFoundException;
 import com.brainx.intelligence.organization.domain.OrganizationProviderUnavailableException;
+import com.brainx.intelligence.llmops.LlmOpsTestSupport;
+import com.brainx.intelligence.llmops.application.port.outbound.LlmOpsStore;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
 import com.brainx.intelligence.settings.application.port.outbound.StyleProfilePort;
@@ -58,12 +60,15 @@ class OrganizationServiceTest {
     private final OrganizationProperties properties = new OrganizationProperties();
     private final FakeStyleProfilePort styleProfilePort = new FakeStyleProfilePort();
     private final StylePromptCompiler stylePromptCompiler = new StylePromptCompiler(styleProfilePort);
+    private final LlmOpsStore llmOpsStore = LlmOpsTestSupport.store();
     private final OrganizationService service = new OrganizationService(
         noteSource,
         entitlementPort,
         settingsPort,
         chatPort,
         new AiUsageRecorder(tokenUsagePort, new AiTokenUsageCostEstimator(new EmptyAiModelCatalogPort())),
+        LlmOpsTestSupport.runRecorder(llmOpsStore),
+        LlmOpsTestSupport.promptRegistry(llmOpsStore),
         eventPort,
         properties,
         stylePromptCompiler,

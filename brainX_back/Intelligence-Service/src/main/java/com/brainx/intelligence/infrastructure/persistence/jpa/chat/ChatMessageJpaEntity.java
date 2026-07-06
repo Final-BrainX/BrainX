@@ -78,6 +78,9 @@ public class ChatMessageJpaEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "llm_run_id", length = 120)
+    private String llmRunId;
+
     protected ChatMessageJpaEntity() {
     }
 
@@ -95,6 +98,7 @@ public class ChatMessageJpaEntity {
             .map(ChatCitation::toMap)
             .toList();
         entity.tokenUsage = message.tokenUsage() == null ? null : message.tokenUsage().toMap();
+        entity.llmRunId = message.llmRunId();
         entity.createdAt = message.createdAt();
         return entity;
     }
@@ -111,6 +115,7 @@ public class ChatMessageJpaEntity {
             clientContext,
             citations.stream().map(ChatMessageJpaEntity::citationFromMap).toList(),
             tokenUsage == null || tokenUsage.isEmpty() ? null : tokenUsageFromMap(tokenUsage),
+            llmRunId,
             createdAt
         );
     }

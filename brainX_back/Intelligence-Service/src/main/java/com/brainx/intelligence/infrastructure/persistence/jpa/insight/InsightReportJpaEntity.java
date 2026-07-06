@@ -73,6 +73,9 @@ public class InsightReportJpaEntity {
     @Column(name = "model_id", nullable = false, length = 120)
     private String modelId;
 
+    @Column(name = "llm_run_id", length = 120)
+    private String llmRunId;
+
     @Column(name = "idempotency_key", length = 200)
     private String idempotencyKey;
 
@@ -100,6 +103,7 @@ public class InsightReportJpaEntity {
         entity.knowledgeGapsJson = toJson(objectMapper, report.knowledgeGaps());
         entity.recommendationsJson = toJson(objectMapper, report.recommendations());
         entity.modelId = report.modelId();
+        entity.llmRunId = report.llmRunId();
         entity.idempotencyKey = report.idempotencyKey();
         entity.failureMessage = report.failureMessage();
         entity.createdAt = report.createdAt();
@@ -119,6 +123,7 @@ public class InsightReportJpaEntity {
             fromJson(objectMapper, knowledgeGapsJson, STRING_LIST_TYPE, List.of()),
             fromJson(objectMapper, recommendationsJson, RECOMMENDATION_LIST_TYPE, List.of()),
             modelId,
+            llmRunId,
             idempotencyKey,
             failureMessage,
             createdAt,

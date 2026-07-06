@@ -95,6 +95,9 @@ public class AssistController {
         done.put("suggestionId", result.suggestionId());
         done.put("action", result.action());
         done.put("modelId", result.modelId());
+        if (result.llmRunId() != null && !result.llmRunId().isBlank()) {
+            done.put("llmRunId", result.llmRunId());
+        }
 
         return sse("delta", delta) + sse("done", done);
     }

@@ -98,6 +98,7 @@ public class InsightController {
         return new InsightReportData(
             report.reportId(),
             report.status(),
+            report.llmRunId(),
             report.summary(),
             report.knowledgeGaps(),
             report.recommendations().stream()
@@ -148,6 +149,7 @@ public class InsightController {
     record InsightReportData(
         String reportId,
         InsightReportStatus status,
+        String llmRunId,
         String summary,
         List<String> knowledgeGaps,
         List<Map<String, Object>> recommendations,

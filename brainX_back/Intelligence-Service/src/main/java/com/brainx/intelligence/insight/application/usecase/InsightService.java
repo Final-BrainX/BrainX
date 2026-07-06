@@ -31,6 +31,9 @@ import com.brainx.intelligence.insight.domain.InsightRecommendation;
 import com.brainx.intelligence.insight.domain.InsightReport;
 import com.brainx.intelligence.insight.domain.InsightReportLatestState;
 import com.brainx.intelligence.insight.domain.InsightReportStatus;
+import com.brainx.intelligence.llmops.application.service.AiRunRecorder;
+import com.brainx.intelligence.llmops.application.service.PromptRegistryService;
+import com.brainx.intelligence.llmops.application.service.PromptRegistryService.PromptResolution;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
 import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
@@ -65,6 +68,8 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
     private final AiModelSettingsPort aiModelSettingsPort;
     private final AiChatPort aiChatPort;
     private final AiUsageRecorder aiUsageRecorder;
+    private final AiRunRecorder aiRunRecorder;
+    private final PromptRegistryService promptRegistryService;
     private final InsightEventPort insightEventPort;
     private final InsightProperties properties;
     private final ObjectMapper objectMapper;
@@ -79,6 +84,8 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
         AiModelSettingsPort aiModelSettingsPort,
         AiChatPort aiChatPort,
         AiUsageRecorder aiUsageRecorder,
+        AiRunRecorder aiRunRecorder,
+        PromptRegistryService promptRegistryService,
         InsightEventPort insightEventPort,
         InsightProperties properties,
         ObjectMapper objectMapper,
@@ -91,6 +98,8 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
             aiModelSettingsPort,
             aiChatPort,
             aiUsageRecorder,
+            aiRunRecorder,
+            promptRegistryService,
             insightEventPort,
             properties,
             objectMapper,
@@ -106,6 +115,8 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
         AiModelSettingsPort aiModelSettingsPort,
         AiChatPort aiChatPort,
         AiUsageRecorder aiUsageRecorder,
+        AiRunRecorder aiRunRecorder,
+        PromptRegistryService promptRegistryService,
         InsightEventPort insightEventPort,
         InsightProperties properties,
         ObjectMapper objectMapper,
@@ -118,6 +129,8 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
         this.aiModelSettingsPort = aiModelSettingsPort;
         this.aiChatPort = aiChatPort;
         this.aiUsageRecorder = aiUsageRecorder;
+        this.aiRunRecorder = aiRunRecorder;
+        this.promptRegistryService = promptRegistryService;
         this.insightEventPort = insightEventPort;
         this.properties = properties;
         this.objectMapper = objectMapper;
@@ -146,8 +159,12 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
 
         String modelId = resolveModelId(userId);
         int maxRecommendations = Math.min(properties.getMaxRecommendations(), HARD_MAX_RECOMMENDATIONS);
+        PromptResolution promptResolution = promptRegistryService.resolve("insight-report", systemPrompt());
         String systemPrompt = StylePromptCompiler.appendToSystemPrompt(
-            systemPrompt(includeLearningRecommendations, maxRecommendations),
+            StylePromptCompiler.appendToSystemPrompt(
+                promptResolution.template(),
+                runtimeInstructions(includeLearningRecommendations, maxRecommendations)
+            ),
             stylePromptCompiler.writingStyleInstructions(userId)
         );
         String userPrompt = userPrompt(notes, includeLearningRecommendations, maxRecommendations);
@@ -181,17 +198,27 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
         ));
 
         try {
-            AiChatResponse response = aiChatPort.generate(new AiChatRequest(
+            List<AiChatMessage> messages = List.of(
+                new AiChatMessage(AiRole.SYSTEM, systemPrompt),
+                new AiChatMessage(AiRole.USER, userPrompt)
+            );
+            AiRunRecorder.RecordedChatResponse recorded = aiRunRecorder.recordChatGenerateWithRun(
+                userId,
+                INSIGHT_REPORT_FEATURE_ID,
+                promptResolution.promptKey(),
+                promptResolution.version(),
                 modelId,
-                List.of(
-                    new AiChatMessage(AiRole.SYSTEM, systemPrompt),
-                    new AiChatMessage(AiRole.USER, userPrompt)
-                )
-            ));
+                "INSIGHT_REPORT",
+                reportId,
+                messages,
+                Map.of("documentGroupId", scope.documentGroupId()),
+                () -> aiChatPort.generate(new AiChatRequest(modelId, messages))
+            );
+            AiChatResponse response = recorded.response();
             String content = response == null || response.content() == null ? "" : response.content();
             recordUsage(userId, modelId, reportId, response == null ? null : response.tokenUsage());
             ParsedInsight parsed = parseInsight(content, notes, includeLearningRecommendations, maxRecommendations);
-            InsightReport completed = insightReportStore.save(running.completed(
+            InsightReport completed = insightReportStore.save(running.withLlmRunId(recorded.llmRunId()).completed(
                 parsed.summary(),
                 parsed.knowledgeGaps(),
                 parsed.recommendations(),
@@ -320,10 +347,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
             """.formatted(toJson(noteCards), includeLearningRecommendations, maxRecommendations);
     }
 
-    private static String systemPrompt(boolean includeLearningRecommendations, int maxRecommendations) {
-        String learningInstruction = includeLearningRecommendations
-            ? "Learning recommendations are allowed."
-            : "Do not include recommendations whose type is LEARNING_RECOMMENDATION, LEARNING, or STUDY_PLAN.";
+    private static String systemPrompt() {
         return """
             You are BrainX knowledge insight analyst.
             Return only strict JSON object:
@@ -334,9 +358,15 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
                 {"type":"GAP_FILL|REFINE|CONNECT|REVIEW|LEARNING_RECOMMENDATION", "title":"...", "reason":"...", "noteIds":["..."], "priority":"HIGH|MEDIUM|LOW"}
               ]
             }
-            Use at most %d recommendations. %s
             Do not return markdown fences, prose, or additional top-level fields.
-            """.formatted(maxRecommendations, learningInstruction);
+            """;
+    }
+
+    private static String runtimeInstructions(boolean includeLearningRecommendations, int maxRecommendations) {
+        String learningInstruction = includeLearningRecommendations
+            ? "Learning recommendations are allowed."
+            : "Do not include recommendations whose type is LEARNING_RECOMMENDATION, LEARNING, or STUDY_PLAN.";
+        return "Use at most %d recommendations. %s".formatted(maxRecommendations, learningInstruction);
     }
 
     private ParsedInsight parseInsight(

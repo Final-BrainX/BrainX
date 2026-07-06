@@ -24,6 +24,9 @@ import com.brainx.intelligence.organization.domain.OrganizationNotFoundException
 import com.brainx.intelligence.organization.domain.OrganizationProviderUnavailableException;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
 import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
+import com.brainx.intelligence.llmops.application.service.AiRunRecorder;
+import com.brainx.intelligence.llmops.application.service.PromptRegistryService;
+import com.brainx.intelligence.llmops.application.service.PromptRegistryService.PromptResolution;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -54,6 +57,8 @@ public class OrganizationService implements CreateFolderOrganizationProposalUseC
     private final AiModelSettingsPort aiModelSettingsPort;
     private final AiChatPort aiChatPort;
     private final AiUsageRecorder aiUsageRecorder;
+    private final AiRunRecorder aiRunRecorder;
+    private final PromptRegistryService promptRegistryService;
     private final OrganizationEventPort organizationEventPort;
     private final OrganizationProperties properties;
     private final StylePromptCompiler stylePromptCompiler;
@@ -65,6 +70,8 @@ public class OrganizationService implements CreateFolderOrganizationProposalUseC
         AiModelSettingsPort aiModelSettingsPort,
         AiChatPort aiChatPort,
         AiUsageRecorder aiUsageRecorder,
+        AiRunRecorder aiRunRecorder,
+        PromptRegistryService promptRegistryService,
         OrganizationEventPort organizationEventPort,
         OrganizationProperties properties,
         StylePromptCompiler stylePromptCompiler,
@@ -75,6 +82,8 @@ public class OrganizationService implements CreateFolderOrganizationProposalUseC
         this.aiModelSettingsPort = aiModelSettingsPort;
         this.aiChatPort = aiChatPort;
         this.aiUsageRecorder = aiUsageRecorder;
+        this.aiRunRecorder = aiRunRecorder;
+        this.promptRegistryService = promptRegistryService;
         this.organizationEventPort = organizationEventPort;
         this.properties = properties;
         this.stylePromptCompiler = stylePromptCompiler;
@@ -98,8 +107,12 @@ public class OrganizationService implements CreateFolderOrganizationProposalUseC
         String modelId = resolveModelId(userId);
         int maxProposedFolders = properties.getMaxProposedFolders();
         int maxProposedMoves = properties.getMaxProposedMoves();
+        PromptResolution promptResolution = promptRegistryService.resolve("organization.folder", systemPrompt());
         String systemPrompt = StylePromptCompiler.appendToSystemPrompt(
-            systemPrompt(maxProposedFolders, maxProposedMoves),
+            StylePromptCompiler.appendToSystemPrompt(
+                promptResolution.content(),
+                runtimeInstructions(maxProposedFolders, maxProposedMoves)
+            ),
             stylePromptCompiler.conversationToneInstructions(userId)
         );
         String userPrompt = userPrompt(notes, scope, maxProposedFolders, maxProposedMoves);
@@ -113,7 +126,12 @@ public class OrganizationService implements CreateFolderOrganizationProposalUseC
             throw new OrganizationForbiddenException("AI capability is not available: " + entitlement.reasonCode());
         }
 
-        AiChatResponse response = generate(modelId, systemPrompt, userPrompt);
+        List<AiChatMessage> messages = List.of(
+            new AiChatMessage(AiRole.SYSTEM, systemPrompt),
+            new AiChatMessage(AiRole.USER, userPrompt)
+        );
+        var recorded = generate(userId, modelId, proposalId, promptResolution, messages);
+        AiChatResponse response = recorded.response();
         String content = response == null || response.content() == null ? "" : response.content();
         recordUsage(userId, modelId, proposalId, response == null ? null : response.tokenUsage());
         ParsedProposal parsed = parseProposal(content, noteIds(notes), maxProposedFolders, maxProposedMoves);
@@ -126,6 +144,7 @@ public class OrganizationService implements CreateFolderOrganizationProposalUseC
         ));
         return new FolderOrganizationProposalResult(
             proposalId,
+            recorded.llmRunId(),
             parsed.proposedFolders(),
             parsed.proposedMoves()
         );
@@ -150,15 +169,26 @@ public class OrganizationService implements CreateFolderOrganizationProposalUseC
             .orElseGet(() -> requireText(properties.getDefaultModel(), "brainx.organization.default-model"));
     }
 
-    private AiChatResponse generate(String modelId, String systemPrompt, String userPrompt) {
+    private AiRunRecorder.RecordedChatResponse generate(
+        String userId,
+        String modelId,
+        String proposalId,
+        PromptResolution promptResolution,
+        List<AiChatMessage> messages
+    ) {
         try {
-            return aiChatPort.generate(new AiChatRequest(
+            return aiRunRecorder.recordChatGenerateWithRun(
+                userId,
+                FOLDER_ORGANIZATION_FEATURE_ID,
+                promptResolution.promptKey(),
+                promptResolution.version(),
                 modelId,
-                List.of(
-                    new AiChatMessage(AiRole.SYSTEM, systemPrompt),
-                    new AiChatMessage(AiRole.USER, userPrompt)
-                )
-            ));
+                "FOLDER_ORGANIZATION_PROPOSAL",
+                proposalId,
+                messages,
+                Map.of(),
+                () -> aiChatPort.generate(new AiChatRequest(modelId, messages))
+            );
         } catch (IllegalStateException exception) {
             if (exception.getMessage() != null && exception.getMessage().contains("ChatClient.Builder bean is not configured")) {
                 throw new OrganizationProviderUnavailableException("AI provider is unavailable for folder organization.");
@@ -292,13 +322,20 @@ public class OrganizationService implements CreateFolderOrganizationProposalUseC
         }
     }
 
-    private static String systemPrompt(int maxProposedFolders, int maxProposedMoves) {
+    private static String systemPrompt() {
         return """
             You are BrainX folder organization assistant.
             Return only a strict JSON object with exactly these top-level arrays:
-            - proposedFolders: at most %d objects. Each object must include name and may include noteIds and reason.
-            - proposedMoves: at most %d objects. Each object must include noteId and targetFolderName or targetFolderId.
+            - proposedFolders: each object must include name and may include noteIds and reason.
+            - proposedMoves: each object must include noteId and targetFolderName or targetFolderId.
             Use concise Korean names and reasons. Do not return markdown fences, comments, prose, or note body text.
+            """;
+    }
+
+    private static String runtimeInstructions(int maxProposedFolders, int maxProposedMoves) {
+        return """
+            proposedFolders must contain at most %d objects.
+            proposedMoves must contain at most %d objects.
             """.formatted(maxProposedFolders, maxProposedMoves);
     }
 

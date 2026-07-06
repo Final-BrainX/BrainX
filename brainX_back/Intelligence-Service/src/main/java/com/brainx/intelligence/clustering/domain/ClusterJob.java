@@ -16,6 +16,7 @@ public record ClusterJob(
     Map<String, Object> algorithmOptions,
     List<Cluster> clusters,
     String modelId,
+    String llmRunId,
     String idempotencyKey,
     String failureMessage,
     Instant createdAt,
@@ -31,9 +32,41 @@ public record ClusterJob(
         algorithmOptions = algorithmOptions == null ? Map.of() : new LinkedHashMap<>(algorithmOptions);
         clusters = clusters == null ? List.of() : List.copyOf(clusters);
         modelId = modelId == null ? "" : modelId;
+        llmRunId = normalizeNullable(llmRunId);
         idempotencyKey = normalizeNullable(idempotencyKey);
         failureMessage = normalizeNullable(failureMessage);
         createdAt = createdAt == null ? Instant.EPOCH : createdAt;
+    }
+
+    public ClusterJob(
+        String clusterJobId,
+        String userId,
+        String documentGroupId,
+        ClusterJobStatus status,
+        Map<String, Object> scope,
+        Map<String, Object> algorithmOptions,
+        List<Cluster> clusters,
+        String modelId,
+        String idempotencyKey,
+        String failureMessage,
+        Instant createdAt,
+        Instant completedAt
+    ) {
+        this(
+            clusterJobId,
+            userId,
+            documentGroupId,
+            status,
+            scope,
+            algorithmOptions,
+            clusters,
+            modelId,
+            null,
+            idempotencyKey,
+            failureMessage,
+            createdAt,
+            completedAt
+        );
     }
 
     public static ClusterJob running(
@@ -55,6 +88,7 @@ public record ClusterJob(
             algorithmOptions,
             List.of(),
             modelId,
+            null,
             idempotencyKey,
             null,
             createdAt,
@@ -72,6 +106,7 @@ public record ClusterJob(
             algorithmOptions,
             completedClusters,
             modelId,
+            llmRunId,
             idempotencyKey,
             null,
             createdAt,
@@ -89,8 +124,27 @@ public record ClusterJob(
             algorithmOptions,
             List.of(),
             modelId,
+            llmRunId,
             idempotencyKey,
             message,
+            createdAt,
+            completedAt
+        );
+    }
+
+    public ClusterJob withLlmRunId(String llmRunId) {
+        return new ClusterJob(
+            clusterJobId,
+            userId,
+            documentGroupId,
+            status,
+            scope,
+            algorithmOptions,
+            clusters,
+            modelId,
+            llmRunId,
+            idempotencyKey,
+            failureMessage,
             createdAt,
             completedAt
         );

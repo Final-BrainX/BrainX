@@ -25,6 +25,8 @@ import com.brainx.intelligence.insight.domain.InsightForbiddenException;
 import com.brainx.intelligence.insight.domain.InsightReport;
 import com.brainx.intelligence.insight.domain.InsightReportLatestState;
 import com.brainx.intelligence.insight.domain.InsightReportStatus;
+import com.brainx.intelligence.llmops.LlmOpsTestSupport;
+import com.brainx.intelligence.llmops.application.port.outbound.LlmOpsStore;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
 import com.brainx.intelligence.settings.application.port.outbound.StyleProfilePort;
@@ -64,6 +66,7 @@ class InsightServiceTest {
     private final InsightProperties properties = new InsightProperties();
     private final FakeStyleProfilePort styleProfilePort = new FakeStyleProfilePort();
     private final StylePromptCompiler stylePromptCompiler = new StylePromptCompiler(styleProfilePort);
+    private final LlmOpsStore llmOpsStore = LlmOpsTestSupport.store();
     private final InsightService service = new InsightService(
         store,
         noteSource,
@@ -71,6 +74,8 @@ class InsightServiceTest {
         settingsPort,
         chatPort,
         new AiUsageRecorder(tokenUsagePort, new AiTokenUsageCostEstimator(new EmptyAiModelCatalogPort())),
+        LlmOpsTestSupport.runRecorder(llmOpsStore),
+        LlmOpsTestSupport.promptRegistry(llmOpsStore),
         eventPort,
         properties,
         new ObjectMapper(),
