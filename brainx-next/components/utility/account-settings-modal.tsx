@@ -1475,8 +1475,8 @@ function GeneralSettingsPanel({
             <div className="inline-flex items-center gap-1.5 rounded-full border border-line/60 bg-surface2/60 p-1 shadow-sm">
               {[
                 { value: "dark" as ThemeMode, icon: "moon" as const, label: t("general.dark") },
-                { value: "system" as ThemeMode, icon: "settings" as const, label: t("general.system") },
-                { value: "light" as ThemeMode, icon: "sun" as const, label: t("general.light") }
+                { value: "light" as ThemeMode, icon: "sun" as const, label: t("general.light") },
+                { value: "system" as ThemeMode, icon: "settings" as const, label: t("general.system") }
               ].map((option) => (
                 <button
                   key={option.value}
