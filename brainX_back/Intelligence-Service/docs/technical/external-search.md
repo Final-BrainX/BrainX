@@ -6,15 +6,15 @@
 
 - v1 provider는 OpenAI Responses API의 hosted `web_search` tool을 사용한다.
 - application code는 `ExternalSearchPort`만 의존하고, provider별 HTTP 호출은 infrastructure adapter가 담당한다.
-- 검색 결과 저장소는 만들지 않는다. RAG chat 세션에 붙일 때 필요한 citation persistence는 chat 구현 단계에서 추가한다.
-- public OpenAPI 계약은 변경하지 않는다. 지금은 CLI와 이후 RAG chat router의 내부 dependency로만 사용한다.
+- 검색 결과 저장소는 만들지 않는다. `/chat`에서 사용한 웹 출처는 assistant chat message의 `webSources` JSON payload로 저장한다.
+- 독립 external-search public endpoint는 만들지 않는다. public OpenAPI 변경은 chat message 응답의 `webSources` 필드에 한정한다.
 
 OpenAI 문서는 신규 web search 통합에는 Responses API의 `web_search` tool 사용을 권장한다. 출처 목록은 Responses API `include`에 `web_search_call.action.sources`를 넣어 받을 수 있고, 답변에는 `url_citation` annotation이 포함될 수 있다.
 
 ## 구조
 
 ```text
-ExternalSearchApplicationRunner 또는 future ChatService
+ExternalSearchApplicationRunner 또는 ChatService
   -> ExternalSearchPort
     -> OpenAiExternalSearchAdapter
       -> OpenAI /v1/responses
@@ -92,12 +92,12 @@ OpenAI response usage가 있으면 `TokenUsagePort`에 `featureId=external-searc
 
 OpenAI web search tool call 자체의 별도 단가는 현재 catalog 모델에 없다. v1은 token usage 중심으로 기록하고, tool-call 단가가 필요하면 후속 catalog/usage schema에서 확장한다.
 
-## RAG Chat 연결 방향
+## RAG Chat 연결
 
-RAG chat router는 이후 `ExternalSearchPort`를 note retrieval과 같은 tool 후보로 붙이면 된다.
+RAG chat router는 최종 intent route와 별도로 `requiresWebSearch`, `webSearchQuery`를 반환한다. `ChatService`는 `requiresWebSearch=true`일 때 사용자 질문 전체가 아니라 router가 만든 짧은 `webSearchQuery`만 `ExternalSearchPort`로 보낸다.
 
 - `NOTES`: 기존 Qdrant note chunk retrieval
 - `WEB`: `ExternalSearchPort`
 - `BOTH`: note context와 web answer/source를 함께 prompt context로 구성
 
-v1 외부 검색은 저장소를 만들지 않으므로 chat에서 답변을 저장할 때 web sources를 assistant message citation payload로 함께 저장해야 한다.
+provider가 `none`이거나 검색에 실패하면 최신 사실을 추측하지 않고 안내 답변을 저장한다. 검색에 성공하면 노트 citation과 웹 출처를 분리해 저장하고, 프론트는 AI 메시지 아래에 `근거 노트`와 `웹 출처`를 별도 섹션으로 표시한다.

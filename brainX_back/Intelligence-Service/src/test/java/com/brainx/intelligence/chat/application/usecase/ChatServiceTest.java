@@ -38,6 +38,8 @@ import com.brainx.intelligence.exploration.domain.NoteChunkSearchResult;
 import com.brainx.intelligence.exploration.domain.SearchScope;
 import com.brainx.intelligence.llmops.LlmOpsTestSupport;
 import com.brainx.intelligence.llmops.application.port.outbound.LlmOpsStore;
+import com.brainx.intelligence.llmops.application.service.LlmFeedbackService;
+import com.brainx.intelligence.llmops.domain.LlmFeedbackRating;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.application.port.outbound.StyleProfilePort;
 import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
@@ -52,6 +54,10 @@ import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiCha
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatResponse;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTokenUsage;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort;
+import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort;
+import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchRequest;
+import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchResponse;
+import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchSource;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
 import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
@@ -70,6 +76,7 @@ class ChatServiceTest {
     private final FakeChatPersistencePort persistencePort = new FakeChatPersistencePort();
     private final FakeNoteChunkRetrievalPort retrievalPort = new FakeNoteChunkRetrievalPort();
     private final FakeEntitlementPort entitlementPort = new FakeEntitlementPort();
+    private final FakeExternalSearchPort externalSearchPort = new FakeExternalSearchPort();
     private final FakeAiChatPort aiChatPort = new FakeAiChatPort();
     private final FakeTokenUsagePort tokenUsagePort = new FakeTokenUsagePort();
     private final FakeAiModelCatalogPort catalogPort = new FakeAiModelCatalogPort();
@@ -92,10 +99,12 @@ class ChatServiceTest {
         persistencePort,
         retrievalPort,
         entitlementPort,
+        externalSearchPort,
         aiChatPort,
         usageCostEstimator,
         aiUsageRecorder,
         LlmOpsTestSupport.runRecorder(llmOpsStore),
+        new LlmFeedbackService(llmOpsStore),
         LlmOpsTestSupport.promptRegistry(llmOpsStore),
         chatEventPort,
         stylePromptCompiler
@@ -465,6 +474,7 @@ class ChatServiceTest {
         assertThat(assistantMessage.content()).isEqualTo("답변 완료");
         assertThat(assistantMessage.citations()).hasSize(1);
         assertThat(assistantMessage.tokenUsage()).isNotNull();
+        assertThat(assistantMessage.llmRunId()).isNotBlank();
 
         assertThat(chatEventPort.messageEvents).hasSize(1);
         assertThat(chatEventPort.messageEvents.getFirst().citationNoteIds()).containsExactly("note-1");
@@ -475,6 +485,19 @@ class ChatServiceTest {
         assertThat(usage.causationId()).isEqualTo(assistantMessage.messageId());
         assertThat(usage.inputTokens()).isEqualTo(assistantMessage.tokenUsage().inputTokens());
         assertThat(usage.outputTokens()).isEqualTo(assistantMessage.tokenUsage().outputTokens());
+
+        new LlmFeedbackService(llmOpsStore).submitFeedback(
+            "user-1",
+            assistantMessage.llmRunId(),
+            LlmFeedbackRating.LIKE,
+            null,
+            null
+        );
+        var detail = service.getChatThread(new GetChatThreadQuery("user-1", thread.threadId()));
+        assertThat(detail.messages().get(0)).containsEntry("feedbackRating", null);
+        assertThat(detail.messages().get(1))
+            .containsEntry("llmRunId", assistantMessage.llmRunId())
+            .containsEntry("feedbackRating", "LIKE");
     }
 
     @Test
@@ -653,7 +676,8 @@ class ChatServiceTest {
         assertThat(aiChatPort.calls).isEqualTo(1);
         assertThat(aiChatPort.lastRequest.messages().getFirst().content())
             .contains("writing assistant")
-            .contains("If the request depends on current external facts and no context is provided")
+            .contains("If web context is provided")
+            .contains("Do not invent latest facts beyond the provided web context")
             .contains("level-1 Markdown heading")
             .contains("\"# <title>\"")
             .contains("personal note-taking tone")
@@ -664,6 +688,127 @@ class ChatServiceTest {
         assertThat(aiChatPort.lastRequest.messages().getLast().content())
             .contains("Request:")
             .contains("최신 홍명보호 월드컵 성적에 대한 문서 작성해줘");
+    }
+
+    @Test
+    void composeWithWebSearchUsesWebContextAndStoresWebSources() {
+        routeDecider.decision = new ChatRouteDecision(
+            ChatRoute.COMPOSE,
+            "write current draft",
+            "gpt-5.4-nano",
+            true,
+            "홍명보호 월드컵 성적 최신"
+        );
+        externalSearchPort.response = new ExternalSearchResponse(
+            "웹 검색 요약",
+            List.of(new ExternalSearchSource(
+                "월드컵 예선 기사",
+                "https://example.com/worldcup",
+                "최신 경기 결과 스니펫",
+                1
+            )),
+            "openai",
+            "gpt-5.5",
+            "resp-1",
+            null
+        );
+        ChatThread thread = existingThread();
+        persistencePort.saveThread(thread);
+
+        var events = service.sendChatMessage(new SendChatMessageCommand(
+            "user-1",
+            thread.threadId(),
+            "최신 홍명보호 월드컵 성적에 대한 문서 작성해줘",
+            Map.of(),
+            Map.of(),
+            "gpt-test"
+        )).collectList().block();
+
+        assertThat(events.getFirst().data())
+            .containsEntry("route", "COMPOSE")
+            .containsEntry("requiresWebSearch", true)
+            .containsEntry("webSearchQuery", "홍명보호 월드컵 성적 최신");
+        assertThat(externalSearchPort.calls).isEqualTo(1);
+        assertThat(externalSearchPort.lastRequest.query()).isEqualTo("홍명보호 월드컵 성적 최신");
+        assertThat(aiChatPort.calls).isEqualTo(1);
+        assertThat(aiChatPort.lastRequest.messages().getFirst().content())
+            .contains("Web context may be included")
+            .contains("writing assistant");
+        assertThat(aiChatPort.lastRequest.messages().getLast().content())
+            .contains("Web context:")
+            .contains("웹 검색 요약")
+            .contains("https://example.com/worldcup");
+        assertThat(persistencePort.messages.get(1).webSources()).hasSize(1);
+        assertThat(persistencePort.messages.get(1).webSources().getFirst().url())
+            .isEqualTo("https://example.com/worldcup");
+    }
+
+    @Test
+    void pureCurrentFactLookupWithWebSearchUsesWebAnswerRoute() {
+        routeDecider.decision = new ChatRouteDecision(
+            ChatRoute.OUT_OF_SCOPE,
+            "current fact lookup",
+            "gpt-5.4-nano",
+            true,
+            "오늘 월드컵 예선 결과"
+        );
+        externalSearchPort.response = new ExternalSearchResponse(
+            "오늘 경기 결과 요약",
+            List.of(new ExternalSearchSource("경기 결과", "https://example.com/result", "결과 스니펫", 1)),
+            "openai",
+            "gpt-5.5",
+            "resp-2",
+            null
+        );
+        ChatThread thread = existingThread();
+        persistencePort.saveThread(thread);
+
+        service.sendChatMessage(new SendChatMessageCommand(
+            "user-1",
+            thread.threadId(),
+            "오늘 월드컵 예선 결과 알려줘",
+            Map.of(),
+            Map.of(),
+            "gpt-test"
+        )).collectList().block();
+
+        assertThat(retrievalPort.lastQuery).isNull();
+        assertThat(aiChatPort.calls).isEqualTo(1);
+        assertThat(aiChatPort.lastRequest.messages().getFirst().content())
+            .contains("web answer assistant")
+            .doesNotContain("BrainX 본 채팅");
+        assertThat(aiChatPort.lastRequest.messages().getLast().content())
+            .contains("Web context:")
+            .contains("오늘 경기 결과 요약");
+    }
+
+    @Test
+    void webSearchUnavailableReturnsGuidanceWithoutAnswerAiCall() {
+        routeDecider.decision = new ChatRouteDecision(
+            ChatRoute.COMPOSE,
+            "write current draft",
+            "gpt-5.4-nano",
+            true,
+            "최신 AI 뉴스"
+        );
+        ChatThread thread = existingThread();
+        persistencePort.saveThread(thread);
+
+        var events = service.sendChatMessage(new SendChatMessageCommand(
+            "user-1",
+            thread.threadId(),
+            "최신 AI 뉴스 보고서 써줘",
+            Map.of(),
+            Map.of(),
+            "gpt-test"
+        )).collectList().block();
+
+        assertThat(events).hasSize(3);
+        assertThat(events.getFirst().data()).containsEntry("requiresWebSearch", true);
+        assertThat(events.get(1).data().get("text")).asString().contains("현재 웹 검색을 사용할 수 없어");
+        assertThat(externalSearchPort.calls).isEqualTo(1);
+        assertThat(aiChatPort.calls).isZero();
+        assertThat(persistencePort.messages.get(1).content()).contains("현재 웹 검색을 사용할 수 없어");
     }
 
     @Test
@@ -1055,6 +1200,27 @@ class ChatServiceTest {
         public EntitlementDecision checkEntitlement(EntitlementRequest request) {
             lastRequest = request;
             return new EntitlementDecision(allowed, reasonCode, allowed ? 1000 : 0);
+        }
+    }
+
+    private static final class FakeExternalSearchPort implements ExternalSearchPort {
+
+        private int calls;
+        private ExternalSearchRequest lastRequest;
+        private ExternalSearchResponse response;
+        private RuntimeException failure;
+
+        @Override
+        public ExternalSearchResponse search(ExternalSearchRequest request) {
+            calls++;
+            lastRequest = request;
+            if (failure != null) {
+                throw failure;
+            }
+            if (response != null) {
+                return response;
+            }
+            return new ExternalSearchResponse("", List.of(), "none", request.modelId(), null, null);
         }
     }
 

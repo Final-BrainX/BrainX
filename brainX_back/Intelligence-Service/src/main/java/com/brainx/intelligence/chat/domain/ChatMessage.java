@@ -17,6 +17,7 @@ public record ChatMessage(
     Map<String, Object> noteScope,
     Map<String, Object> clientContext,
     List<ChatCitation> citations,
+    List<ChatWebSource> webSources,
     ChatTokenUsage tokenUsage,
     String llmRunId,
     Instant createdAt
@@ -34,6 +35,7 @@ public record ChatMessage(
         noteScope = immutableMap(noteScope);
         clientContext = immutableMap(clientContext);
         citations = immutableList(citations);
+        webSources = immutableWebSources(webSources);
         llmRunId = llmRunId == null || llmRunId.isBlank() ? null : llmRunId.trim();
         createdAt = createdAt == null ? Instant.now() : createdAt;
     }
@@ -58,6 +60,7 @@ public record ChatMessage(
             noteScope,
             clientContext,
             List.of(),
+            List.of(),
             null,
             null,
             createdAt
@@ -71,6 +74,7 @@ public record ChatMessage(
         String content,
         String modelId,
         List<ChatCitation> citations,
+        List<ChatWebSource> webSources,
         ChatTokenUsage tokenUsage,
         String llmRunId,
         Instant createdAt
@@ -85,6 +89,7 @@ public record ChatMessage(
             Map.of(),
             Map.of(),
             citations,
+            webSources,
             tokenUsage,
             llmRunId,
             createdAt
@@ -104,6 +109,31 @@ public record ChatMessage(
         return assistant(messageId, threadId, userId, content, modelId, citations, tokenUsage, null, createdAt);
     }
 
+    public static ChatMessage assistant(
+        String messageId,
+        String threadId,
+        String userId,
+        String content,
+        String modelId,
+        List<ChatCitation> citations,
+        ChatTokenUsage tokenUsage,
+        String llmRunId,
+        Instant createdAt
+    ) {
+        return assistant(
+            messageId,
+            threadId,
+            userId,
+            content,
+            modelId,
+            citations,
+            List.of(),
+            tokenUsage,
+            llmRunId,
+            createdAt
+        );
+    }
+
     private static String requireText(String value, String name) {
         if (value == null || value.isBlank()) {
             throw new ChatDomainException(name + " must not be blank.");
@@ -119,6 +149,13 @@ public record ChatMessage(
     }
 
     private static List<ChatCitation> immutableList(List<ChatCitation> values) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        return Collections.unmodifiableList(new ArrayList<>(values));
+    }
+
+    private static List<ChatWebSource> immutableWebSources(List<ChatWebSource> values) {
         if (values == null || values.isEmpty()) {
             return List.of();
         }

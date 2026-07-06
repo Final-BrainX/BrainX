@@ -190,6 +190,7 @@ create table if not exists intelligence_chat_messages (
   note_scope text not null,
   client_context text not null,
   citations text not null,
+  web_sources text not null default '[]',
   token_usage text,
   created_at timestamp(6) with time zone not null
 );
@@ -546,6 +547,7 @@ create index if not exists idx_note_projection_index_retry
 
 alter table intelligence_chat_messages
   add column if not exists client_context text not null default '{}',
+  add column if not exists web_sources text not null default '[]',
   add column if not exists llm_run_id varchar(120);
 
 alter table intelligence_chat_threads

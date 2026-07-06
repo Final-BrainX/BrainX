@@ -10,8 +10,10 @@ import {
   listChatThreads,
   sendChatMessageStream,
   updateChatThread,
+  upsertLlmFeedback,
   type ChatThreadData,
   type ChatThreadListStatus,
+  type LlmFeedbackRating,
 } from "@/lib/intelligence-api";
 import { createWorkspaceNoteFromPayload } from "@/lib/workspace-api";
 import { useBrainX } from "@/components/brainx-provider";
@@ -90,6 +92,9 @@ export function ChatScreen() {
   const [streaming, setStreaming] = useState(false);
   const [draftSaveStates, setDraftSaveStates] = useState<
     Record<string, DraftNoteSaveState>
+  >({});
+  const [feedbackLoadingByRunId, setFeedbackLoadingByRunId] = useState<
+    Record<string, boolean>
   >({});
   const detailRequestIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -222,6 +227,7 @@ export function ChatScreen() {
     setActiveThread(null);
     setMessages([]);
     setDraftSaveStates({});
+    setFeedbackLoadingByRunId({});
     setInput("");
   }
 
@@ -232,7 +238,12 @@ export function ChatScreen() {
 
   async function refreshActiveThread(
     threadId: string,
-    routeOverride?: { messageId?: string; route?: ChatRoute },
+    routeOverride?: {
+      messageId?: string;
+      route?: ChatRoute;
+      requiresWebSearch?: boolean;
+      webSearchQuery?: string | null;
+    },
   ) {
     const detail = await getChatThread(threadId);
     setActiveThread(detail.thread);
@@ -245,7 +256,12 @@ export function ChatScreen() {
           return message;
         if (!routeOverride.messageId && applied) return message;
         applied = true;
-        return { ...message, route: routeOverride.route };
+        return {
+          ...message,
+          route: routeOverride.route,
+          requiresWebSearch: routeOverride.requiresWebSearch,
+          webSearchQuery: routeOverride.webSearchQuery ?? null,
+        };
       });
     }
     setMessages(nextMessages);
@@ -338,7 +354,10 @@ export function ChatScreen() {
 
     let streamError: unknown = null;
     let streamRoute: ChatRoute | undefined;
+    let streamRequiresWebSearch: boolean | undefined;
+    let streamWebSearchQuery: string | null | undefined;
     let streamAssistantMessageId: string | undefined;
+    let streamLlmRunId: string | null | undefined;
 
     try {
       let thread = activeThread;
@@ -374,9 +393,22 @@ export function ChatScreen() {
             const route = chatRouteFromEvent(event);
             if (!route) return;
             streamRoute = route;
+            streamRequiresWebSearch = Boolean(event.requiresWebSearch);
+            streamWebSearchQuery =
+              typeof event.webSearchQuery === "string" &&
+              event.webSearchQuery.trim()
+                ? event.webSearchQuery.trim()
+                : null;
             setMessages((current) =>
               current.map((message) =>
-                message.id === assistantId ? { ...message, route } : message,
+                message.id === assistantId
+                  ? {
+                      ...message,
+                      route,
+                      requiresWebSearch: streamRequiresWebSearch,
+                      webSearchQuery: streamWebSearchQuery,
+                    }
+                  : message,
               ),
             );
           },
@@ -392,6 +424,17 @@ export function ChatScreen() {
           onDone: (data) => {
             streamAssistantMessageId =
               typeof data?.messageId === "string" ? data.messageId : undefined;
+            streamLlmRunId =
+              typeof data?.llmRunId === "string" ? data.llmRunId : null;
+            if (streamLlmRunId) {
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id === assistantId
+                    ? { ...message, llmRunId: streamLlmRunId }
+                    : message,
+                ),
+              );
+            }
           },
           onError: (error) => {
             streamError = error;
@@ -419,6 +462,8 @@ export function ChatScreen() {
       await refreshActiveThread(thread.threadId, {
         messageId: streamAssistantMessageId,
         route: streamRoute,
+        requiresWebSearch: streamRequiresWebSearch,
+        webSearchQuery: streamWebSearchQuery,
       });
       await loadThreadPage(true, "active");
     } catch (error) {
@@ -499,6 +544,42 @@ export function ChatScreen() {
     }
   }
 
+  async function submitMessageFeedback(
+    message: ChatMessageView,
+    rating: LlmFeedbackRating,
+  ) {
+    const llmRunId = message.llmRunId;
+    if (!llmRunId || message.feedbackRating === rating) return;
+
+    const previousRating = message.feedbackRating ?? null;
+    setFeedbackLoadingByRunId((current) => ({ ...current, [llmRunId]: true }));
+    setMessages((current) =>
+      current.map((item) =>
+        item.id === message.id ? { ...item, feedbackRating: rating } : item,
+      ),
+    );
+
+    try {
+      await upsertLlmFeedback({ llmRunId, rating });
+      pushToast(rating === "LIKE" ? "좋아요를 기록했습니다." : "싫어요를 기록했습니다.", "ok");
+    } catch (error) {
+      setMessages((current) =>
+        current.map((item) =>
+          item.id === message.id
+            ? { ...item, feedbackRating: previousRating }
+            : item,
+        ),
+      );
+      pushToast(messageFromError(error), "err");
+    } finally {
+      setFeedbackLoadingByRunId((current) => {
+        const next = { ...current };
+        delete next[llmRunId];
+        return next;
+      });
+    }
+  }
+
   function selectThreadStatus(status: ChatThreadListStatus) {
     setThreadActionOpenId(null);
     setThreadStatus(status);
@@ -564,6 +645,7 @@ export function ChatScreen() {
           threadDetailLoading={threadDetailLoading}
           messages={messages}
           draftSaveStates={draftSaveStates}
+          feedbackLoadingByRunId={feedbackLoadingByRunId}
           notes={notes}
           isLight={isLight}
           streaming={streaming}
@@ -572,6 +654,9 @@ export function ChatScreen() {
           onOpenNote={openNote}
           onCopyMessage={(message) => void copyChatMessage(message)}
           onSaveAiMessageAsNote={(message) => void saveAiMessageAsNote(message)}
+          onSubmitFeedback={(message, rating) =>
+            void submitMessageFeedback(message, rating)
+          }
         />
         <ChatComposer
           input={input}

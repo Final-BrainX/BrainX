@@ -1,8 +1,12 @@
 package com.brainx.intelligence.llmops.application.service;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -46,6 +50,25 @@ public class LlmFeedbackService {
 
     public List<LlmFeedback> listFeedback(String userId, String llmRunId, int limit) {
         return store.listFeedback(normalize(userId), normalize(llmRunId), normalizeLimit(limit));
+    }
+
+    public Map<String, LlmFeedbackRating> feedbackRatingsByRunId(String userId, Collection<String> llmRunIds) {
+        String normalizedUserId = requireText(userId, "userId");
+        List<String> normalizedRunIds = llmRunIds == null ? List.of() : llmRunIds.stream()
+            .filter(StringUtils::hasText)
+            .map(String::trim)
+            .distinct()
+            .toList();
+        if (normalizedRunIds.isEmpty()) {
+            return Map.of();
+        }
+        return store.listFeedbackByRunIds(normalizedUserId, normalizedRunIds).stream()
+            .collect(Collectors.toMap(
+                LlmFeedback::llmRunId,
+                LlmFeedback::rating,
+                (left, right) -> left,
+                LinkedHashMap::new
+            ));
     }
 
     private static int normalizeLimit(int limit) {

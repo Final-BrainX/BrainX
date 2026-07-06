@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -49,6 +51,7 @@ import com.brainx.intelligence.chat.domain.ChatThread;
 import com.brainx.intelligence.chat.domain.ChatThreadSummary;
 import com.brainx.intelligence.chat.domain.ChatThreadStatus;
 import com.brainx.intelligence.chat.domain.ChatTokenUsage;
+import com.brainx.intelligence.chat.domain.ChatWebSource;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteChunkRetrievalPort;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteChunkRetrievalPort.NoteChunkSearchQuery;
 import com.brainx.intelligence.exploration.domain.NoteChunkSearchResult;
@@ -61,9 +64,15 @@ import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiRol
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTokenUsage;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort.EntitlementRequest;
+import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort;
+import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchRequest;
+import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchResponse;
+import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchSource;
 import com.brainx.intelligence.llmops.application.service.AiRunRecorder;
+import com.brainx.intelligence.llmops.application.service.LlmFeedbackService;
 import com.brainx.intelligence.llmops.application.service.PromptRegistryService;
 import com.brainx.intelligence.llmops.application.service.PromptRegistryService.PromptResolution;
+import com.brainx.intelligence.llmops.domain.LlmFeedbackRating;
 import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator.TokenCostEstimate;
@@ -83,8 +92,11 @@ public class ChatService implements
 
     static final String RAG_CHAT_CAPABILITY = "RAG_CHAT";
     static final String RAG_CHAT_FEATURE_ID = "rag-chat";
+    private static final Logger log = LoggerFactory.getLogger(ChatService.class);
     private static final String NO_CONTEXT_ANSWER = "관련 노트 근거를 찾지 못했습니다.";
     private static final String OUT_OF_SCOPE_ANSWER = "BrainX 본 채팅은 내 노트 검색, 노트 기반 질문, 글 작성, 노트 적용 초안만 처리합니다.";
+    private static final String WEB_SEARCH_UNAVAILABLE_ANSWER =
+        "현재 웹 검색을 사용할 수 없어 최신 정보를 확인할 수 없습니다. 검색이 필요한 요청은 나중에 다시 시도해 주세요.";
     private static final String INSUFFICIENT_CONTEXT_ANSWER =
         "현재 제공된 노트 내용이 너무 짧아 이 요청을 처리할 수 없습니다. 답변에 필요한 본문이나 선택 영역을 더 제공해 주세요.";
     private static final String DRAFT_NOTE_FORMAT_INSTRUCTION = """
@@ -95,10 +107,13 @@ public class ChatService implements
         """;
     private static final int HISTORY_LIMIT = 8;
     private static final int CONTEXT_SNIPPET_LENGTH = 1_200;
+    private static final int WEB_SOURCE_SNIPPET_LENGTH = 500;
     private static final int MIN_CLIENT_CONTEXT_CHARS = 80;
     private static final int DEFAULT_THREAD_LIST_LIMIT = 20;
     private static final int MAX_THREAD_LIST_LIMIT = 50;
     private static final int THREAD_PREVIEW_LENGTH = 160;
+    private static final int DEFAULT_WEB_SEARCH_MAX_SOURCES = 8;
+    private static final String NOOP_SEARCH_PROVIDER = "none";
 
     private final ChatProperties properties;
     private final ChatThreadTitleGenerator titleGenerator;
@@ -106,10 +121,12 @@ public class ChatService implements
     private final ChatPersistencePort chatPersistencePort;
     private final NoteChunkRetrievalPort noteChunkRetrievalPort;
     private final EntitlementPort entitlementPort;
+    private final ExternalSearchPort externalSearchPort;
     private final AiChatPort aiChatPort;
     private final AiTokenUsageCostEstimator usageCostEstimator;
     private final AiUsageRecorder aiUsageRecorder;
     private final AiRunRecorder aiRunRecorder;
+    private final LlmFeedbackService llmFeedbackService;
     private final PromptRegistryService promptRegistryService;
     private final ChatEventPort chatEventPort;
     private final StylePromptCompiler stylePromptCompiler;
@@ -121,10 +138,12 @@ public class ChatService implements
         ChatPersistencePort chatPersistencePort,
         NoteChunkRetrievalPort noteChunkRetrievalPort,
         EntitlementPort entitlementPort,
+        ExternalSearchPort externalSearchPort,
         AiChatPort aiChatPort,
         AiTokenUsageCostEstimator usageCostEstimator,
         AiUsageRecorder aiUsageRecorder,
         AiRunRecorder aiRunRecorder,
+        LlmFeedbackService llmFeedbackService,
         PromptRegistryService promptRegistryService,
         ChatEventPort chatEventPort,
         StylePromptCompiler stylePromptCompiler
@@ -135,10 +154,12 @@ public class ChatService implements
         this.chatPersistencePort = chatPersistencePort;
         this.noteChunkRetrievalPort = noteChunkRetrievalPort;
         this.entitlementPort = entitlementPort;
+        this.externalSearchPort = externalSearchPort;
         this.aiChatPort = aiChatPort;
         this.usageCostEstimator = usageCostEstimator;
         this.aiUsageRecorder = aiUsageRecorder;
         this.aiRunRecorder = aiRunRecorder;
+        this.llmFeedbackService = llmFeedbackService;
         this.promptRegistryService = promptRegistryService;
         this.chatEventPort = chatEventPort;
         this.stylePromptCompiler = stylePromptCompiler;
@@ -231,8 +252,12 @@ public class ChatService implements
             command.clientContext()
         ));
         ChatRoute route = routeDecision.route();
-        if (route == ChatRoute.OUT_OF_SCOPE) {
+        WebSearchContext webSearch = resolveWebSearch(userId, message, routeDecision);
+        if (route == ChatRoute.OUT_OF_SCOPE && !routeDecision.requiresWebSearch()) {
             return withRouteEvent(routeDecision, fixedAnswerStream(thread, userMessage, modelId, OUT_OF_SCOPE_ANSWER));
+        }
+        if (routeDecision.requiresWebSearch() && !webSearch.available()) {
+            return withRouteEvent(routeDecision, fixedAnswerStream(thread, userMessage, modelId, WEB_SEARCH_UNAVAILABLE_ANSWER));
         }
         if (requiresNoteContext(route)
             && hasClientContext
@@ -245,7 +270,7 @@ public class ChatService implements
             ? List.of()
             : retrieveContexts(thread, message, route);
         boolean noteScopedSidebar = isRightSidebarContext(command.clientContext());
-        PromptResolution promptResolution = promptRegistryService.resolve(promptKey(route), systemPrompt(route));
+        PromptResolution promptResolution = promptRegistryService.resolve(promptKey(route, webSearch), systemPrompt(route, webSearch));
         String systemPrompt = StylePromptCompiler.appendToSystemPrompt(
             StylePromptCompiler.appendToSystemPrompt(
                 promptResolution.content(),
@@ -254,8 +279,8 @@ public class ChatService implements
             styleInstructions(userId, route)
         );
         String userPrompt = hasClientContext
-            ? userPromptFromClientContext(message, clientContextPrompt, route)
-            : userPrompt(message, contexts, route);
+            ? userPromptFromClientContext(message, clientContextPrompt, route, webSearch)
+            : userPrompt(message, contexts, route, webSearch);
         int tokenEstimate = estimateTokens(systemPrompt + "\n" + historyPrompt(history) + "\n" + userPrompt);
         var entitlement = entitlementPort.checkEntitlement(new EntitlementRequest(
             userId,
@@ -266,7 +291,7 @@ public class ChatService implements
             throw new ChatDomainException("AI capability is not available: " + entitlement.reasonCode());
         }
 
-        if (requiresNoteContext(route) && !hasClientContext && contexts.isEmpty()) {
+        if (requiresNoteContext(route) && !hasClientContext && contexts.isEmpty() && !webSearch.available()) {
             return withRouteEvent(routeDecision, fixedAnswerStream(thread, userMessage, modelId, NO_CONTEXT_ANSWER));
         }
         return withRouteEvent(routeDecision, aiStream(
@@ -279,7 +304,8 @@ public class ChatService implements
             route,
             history,
             userPrompt,
-            contexts
+            contexts,
+            webSearch
         ));
     }
 
@@ -289,8 +315,15 @@ public class ChatService implements
         String threadId = requireText(query.threadId(), "threadId");
         ChatThread thread = chatPersistencePort.findThreadByUserIdAndThreadId(userId, threadId)
             .orElseThrow(() -> new ChatNotFoundException("Chat thread not found: " + threadId));
-        List<Map<String, Object>> messages = chatPersistencePort.findMessagesByUserIdAndThreadId(userId, threadId).stream()
-            .map(ChatService::messageMap)
+        List<ChatMessage> domainMessages = chatPersistencePort.findMessagesByUserIdAndThreadId(userId, threadId);
+        Map<String, LlmFeedbackRating> feedbackRatings = llmFeedbackService.feedbackRatingsByRunId(
+            userId,
+            domainMessages.stream()
+                .map(ChatMessage::llmRunId)
+                .toList()
+        );
+        List<Map<String, Object>> messages = domainMessages.stream()
+            .map(message -> messageMap(message, feedbackRatings.get(message.llmRunId())))
             .toList();
         return new ChatThreadDetailResult(toThreadView(thread), messages);
     }
@@ -340,7 +373,9 @@ public class ChatService implements
         return Flux.concat(Flux.just(ChatStreamEvent.route(
             routeDecision.route().name(),
             routeDecision.reason(),
-            routeDecision.routerModel()
+            routeDecision.routerModel(),
+            routeDecision.requiresWebSearch(),
+            routeDecision.webSearchQuery()
         )), events);
     }
 
@@ -354,11 +389,13 @@ public class ChatService implements
         ChatRoute route,
         List<ChatMessage> history,
         String userPrompt,
-        List<RagContext> contexts
+        List<RagContext> contexts,
+        WebSearchContext webSearch
     ) {
         String assistantMessageId = UUID.randomUUID().toString();
         StringBuilder answer = new StringBuilder();
         List<AiChatMessage> promptMessages = promptMessages(systemPrompt, history, userPrompt);
+        Map<String, Object> metadata = runMetadata(thread.threadId(), route, webSearch);
         AiRunRecorder.RunHandle runHandle = aiRunRecorder.startChatRun(
             thread.userId(),
             RAG_CHAT_FEATURE_ID,
@@ -368,7 +405,7 @@ public class ChatService implements
             "CHAT_MESSAGE",
             assistantMessageId,
             promptMessages,
-            Map.of("threadId", thread.threadId(), "route", route.name())
+            metadata
         );
 
         return aiChatPort.stream(new AiChatRequest(
@@ -381,7 +418,7 @@ public class ChatService implements
                     promptVersion,
                     "CHAT_MESSAGE",
                     assistantMessageId,
-                    Map.of("threadId", thread.threadId(), "route", route.name())
+                    metadata
                 )
             ))
             .filter(chunk -> !chunk.done())
@@ -402,6 +439,7 @@ public class ChatService implements
                     answer.toString(),
                     modelId,
                     contexts.stream().map(RagContext::citation).toList(),
+                    webSearch.sources(),
                     tokenUsage,
                     runHandle.llmRunId()
                 );
@@ -436,6 +474,19 @@ public class ChatService implements
         ChatTokenUsage tokenUsage,
         String llmRunId
     ) {
+        return saveAssistantMessage(thread, assistantMessageId, answer, modelId, citations, List.of(), tokenUsage, llmRunId);
+    }
+
+    private ChatMessage saveAssistantMessage(
+        ChatThread thread,
+        String assistantMessageId,
+        String answer,
+        String modelId,
+        List<ChatCitation> citations,
+        List<ChatWebSource> webSources,
+        ChatTokenUsage tokenUsage,
+        String llmRunId
+    ) {
         return chatPersistencePort.saveMessage(ChatMessage.assistant(
             assistantMessageId,
             thread.threadId(),
@@ -443,6 +494,7 @@ public class ChatService implements
             StringUtils.hasText(answer) ? answer : "(empty)",
             modelId,
             citations,
+            webSources,
             tokenUsage,
             llmRunId,
             Instant.now()
@@ -477,6 +529,60 @@ public class ChatService implements
             tokenUsage.reasoningTokens(),
             tokenUsage.totalTokens()
         );
+    }
+
+    private WebSearchContext resolveWebSearch(String userId, String message, ChatRouteDecision routeDecision) {
+        if (!routeDecision.requiresWebSearch()) {
+            return WebSearchContext.none();
+        }
+        String query = StringUtils.hasText(routeDecision.webSearchQuery()) ? routeDecision.webSearchQuery() : message;
+        try {
+            ExternalSearchResponse response = externalSearchPort.search(new ExternalSearchRequest(
+                userId,
+                query,
+                null,
+                DEFAULT_WEB_SEARCH_MAX_SOURCES,
+                List.of(),
+                List.of()
+            ));
+            if (response == null || NOOP_SEARCH_PROVIDER.equalsIgnoreCase(response.provider())) {
+                return WebSearchContext.unavailable(query);
+            }
+            List<ChatWebSource> sources = response.sources().stream()
+                .map(ChatService::toWebSource)
+                .toList();
+            if (!StringUtils.hasText(response.answer()) && sources.isEmpty()) {
+                return WebSearchContext.unavailable(query);
+            }
+            return new WebSearchContext(
+                true,
+                query,
+                response.answer(),
+                sources,
+                response.provider(),
+                response.modelId(),
+                response.responseId()
+            );
+        } catch (RuntimeException exception) {
+            log.warn("External search failed for chat request.", exception);
+            return WebSearchContext.unavailable(query);
+        }
+    }
+
+    private static ChatWebSource toWebSource(ExternalSearchSource source) {
+        return new ChatWebSource(
+            source.title(),
+            source.url(),
+            webSourceSnippet(source.snippet()),
+            source.rank()
+        );
+    }
+
+    private static String webSourceSnippet(String text) {
+        if (text == null || text.length() <= WEB_SOURCE_SNIPPET_LENGTH) {
+            return text == null ? "" : text;
+        }
+        return text.substring(0, WEB_SOURCE_SNIPPET_LENGTH).trim();
     }
 
     private List<RagContext> retrieveContexts(ChatThread thread, String message, ChatRoute route) {
@@ -519,19 +625,22 @@ public class ChatService implements
         return text.substring(0, CONTEXT_SNIPPET_LENGTH).trim();
     }
 
-    private static String systemPrompt(ChatRoute route) {
-        return switch (route) {
+    private static String systemPrompt(ChatRoute route, WebSearchContext webSearch) {
+        String prompt = switch (route) {
             case NOTE_QA, WORKSPACE_SEARCH -> """
                 You are BrainX RAG chat assistant.
-                Answer in Korean using only the provided note context and recent chat history.
+                Answer in Korean using only the provided note context, web context, and recent chat history.
+                Treat note context and web context as separate evidence sources.
+                Use web context only for current or external facts. Do not claim web facts came from user notes.
                 If the context does not contain enough evidence, say that you do not know.
                 Keep the answer concise and mention the cited note titles naturally when useful.
                 """;
             case COMPOSE -> """
                 You are BrainX writing assistant.
                 Write the requested draft in Korean unless the user asks for another language.
-                If note context is provided, use it as reference. If no context is provided, write a general draft without pretending it came from notes.
-                If the request depends on current external facts and no context is provided, write with cautious wording and do not claim live verification.
+                If note context is provided, use it as reference. If web context is provided, use it as the factual basis for current or external facts.
+                Do not invent latest facts beyond the provided web context.
+                If no context is provided, write a general draft without pretending it came from notes or live verification.
                 Return only the requested content unless a short note is necessary.
                 """ + DRAFT_NOTE_FORMAT_INSTRUCTION;
             case NOTE_ACTION -> """
@@ -540,8 +649,20 @@ public class ChatService implements
                 Do not claim that anything was saved, inserted, appended, or applied.
                 Return the applicable draft content only.
                 """ + DRAFT_NOTE_FORMAT_INSTRUCTION;
-            case OUT_OF_SCOPE -> "";
+            case OUT_OF_SCOPE -> webSearch.available() ? """
+                You are BrainX web answer assistant.
+                Answer in Korean using only the provided web context and recent chat history.
+                Do not use unstated current facts. If the web context is insufficient, say so briefly.
+                Keep the answer concise and mention source titles naturally when useful.
+                """ : "";
         };
+        if (!webSearch.available() || route == ChatRoute.OUT_OF_SCOPE) {
+            return prompt;
+        }
+        return prompt + """
+
+            Web context may be included below. When it is present, separate note-based claims from web-based current facts.
+            """;
     }
 
     private static String noteScopedSidebarInstructions(boolean noteScopedSidebar) {
@@ -564,7 +685,7 @@ public class ChatService implements
         };
     }
 
-    private String userPrompt(String message, List<RagContext> contexts, ChatRoute route) {
+    private String userPrompt(String message, List<RagContext> contexts, ChatRoute route, WebSearchContext webSearch) {
         StringBuilder builder = new StringBuilder();
         builder.append(route == ChatRoute.COMPOSE || route == ChatRoute.NOTE_ACTION ? "Request:\n" : "Question:\n")
             .append(message)
@@ -587,12 +708,59 @@ public class ChatService implements
             builder.append(header).append(text).append("\n\n");
             remainingChars -= header.length() + text.length() + 2;
         }
+        appendWebContext(builder, webSearch);
         return builder.toString();
     }
 
-    private static String userPromptFromClientContext(String message, String clientContextPrompt, ChatRoute route) {
+    private static String userPromptFromClientContext(
+        String message,
+        String clientContextPrompt,
+        ChatRoute route,
+        WebSearchContext webSearch
+    ) {
         String label = route == ChatRoute.COMPOSE || route == ChatRoute.NOTE_ACTION ? "Request" : "Question";
-        return label + ":\n" + message + "\n\nFrontend selected context:\n" + clientContextPrompt;
+        StringBuilder builder = new StringBuilder();
+        builder.append(label)
+            .append(":\n")
+            .append(message)
+            .append("\n\nFrontend selected context:\n")
+            .append(clientContextPrompt);
+        appendWebContext(builder, webSearch);
+        return builder.toString();
+    }
+
+    private static void appendWebContext(StringBuilder builder, WebSearchContext webSearch) {
+        if (!webSearch.available()) {
+            return;
+        }
+        builder.append("\n\nWeb context:\n")
+            .append("Search query: ")
+            .append(webSearch.query())
+            .append('\n')
+            .append("Provider: ")
+            .append(webSearch.provider())
+            .append('\n');
+        if (StringUtils.hasText(webSearch.answer())) {
+            builder.append("Provider summary:\n")
+                .append(webSearch.answer())
+                .append("\n\n");
+        }
+        if (!webSearch.sources().isEmpty()) {
+            builder.append("Web sources:\n");
+            for (ChatWebSource source : webSearch.sources()) {
+                builder.append("[W")
+                    .append(source.rank())
+                    .append("] title=")
+                    .append(source.title())
+                    .append(", url=")
+                    .append(source.url())
+                    .append('\n');
+                if (StringUtils.hasText(source.snippet())) {
+                    builder.append(source.snippet()).append('\n');
+                }
+                builder.append('\n');
+            }
+        }
     }
 
     private static boolean requiresNoteContext(ChatRoute route) {
@@ -742,7 +910,7 @@ public class ChatService implements
         }
     }
 
-    private static Map<String, Object> messageMap(ChatMessage message) {
+    private static Map<String, Object> messageMap(ChatMessage message, LlmFeedbackRating feedbackRating) {
         Map<String, Object> values = new LinkedHashMap<>();
         values.put("messageId", message.messageId());
         values.put("threadId", message.threadId());
@@ -752,8 +920,10 @@ public class ChatService implements
         values.put("noteScope", message.noteScope());
         values.put("clientContext", message.clientContext());
         values.put("citations", message.citations().stream().map(ChatCitation::toMap).toList());
+        values.put("webSources", message.webSources().stream().map(ChatWebSource::toMap).toList());
         values.put("tokenUsage", message.tokenUsage() == null ? null : message.tokenUsage().toMap());
         values.put("llmRunId", message.llmRunId());
+        values.put("feedbackRating", feedbackRating == null ? null : feedbackRating.name());
         values.put("createdAt", message.createdAt());
         return values;
     }
@@ -766,6 +936,33 @@ public class ChatService implements
             case NOTE_ACTION -> "chat.note-action";
             case OUT_OF_SCOPE -> "chat.out-of-scope";
         };
+    }
+
+    private static String promptKey(ChatRoute route, WebSearchContext webSearch) {
+        if (!webSearch.available()) {
+            return promptKey(route);
+        }
+        return switch (route) {
+            case NOTE_QA -> "chat.note-qa.web-search";
+            case WORKSPACE_SEARCH -> "chat.workspace-search.web-search";
+            case COMPOSE -> "chat.compose.web-search";
+            case NOTE_ACTION -> "chat.note-action.web-search";
+            case OUT_OF_SCOPE -> "chat.web-search";
+        };
+    }
+
+    private static Map<String, Object> runMetadata(String threadId, ChatRoute route, WebSearchContext webSearch) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("threadId", threadId);
+        metadata.put("route", route.name());
+        metadata.put("requiresWebSearch", webSearch.available());
+        if (webSearch.available()) {
+            metadata.put("webSearchProvider", webSearch.provider());
+            metadata.put("webSearchModelId", webSearch.modelId());
+            metadata.put("webSearchResponseId", webSearch.responseId());
+            metadata.put("webSourceCount", webSearch.sources().size());
+        }
+        return metadata;
     }
 
     private static AiTokenUsage toAiTokenUsage(ChatTokenUsage tokenUsage) {
@@ -913,6 +1110,34 @@ public class ChatService implements
     private static String safeMessage(Throwable exception) {
         String message = exception.getMessage();
         return message == null || message.isBlank() ? "RAG chat stream failed." : message;
+    }
+
+    private record WebSearchContext(
+        boolean available,
+        String query,
+        String answer,
+        List<ChatWebSource> sources,
+        String provider,
+        String modelId,
+        String responseId
+    ) {
+
+        private WebSearchContext {
+            query = query == null ? "" : query.trim();
+            answer = answer == null ? "" : answer.trim();
+            sources = sources == null ? List.of() : List.copyOf(sources);
+            provider = provider == null ? "" : provider.trim();
+            modelId = modelId == null ? "" : modelId.trim();
+            responseId = responseId == null || responseId.isBlank() ? null : responseId.trim();
+        }
+
+        private static WebSearchContext none() {
+            return new WebSearchContext(false, "", "", List.of(), "", "", null);
+        }
+
+        private static WebSearchContext unavailable(String query) {
+            return new WebSearchContext(false, query, "", List.of(), "", "", null);
+        }
     }
 
     private record RagContext(ChatCitation citation, String text) {

@@ -9,6 +9,7 @@ import type {
   ChatMessageView,
   ChatRoute,
   ChatThreadListItem,
+  ChatWebSource,
 } from "@/components/chat/types";
 
 export function messageFromError(error: unknown) {
@@ -67,6 +68,24 @@ function citationsFrom(value: unknown): ChatCitation[] {
   });
 }
 
+function webSourcesFrom(value: unknown): ChatWebSource[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    const url = stringValue(record.url);
+    if (!url) return [];
+    return [
+      {
+        title: stringValue(record.title) || url,
+        url,
+        snippet: stringValue(record.snippet),
+        rank: numberValue(record.rank) ?? 1,
+      },
+    ];
+  });
+}
+
 export function messagesFromThread(
   detail: ChatThreadDetailData,
 ): ChatMessageView[] {
@@ -81,7 +100,13 @@ export function messagesFromThread(
       modelId: stringValue(message.modelId),
       createdAt: stringValue(message.createdAt),
       route: chatRouteFrom(record.route ?? record.chatRoute),
+      llmRunId: stringValue(record.llmRunId) || null,
+      feedbackRating:
+        record.feedbackRating === "LIKE" || record.feedbackRating === "DISLIKE"
+          ? record.feedbackRating
+          : null,
       citations: citationsFrom(message.citations),
+      webSources: webSourcesFrom(record.webSources),
     };
   });
 }

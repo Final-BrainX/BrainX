@@ -25,6 +25,8 @@ public interface LlmOpsStore {
 
     List<LlmFeedback> listFeedback(String userId, String llmRunId, int limit);
 
+    List<LlmFeedback> listFeedbackByRunIds(String userId, List<String> llmRunIds);
+
     PromptDefinition savePromptDefinition(PromptDefinition definition);
 
     List<PromptDefinition> listPromptDefinitions();

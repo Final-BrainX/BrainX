@@ -61,6 +61,8 @@ class ChatRouteDeciderTest {
         assertThat(decision.route()).isEqualTo(ChatRoute.WORKSPACE_SEARCH);
         assertThat(decision.reason()).isEqualTo("search across notes");
         assertThat(decision.routerModel()).isEqualTo("gpt-5.4-nano");
+        assertThat(decision.requiresWebSearch()).isFalse();
+        assertThat(decision.webSearchQuery()).isNull();
         assertThat(chatPort.lastRequest.modelId()).isEqualTo("gpt-5.4-nano");
         assertThat(chatPort.lastRequest.messages().getFirst().content()).contains("Return only strict JSON");
         assertThat(chatPort.lastRequest.messages().getFirst().content())
@@ -97,7 +99,7 @@ class ChatRouteDeciderTest {
     @Test
     void promptAllowsCurrentExternalTopicDraftsButKeepsPureFactLookupOutOfScope() {
         chatPort.response = new AiChatResponse(
-            "{\"route\":\"COMPOSE\",\"reason\":\"document writing request\"}",
+            "{\"route\":\"COMPOSE\",\"reason\":\"document writing request\",\"requiresWebSearch\":true,\"webSearchQuery\":\"홍명보호 월드컵 성적 최신\"}",
             null
         );
 
@@ -110,15 +112,37 @@ class ChatRouteDeciderTest {
         ));
 
         assertThat(decision.route()).isEqualTo(ChatRoute.COMPOSE);
+        assertThat(decision.requiresWebSearch()).isTrue();
+        assertThat(decision.webSearchQuery()).isEqualTo("홍명보호 월드컵 성적 최신");
         assertThat(chatPort.lastRequest.messages().getFirst().content())
-            .contains("Choose COMPOSE for writing requests even when the topic mentions external")
-            .contains("Do not choose OUT_OF_SCOPE solely because a writing request mentions current or external facts")
-            .contains("Choose OUT_OF_SCOPE for pure current-fact lookup without a writing/drafting deliverable")
-            .contains("\"최신 홍명보호 월드컵 성적에 대한 문서 작성해줘\" -> COMPOSE")
-            .contains("\"홍명보호 월드컵 성적을 바탕으로 보고서 초안 써줘\" -> COMPOSE")
-            .contains("\"오늘 월드컵 예선 결과 알려줘\" -> OUT_OF_SCOPE");
+            .contains("requiresWebSearch")
+            .contains("webSearchQuery")
+            .contains("Keep route as the final user intent")
+            .contains("Pure current-fact lookup without a writing deliverable is route=OUT_OF_SCOPE")
+            .contains("\"최신 홍명보호 월드컵 성적에 대한 문서 작성해줘\" -> route=COMPOSE, requiresWebSearch=true")
+            .contains("\"오늘 월드컵 예선 결과 알려줘\" -> route=OUT_OF_SCOPE, requiresWebSearch=true");
         assertThat(chatPort.lastRequest.messages().getLast().content())
             .contains("최신 홍명보호 월드컵 성적에 대한 문서 작성해줘");
+    }
+
+    @Test
+    void missingWebSearchQueryFallsBackToUserMessageWhenRequired() {
+        chatPort.response = new AiChatResponse(
+            "{\"route\":\"OUT_OF_SCOPE\",\"reason\":\"current fact lookup\",\"requiresWebSearch\":true}",
+            null
+        );
+
+        var decision = decider.decide(new ChatRouteDecider.ChatRouteRequest(
+            "user-1",
+            "오늘 AI 뉴스 알려줘",
+            "group-1",
+            Map.of(),
+            Map.of()
+        ));
+
+        assertThat(decision.route()).isEqualTo(ChatRoute.OUT_OF_SCOPE);
+        assertThat(decision.requiresWebSearch()).isTrue();
+        assertThat(decision.webSearchQuery()).isEqualTo("오늘 AI 뉴스 알려줘");
     }
 
     @Test

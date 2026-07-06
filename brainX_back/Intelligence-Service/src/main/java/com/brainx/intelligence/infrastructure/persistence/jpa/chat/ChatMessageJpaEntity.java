@@ -13,6 +13,7 @@ import com.brainx.intelligence.chat.domain.ChatCitation;
 import com.brainx.intelligence.chat.domain.ChatMessage;
 import com.brainx.intelligence.chat.domain.ChatRole;
 import com.brainx.intelligence.chat.domain.ChatTokenUsage;
+import com.brainx.intelligence.chat.domain.ChatWebSource;
 import com.brainx.intelligence.infrastructure.persistence.jpa.JsonListMapAttributeConverter;
 import com.brainx.intelligence.infrastructure.persistence.jpa.JsonMapAttributeConverter;
 
@@ -71,6 +72,12 @@ public class ChatMessageJpaEntity {
 
     @Lob
     @JdbcTypeCode(SqlTypes.LONGVARCHAR)
+    @Column(name = "web_sources", nullable = false)
+    @Convert(converter = JsonListMapAttributeConverter.class)
+    private List<Map<String, Object>> webSources = List.of();
+
+    @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "token_usage")
     @Convert(converter = JsonMapAttributeConverter.class)
     private Map<String, Object> tokenUsage;
@@ -97,6 +104,9 @@ public class ChatMessageJpaEntity {
         entity.citations = message.citations().stream()
             .map(ChatCitation::toMap)
             .toList();
+        entity.webSources = message.webSources().stream()
+            .map(ChatWebSource::toMap)
+            .toList();
         entity.tokenUsage = message.tokenUsage() == null ? null : message.tokenUsage().toMap();
         entity.llmRunId = message.llmRunId();
         entity.createdAt = message.createdAt();
@@ -113,7 +123,8 @@ public class ChatMessageJpaEntity {
             modelId,
             noteScope,
             clientContext,
-            citations.stream().map(ChatMessageJpaEntity::citationFromMap).toList(),
+            listValue(citations).stream().map(ChatMessageJpaEntity::citationFromMap).toList(),
+            listValue(webSources).stream().map(ChatMessageJpaEntity::webSourceFromMap).toList(),
             tokenUsage == null || tokenUsage.isEmpty() ? null : tokenUsageFromMap(tokenUsage),
             llmRunId,
             createdAt
@@ -134,6 +145,15 @@ public class ChatMessageJpaEntity {
             nullableString(values, "sourcePath"),
             nullableString(values, "sourceFilename"),
             doubleValue(values, "score")
+        );
+    }
+
+    private static ChatWebSource webSourceFromMap(Map<String, Object> values) {
+        return new ChatWebSource(
+            stringValue(values, "title"),
+            stringValue(values, "url"),
+            nullableString(values, "snippet"),
+            intValue(values, "rank")
         );
     }
 
@@ -201,6 +221,10 @@ public class ChatMessageJpaEntity {
             return new BigDecimal(text);
         }
         return null;
+    }
+
+    private static List<Map<String, Object>> listValue(List<Map<String, Object>> values) {
+        return values == null ? List.of() : values;
     }
 
     Map<String, Object> tokenUsage() {

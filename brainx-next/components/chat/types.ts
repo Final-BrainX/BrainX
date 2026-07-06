@@ -1,6 +1,8 @@
 import type {
   ChatThreadData,
   ChatThreadListData,
+  ChatWebSourceData,
+  LlmFeedbackRating,
 } from "@/lib/intelligence-api";
 
 export type ChatThreadListItem = ChatThreadListData["threads"][number];
@@ -19,6 +21,8 @@ export type ChatCitation = {
   sourceFilename?: string;
 };
 
+export type ChatWebSource = ChatWebSourceData;
+
 export type ChatRoute =
   | "NOTE_QA"
   | "WORKSPACE_SEARCH"
@@ -33,9 +37,14 @@ export type ChatMessageView = {
   modelId?: string;
   createdAt?: string;
   route?: ChatRoute;
+  llmRunId?: string | null;
+  feedbackRating?: LlmFeedbackRating | null;
+  requiresWebSearch?: boolean;
+  webSearchQuery?: string | null;
   streaming?: boolean;
   error?: boolean;
   citations?: ChatCitation[];
+  webSources?: ChatWebSource[];
 };
 
 export type DraftNoteSaveStatus = "saving" | "saved" | "error";

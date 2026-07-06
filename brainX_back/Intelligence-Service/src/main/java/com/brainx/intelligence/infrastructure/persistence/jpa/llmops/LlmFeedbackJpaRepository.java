@@ -24,4 +24,15 @@ interface LlmFeedbackJpaRepository extends JpaRepository<LlmFeedbackJpaEntity, S
         @Param("llmRunId") String llmRunId,
         Pageable pageable
     );
+
+    @Query("""
+        select feedback
+        from LlmFeedbackJpaEntity feedback
+        where feedback.userId = :userId
+          and feedback.llmRunId in :llmRunIds
+        """)
+    List<LlmFeedbackJpaEntity> listFeedbackByRunIds(
+        @Param("userId") String userId,
+        @Param("llmRunIds") List<String> llmRunIds
+    );
 }

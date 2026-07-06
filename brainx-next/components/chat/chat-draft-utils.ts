@@ -1,5 +1,9 @@
 import { messageFromError } from "@/components/chat/chat-utils";
-import type { ChatCitation, ChatMessageView } from "@/components/chat/types";
+import type {
+  ChatCitation,
+  ChatMessageView,
+  ChatWebSource,
+} from "@/components/chat/types";
 
 export const CHAT_DRAFT_NOTE_TAGS = ["ai-draft", "chat"];
 
@@ -92,11 +96,28 @@ function citationMarkdownLine(citation: ChatCitation, index: number) {
   return `- [${label}](/notes/${encodeURIComponent(citation.noteId)})${score}`;
 }
 
+function webSourceMarkdownLine(source: ChatWebSource, index: number) {
+  const label = markdownLinkLabel(
+    source.title || source.url || `웹 출처 ${index + 1}`,
+  );
+  if (!source.url) {
+    return `- ${label}`;
+  }
+  return `- [${label}](${source.url})`;
+}
+
 export function buildChatDraftMarkdown(message: ChatMessageView) {
   const body = message.text.trim();
   const citations = (message.citations ?? []).filter(
     (citation) => citation.noteId || citation.title,
   );
-  if (citations.length === 0) return body;
-  return `${body}\n\n## 참고 노트\n\n${citations.map(citationMarkdownLine).join("\n")}`;
+  const webSources = (message.webSources ?? []).filter((source) => source.url);
+  const sections: string[] = [body];
+  if (citations.length > 0) {
+    sections.push(`## 참고 노트\n\n${citations.map(citationMarkdownLine).join("\n")}`);
+  }
+  if (webSources.length > 0) {
+    sections.push(`## 웹 출처\n\n${webSources.map(webSourceMarkdownLine).join("\n")}`);
+  }
+  return sections.join("\n\n");
 }
