@@ -1859,12 +1859,23 @@ function GeneralPanel({
   consents,
   savingConsent,
   onConsentChange,
-  onLogout
+  onLogout,
+
+  language,
+  setLanguage,
+  theme,
+  setTheme,
 }: {
   consents: ConsentPayload;
   savingConsent: keyof ConsentPayload | null;
   onConsentChange: (key: keyof ConsentPayload, value: boolean) => void;
   onLogout: () => void;
+
+  language: LanguageCode;
+  setLanguage: (value: LanguageCode) => void;
+
+  theme: "light" | "dark" | "system";
+  setTheme: (value: "light" | "dark" | "system") => void;
 }) {
   return (
     <>
