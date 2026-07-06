@@ -188,7 +188,7 @@ async function importDesktopVaultFile(file: File, targetFolderId?: string): Prom
               `# ${fileNameWithoutExtension(file.name)}`,
               "",
               `- Imported asset: ${asset.fileName}`,
-              `- Vault path: assets/${asset.relativePath}`,
+              `- Vault path: ${asset.relativePath}`,
               `- MIME type: ${asset.mimeType}`,
               `- Size: ${asset.size} bytes`,
             ].join("\n");

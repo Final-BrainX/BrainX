@@ -36,7 +36,7 @@ export function getBundledRendererUrl(port = readBundledPort()) {
 }
 
 export function getRemoteRendererUrl() {
-  const raw = process.env.BRAINX_ELECTRON_PROD_URL ?? DEFAULT_PROD_URL;
+  const raw = process.env.BRAINX_ELECTRON_WEB_ORIGIN ?? process.env.BRAINX_ELECTRON_PROD_URL ?? DEFAULT_PROD_URL;
   return normalizeUrl(raw);
 }
 

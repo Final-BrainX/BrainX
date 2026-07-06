@@ -16,6 +16,7 @@ export const USE_MOCK_GRAPH_CLUSTERS = process.env.NEXT_PUBLIC_GRAPH_CLUSTERS_US
 export type GraphNodeData = {
   id: string;
   noteId: string;
+  aiSourceNoteId?: string | null;
   title: string;
   summary?: string | null;
   folderId?: string | null;
@@ -125,6 +126,7 @@ async function getDesktopVaultGraph(): Promise<GraphData> {
     nodes: notes.map((note) => ({
       id: note.noteId,
       noteId: note.noteId,
+      aiSourceNoteId: note.remoteNoteId ?? null,
       title: note.title,
       summary: note.markdown.slice(0, 160),
       folderId: note.folderId,
@@ -151,6 +153,7 @@ export async function getGraph() {
 }
 
 export function graphToBrainXNotes(graph: GraphData): BrainXNote[] {
+  const isDesktopVaultGraph = (graph.summaries as Record<string, unknown> | undefined)?.mode === "desktop-vault";
   const linksByNoteId = new Map<string, Set<string>>();
   for (const node of graph.nodes) {
     linksByNoteId.set(node.noteId, new Set());
@@ -165,8 +168,10 @@ export function graphToBrainXNotes(graph: GraphData): BrainXNote[] {
     const cluster = normalizeClusterId(node.clusterId ?? node.folderId ?? node.noteId);
     const createdAt = normalizeDate(node.createdAt);
     const updatedAt = normalizeDate(node.updatedAt);
+    const aiSourceNoteId = node.aiSourceNoteId ?? (isDesktopVaultGraph ? null : node.noteId);
     return {
       id: node.noteId,
+      aiSourceNoteId,
       title,
       markdown: "",
       folderId: cluster,
@@ -175,7 +180,7 @@ export function graphToBrainXNotes(graph: GraphData): BrainXNote[] {
       tags: node.tags ?? [],
       links: Array.from(linksByNoteId.get(node.noteId) ?? []),
       searchIndexStatus: "UNKNOWN",
-      availableForAiFeatures: false,
+      availableForAiFeatures: Boolean(aiSourceNoteId),
       indexedAt: null,
       updated: relativeUpdatedLabel(node.updatedAt ?? node.lastViewedAt),
       words: 0,
@@ -197,6 +202,7 @@ export function draftsToBrainXNotes(drafts: NoteDraftData[]): BrainXNote[] {
     const title = draft.title?.trim() || "제목 없음";
     return {
       id: draft.noteId,
+      aiSourceNoteId: null,
       title,
       markdown: draft.markdown ?? "",
       folderId: fallbackCluster,
@@ -233,6 +239,7 @@ export function pendingCreatedNoteToBrainXNote(entry: {
   const createdAt = new Date(entry.createdAt).toISOString();
   return {
     id: entry.noteId,
+    aiSourceNoteId: null,
     title: entry.title,
     markdown: "",
     folderId: fallbackCluster,
