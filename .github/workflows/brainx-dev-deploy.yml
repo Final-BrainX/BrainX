@@ -11,6 +11,11 @@ on:
         required: false
         default: false
         type: boolean
+      force_runtime_refresh:
+        description: "Force-recreate runtime-secret dependent services without rebuilding images"
+        required: false
+        default: false
+        type: boolean
       services:
         description: "Optional space/comma-separated service list"
         required: false
@@ -92,6 +97,7 @@ jobs:
       services_space: ${{ steps.detect.outputs.services_space }}
       should_deploy: ${{ steps.detect.outputs.should_deploy }}
       deploy_config_changed: ${{ steps.detect.outputs.deploy_config_changed }}
+      force_runtime_refresh: ${{ steps.detect.outputs.force_runtime_refresh }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -108,6 +114,10 @@ jobs:
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.deploy_all }}" = "true" ]; then
             ARGS+=(--deploy-all)
+          fi
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_runtime_refresh }}" = "true" ]; then
+            ARGS+=(--force-runtime-refresh)
           fi
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.services }}" ]; then
@@ -129,6 +139,7 @@ jobs:
               fp.write(f"services_space={detection['servicesSpace']}\n")
               fp.write(f"should_deploy={str(detection['shouldDeploy']).lower()}\n")
               fp.write(f"deploy_config_changed={str(detection['deployConfigChanged']).lower()}\n")
+              fp.write(f"force_runtime_refresh={str(detection['forceRuntimeRefresh']).lower()}\n")
           PY
 
   build:
@@ -279,6 +290,7 @@ jobs:
         env:
           CHANGED_SERVICES: ${{ needs.detect.outputs.services_space }}
           DEPLOY_CONFIG_CHANGED: ${{ needs.detect.outputs.deploy_config_changed }}
+          FORCE_RUNTIME_REFRESH: ${{ needs.detect.outputs.force_runtime_refresh }}
         run: |
           set -euo pipefail
 
@@ -303,6 +315,7 @@ jobs:
               "ARTIFACT_KEY": os.environ["ARTIFACT_KEY"],
               "CHANGED_SERVICES": os.environ.get("CHANGED_SERVICES", ""),
               "DEPLOY_CONFIG_CHANGED": os.environ.get("DEPLOY_CONFIG_CHANGED", "false"),
+              "FORCE_RUNTIME_REFRESH": os.environ.get("FORCE_RUNTIME_REFRESH", "false"),
           }
 
           commands = [
@@ -388,6 +401,7 @@ jobs:
         env:
           CHANGED_SERVICES: ${{ needs.detect.outputs.services_space }}
           DEPLOY_CONFIG_CHANGED: ${{ needs.detect.outputs.deploy_config_changed }}
+          FORCE_RUNTIME_REFRESH: ${{ needs.detect.outputs.force_runtime_refresh }}
         run: |
           set -euo pipefail
 
@@ -453,7 +467,7 @@ jobs:
             check_endpoint "admin frontend" "$AWS_DEV_ADMIN_PUBLIC_BASE_URL/" ok
           fi
 
-          if [ "$DEPLOY_CONFIG_CHANGED" = "true" ] || has_backend_service; then
+          if [ "$DEPLOY_CONFIG_CHANGED" = "true" ] || [ "$FORCE_RUNTIME_REFRESH" = "true" ] || has_backend_service; then
             check_endpoint "plans api" "$AWS_DEV_PUBLIC_BASE_URL/api/v1/plans" non5xx
             check_endpoint "notes api" "$AWS_DEV_PUBLIC_BASE_URL/api/v1/notes" non5xx
             check_endpoint "ai models api" "$AWS_DEV_PUBLIC_BASE_URL/api/v1/ai/models" non5xx

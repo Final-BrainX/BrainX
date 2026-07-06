@@ -105,7 +105,10 @@ const LAST_SOCIAL_LOGIN_KEY = "brainx_last_social_login_provider_v1";
 const WORKSPACE_SESSION_KEY = "brainx_notes_workspace_v1";
 const PENDING_NOTE_CLAIM_KEY = "brainx_pending_note_claim_v1";
 const OAUTH_RETURN_TO_KEY = "brainx_oauth_return_to_v1";
-const HOSTED_WEB_ORIGIN = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+const HOSTED_WEB_ORIGIN =
+  process.env.NEXT_PUBLIC_WEB_BASE_URL ??
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
+  "";
 const DEV_AUTH_BYPASS = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true";
 // 이 값은 X-User-Id 헤더 전송(NEXT_PUBLIC_ENABLE_DEV_USER, lib/dev-user.ts)과는 별개의 스위치
 // (NEXT_PUBLIC_DEV_AUTH_BYPASS)로만 게이팅된다 — DEV_AUTH_BYPASS는 완전히 가짜 로그인 세션 객체를
@@ -146,6 +149,12 @@ function canUseDevAuthBypass() {
 
 async function resolveClientLocation() {
   if (typeof window === "undefined") {
+    return null;
+  }
+
+  // Electron login/oauth requests do not need browser geolocation enrichment.
+  // Avoid triggering Chromium's network location provider during desktop auth.
+  if (isDesktopRuntime()) {
     return null;
   }
 

@@ -1,4 +1,6 @@
 asyncapi: 3.0.0
+x-runtime-secret-rotation:
+  description: Shared runtime secrets such as RDS credentials may rotate independently of code changes; deployment flows must refresh encrypted parameter material on every run and force-recreate all DB-backed runtime services when the applied RDS credential fingerprint changes so event producers and consumers do not keep stale database passwords in long-lived containers.
 info:
   title: BrainX Async Event SSOT
   version: 1.0.0-revised

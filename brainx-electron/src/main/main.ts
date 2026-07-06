@@ -173,7 +173,11 @@ function getVaultConflictsDirectory(vault: BrainxDesktopVaultSummary) {
 }
 
 function getDesktopApiOrigin() {
-  const raw = process.env.BRAINX_DESKTOP_API_ORIGIN ?? process.env.BRAINX_ELECTRON_PROD_URL ?? DEFAULT_API_ORIGIN;
+  const raw =
+    process.env.BRAINX_DESKTOP_API_ORIGIN ??
+    process.env.BRAINX_ELECTRON_WEB_ORIGIN ??
+    process.env.BRAINX_ELECTRON_PROD_URL ??
+    DEFAULT_API_ORIGIN;
   return new URL(raw).origin;
 }
 
