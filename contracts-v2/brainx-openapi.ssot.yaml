@@ -17677,6 +17677,7 @@ components:
           type: string
           nullable: true
         feedbackRating:
+          type: string
           nullable: true
           allOf:
           - $ref: '#/components/schemas/LlmFeedbackRating'

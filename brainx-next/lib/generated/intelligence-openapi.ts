@@ -1120,7 +1120,7 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             llmRunId?: string | null;
-            feedbackRating?: components["schemas"]["LlmFeedbackRating"] | null;
+            feedbackRating?: (string & components["schemas"]["LlmFeedbackRating"]) | null;
             /** Format: date-time */
             createdAt: string;
         };
