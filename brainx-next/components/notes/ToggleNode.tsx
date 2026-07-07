@@ -136,6 +136,30 @@ function ToggleNodeView({ node, updateAttributes, editor, getPos }: NodeViewProp
     editor.chain().focus().setTextSelection(afterPos + 1).run();
   };
 
+  const getCurrentToggleNode = () => {
+    const pos = typeof getPos === "function" ? getPos() : undefined;
+    if (typeof pos !== "number") return null;
+    return editor.state.doc.nodeAt(pos);
+  };
+
+  const isStructurallyEmptyToggle = () => {
+    const current = getCurrentToggleNode();
+    if (!current || current.childCount !== 1) return false;
+    const onlyChild = current.firstChild;
+    return !!onlyChild && onlyChild.type.name === "paragraph" && onlyChild.content.size === 0;
+  };
+
+  const focusToggleBodyStart = () => {
+    const pos = typeof getPos === "function" ? getPos() : undefined;
+    if (typeof pos !== "number") return;
+    if (!isOpen) {
+      updateAttributes({ open: true });
+    }
+    setTimeout(() => {
+      editor.chain().focus().setTextSelection(pos + 2).run();
+    }, 0);
+  };
+
   /* 방금 Enter로 생성된 형제 토글이면 마운트 직후 곧바로 제목 편집 모드로 연다(Notion처럼 다음 줄에
      새 토글이 생기자마자 바로 타이핑할 수 있게). 1회성 신호라 소비 즉시 attrs에서 지운다. */
   useEffect(() => {
@@ -199,13 +223,21 @@ function ToggleNodeView({ node, updateAttributes, editor, getPos }: NodeViewProp
      같은 레벨의 새 토글을 하나 더 만든다. 제목이 비어있으면 대신 일반 문단으로 되돌린다. */
   const handleSummaryEnter = () => {
     const trimmed = summaryDraft.trim();
-    setEditingSummary(false);
 
     if (trimmed === "") {
-      convertToParagraph();
+      if (isStructurallyEmptyToggle()) {
+        setEditingSummary(false);
+        convertToParagraph();
+        return;
+      }
+      setEditingSummary(false);
+      setSummaryDraft("");
+      updateAttributes({ summary: "" });
+      focusToggleBodyStart();
       return;
     }
 
+    setEditingSummary(false);
     updateAttributes({ summary: trimmed });
     setSummaryDraft(trimmed);
 
@@ -247,7 +279,14 @@ function ToggleNodeView({ node, updateAttributes, editor, getPos }: NodeViewProp
       setEditingSummary(false);
     } else if (e.key === "Backspace" && summaryDraft === "") {
       e.preventDefault();
-      convertToParagraph();
+      if (isStructurallyEmptyToggle()) {
+        convertToParagraph();
+        return;
+      }
+    } else if (e.key === "Delete" && summaryDraft === "") {
+      if (!isStructurallyEmptyToggle()) {
+        e.preventDefault();
+      }
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       moveToPreviousBlock();

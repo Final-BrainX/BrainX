@@ -1233,6 +1233,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         localKey: localNoteId,
         noteId: localNoteId,
         title: noteTitle,
+        documentGroupId: newNote.documentGroupId ?? null,
         sourceNoteId: linkFromNoteId,
         sourceTitle: linkFromNoteId ? notes.find((n) => n.id === linkFromNoteId)?.title : undefined,
         createdAt: Date.now(),
