@@ -56,6 +56,37 @@ function isTextInputLikeTarget(target: EventTarget | null): boolean {
   return !!editable;
 }
 
+function pruneNestedMoveItems(
+  items: SelectableItem[],
+  folders: MockFolder[],
+  notes: MockNote[]
+): SelectableItem[] {
+  if (items.length <= 1) return items;
+  const folderMap = new Map(folders.map((folder) => [folder.id, folder]));
+  const noteMap = new Map(notes.map((note) => [note.id, note]));
+  const selectedFolderIds = new Set(items.filter((item) => item.type === "folder").map((item) => item.id));
+
+  if (selectedFolderIds.size === 0) return items;
+
+  const hasSelectedAncestorFolder = (folderId: string | null | undefined) => {
+    let currentFolderId = folderId ?? null;
+    while (currentFolderId) {
+      if (selectedFolderIds.has(currentFolderId)) return true;
+      currentFolderId = folderMap.get(currentFolderId)?.parentFolderId ?? null;
+    }
+    return false;
+  };
+
+  return items.filter((item) => {
+    if (item.type === "note") {
+      const note = noteMap.get(item.id);
+      return note ? !hasSelectedAncestorFolder(note.folderId ?? null) : true;
+    }
+    const folder = folderMap.get(item.id);
+    return folder ? !hasSelectedAncestorFolder(folder.parentFolderId ?? null) : true;
+  });
+}
+
 function FavNoteRow({
   note,
   isActive,
@@ -1168,10 +1199,9 @@ export default function NotesExplorer({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Delete") return;
       if (selectedIds.size === 0) return;
+      if (isTextInputLikeTarget(document.activeElement)) return;
       const explorer = explorerRef.current;
       const targetInExplorer = explorer && e.target instanceof Node ? explorer.contains(e.target) : false;
-      const unsafeTarget = isTextInputLikeTarget(e.target);
-      if (unsafeTarget && !explorerInteractionActiveRef.current) return;
       if (!targetInExplorer && !explorerInteractionActiveRef.current) return;
       e.preventDefault();
       requestDelete([...selectedIds]);
@@ -1191,8 +1221,8 @@ export default function NotesExplorer({
   }, [onMoveNoteToFolder, onMoveFolderToParent]);
 
   const handleExplorerMoveItems = useCallback((items: SelectableItem[], targetFolderId: string | null) => {
-    handleMoveItems(items, targetFolderId);
-  }, [handleMoveItems]);
+    handleMoveItems(pruneNestedMoveItems(items, folders, notes), targetFolderId);
+  }, [folders, handleMoveItems, notes]);
 
   /* 단일 노트 이동 (즐겨찾기/검색 섹션) */
   const handleMoveSingleNote = useCallback((noteId: string) => {
@@ -1475,10 +1505,14 @@ export default function NotesExplorer({
           <span className="flex-1 text-[11px] text-txt3">{selectedCount}개 선택됨</span>
           <button
             type="button"
-            onClick={() => setPendingMoveItems([...selectedIds].map((id) => {
-              const isNote = notes.some((n) => n.id === id);
-              return { id, type: isNote ? "note" : "folder" } as SelectableItem;
-            }))}
+            onClick={() => setPendingMoveItems(pruneNestedMoveItems(
+              [...selectedIds].map((id) => {
+                const isNote = notes.some((n) => n.id === id);
+                return { id, type: isNote ? "note" : "folder" } as SelectableItem;
+              }),
+              folders,
+              notes
+            ))}
             title="이동"
             className="grid h-5 w-5 place-items-center rounded text-txt3 transition-colors hover:bg-surface2/80 hover:text-primary"
           >
