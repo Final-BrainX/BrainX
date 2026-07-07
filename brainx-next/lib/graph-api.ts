@@ -210,6 +210,7 @@ export function draftsToBrainXNotes(drafts: NoteDraftData[]): BrainXNote[] {
       summary: normalizeSummary(null),
       tags: [],
       links: [],
+      documentGroupId: draft.documentGroupId ?? null,
       searchIndexStatus: "UNKNOWN",
       availableForAiFeatures: false,
       indexedAt: null,
