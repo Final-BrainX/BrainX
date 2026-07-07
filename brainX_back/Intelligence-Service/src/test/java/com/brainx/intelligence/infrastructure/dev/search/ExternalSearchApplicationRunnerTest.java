@@ -16,7 +16,10 @@ import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPo
 import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchRequest;
 import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchResponse;
 import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchSource;
+import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchStreamEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import reactor.core.publisher.Flux;
 
 class ExternalSearchApplicationRunnerTest {
 
@@ -65,6 +68,32 @@ class ExternalSearchApplicationRunnerTest {
             .containsExactly("first", "second");
     }
 
+    @Test
+    void streamEventsModeWritesProgressSourcesAndCompletedResponse() throws Exception {
+        ExternalSearchDevProperties properties = properties();
+        properties.setQuery("OpenAI web search?");
+        properties.setStreamEvents(true);
+        FakeExternalSearchPort searchPort = new FakeExternalSearchPort();
+        ExternalSearchApplicationRunner runner = runner(properties, searchPort);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        runner.runSearch(
+            new BufferedReader(new StringReader("")),
+            new PrintStream(output, true, StandardCharsets.UTF_8)
+        );
+
+        String json = output.toString(StandardCharsets.UTF_8);
+        assertThat(json).contains("\"query\" : \"OpenAI web search?\"");
+        assertThat(json).contains("\"answer\" : \"stream answer for OpenAI web search?\"");
+        assertThat(json).contains("\"provider\" : \"fake-stream\"");
+        assertThat(json).contains("\"streamEvents\" :");
+        assertThat(json).contains("\"eventType\" : \"progress\"");
+        assertThat(json).contains("\"eventType\" : \"sources\"");
+        assertThat(json).contains("\"eventType\" : \"completed\"");
+        assertThat(json).contains("\"sourceCount\" : 1");
+        assertThat(searchPort.requests).hasSize(1);
+    }
+
     private static ExternalSearchApplicationRunner runner(
         ExternalSearchDevProperties properties,
         ExternalSearchPort searchPort
@@ -100,6 +129,25 @@ class ExternalSearchApplicationRunnerTest {
                 request.modelId(),
                 "resp-" + requests.size(),
                 null
+            );
+        }
+
+        @Override
+        public Flux<ExternalSearchStreamEvent> searchStream(ExternalSearchRequest request) {
+            requests.add(request);
+            ExternalSearchSource source = new ExternalSearchSource("source", "https://example.com", "snippet", 1);
+            ExternalSearchResponse response = new ExternalSearchResponse(
+                "stream answer for " + request.query(),
+                List.of(source),
+                "fake-stream",
+                request.modelId(),
+                "stream-resp-" + requests.size(),
+                null
+            );
+            return Flux.just(
+                ExternalSearchStreamEvent.progress("started", "search", request.query(), "search started"),
+                ExternalSearchStreamEvent.sources(request.query(), List.of(source)),
+                ExternalSearchStreamEvent.completed(response)
             );
         }
     }

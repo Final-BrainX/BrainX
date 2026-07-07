@@ -5,9 +5,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestClient;
+import org.springframework.web.reactive.function.client.WebClient;
 
 import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort;
 import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
@@ -31,17 +30,12 @@ public class ExternalSearchConfiguration {
             throw new IllegalStateException("OPENAI_WEB_SEARCH_MODEL must not be blank.");
         }
 
-        var requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(properties.getTimeout());
-        requestFactory.setReadTimeout(properties.getTimeout());
-
-        RestClient restClient = RestClient.builder()
+        WebClient webClient = WebClient.builder()
             .baseUrl(properties.getOpenai().getBaseUrl().toString())
-            .requestFactory(requestFactory)
             .build();
 
         return new OpenAiExternalSearchAdapter(
-            restClient,
+            webClient,
             properties,
             aiUsageRecorder,
             usageCostEstimator
