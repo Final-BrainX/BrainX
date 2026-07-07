@@ -6,6 +6,7 @@ import com.brainx.admin.dto.AdminDtos.AdminMonitoringSnapshotData;
 import com.brainx.admin.dto.AdminDtos.KafkaLagState;
 import com.brainx.admin.entity.AdminMonitoringSnapshot;
 import com.brainx.admin.entity.AdminServiceHealthSnapshot;
+import com.brainx.admin.repository.AdminDesktopDownloadEventRepository;
 import com.brainx.admin.repository.AdminMonitoringSnapshotRepository;
 import com.brainx.admin.repository.AdminOperationEventRepository;
 import com.brainx.admin.repository.AdminServiceHealthSnapshotRepository;
@@ -93,6 +94,9 @@ class AdminServiceMonitoringSnapshotTest {
     private AdminKafkaLagCollector kafkaLagCollector;
 
     @Mock
+    private AdminDesktopDownloadEventRepository desktopDownloadEventRepository;
+
+    @Mock
     private AdminOperationEventRepository operationEvents;
 
     @Mock
@@ -112,6 +116,7 @@ class AdminServiceMonitoringSnapshotTest {
                 defaultRestClient,
                 refundNotificationService,
                 kafkaLagCollector,
+                desktopDownloadEventRepository,
                 operationEvents,
                 healthSnapshotRepository,
                 monitoringSnapshotRepository
@@ -274,9 +279,11 @@ class AdminServiceMonitoringSnapshotTest {
                 OffsetDateTime.parse("2026-07-02T23:59:00+09:00")
         );
 
+        doReturn(julyThirdMorning).when(adminService).currentMonitoringTime();
         doReturn(summary).when(adminService).billingSummary();
         doReturn(userGrowthSummary).when(adminService).fetchUserGrowthSummary(14);
         doReturn(List.of()).when(adminService).collectServiceHealths(eq(false), any());
+        when(desktopDownloadEventRepository.findAllByOrderByDownloadedAtDesc()).thenReturn(List.of());
         when(operationEvents.findTop20ByOrderByCreatedAtDesc()).thenReturn(List.of());
         when(monitoringSnapshotRepository.findAll()).thenReturn(List.of(julyFirstSnapshot, julySecondSnapshot));
         when(monitoringSnapshotRepository.findAllByOrderByCapturedAtDesc()).thenReturn(List.of(julySecondSnapshot, julyFirstSnapshot));
@@ -333,6 +340,8 @@ class AdminServiceMonitoringSnapshotTest {
                 mrr,
                 failedPaymentCount,
                 activeUsers,
+                0,
+                0,
                 kafkaLagMessages,
                 kafkaConsumerGroupId,
                 kafkaLagState,

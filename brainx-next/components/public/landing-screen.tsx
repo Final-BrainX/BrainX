@@ -464,6 +464,18 @@ export function LandingScreen() {
     setSession(null);
   };
 
+  const startWindowsDownload = (source: "header" | "hero") => {
+    if (typeof window === "undefined") return;
+    const storageKey = "brainx_windows_download_client_key";
+    let clientKey = window.localStorage.getItem(storageKey);
+    if (!clientKey) {
+      clientKey = window.crypto?.randomUUID?.() ?? `brainx-${Date.now()}`;
+      window.localStorage.setItem(storageKey, clientKey);
+    }
+    const params = new URLSearchParams({ clientKey, source });
+    window.location.href = `/download/windows?${params.toString()}`;
+  };
+
   const features = [
     {
       icon: "sparkle" as const,
@@ -531,6 +543,9 @@ export function LandingScreen() {
               <Btn variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={handleLogout}>
                 로그아웃
               </Btn>
+              <Btn variant="outline" size="sm" className="hidden sm:inline-flex" onClick={() => startWindowsDownload("header")}>
+                Windows 다운로드
+              </Btn>
               <Btn variant="primary" size="sm" onClick={() => router.push("/home")}>
                 BrainX 시작하기
               </Btn>
@@ -540,6 +555,9 @@ export function LandingScreen() {
             <Btn variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => router.push("/login")}>
               로그인
             </Btn>
+              <Btn variant="outline" size="sm" className="hidden sm:inline-flex" onClick={() => startWindowsDownload("header")}>
+                Windows 다운로드
+              </Btn>
               <Btn variant="primary" size="sm" onClick={() => router.push("/home")}>
                 BrainX 시작하기
               </Btn>
@@ -578,7 +596,11 @@ export function LandingScreen() {
             <Btn variant="primary" size="lg" icon="bolt" onClick={enterGuestMode}>
               BrainX 시작하기
             </Btn>
+            <Btn variant="outline" size="lg" onClick={() => startWindowsDownload("hero")}>
+              Windows 앱 다운로드
+            </Btn>
           </div>
+          <p className="mt-3 text-sm text-txt3">Windows 전용 설치 파일(.exe) 다운로드</p>
           <div className="mt-9 flex items-center gap-6 text-[15px] text-txt3">
             <span className="flex items-center gap-1.5">
               <Icon name="check" size={15} className="text-cyan" /> 신용카드 불필요

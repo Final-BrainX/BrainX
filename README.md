@@ -680,7 +680,9 @@ cd C:\Edu\Final\brainX_back\Commerce-Service
 
 `BrainX-Admin/brainx-admin-next`가 실제 데이터로 동작하기 위한 관리자 API는 `contracts-v2/brainx-openapi.ssot.yaml`의 `/api/v1/admin/**`로 확정합니다. Admin-Service는 관리자 화면 전용 read model/orchestration layer이며, 원장 데이터는 각 소유 서비스가 유지합니다.
 
-현재 관리자 화면은 실제 백엔드 데이터를 기준으로 사용자 플랜, 메모 수, 가입일, 최근 활동을 표시하며, 시간 표시는 모두 `Asia/Seoul` 기준으로 통일합니다. 사용자 목록의 플랜은 결제/환불 이력으로 추정하지 않고 Commerce-Service의 현재 구독 상태를 그대로 보여 주며, 상세 패널과 같은 값이 나오도록 맞췄습니다. 사용자 목록의 메모 수는 `Workspace-Service` note 원장 개수, 최근 활동은 실제 마지막 로그인 세션 시간으로 채웁니다. 사용자 상세의 로그인 기기는 같은 기기/IP 접속을 하나로 합쳐 최신 접속 시간만 갱신하고, 최근 2건만 노출합니다. 사용자 관리 화면에서는 정지된 계정을 바로 정지 취소할 수 있습니다.
+공개 랜딩(`brainx-next`) 첫 화면에는 `Windows 앱 다운로드` CTA가 추가되어 `brainx-electron/release/BrainX Setup 0.1.0.exe`를 브라우저 다운로드로 제공합니다. 다운로드 요청은 `brainx-next /download/windows` route가 파일을 스트리밍하면서 동시에 Admin-Service 공개 API `POST /api/v1/landing/desktop-downloads`에 집계를 남기고, 관리자 모니터링 overview에는 누적 다운로드 사용자 수/다운로드 횟수와 최근 14일 다운로드 그래프(`desktopDownloadTrend`)가 함께 노출됩니다. 실행 파일 자동 실행은 브라우저/OS 보안 정책을 따르므로, BrainX는 다운로드가 바로 시작되도록만 보장합니다.
+
+현재 관리자 화면은 실제 백엔드 데이터를 기준으로 사용자 플랜, 메모 수, 가입일, 최근 활동을 표시하며, 시간 표시는 모두 `Asia/Seoul` 기준으로 통일합니다. 사용자 목록의 플랜은 결제/환불 이력으로 추정하지 않고 Commerce-Service의 현재 구독 상태를 그대로 보여 주며, 상세 패널과 같은 값이 나오도록 맞췄습니다. 사용자 목록의 메모 수는 `Workspace-Service` note 원장 개수, 최근 활동은 실제 마지막 로그인 세션 시간으로 채웁니다. 사용자 상세의 로그인 기기는 같은 기기/IP 접속을 하나로 합쳐 최신 접속 시간만 갱신하고, 최근 2건만 노출합니다. Electron 기반 데스크톱 앱 로그인은 관리자 화면에서 `BrainX App / Windows`, `BrainX App / macOS`처럼 앱 사용으로 구분해 표시합니다. 사용자 관리 화면에서는 정지된 계정을 바로 정지 취소할 수 있습니다.
 관리자 프런트는 `/favicon.ico`를 자체 route로 제공하며, 사용자 상세 활동 내역은 같은 문구와 같은 시각이 겹쳐도 React key 충돌이 나지 않도록 렌더링 키를 보강했습니다.
 현재 로그인한 관리자의 이름/역할/이메일이 변경되면 관리자 관리 화면, 모니터링 레일의 관리자 목록, 왼쪽 사이드바 프로필, 로컬 세션 값이 함께 갱신되도록 맞췄습니다.
 관리자 프로필 사진은 로컬 저장소 값을 공통 상태로 올려, 오른쪽 프로필 레일에서 바꾸면 왼쪽 사이드바와 모니터링 레일 관리자 목록의 현재 로그인 관리자 아바타도 즉시 같이 바뀝니다.

@@ -28,6 +28,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers("/api/v1/admin/auth/login").permitAll()
+                        .requestMatchers("/api/v1/landing/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/admin/admin-accounts/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/admin/admin-accounts/**").hasRole("OWNER")
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
