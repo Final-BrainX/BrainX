@@ -49,7 +49,6 @@ import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTok
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
 import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.domain.DocumentGroups;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Service
@@ -144,7 +143,7 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
     private final AiChatPort aiChatPort;
     private final AiUsageRecorder aiUsageRecorder;
     private final MarkdownAnchorLocator anchorLocator = new MarkdownAnchorLocator();
-    private final ObjectMapper objectMapper;
+    private final AutoLinkJsonParser jsonParser;
     private final ObjectProvider<AutoLinkUsageCapturePort> usageCapturePortProvider;
     private final StylePromptCompiler stylePromptCompiler;
 
@@ -163,7 +162,7 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
         this.noteChunkRetrievalPort = noteChunkRetrievalPort;
         this.aiChatPort = aiChatPort;
         this.aiUsageRecorder = aiUsageRecorder;
-        this.objectMapper = objectMapper;
+        this.jsonParser = new AutoLinkJsonParser(objectMapper);
         this.usageCapturePortProvider = usageCapturePortProvider;
         this.stylePromptCompiler = stylePromptCompiler;
     }
@@ -586,7 +585,7 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
         AutoLinkNoteSource source,
         Map<String, AutoLinkNoteSource> notesById,
         String modelId,
-        List<LlmSuggestion> llmSuggestions,
+        List<AutoLinkLlmSuggestion> llmSuggestions,
         Map<String, VectorCandidate> vectorCandidatesByTarget
     ) {
         List<AutoLinkSuggestion> suggestions = new ArrayList<>();
@@ -595,7 +594,7 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
         int filteredQuality = 0;
         int filteredDuplicateTitles = 0;
         int filteredWeakRelations = 0;
-        for (LlmSuggestion llmSuggestion : llmSuggestions) {
+        for (AutoLinkLlmSuggestion llmSuggestion : llmSuggestions) {
             if (suggestions.size() >= properties.getMaxSuggestionsPerNote()) {
                 break;
             }
@@ -720,7 +719,7 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
         AutoLinkNoteSource source,
         AutoLinkNoteSource target,
         AnchorRange anchor,
-        LlmSuggestion llmSuggestion,
+        AutoLinkLlmSuggestion llmSuggestion,
         VectorCandidate vectorCandidate,
         String evidence,
         String modelId
@@ -732,7 +731,7 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
         if (ruleDecision == RelationRuleDecision.STRONG || !properties.isRelationVerifierEnabled()) {
             return false;
         }
-        RelationVerification verification = verifyRelation(source, target, anchor, llmSuggestion, vectorCandidate, evidence, modelId);
+        AutoLinkRelationVerification verification = verifyRelation(source, target, anchor, llmSuggestion, vectorCandidate, evidence, modelId);
         if (verification == null) {
             return false;
         }
@@ -789,11 +788,11 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
             : RelationRuleDecision.STRONG;
     }
 
-    private RelationVerification verifyRelation(
+    private AutoLinkRelationVerification verifyRelation(
         AutoLinkNoteSource source,
         AutoLinkNoteSource target,
         AnchorRange anchor,
-        LlmSuggestion llmSuggestion,
+        AutoLinkLlmSuggestion llmSuggestion,
         VectorCandidate vectorCandidate,
         String evidence,
         String modelId
@@ -805,27 +804,7 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
             relationVerifierSystemPrompt(),
             relationVerifierUserPrompt(source, target, anchor, llmSuggestion, vectorCandidate, evidence)
         );
-        return response == null ? null : parseRelationVerification(response.content());
-    }
-
-    private RelationVerification parseRelationVerification(String content) {
-        if (!StringUtils.hasText(content)) {
-            return null;
-        }
-        try {
-            JsonNode root = objectMapper.readTree(jsonPayload(content));
-            String relationType = text(root, "relationType");
-            if (!StringUtils.hasText(relationType)) {
-                return null;
-            }
-            return new RelationVerification(
-                relationType,
-                confidence(root.get("confidence")),
-                text(root, "reason")
-            );
-        } catch (Exception exception) {
-            return null;
-        }
+        return response == null ? null : jsonParser.parseRelationVerification(response.content());
     }
 
     private static boolean sameNormalizedTitle(String sourceTitle, String targetTitle) {
@@ -915,34 +894,8 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
         return count;
     }
 
-    private List<LlmSuggestion> parseLlmSuggestions(String content) {
-        if (!StringUtils.hasText(content)) {
-            return List.of();
-        }
-        try {
-            JsonNode root = objectMapper.readTree(jsonPayload(content));
-            JsonNode suggestionsNode = root.isArray() ? root : root.get("suggestions");
-            if (suggestionsNode == null || !suggestionsNode.isArray()) {
-                return List.of();
-            }
-            List<LlmSuggestion> suggestions = new ArrayList<>();
-            for (JsonNode node : suggestionsNode) {
-                String anchorText = text(node, "anchorText");
-                String targetNoteId = text(node, "targetNoteId");
-                if (!StringUtils.hasText(anchorText) || !StringUtils.hasText(targetNoteId)) {
-                    continue;
-                }
-                suggestions.add(new LlmSuggestion(
-                    anchorText,
-                    targetNoteId,
-                    text(node, "reason"),
-                    confidence(node.get("confidence"))
-                ));
-            }
-            return suggestions;
-        } catch (Exception exception) {
-            return List.of();
-        }
+    private List<AutoLinkLlmSuggestion> parseLlmSuggestions(String content) {
+        return jsonParser.parseLlmSuggestions(content);
     }
 
     private AutoLinkStrategyResult runWithUsageCapture(NoteAutoLinkStrategy strategy, StrategySupplier supplier) {
@@ -1206,7 +1159,7 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
         AutoLinkNoteSource source,
         AutoLinkNoteSource target,
         AnchorRange anchor,
-        LlmSuggestion llmSuggestion,
+        AutoLinkLlmSuggestion llmSuggestion,
         VectorCandidate vectorCandidate,
         String evidence
     ) {
@@ -1304,37 +1257,6 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
         return noteCard(target).excerpt();
     }
 
-    private static String jsonPayload(String content) {
-        String trimmed = content.trim();
-        int arrayStart = trimmed.indexOf('[');
-        int arrayEnd = trimmed.lastIndexOf(']');
-        if (arrayStart >= 0 && arrayEnd > arrayStart) {
-            return trimmed.substring(arrayStart, arrayEnd + 1);
-        }
-        int objectStart = trimmed.indexOf('{');
-        int objectEnd = trimmed.lastIndexOf('}');
-        if (objectStart >= 0 && objectEnd > objectStart) {
-            return trimmed.substring(objectStart, objectEnd + 1);
-        }
-        return trimmed;
-    }
-
-    private static String text(JsonNode node, String fieldName) {
-        JsonNode value = node == null ? null : node.get(fieldName);
-        if (value == null || value.isNull()) {
-            return "";
-        }
-        String text = value.asText("");
-        return text == null ? "" : text.trim();
-    }
-
-    private static double confidence(JsonNode node) {
-        if (node == null || !node.isNumber()) {
-            return 0.0d;
-        }
-        return Math.max(0.0d, Math.min(1.0d, node.asDouble()));
-    }
-
     private int normalizeMaxNotes(Integer maxNotes) {
         if (maxNotes == null || maxNotes <= 0) {
             return properties.getMaxNotes();
@@ -1399,21 +1321,6 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
         List<String> tags,
         List<String> headings,
         String excerpt
-    ) {
-    }
-
-    private record LlmSuggestion(
-        String anchorText,
-        String targetNoteId,
-        String reason,
-        double confidence
-    ) {
-    }
-
-    private record RelationVerification(
-        String relationType,
-        double confidence,
-        String reason
     ) {
     }
 

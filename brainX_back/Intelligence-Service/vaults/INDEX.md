@@ -47,6 +47,8 @@
 
 ## Routing Rules
 
+- 큰 usecase/service 리팩토링은 `vaults/agents/refactoring-guide.md`를 `vaults/agents/intelligence-service.md`와 함께 읽습니다. 이 문서는 package boundary, collaborator naming, forbidden dependencies, behavior-preserving refactor verification을 라우팅합니다.
+
 - API 사양 질문은 먼저 OpenAPI 계약을 확인한 뒤 `vaults/agents/intelligence-service.md`의 일반 구현 규칙과 대조합니다.
 - `brainx-next` 프론트 요구를 기준으로 Intelligence Service API 구현 범위를 확인할 때는 `vaults/agents/frontend-integration.md`를 함께 읽습니다.
 - 기능 구현 순서 질문은 `vaults/agents/domain-implementation-order.md`를 기준으로 답합니다.

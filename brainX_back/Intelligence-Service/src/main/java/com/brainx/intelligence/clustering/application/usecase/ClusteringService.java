@@ -1,11 +1,7 @@
 package com.brainx.intelligence.clustering.application.usecase;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -52,7 +48,6 @@ import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysi
 import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.domain.DocumentGroups;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Service
@@ -76,6 +71,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
     private final ClusteringEventPort clusteringEventPort;
     private final ClusteringProperties properties;
     private final ObjectMapper objectMapper;
+    private final ClusterResponseParser clusterResponseParser;
     private final StylePromptCompiler stylePromptCompiler;
     private final Clock clock;
 
@@ -137,6 +133,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
         this.clusteringEventPort = clusteringEventPort;
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.clusterResponseParser = new ClusterResponseParser(objectMapper);
         this.stylePromptCompiler = stylePromptCompiler;
         this.clock = clock;
     }
@@ -220,7 +217,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
             AiChatResponse response = recorded.response();
             String content = response == null || response.content() == null ? "" : response.content();
             recordUsage(userId, modelId, clusterJobId, response == null ? null : response.tokenUsage());
-            List<Cluster> clusters = parseClusters(clusterJobId, content, notes, maxClusters);
+            List<Cluster> clusters = clusterResponseParser.parseClusters(clusterJobId, content, notes, maxClusters);
             ClusterJob completed = clusterJobStore.save(running.withLlmRunId(recorded.llmRunId()).completed(clusters, Instant.now(clock)));
             clusteringEventPort.clusterJobCompleted(new ClusterJobCompletedEvent(
                 userId,
@@ -356,56 +353,6 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
 
     private static String runtimeInstructions(int maxClusters) {
         return "Return at most %d cluster objects.".formatted(maxClusters);
-    }
-
-    private List<Cluster> parseClusters(
-        String clusterJobId,
-        String content,
-        List<KnowledgeAnalysisNote> notes,
-        int maxClusters
-    ) {
-        try {
-            JsonNode root = objectMapper.readTree(jsonPayload(content));
-            if (root.has("clusters")) {
-                root = root.get("clusters");
-            }
-            if (!root.isArray()) {
-                throw new IllegalArgumentException("Cluster response must be a JSON array.");
-            }
-            LinkedHashSet<String> allowedNoteIds = new LinkedHashSet<>();
-            notes.forEach(note -> allowedNoteIds.add(note.noteId()));
-            List<Cluster> clusters = new ArrayList<>();
-            for (JsonNode node : root) {
-                if (clusters.size() >= maxClusters) {
-                    break;
-                }
-                String title = text(node, "title");
-                if (!StringUtils.hasText(title)) {
-                    continue;
-                }
-                List<String> noteIds = stringList(node.path("noteIds")).stream()
-                    .filter(allowedNoteIds::contains)
-                    .toList();
-                if (noteIds.isEmpty()) {
-                    continue;
-                }
-                int ordinal = clusters.size() + 1;
-                clusters.add(new Cluster(
-                    clusterId(clusterJobId, ordinal, title),
-                    title,
-                    text(node, "summary"),
-                    noteIds,
-                    stringList(node.path("keywords")),
-                    doubleValue(node.path("confidence"), 0.0d)
-                ));
-            }
-            if (clusters.isEmpty()) {
-                throw new IllegalArgumentException("Cluster response did not contain valid clusters.");
-            }
-            return clusters;
-        } catch (JsonProcessingException exception) {
-            throw new IllegalArgumentException("Cluster response was not valid JSON.", exception);
-        }
     }
 
     private void recordUsage(
@@ -562,76 +509,6 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
             }
         }
         return defaultValue;
-    }
-
-    private static double doubleValue(JsonNode node, double defaultValue) {
-        if (node != null && node.isNumber()) {
-            return node.asDouble();
-        }
-        if (node != null && node.isTextual()) {
-            try {
-                return Double.parseDouble(node.asText());
-            } catch (NumberFormatException ignored) {
-                return defaultValue;
-            }
-        }
-        return defaultValue;
-    }
-
-    private static String text(JsonNode node, String field) {
-        JsonNode value = node == null ? null : node.get(field);
-        if (value == null || value.isNull()) {
-            return "";
-        }
-        String text = value.asText("");
-        return text == null ? "" : text.trim();
-    }
-
-    private static List<String> stringList(JsonNode node) {
-        if (node == null || !node.isArray()) {
-            return List.of();
-        }
-        List<String> values = new ArrayList<>();
-        for (JsonNode item : node) {
-            String value = item.asText("");
-            if (StringUtils.hasText(value)) {
-                values.add(value.trim());
-            }
-        }
-        return values.stream().distinct().toList();
-    }
-
-    private static String jsonPayload(String content) {
-        if (content == null) {
-            return "";
-        }
-        String text = content.trim();
-        if (text.startsWith("```")) {
-            int firstLineEnd = text.indexOf('\n');
-            int lastFence = text.lastIndexOf("```");
-            if (firstLineEnd >= 0 && lastFence > firstLineEnd) {
-                return text.substring(firstLineEnd + 1, lastFence).trim();
-            }
-        }
-        return text;
-    }
-
-    private static String clusterId(String clusterJobId, int ordinal, String title) {
-        return "cluster-" + sha256(clusterJobId + ":" + ordinal + ":" + title).substring(0, 16);
-    }
-
-    private static String sha256(String value) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(value.getBytes(StandardCharsets.UTF_8));
-            StringBuilder builder = new StringBuilder(hash.length * 2);
-            for (byte b : hash) {
-                builder.append(String.format("%02x", b));
-            }
-            return builder.toString();
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 is not available.", exception);
-        }
     }
 
     private static String safeFailureMessage(RuntimeException exception) {

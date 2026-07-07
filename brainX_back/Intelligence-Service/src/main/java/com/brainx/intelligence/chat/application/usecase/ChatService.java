@@ -9,8 +9,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -63,11 +61,7 @@ import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiCha
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiRole;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTokenUsage;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort;
-import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort.EntitlementRequest;
 import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort;
-import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchRequest;
-import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchResponse;
-import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchSource;
 import com.brainx.intelligence.llmops.application.service.AiRunRecorder;
 import com.brainx.intelligence.llmops.application.service.LlmFeedbackService;
 import com.brainx.intelligence.llmops.application.service.PromptRegistryService;
@@ -92,7 +86,6 @@ public class ChatService implements
 
     static final String RAG_CHAT_CAPABILITY = "RAG_CHAT";
     static final String RAG_CHAT_FEATURE_ID = "rag-chat";
-    private static final Logger log = LoggerFactory.getLogger(ChatService.class);
     private static final String NO_CONTEXT_ANSWER = "관련 노트 근거를 찾지 못했습니다.";
     private static final String OUT_OF_SCOPE_ANSWER = "BrainX 본 채팅은 내 노트 검색, 노트 기반 질문, 글 작성, 노트 적용 초안만 처리합니다.";
     private static final String WEB_SEARCH_UNAVAILABLE_ANSWER =
@@ -107,22 +100,19 @@ public class ChatService implements
         """;
     private static final int HISTORY_LIMIT = 8;
     private static final int CONTEXT_SNIPPET_LENGTH = 1_200;
-    private static final int WEB_SOURCE_SNIPPET_LENGTH = 500;
     private static final int MIN_CLIENT_CONTEXT_CHARS = 80;
     private static final int DEFAULT_THREAD_LIST_LIMIT = 20;
     private static final int MAX_THREAD_LIST_LIMIT = 50;
     private static final int THREAD_PREVIEW_LENGTH = 160;
-    private static final int DEFAULT_WEB_SEARCH_MAX_SOURCES = 8;
     private static final int WEB_SEARCH_PREFLIGHT_TOKEN_BUFFER = 1_500;
-    private static final String NOOP_SEARCH_PROVIDER = "none";
 
     private final ChatProperties properties;
     private final ChatThreadTitleGenerator titleGenerator;
     private final ChatRouteDecider chatRouteDecider;
     private final ChatPersistencePort chatPersistencePort;
     private final NoteChunkRetrievalPort noteChunkRetrievalPort;
-    private final EntitlementPort entitlementPort;
-    private final ExternalSearchPort externalSearchPort;
+    private final ChatEntitlementGuard entitlementGuard;
+    private final ChatWebSearchResolver webSearchResolver;
     private final AiChatPort aiChatPort;
     private final AiTokenUsageCostEstimator usageCostEstimator;
     private final AiUsageRecorder aiUsageRecorder;
@@ -154,8 +144,8 @@ public class ChatService implements
         this.chatRouteDecider = chatRouteDecider;
         this.chatPersistencePort = chatPersistencePort;
         this.noteChunkRetrievalPort = noteChunkRetrievalPort;
-        this.entitlementPort = entitlementPort;
-        this.externalSearchPort = externalSearchPort;
+        this.entitlementGuard = new ChatEntitlementGuard(entitlementPort);
+        this.webSearchResolver = new ChatWebSearchResolver(externalSearchPort);
         this.aiChatPort = aiChatPort;
         this.usageCostEstimator = usageCostEstimator;
         this.aiUsageRecorder = aiUsageRecorder;
@@ -262,7 +252,7 @@ public class ChatService implements
             && clientContextContentLength(command.clientContext()) < MIN_CLIENT_CONTEXT_CHARS) {
             return withRouteEvent(routeDecision, fixedAnswerStream(thread, userMessage, modelId, INSUFFICIENT_CONTEXT_ANSWER));
         }
-        checkRagChatEntitlement(userId, preflightTokenEstimate(
+        entitlementGuard.checkRagChat(userId, preflightTokenEstimate(
             userId,
             message,
             history,
@@ -272,7 +262,7 @@ public class ChatService implements
             route
         ));
 
-        WebSearchContext webSearch = resolveWebSearch(userId, message, routeDecision);
+        WebSearchContext webSearch = webSearchResolver.resolve(userId, message, routeDecision);
         if (routeDecision.requiresWebSearch() && !webSearch.available()) {
             return withRouteEvent(
                 unavailableWebSearchRouteDecision(routeDecision),
@@ -296,7 +286,7 @@ public class ChatService implements
             ? userPromptFromClientContext(message, clientContextPrompt, route, webSearch)
             : userPrompt(message, contexts, route, webSearch);
         int tokenEstimate = estimateTokens(systemPrompt + "\n" + historyPrompt(history) + "\n" + userPrompt);
-        checkRagChatEntitlement(userId, tokenEstimate);
+        entitlementGuard.checkRagChat(userId, tokenEstimate);
 
         if (requiresNoteContext(route) && !hasClientContext && contexts.isEmpty() && !webSearch.available()) {
             return withRouteEvent(routeDecision, fixedAnswerStream(thread, userMessage, modelId, NO_CONTEXT_ANSWER));
@@ -340,17 +330,6 @@ public class ChatService implements
             : userPrompt(message, List.of(), route, noWebSearch);
         int estimate = estimateTokens(systemPrompt + "\n" + historyPrompt(history) + "\n" + userPrompt);
         return routeDecision.requiresWebSearch() ? estimate + WEB_SEARCH_PREFLIGHT_TOKEN_BUFFER : estimate;
-    }
-
-    private void checkRagChatEntitlement(String userId, int tokenEstimate) {
-        var entitlement = entitlementPort.checkEntitlement(new EntitlementRequest(
-            userId,
-            RAG_CHAT_CAPABILITY,
-            tokenEstimate
-        ));
-        if (!entitlement.allowed()) {
-            throw new ChatDomainException("AI capability is not available: " + entitlement.reasonCode());
-        }
     }
 
     @Override
@@ -583,60 +562,6 @@ public class ChatService implements
             tokenUsage.reasoningTokens(),
             tokenUsage.totalTokens()
         );
-    }
-
-    private WebSearchContext resolveWebSearch(String userId, String message, ChatRouteDecision routeDecision) {
-        if (!routeDecision.requiresWebSearch()) {
-            return WebSearchContext.none();
-        }
-        String query = StringUtils.hasText(routeDecision.webSearchQuery()) ? routeDecision.webSearchQuery() : message;
-        try {
-            ExternalSearchResponse response = externalSearchPort.search(new ExternalSearchRequest(
-                userId,
-                query,
-                null,
-                DEFAULT_WEB_SEARCH_MAX_SOURCES,
-                List.of(),
-                List.of()
-            ));
-            if (response == null || NOOP_SEARCH_PROVIDER.equalsIgnoreCase(response.provider())) {
-                return WebSearchContext.unavailable(query);
-            }
-            List<ChatWebSource> sources = response.sources().stream()
-                .map(ChatService::toWebSource)
-                .toList();
-            if (!StringUtils.hasText(response.answer()) && sources.isEmpty()) {
-                return WebSearchContext.unavailable(query);
-            }
-            return new WebSearchContext(
-                true,
-                query,
-                response.answer(),
-                sources,
-                response.provider(),
-                response.modelId(),
-                response.responseId()
-            );
-        } catch (RuntimeException exception) {
-            log.warn("External search failed for chat request.", exception);
-            return WebSearchContext.unavailable(query);
-        }
-    }
-
-    private static ChatWebSource toWebSource(ExternalSearchSource source) {
-        return new ChatWebSource(
-            source.title(),
-            source.url(),
-            webSourceSnippet(source.snippet()),
-            source.rank()
-        );
-    }
-
-    private static String webSourceSnippet(String text) {
-        if (text == null || text.length() <= WEB_SOURCE_SNIPPET_LENGTH) {
-            return text == null ? "" : text;
-        }
-        return text.substring(0, WEB_SOURCE_SNIPPET_LENGTH).trim();
     }
 
     private List<RagContext> retrieveContexts(ChatThread thread, String message, ChatRoute route) {
@@ -1164,34 +1089,6 @@ public class ChatService implements
     private static String safeMessage(Throwable exception) {
         String message = exception.getMessage();
         return message == null || message.isBlank() ? "RAG chat stream failed." : message;
-    }
-
-    private record WebSearchContext(
-        boolean available,
-        String query,
-        String answer,
-        List<ChatWebSource> sources,
-        String provider,
-        String modelId,
-        String responseId
-    ) {
-
-        private WebSearchContext {
-            query = query == null ? "" : query.trim();
-            answer = answer == null ? "" : answer.trim();
-            sources = sources == null ? List.of() : List.copyOf(sources);
-            provider = provider == null ? "" : provider.trim();
-            modelId = modelId == null ? "" : modelId.trim();
-            responseId = responseId == null || responseId.isBlank() ? null : responseId.trim();
-        }
-
-        private static WebSearchContext none() {
-            return new WebSearchContext(false, "", "", List.of(), "", "", null);
-        }
-
-        private static WebSearchContext unavailable(String query) {
-            return new WebSearchContext(false, query, "", List.of(), "", "", null);
-        }
     }
 
     private record RagContext(ChatCitation citation, String text) {

@@ -2,7 +2,6 @@ package com.brainx.intelligence.insight.application.usecase;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -27,7 +26,6 @@ import com.brainx.intelligence.insight.application.port.outbound.InsightReportSt
 import com.brainx.intelligence.insight.domain.InsightConflictException;
 import com.brainx.intelligence.insight.domain.InsightForbiddenException;
 import com.brainx.intelligence.insight.domain.InsightNotFoundException;
-import com.brainx.intelligence.insight.domain.InsightRecommendation;
 import com.brainx.intelligence.insight.domain.InsightReport;
 import com.brainx.intelligence.insight.domain.InsightReportLatestState;
 import com.brainx.intelligence.insight.domain.InsightReportStatus;
@@ -49,7 +47,6 @@ import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysi
 import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.domain.DocumentGroups;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Service
@@ -73,6 +70,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
     private final InsightEventPort insightEventPort;
     private final InsightProperties properties;
     private final ObjectMapper objectMapper;
+    private final InsightResponseParser insightResponseParser;
     private final StylePromptCompiler stylePromptCompiler;
     private final Clock clock;
 
@@ -134,6 +132,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
         this.insightEventPort = insightEventPort;
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.insightResponseParser = new InsightResponseParser(objectMapper);
         this.stylePromptCompiler = stylePromptCompiler;
         this.clock = clock;
     }
@@ -217,7 +216,12 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
             AiChatResponse response = recorded.response();
             String content = response == null || response.content() == null ? "" : response.content();
             recordUsage(userId, modelId, reportId, response == null ? null : response.tokenUsage());
-            ParsedInsight parsed = parseInsight(content, notes, includeLearningRecommendations, maxRecommendations);
+            ParsedInsight parsed = insightResponseParser.parseInsight(
+                content,
+                notes,
+                includeLearningRecommendations,
+                maxRecommendations
+            );
             InsightReport completed = insightReportStore.save(running.withLlmRunId(recorded.llmRunId()).completed(
                 parsed.summary(),
                 parsed.knowledgeGaps(),
@@ -369,60 +373,6 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
         return "Use at most %d recommendations. %s".formatted(maxRecommendations, learningInstruction);
     }
 
-    private ParsedInsight parseInsight(
-        String content,
-        List<KnowledgeAnalysisNote> notes,
-        boolean includeLearningRecommendations,
-        int maxRecommendations
-    ) {
-        try {
-            JsonNode root = objectMapper.readTree(jsonPayload(content));
-            if (!root.isObject()) {
-                throw new IllegalArgumentException("Insight response must be a JSON object.");
-            }
-            LinkedHashSet<String> allowedNoteIds = new LinkedHashSet<>();
-            notes.forEach(note -> allowedNoteIds.add(note.noteId()));
-            List<InsightRecommendation> recommendations = new ArrayList<>();
-            JsonNode recommendationNodes = root.path("recommendations");
-            if (recommendationNodes.isArray()) {
-                for (JsonNode node : recommendationNodes) {
-                    if (recommendations.size() >= maxRecommendations) {
-                        break;
-                    }
-                    InsightRecommendation recommendation = recommendation(node, allowedNoteIds);
-                    if (!StringUtils.hasText(recommendation.title())) {
-                        continue;
-                    }
-                    if (!includeLearningRecommendations && learningRecommendation(recommendation.type())) {
-                        continue;
-                    }
-                    recommendations.add(recommendation);
-                }
-            }
-            String summary = text(root, "summary");
-            List<String> knowledgeGaps = stringList(root.path("knowledgeGaps"));
-            if (!StringUtils.hasText(summary) && knowledgeGaps.isEmpty() && recommendations.isEmpty()) {
-                throw new IllegalArgumentException("Insight response did not contain usable data.");
-            }
-            return new ParsedInsight(summary, knowledgeGaps, recommendations);
-        } catch (JsonProcessingException exception) {
-            throw new IllegalArgumentException("Insight response was not valid JSON.", exception);
-        }
-    }
-
-    private InsightRecommendation recommendation(JsonNode node, LinkedHashSet<String> allowedNoteIds) {
-        List<String> noteIds = stringList(node.path("noteIds")).stream()
-            .filter(allowedNoteIds::contains)
-            .toList();
-        return new InsightRecommendation(
-            text(node, "type"),
-            text(node, "title"),
-            text(node, "reason"),
-            noteIds,
-            text(node, "priority")
-        );
-    }
-
     private void recordUsage(
         String userId,
         String modelId,
@@ -438,11 +388,6 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
         } catch (JsonProcessingException exception) {
             return String.valueOf(value);
         }
-    }
-
-    private static boolean learningRecommendation(String type) {
-        String normalized = type == null ? "" : type.trim().toUpperCase();
-        return normalized.contains("LEARNING") || normalized.contains("STUDY");
     }
 
     private static int estimateTokens(String text) {
@@ -469,44 +414,6 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
             }
         }
         return defaultValue;
-    }
-
-    private static String text(JsonNode node, String field) {
-        JsonNode value = node == null ? null : node.get(field);
-        if (value == null || value.isNull()) {
-            return "";
-        }
-        String text = value.asText("");
-        return text == null ? "" : text.trim();
-    }
-
-    private static List<String> stringList(JsonNode node) {
-        if (node == null || !node.isArray()) {
-            return List.of();
-        }
-        List<String> values = new ArrayList<>();
-        for (JsonNode item : node) {
-            String value = item.asText("");
-            if (StringUtils.hasText(value)) {
-                values.add(value.trim());
-            }
-        }
-        return values.stream().distinct().toList();
-    }
-
-    private static String jsonPayload(String content) {
-        if (content == null) {
-            return "";
-        }
-        String text = content.trim();
-        if (text.startsWith("```")) {
-            int firstLineEnd = text.indexOf('\n');
-            int lastFence = text.lastIndexOf("```");
-            if (firstLineEnd >= 0 && lastFence > firstLineEnd) {
-                return text.substring(firstLineEnd + 1, lastFence).trim();
-            }
-        }
-        return text;
     }
 
     private static String safeFailureMessage(RuntimeException exception) {
@@ -625,13 +532,6 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
             throw new IllegalArgumentException(field + " must not be blank.");
         }
         return value.trim();
-    }
-
-    private record ParsedInsight(
-        String summary,
-        List<String> knowledgeGaps,
-        List<InsightRecommendation> recommendations
-    ) {
     }
 
     private record ScopeSpec(
