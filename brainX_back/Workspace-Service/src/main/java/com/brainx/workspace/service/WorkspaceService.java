@@ -87,8 +87,15 @@ public class WorkspaceService {
         );
     }
 
-    @Transactional(readOnly = true)
+    /** User-Service의 provisionDefaultWorkspaceBestEffort()는 이름 그대로 best-effort라 실패할 수
+        있다 — 그 경우 이 사용자는 Default Workspace 없이 남아 다른 Workspace만 계속 쌓일 수 있다
+        (예: OAuth 온보딩 직후 내부 호출이 일시적으로 실패한 계정). 조회 시점에 한 번 더 존재를
+        보정해, 실패가 회원가입 순간에 국한되지 않고 다음 목록 조회에서 스스로 복구되게 한다. */
+    @Transactional
     public WorkspaceListData listWorkspaces(String userId) {
+        if (workspaceRepository.findDefaultWorkspacesByUserId(userId).isEmpty()) {
+            getOrCreateDefaultWorkspace(userId);
+        }
         return new WorkspaceListData(workspaceRepository.findByUserIdOrderByDefaultFirst(userId).stream()
                 .map(this::workspaceSummaryData)
                 .toList());
