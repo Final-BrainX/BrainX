@@ -22,6 +22,8 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   adminApi,
+  fallbackAdminBootstrap,
+  isAuthErrorMessage,
   loadAdminBootstrap,
   type AdminBootstrap,
   type AdminMessage,
@@ -132,6 +134,14 @@ function normalizeSeries(values: unknown, fallback: number[] = [0]) {
     .map((value) => (typeof value === "number" && Number.isFinite(value) ? value : Number(value)))
     .filter((value) => Number.isFinite(value));
   return normalized.length > 0 ? normalized : fallback;
+}
+
+function normalizeNumber(value: unknown, fallback = 0) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  const normalized = Number(value);
+  return Number.isFinite(normalized) ? normalized : fallback;
 }
 
 const KST_TIME_ZONE = "Asia/Seoul";
@@ -395,8 +405,10 @@ function downloadAdminReport(payload: {
   kpis: AdminBootstrap["kpis"];
   activeUserSeries: number[];
   revenueBars: number[];
+  desktopDownloadSeries: number[];
   activeUserTrendMeta: AdminBootstrap["activeUserTrendMeta"];
   revenueTrendMeta: AdminBootstrap["revenueTrendMeta"];
+  desktopDownloadTrendMeta: AdminBootstrap["desktopDownloadTrendMeta"];
   monitoringSnapshots: AdminMonitoringSnapshot[];
   healthSnapshots: AdminServiceHealthSnapshot[];
   billingSubscriptions: BillingSubscription[];
@@ -412,11 +424,13 @@ function downloadAdminReport(payload: {
   const trendLabels = buildTrendLabels(trendLength, endDate);
   const activeTrend = normalizeSeries(payload.activeUserSeries, normalizeSeries(payload.activeUserTrendMeta.values, [0]));
   const revenueTrend = normalizeSeries(payload.revenueBars, normalizeSeries(payload.revenueTrendMeta.values, [0]));
-  const trendDates = trendLabels.slice(-Math.max(activeTrend.length, revenueTrend.length));
+  const desktopDownloadTrend = normalizeSeries(payload.desktopDownloadSeries, normalizeSeries(payload.desktopDownloadTrendMeta.values, [0]));
+  const trendDates = trendLabels.slice(-Math.max(activeTrend.length, revenueTrend.length, desktopDownloadTrend.length));
   const activeTrendRows = trendDates.map((dateLabel, index) => ({
     date: dateLabel,
     activeUsers: activeTrend[index] ?? 0,
-    revenue: revenueTrend[index] ?? 0
+    revenue: revenueTrend[index] ?? 0,
+    desktopDownloads: desktopDownloadTrend[index] ?? 0
   }));
   const monitoringRows = [...payload.monitoringSnapshots]
     .sort((left, right) => new Date(right.capturedAt).getTime() - new Date(left.capturedAt).getTime())
@@ -464,6 +478,8 @@ function downloadAdminReport(payload: {
         <div class="metric"><div class="metric-label">활성 구독</div><div class="metric-value">${payload.overviewSummary.activeSubscriptions.toLocaleString("ko-KR")}</div></div>
         <div class="metric"><div class="metric-label">MRR</div><div class="metric-value">${money(payload.overviewSummary.mrr)}</div></div>
         <div class="metric"><div class="metric-label">결제 실패</div><div class="metric-value">${payload.overviewSummary.failedPaymentCount.toLocaleString("ko-KR")}</div></div>
+        <div class="metric"><div class="metric-label">앱 다운로드 사용자</div><div class="metric-value">${payload.overviewSummary.desktopDownloadUsers.toLocaleString("ko-KR")}</div></div>
+        <div class="metric"><div class="metric-label">앱 다운로드 횟수</div><div class="metric-value">${payload.overviewSummary.desktopDownloadCount.toLocaleString("ko-KR")}</div></div>
       </div>
     </div>
 
@@ -478,6 +494,11 @@ function downloadAdminReport(payload: {
         <div class="chart-subtitle">${escapeHtml(payload.revenueTrendMeta.periodLabel)} · ${escapeHtml(payload.revenueTrendMeta.source)}</div>
         ${buildBarChartSvg(trendDates, activeTrendRows.map((row) => row.revenue), "최근 14일 매출 추이")}
       </div>
+      <div class="chart-card">
+        <div class="chart-title">최근 14일 Windows 앱 다운로드</div>
+        <div class="chart-subtitle">${escapeHtml(payload.desktopDownloadTrendMeta.periodLabel)} · ${escapeHtml(payload.desktopDownloadTrendMeta.source)}</div>
+        ${buildBarChartSvg(trendDates, activeTrendRows.map((row) => row.desktopDownloads), "최근 14일 Windows 앱 다운로드", "#2563eb")}
+      </div>
     </div>
 
     <div class="card">
@@ -488,6 +509,7 @@ function downloadAdminReport(payload: {
             <th>날짜</th>
             <th>활성 사용자</th>
             <th>매출</th>
+            <th>앱 다운로드</th>
           </tr>
         </thead>
         <tbody>
@@ -498,6 +520,7 @@ function downloadAdminReport(payload: {
                   <td>${escapeHtml(row.date)}</td>
                   <td>${row.activeUsers.toLocaleString("ko-KR")}</td>
                   <td>${money(row.revenue)}</td>
+                  <td>${row.desktopDownloads.toLocaleString("ko-KR")}</td>
                 </tr>`
             )
             .join("")}
@@ -650,6 +673,7 @@ export function AdminConsole() {
       router.replace("/login");
       return;
     }
+    const sessionToken = session.accessToken;
 
     let active = true;
     adminApi
@@ -662,10 +686,17 @@ export function AdminConsole() {
         }
         setAuthReady(true);
       })
-      .catch(() => {
+      .catch((error) => {
         if (!active) return;
-        clearSession();
-        router.replace("/login");
+        const errorMessage = error instanceof Error ? error.message : "";
+        if (isAuthErrorMessage(errorMessage) && getSession()?.accessToken === sessionToken) {
+          clearSession();
+          router.replace("/login");
+          return;
+        }
+        setAuthReady(true);
+        setAdminError(errorMessage || "관리자 세션 확인 중 오류가 발생했습니다.");
+        setToast("관리자 세션 확인 중 오류가 발생했습니다.");
       });
 
     return () => {
@@ -692,6 +723,8 @@ export function AdminConsole() {
       setAdminData(data);
       setSelectedInquiry((current) => data.inquiries.some((item) => item.id === current) ? current : data.inquiries[0]?.id ?? "");
     } catch (error) {
+      const sessionAdmin = getSession()?.admin ?? fallbackAdminBootstrap.adminProfile;
+      setAdminData({ ...fallbackAdminBootstrap, adminProfile: sessionAdmin });
       setAdminError(error instanceof Error ? error.message : "관리자 API를 불러오지 못했어요");
       setToast("관리자 API를 불러오지 못했어요");
     } finally {
@@ -713,6 +746,8 @@ export function AdminConsole() {
       })
       .catch((error) => {
         if (!active) return;
+        const sessionAdmin = getSession()?.admin ?? fallbackAdminBootstrap.adminProfile;
+        setAdminData({ ...fallbackAdminBootstrap, adminProfile: sessionAdmin });
         setAdminError(error instanceof Error ? error.message : "Admin API 불러오기에 실패했습니다.");
         setToast("Admin API 불러오기에 실패했습니다.");
       })
@@ -881,6 +916,8 @@ function Dashboard({
     mrr: 0,
     failedPaymentCount: 0,
     activeUsers: 0,
+    desktopDownloadUsers: 0,
+    desktopDownloadCount: 0,
     totalNotes: 0,
     totalStorageBytes: 0,
     notesCreatedToday: 0,
@@ -889,6 +926,8 @@ function Dashboard({
     userSource: "unknown",
     workspaceSource: "unknown"
   };
+  const desktopDownloadUsers = normalizeNumber(overviewSummary.desktopDownloadUsers, 0);
+  const desktopDownloadCount = normalizeNumber(overviewSummary.desktopDownloadCount, 0);
   const activeUserTrendMeta = data.activeUserTrendMeta ?? {
     metric: "activeUsers",
     values: [],
@@ -905,15 +944,25 @@ function Dashboard({
     timezone: "Asia/Seoul",
     source: "unknown"
   };
+  const desktopDownloadTrendMeta = data.desktopDownloadTrendMeta ?? {
+    metric: "desktopDownloadCount",
+    values: [],
+    periodLabel: "최근 데이터 없음",
+    pointCount: 0,
+    timezone: "Asia/Seoul",
+    source: "unknown"
+  };
   const activeUserSeries = normalizeSeries(
     (data as AdminBootstrap & { traffic?: number[] }).activeUserSeries ?? (data as AdminBootstrap & { traffic?: number[] }).traffic,
     normalizeSeries(activeUserTrendMeta.values, [0])
   );
   const revenueBars = normalizeSeries(data.revenueBars, normalizeSeries(revenueTrendMeta.values, [0]));
+  const desktopDownloadSeries = normalizeSeries(data.desktopDownloadSeries, normalizeSeries(desktopDownloadTrendMeta.values, [0]));
   const activeUserPath = linePath(activeUserSeries);
   const activeUserArea = `${activeUserPath} L560,150 L0,150 Z`;
   const maxRevenueBar = Math.max(...revenueBars, 1);
-  const visibleKpis = data.kpis.slice(0, 3);
+  const maxDesktopDownloadBar = Math.max(...desktopDownloadSeries, 1);
+  const visibleKpis = data.kpis;
   const [snapshots, setSnapshots] = useState<AdminMonitoringSnapshot[]>(() => data.monitoringSnapshots);
   const [healthSnapshots, setHealthSnapshots] = useState<AdminServiceHealthSnapshot[]>([]);
   const [kafkaLag, setKafkaLag] = useState<AdminKafkaLagData | null>(null);
@@ -1021,6 +1070,7 @@ function Dashboard({
   const reversedHealthSnapshots = orderedHealthSnapshots.slice().reverse();
   const activeTrendLabels = buildTrendLabels(activeUserSeries.length, latestMonitoringUpdatedAt);
   const revenueTrendLabels = buildTrendLabels(revenueBars.length, latestMonitoringUpdatedAt);
+  const desktopDownloadTrendLabels = buildTrendLabels(desktopDownloadSeries.length, latestMonitoringUpdatedAt);
 
   const handleDownloadReport = () => {
     downloadAdminReport({
@@ -1028,8 +1078,10 @@ function Dashboard({
       kpis: data.kpis,
       activeUserSeries,
       revenueBars,
+      desktopDownloadSeries,
       activeUserTrendMeta,
       revenueTrendMeta,
+      desktopDownloadTrendMeta,
       monitoringSnapshots: snapshots,
       healthSnapshots,
       billingSubscriptions: data.billingSubscriptions,
@@ -1051,7 +1103,7 @@ function Dashboard({
     <div key={snapshot.snapshotId} style={{ display: "flex", alignItems: "center", gap: 10, borderBottom: "1px solid #f5f5f4", padding: "8px 0" }}>
       <span className="mono" style={{ width: 130, color: "#78716c", fontSize: 11 }}>{formatHistoryTime(snapshot.capturedAt)}</span>
       <span className="mono" style={{ flex: 1, fontSize: 12 }}>
-        매출 {money(snapshot.monthlyRevenue)} · 구독 {snapshot.activeSubscriptions} · MRR {money(snapshot.mrr)} · 활성 {snapshot.activeUsers} · Kafka {kafkaLagLabel(kafkaLagDisplay(snapshot))} {snapshot.kafkaLagMessages == null ? "" : `(${snapshot.kafkaLagMessages.toLocaleString("ko-KR")} msgs)`}
+        매출 {money(snapshot.monthlyRevenue)} · 구독 {snapshot.activeSubscriptions} · MRR {money(snapshot.mrr)} · 활성 {snapshot.activeUsers} · 다운로드 {normalizeNumber(snapshot.desktopDownloadUsers, 0)}/{normalizeNumber(snapshot.desktopDownloadCount, 0)} · Kafka {kafkaLagLabel(kafkaLagDisplay(snapshot))} {snapshot.kafkaLagMessages == null ? "" : `(${snapshot.kafkaLagMessages.toLocaleString("ko-KR")} msgs)`}
       </span>
       {snapshot.persisted ? (
         <button className="btn danger" title="삭제" onClick={() => deleteSnapshot(snapshot.snapshotId)} style={{ width: 30, height: 30, padding: 0, justifyContent: "center" }}><Trash2 size={14} /></button>
@@ -1150,6 +1202,31 @@ function Dashboard({
           <TrendAxisLabels labels={revenueTrendLabels} />
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className="card">
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+              <div className="card-title">Windows 앱 다운로드</div>
+              <span className="mono" style={{ color: "#2563eb", fontSize: 13, fontWeight: 600 }}>{desktopDownloadTrendMeta.timezone}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
+              <div className="mono" style={{ fontSize: 24, fontWeight: 600 }}>{desktopDownloadCount.toLocaleString("ko-KR")}</div>
+              <div style={{ color: "#6b7280", fontSize: 12 }}>사용자 {desktopDownloadUsers.toLocaleString("ko-KR")}명</div>
+            </div>
+            <div className="revenue-chart" style={{ height: 120 }}>
+              {desktopDownloadSeries.map((bar, index) => (
+                <div
+                  key={`${bar}-${index}-download`}
+                  style={{
+                    flex: 1,
+                    height: `${Math.max(4, (bar / maxDesktopDownloadBar) * 100)}%`,
+                    borderRadius: "7px 7px 3px 3px",
+                    background: index > Math.max(0, desktopDownloadSeries.length - 4) ? "#2563eb" : "#bfdbfe"
+                  }}
+                />
+              ))}
+            </div>
+            <TrendAxisLabels labels={desktopDownloadTrendLabels} />
+            <div style={{ marginTop: 8, color: "#9ca3af", fontSize: 11 }}>{desktopDownloadTrendMeta.periodLabel} · {desktopDownloadTrendMeta.source}</div>
+          </div>
           <AlertMetric
             title={intelligenceService ? "Intelligence-Service 응답" : "AI 응답 서비스"}
             left="상태"
@@ -2133,10 +2210,10 @@ function UsersPanel({ users, onReload, onToast }: { users: AdminUser[]; onReload
           onClose={() => setBulkNoticeModalOpen(false)}
           onApply={async ({ type, title, body }) => {
             await adminApi.runUserBulkAction(selectedIds, "SEND_NOTICE", { notice: { title: `[${type}] ${title}`, body } });
-            await onReload();
-            onToast(`${selectedIds.length}명에게 공지를 발송했어요`);
             setBulkNoticeModalOpen(false);
             setSelectedIds([]);
+            await onReload();
+            onToast(`${selectedIds.length}명에게 공지를 발송했어요`);
           }}
         />
       ) : null}
@@ -2453,11 +2530,12 @@ function SendNoticeModal({
 }: {
   count: number;
   onClose: () => void;
-  onApply: (payload: { type: string; title: string; body: string }) => void;
+  onApply: (payload: { type: string; title: string; body: string }) => Promise<void>;
 }) {
   const [type, setType] = useState("일반");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const fieldStyle = { width: "100%" };
   const stackStyle = { display: "grid", gap: 12 };
 
@@ -2487,8 +2565,21 @@ function SendNoticeModal({
           </div>
         </div>
         <div className="modal-actions">
-          <button onClick={onClose}>취소</button>
-          <button onClick={() => onApply({ type, title: title.trim(), body: body.trim() })}>발송</button>
+          <button onClick={onClose} disabled={submitting}>취소</button>
+          <button
+            onClick={async () => {
+              if (submitting) return;
+              setSubmitting(true);
+              try {
+                await onApply({ type, title: title.trim(), body: body.trim() });
+              } finally {
+                setSubmitting(false);
+              }
+            }}
+            disabled={submitting}
+          >
+            {submitting ? "발송 중..." : "발송"}
+          </button>
         </div>
       </div>
     </div>

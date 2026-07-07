@@ -1,9 +1,11 @@
 package com.brainx.admin.service;
 
 import com.brainx.admin.dto.AdminDtos.*;
+import com.brainx.admin.entity.AdminDesktopDownloadEvent;
 import com.brainx.admin.entity.AdminMonitoringSnapshot;
 import com.brainx.admin.entity.AdminOperationEvent;
 import com.brainx.admin.entity.AdminServiceHealthSnapshot;
+import com.brainx.admin.repository.AdminDesktopDownloadEventRepository;
 import com.brainx.admin.repository.AdminMonitoringSnapshotRepository;
 import com.brainx.admin.repository.AdminOperationEventRepository;
 import com.brainx.admin.repository.AdminServiceHealthSnapshotRepository;
@@ -26,6 +28,8 @@ import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -35,6 +39,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
@@ -56,6 +61,7 @@ public class AdminService {
     private final AdminRefundNotificationService refundNotificationService;
     private final AdminKafkaLagCollector kafkaLagCollector;
 
+    private final AdminDesktopDownloadEventRepository desktopDownloadEventRepository;
     private final AdminOperationEventRepository operationEvents;
     private final AdminServiceHealthSnapshotRepository healthSnapshotRepository;
     private final AdminMonitoringSnapshotRepository monitoringSnapshotRepository;
@@ -97,6 +103,7 @@ public class AdminService {
             RestClient defaultRestClient,
             AdminRefundNotificationService refundNotificationService,
             AdminKafkaLagCollector kafkaLagCollector,
+            AdminDesktopDownloadEventRepository desktopDownloadEventRepository,
             AdminOperationEventRepository operationEvents,
             AdminServiceHealthSnapshotRepository healthSnapshotRepository,
             AdminMonitoringSnapshotRepository monitoringSnapshotRepository
@@ -107,24 +114,26 @@ public class AdminService {
         this.defaultRestClient = defaultRestClient;
         this.refundNotificationService = refundNotificationService;
         this.kafkaLagCollector = kafkaLagCollector;
+        this.desktopDownloadEventRepository = desktopDownloadEventRepository;
         this.operationEvents = operationEvents;
         this.healthSnapshotRepository = healthSnapshotRepository;
         this.monitoringSnapshotRepository = monitoringSnapshotRepository;
     }
 
     public AdminDashboardOverviewData dashboardOverview() {
-        OffsetDateTime capturedAt = OffsetDateTime.now(monitoringZoneId());
+        OffsetDateTime capturedAt = currentMonitoringTime();
         AdminBillingSummaryData summary = billingSummary();
         TrendSeriesData revenueTrend = fetchRevenueTrend(summary.monthlyRevenue(), OVERVIEW_TREND_DAYS);
         InternalUserGrowthSummaryDto userGrowthSummary = fetchUserGrowthSummary(OVERVIEW_TREND_DAYS);
         InternalWorkspaceMonitoringSummaryDto workspaceSummary = fetchWorkspaceMonitoringSummary();
         int activeUsers = userGrowthSummary != null ? userGrowthSummary.activeUsers() : countActiveUsers();
         TrendSeriesData activeUserTrend = buildOverviewActiveUserTrend(capturedAt, userGrowthSummary, activeUsers);
+        DesktopDownloadSummary desktopDownloadSummary = desktopDownloadSummary(capturedAt);
         SnapshotDelta delta = snapshotDelta();
 
         List<ServiceHealthData> healths = collectServiceHealths(false, capturedAt);
 
-        List<KpiData> kpis = buildOverviewKpisLive(summary, activeUsers, delta); /*
+        List<KpiData> kpis = buildOverviewKpisLive(summary, activeUsers, desktopDownloadSummary.desktopDownloadUsers(), delta); /*
                 new KpiData("이번 달 매출", formatMoney(summary.monthlyRevenue()), "live", "good", "Commerce-Service 집계"),
                 new KpiData("활성 구독", String.valueOf(summary.activeSubscriptions()), "live", "good", "현재 유료 구독"),
                 new KpiData("MRR", formatMoney(summary.mrr()), "live", "good", "월 반복 매출"),
@@ -143,12 +152,15 @@ public class AdminService {
                 buildDashboardLogs(workspaceSummary),
                 revenueTrend,
                 activeUserTrend,
+                desktopDownloadSummary.trend(),
                 new AdminOverviewSummaryData(
                         summary.monthlyRevenue(),
                         summary.activeSubscriptions(),
                         summary.mrr(),
                         summary.failedPaymentCount(),
                         activeUsers,
+                        desktopDownloadSummary.desktopDownloadUsers(),
+                        desktopDownloadSummary.desktopDownloadCount(),
                         workspaceSummary.totalNotes(),
                         workspaceSummary.totalStorageBytes(),
                         workspaceSummary.notesCreatedToday(),
@@ -161,11 +173,11 @@ public class AdminService {
     }
 
     public AdminMonitoringSnapshotData captureDailyMonitoringSnapshot() {
-        return captureDailyMonitoringSnapshot(OffsetDateTime.now(monitoringZoneId()));
+        return captureDailyMonitoringSnapshot(currentMonitoringTime());
     }
 
     public AdminMonitoringSnapshotData captureDailyMonitoringSnapshot(OffsetDateTime capturedAt) {
-        OffsetDateTime effectiveCapturedAt = capturedAt == null ? OffsetDateTime.now(monitoringZoneId()) : capturedAt;
+        OffsetDateTime effectiveCapturedAt = capturedAt == null ? currentMonitoringTime() : capturedAt;
         SnapshotWindow window = snapshotWindow(effectiveCapturedAt);
         return monitoringSnapshotRepository
                 .findTopByCapturedAtGreaterThanEqualAndCapturedAtLessThanOrderByCapturedAtDesc(window.start(), window.end())
@@ -181,6 +193,7 @@ public class AdminService {
                     AdminBillingSummaryData summary = billingSummary();
                     InternalUserGrowthSummaryDto userGrowthSummary = fetchUserGrowthSummary(OVERVIEW_TREND_DAYS);
                     int activeUsers = userGrowthSummary != null ? userGrowthSummary.activeUsers() : countActiveUsers();
+                    DesktopDownloadSummary desktopDownloadSummary = desktopDownloadSummary(effectiveCapturedAt);
 
                     collectServiceHealths(true, effectiveCapturedAt);
                     AdminKafkaLagObservation kafkaLag = kafkaLagCollector.collect(kafkaMonitoringConsumerGroupId);
@@ -190,6 +203,8 @@ public class AdminService {
                             summary.mrr(),
                             summary.failedPaymentCount(),
                             activeUsers,
+                            desktopDownloadSummary.desktopDownloadUsers(),
+                            desktopDownloadSummary.desktopDownloadCount(),
                             kafkaLag.messages(),
                             kafkaLag.consumerGroupId(),
                             kafkaLag.state(),
@@ -251,8 +266,37 @@ public class AdminService {
         return toKafkaLagData(kafkaLagCollector.collect(kafkaMonitoringConsumerGroupId));
     }
 
+    @Transactional
+    public LandingDesktopDownloadData recordDesktopDownload(
+            LandingDesktopDownloadRequest request,
+            String ipAddress,
+            String userAgent
+    ) {
+        OffsetDateTime downloadedAt = currentMonitoringTime();
+        AdminDesktopDownloadEvent saved = desktopDownloadEventRepository.save(new AdminDesktopDownloadEvent(
+                request.platform(),
+                request.installerVersion(),
+                request.source(),
+                sha256(request.clientKey()),
+                sha256(userAgent),
+                normalizeIpAddress(ipAddress),
+                downloadedAt
+        ));
+        return new LandingDesktopDownloadData(
+                saved.getDownloadId(),
+                saved.getPlatform(),
+                saved.getInstallerVersion(),
+                saved.getSource(),
+                saved.getDownloadedAt()
+        );
+    }
+
     private ZoneId monitoringZoneId() {
         return ZoneId.of(monitoringTimezone);
+    }
+
+    OffsetDateTime currentMonitoringTime() {
+        return OffsetDateTime.now(monitoringZoneId());
     }
 
     private SnapshotWindow snapshotWindow(OffsetDateTime capturedAt) {
@@ -266,6 +310,7 @@ public class AdminService {
         AdminBillingSummaryData summary = billingSummary();
         InternalUserGrowthSummaryDto userGrowthSummary = fetchUserGrowthSummary(OVERVIEW_TREND_DAYS);
         int activeUsers = userGrowthSummary != null ? userGrowthSummary.activeUsers() : countActiveUsers();
+        DesktopDownloadSummary desktopDownloadSummary = desktopDownloadSummary(capturedAt);
         AdminKafkaLagObservation kafkaLag = kafkaLagCollector.collect(kafkaMonitoringConsumerGroupId);
         String snapshotDate = snapshotWindow(capturedAt).snapshotDate().toString().replace("-", "");
 
@@ -276,6 +321,8 @@ public class AdminService {
                 summary.mrr(),
                 summary.failedPaymentCount(),
                 activeUsers,
+                desktopDownloadSummary.desktopDownloadUsers(),
+                desktopDownloadSummary.desktopDownloadCount(),
                 kafkaLag.messages(),
                 kafkaLag.consumerGroupId(),
                 kafkaLag.state(),
@@ -340,6 +387,8 @@ public class AdminService {
                 snapshot.getMrr(),
                 snapshot.getFailedPaymentCount(),
                 snapshot.getActiveUsers(),
+                snapshot.getDesktopDownloadUsers(),
+                snapshot.getDesktopDownloadCount(),
                 snapshot.getKafkaLagMessages(),
                 snapshot.getKafkaConsumerGroupId(),
                 snapshot.getKafkaLagState(),
@@ -357,12 +406,12 @@ public class AdminService {
                 KAFKA_LAG_WARNING_THRESHOLD,
                 KAFKA_LAG_CRITICAL_THRESHOLD,
                 observation.detail(),
-                OffsetDateTime.now(monitoringZoneId())
+                currentMonitoringTime()
         );
     }
 
     public List<AdminMonitoringSnapshotData> getMonitoringSnapshots() {
-        OffsetDateTime now = OffsetDateTime.now(monitoringZoneId());
+        OffsetDateTime now = currentMonitoringTime();
         SnapshotWindow today = snapshotWindow(now);
         List<AdminMonitoringSnapshotData> persistedSnapshots = monitoringSnapshotRepository.findAllByOrderByCapturedAtDesc().stream()
                 .map(this::toMonitoringSnapshotData)
@@ -1269,6 +1318,52 @@ public class AdminService {
         );
     }
 
+    private DesktopDownloadSummary desktopDownloadSummary(OffsetDateTime capturedAt) {
+        List<AdminDesktopDownloadEvent> events = desktopDownloadEventRepository.findAllByOrderByDownloadedAtDesc();
+        if (events.isEmpty()) {
+            return new DesktopDownloadSummary(
+                    0,
+                    0,
+                    new TrendSeriesData(
+                            "desktopDownloadCount",
+                            List.of(0),
+                            "최근 다운로드 데이터 없음",
+                            1,
+                            monitoringZoneId().getId(),
+                            "AdminDesktopDownloadEvent"
+                    )
+            );
+        }
+
+        LinkedHashSet<String> uniqueDownloaders = new LinkedHashSet<>();
+        Map<LocalDate, Integer> downloadsByDate = new HashMap<>();
+        for (AdminDesktopDownloadEvent event : events) {
+            uniqueDownloaders.add(downloadIdentityKey(event));
+            LocalDate downloadDate = snapshotWindow(event.getDownloadedAt()).snapshotDate();
+            downloadsByDate.merge(downloadDate, 1, Integer::sum);
+        }
+
+        SnapshotWindow today = snapshotWindow(capturedAt);
+        LocalDate startDate = today.snapshotDate().minusDays(OVERVIEW_TREND_DAYS - 1L);
+        List<Integer> values = new ArrayList<>(OVERVIEW_TREND_DAYS);
+        for (int i = 0; i < OVERVIEW_TREND_DAYS; i++) {
+            values.add(downloadsByDate.getOrDefault(startDate.plusDays(i), 0));
+        }
+
+        return new DesktopDownloadSummary(
+                uniqueDownloaders.size(),
+                events.size(),
+                new TrendSeriesData(
+                        "desktopDownloadCount",
+                        values,
+                        "최근 14일 Windows 앱 다운로드",
+                        OVERVIEW_TREND_DAYS,
+                        monitoringZoneId().getId(),
+                        "AdminDesktopDownloadEvent"
+                )
+        );
+    }
+
     private TrendSeriesData toTrendSeriesData(InternalTrendSeriesDto trend) {
         return new TrendSeriesData(
                 trend.metric(),
@@ -1297,6 +1392,47 @@ public class AdminService {
         return trend.values().get(trend.values().size() - 1);
     }
 
+    private String downloadIdentityKey(AdminDesktopDownloadEvent event) {
+        if (event.getClientKeyHash() != null && !event.getClientKeyHash().isBlank()) {
+            return event.getClientKeyHash();
+        }
+        if (event.getIpAddress() != null && !event.getIpAddress().isBlank()) {
+            return event.getIpAddress() + "|" + (event.getUserAgentHash() != null ? event.getUserAgentHash() : "");
+        }
+        if (event.getUserAgentHash() != null && !event.getUserAgentHash().isBlank()) {
+            return event.getUserAgentHash();
+        }
+        return event.getDownloadId();
+    }
+
+    private String normalizeIpAddress(String ipAddress) {
+        if (ipAddress == null) {
+            return null;
+        }
+        String normalized = ipAddress.trim();
+        if (normalized.isBlank()) {
+            return null;
+        }
+        return normalized.length() > 120 ? normalized.substring(0, 120) : normalized;
+    }
+
+    private String sha256(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(value.trim().getBytes(StandardCharsets.UTF_8));
+            StringBuilder builder = new StringBuilder(hash.length * 2);
+            for (byte element : hash) {
+                builder.append(String.format(Locale.ROOT, "%02x", element));
+            }
+            return builder.toString();
+        } catch (Exception exception) {
+            throw new IllegalStateException("Failed to hash desktop download value", exception);
+        }
+    }
+
     /* private List<KpiData> buildOverviewKpis(AdminBillingSummaryData summary, SnapshotDelta delta) {
         return List.of(
                 new KpiData("?대쾲 ??留ㅼ텧", formatMoney(summary.monthlyRevenue()), formatDelta(delta.monthlyRevenueDelta()), toneForGrowth(delta.monthlyRevenueDelta()), "직전 snapshot 대비"),
@@ -1308,12 +1444,13 @@ public class AdminService {
 
     } */
 
-    private List<KpiData> buildOverviewKpisLive(AdminBillingSummaryData summary, int activeUsers, SnapshotDelta delta) {
+    private List<KpiData> buildOverviewKpisLive(AdminBillingSummaryData summary, int activeUsers, int desktopDownloadUsers, SnapshotDelta delta) {
         return List.of(
                 new KpiData("\uC774\uBC88 \uB2EC \uB9E4\uCD9C", formatMoney(summary.monthlyRevenue()), formatDeltaText(delta.monthlyRevenueDelta()), toneForGrowth(delta.monthlyRevenueDelta()), "\uC9C1\uC804 snapshot \uB300\uBE44"),
                 new KpiData("\uD65C\uC131 \uAD6C\uB3C5", String.valueOf(summary.activeSubscriptions()), formatDeltaText(delta.activeSubscriptionsDelta()), toneForGrowth(delta.activeSubscriptionsDelta()), "\uC9C1\uC804 snapshot \uB300\uBE44"),
                 new KpiData("MRR", formatMoney(summary.mrr()), formatDeltaText(delta.mrrDelta()), toneForGrowth(delta.mrrDelta()), "\uC9C1\uC804 snapshot \uB300\uBE44"),
                 new KpiData("\uD65C\uC131 \uC0AC\uC6A9\uC790", String.valueOf(activeUsers), formatDeltaText(delta.activeUsersDelta()), toneForGrowth(delta.activeUsersDelta()), "User-Service \uC9C1\uACC4"),
+                new KpiData("\uC571 \uB2E4\uC6B4\uB85C\uB4DC \uC0AC\uC6A9\uC790", String.valueOf(desktopDownloadUsers), formatDeltaText(delta.desktopDownloadUsersDelta()), toneForGrowth(delta.desktopDownloadUsersDelta()), "Landing \uB2E4\uC6B4\uB85C\uB4DC \uB204\uC801"),
                 new KpiData("\uACB0\uC81C \uC2E4\uD328", String.valueOf(summary.failedPaymentCount()), formatDeltaText(delta.failedPaymentCountDelta()), toneForInverseMetric(delta.failedPaymentCountDelta()), "\uC9C1\uC804 snapshot \uB300\uBE44")
         );
     }
@@ -1321,7 +1458,7 @@ public class AdminService {
     private SnapshotDelta snapshotDelta() {
         List<AdminMonitoringSnapshot> snapshots = monitoringSnapshotRepository.findTop2ByOrderByCapturedAtDesc();
         if (snapshots.size() < 2) {
-            return new SnapshotDelta(null, null, null, null, null);
+            return new SnapshotDelta(null, null, null, null, null, null);
         }
 
         AdminMonitoringSnapshot latest = snapshots.get(0);
@@ -1331,6 +1468,7 @@ public class AdminService {
                 percentChange(BigDecimal.valueOf(latest.getActiveSubscriptions()), BigDecimal.valueOf(previous.getActiveSubscriptions())),
                 percentChange(latest.getMrr(), previous.getMrr()),
                 percentChange(BigDecimal.valueOf(latest.getActiveUsers()), BigDecimal.valueOf(previous.getActiveUsers())),
+                percentChange(BigDecimal.valueOf(latest.getDesktopDownloadUsers()), BigDecimal.valueOf(previous.getDesktopDownloadUsers())),
                 percentChange(BigDecimal.valueOf(latest.getFailedPaymentCount()), BigDecimal.valueOf(previous.getFailedPaymentCount()))
         );
     }
@@ -1570,7 +1708,7 @@ public class AdminService {
     private AdminUserLoginSession mapLoginSession(InternalUserLoginSessionDto session) {
         return new AdminUserLoginSession(
                 session.sessionId(),
-                valueOr(session.device(), "Unknown / Unknown"),
+                normalizeLoginDeviceLabel(session.device()),
                 valueOr(session.location(), "Unknown"),
                 valueOr(session.ipAddress(), "127.0.0.1"),
                 session.userAgentHash(),
@@ -1583,7 +1721,7 @@ public class AdminService {
         if (user.lastLoginSessionId() != null && !user.lastLoginSessionId().isBlank() && user.lastLoginAt() != null) {
             return new AdminUserLoginSession(
                     user.lastLoginSessionId(),
-                    valueOr(user.lastLoginDevice(), "Unknown / Unknown"),
+                    normalizeLoginDeviceLabel(user.lastLoginDevice()),
                     valueOr(user.lastLoginLocation(), "Unknown"),
                     valueOr(user.lastLoginIpAddress(), "127.0.0.1"),
                     user.lastLoginUserAgentHash(),
@@ -1646,6 +1784,17 @@ public class AdminService {
 
     private static String valueOr(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private String normalizeLoginDeviceLabel(String value) {
+        String normalized = valueOr(value, "Unknown / Unknown");
+        if ("Browser / Unknown".equalsIgnoreCase(normalized) || "Unknown / Unknown".equalsIgnoreCase(normalized)) {
+            return "BrainX App / Desktop";
+        }
+        if (normalized.toLowerCase(Locale.ROOT).contains("electron")) {
+            return "BrainX App / Desktop";
+        }
+        return normalized;
     }
 
     private void recordOperation(String action, String targetType, String targetId, String detail) {
@@ -1825,6 +1974,13 @@ public class AdminService {
             Double activeSubscriptionsDelta,
             Double mrrDelta,
             Double activeUsersDelta,
+            Double desktopDownloadUsersDelta,
             Double failedPaymentCountDelta
+    ) {}
+
+    private record DesktopDownloadSummary(
+            int desktopDownloadUsers,
+            int desktopDownloadCount,
+            TrendSeriesData trend
     ) {}
 }

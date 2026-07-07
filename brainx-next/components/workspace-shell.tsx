@@ -19,6 +19,7 @@ import { cx, stripMarkdown } from "@/lib/utils";
 import { matchesWorkspaceScope } from "@/lib/workspace-api";
 import {
   semanticSearch,
+  AiUsageLimitExceededError,
   type SemanticSearchData,
 } from "@/lib/intelligence-api";
 import { formatCreditCount, formatTokenPercent } from "@/lib/token-usage";
@@ -359,7 +360,7 @@ function SearchBar() {
   const semanticAbortRef = useRef<AbortController | null>(null);
   const router = useRouter();
   const searchId = useId();
-  const { hydrated, notes: allNotes, pushToast, saveStatus } = useBrainX();
+  const { hydrated, notes: allNotes, pushToast, saveStatus, openAiUsageLimitModal } = useBrainX();
   const { currentWorkspaceId, workspaces } = useWorkspace();
   /* Search 정책(§12): 현재 Workspace 내부에서만 검색한다 — NotesExplorer/QuickSwitcher의
      visibleNotes와 동일한 판정(matchesWorkspaceScope)을 재사용한다. currentWorkspaceId가
@@ -522,7 +523,9 @@ function SearchBar() {
       });
     } catch (error) {
       if (controller.signal.aborted) return;
-      if (isAuthExpiredError(error)) {
+      if (error instanceof AiUsageLimitExceededError) {
+        openAiUsageLimitModal(error.reason);
+      } else if (isAuthExpiredError(error)) {
         pushToast((error as Error).message, "err");
       }
       setSemanticState({

@@ -212,7 +212,7 @@ jobs:
               DOCKERFILE="brainX_back/Mcp-Service/Dockerfile"
               ;;
             frontend)
-              CONTEXT="brainx-next"
+              CONTEXT="."
               DOCKERFILE="infra/aws-dev/dockerfiles/brainx-next.Dockerfile"
               ;;
             admin-frontend)

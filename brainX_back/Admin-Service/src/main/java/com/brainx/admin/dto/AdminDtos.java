@@ -24,6 +24,7 @@ public final class AdminDtos {
     public enum ApplyTiming { IMMEDIATE, NEXT_BILLING }
     public enum KafkaLagState { HEALTHY, NO_COMMITTED_OFFSETS, BROKER_UNREACHABLE, CONFIG_MISSING }
     public enum ServiceHealthState { UP, DOWN, DEGRADED }
+    public enum DesktopPlatform { WINDOWS }
 
     public record PaginationData(int page, int size, long totalItems, int totalPages) {}
     public record KpiData(String label, String value, String delta, String tone, String sub) {}
@@ -43,6 +44,8 @@ public final class AdminDtos {
             BigDecimal mrr,
             int failedPaymentCount,
             int activeUsers,
+            int desktopDownloadUsers,
+            int desktopDownloadCount,
             int totalNotes,
             long totalStorageBytes,
             int notesCreatedToday,
@@ -58,6 +61,8 @@ public final class AdminDtos {
             BigDecimal mrr,
             int failedPaymentCount,
             int activeUsers,
+            int desktopDownloadUsers,
+            int desktopDownloadCount,
             Integer kafkaLagMessages,
             String kafkaConsumerGroupId,
             KafkaLagState kafkaLagState,
@@ -91,7 +96,23 @@ public final class AdminDtos {
             List<LogData> logs,
             TrendSeriesData revenueTrend,
             TrendSeriesData activeUserTrend,
+            TrendSeriesData desktopDownloadTrend,
             AdminOverviewSummaryData summary
+    ) {}
+
+    public record LandingDesktopDownloadRequest(
+            @NotNull DesktopPlatform platform,
+            String installerVersion,
+            String source,
+            String clientKey
+    ) {}
+
+    public record LandingDesktopDownloadData(
+            String downloadId,
+            DesktopPlatform platform,
+            String installerVersion,
+            String source,
+            OffsetDateTime downloadedAt
     ) {}
 
     public record AdminUserLoginSession(

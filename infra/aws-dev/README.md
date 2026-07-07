@@ -20,8 +20,7 @@
   - `/mcp*`, `/api/v1/mcp/*`, `/.well-known/oauth-protected-resource` route directly to Mcp-Service through Caddy.
   - `/oauth/token`, `/oauth/register`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration` route directly to User-Service through Caddy for MCP OAuth discovery/login.
   - Grafana: `https://<admin-domain>/grafana/`
-  - `/api/v1/ai/*`, `/api/v1/intelligence/*`, `/api/v1/notes/*/summary`, `/api/v1/users/me/style-profile` route directly to Intelligence-Service through Caddy.
-  - other `/api/v1/*` routes go to Gateway-Service.
+  - all other `/api/v1/*` routes (including `/api/v1/ai/*`, `/api/v1/intelligence/*`, `/api/v1/notes/*/summary`, `/api/v1/users/me/style-profile`) go to Gateway-Service, which then routes to the correct downstream service. Caddy no longer proxies any `/api/v1/*` path directly to Intelligence-Service: guest AI usage depends on the `X-Guest-Id` cookie that only Gateway-Service's `JwtAuthenticationGlobalFilter` issues/validates, and `/api/v1/ai/usage` is actually owned by Commerce-Service, not Intelligence-Service.
 
 Prometheus stays on the internal Docker network and scrapes `user-service`, `gateway-service`, `workspace-service`, `admin-service`, `commerce-service`, `ingestion-service`, and `intelligence-service` from their `/actuator/prometheus` endpoints. Grafana is auto-provisioned with that Prometheus datasource, so you do not need to add it manually in the UI.
 

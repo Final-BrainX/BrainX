@@ -2,6 +2,7 @@ package com.brainx.admin.service;
 
 import com.brainx.admin.dto.AdminDtos.AdminBillingSummaryData;
 import com.brainx.admin.dto.AdminDtos.AdminUsersData;
+import com.brainx.admin.repository.AdminDesktopDownloadEventRepository;
 import com.brainx.admin.repository.AdminMonitoringSnapshotRepository;
 import com.brainx.admin.repository.AdminOperationEventRepository;
 import com.brainx.admin.repository.AdminServiceHealthSnapshotRepository;
@@ -71,6 +72,9 @@ class AdminServiceBillingFallbackTest {
     private AdminKafkaLagCollector kafkaLagCollector;
 
     @Mock
+    private AdminDesktopDownloadEventRepository desktopDownloadEventRepository;
+
+    @Mock
     private AdminOperationEventRepository operationEvents;
 
     @Mock
@@ -90,6 +94,7 @@ class AdminServiceBillingFallbackTest {
                 defaultRestClient,
                 refundNotificationService,
                 kafkaLagCollector,
+                desktopDownloadEventRepository,
                 operationEvents,
                 healthSnapshotRepository,
                 monitoringSnapshotRepository

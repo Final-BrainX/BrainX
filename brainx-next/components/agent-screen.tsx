@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  AiUsageLimitExceededError,
   approveAgentAction,
   createAgentThread,
   getAgentThread,
@@ -190,7 +191,7 @@ function ActionCard({
 
 export function AgentScreen() {
   const router = useRouter();
-  const { pushToast, effectiveTheme } = useBrainX();
+  const { pushToast, effectiveTheme, openAiUsageLimitModal } = useBrainX();
   const { currentWorkspaceId, workspaces } = useWorkspace();
   const isLight = effectiveTheme === "light";
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -434,7 +435,11 @@ export function AgentScreen() {
       setMessages((current) =>
         current.map((item) => (item.id === tempAgentId || item.streaming ? { ...item, text: message, streaming: false, error: true } : item))
       );
-      pushToast(message, "err");
+      if (error instanceof AiUsageLimitExceededError) {
+        openAiUsageLimitModal(error.reason);
+      } else {
+        pushToast(message, "err");
+      }
     } finally {
       setStreaming(false);
       textareaRef.current?.focus();

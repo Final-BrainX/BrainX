@@ -34,6 +34,12 @@ public class AdminMonitoringSnapshot {
     @Column(nullable = false)
     private int activeUsers;
 
+    @Column(nullable = false)
+    private int desktopDownloadUsers;
+
+    @Column(nullable = false)
+    private int desktopDownloadCount;
+
     @Column(nullable = true)
     private Integer kafkaLagMessages;
 
@@ -59,6 +65,8 @@ public class AdminMonitoringSnapshot {
             BigDecimal mrr,
             int failedPaymentCount,
             int activeUsers,
+            int desktopDownloadUsers,
+            int desktopDownloadCount,
             Integer kafkaLagMessages,
             String kafkaConsumerGroupId,
             com.brainx.admin.dto.AdminDtos.KafkaLagState kafkaLagState,
@@ -70,6 +78,8 @@ public class AdminMonitoringSnapshot {
         this.mrr = mrr;
         this.failedPaymentCount = failedPaymentCount;
         this.activeUsers = activeUsers;
+        this.desktopDownloadUsers = desktopDownloadUsers;
+        this.desktopDownloadCount = desktopDownloadCount;
         this.kafkaLagMessages = kafkaLagMessages;
         this.kafkaConsumerGroupId = kafkaConsumerGroupId;
         this.kafkaLagState = kafkaLagState;
@@ -109,6 +119,14 @@ public class AdminMonitoringSnapshot {
 
     public int getActiveUsers() {
         return activeUsers;
+    }
+
+    public int getDesktopDownloadUsers() {
+        return desktopDownloadUsers;
+    }
+
+    public int getDesktopDownloadCount() {
+        return desktopDownloadCount;
     }
 
     public Integer getKafkaLagMessages() {

@@ -197,6 +197,8 @@ export type AdminOverviewSummary = {
   mrr: number;
   failedPaymentCount: number;
   activeUsers: number;
+  desktopDownloadUsers: number;
+  desktopDownloadCount: number;
   totalNotes: number;
   totalStorageBytes: number;
   notesCreatedToday: number;
@@ -213,6 +215,8 @@ export type AdminMonitoringSnapshot = {
   mrr: number;
   failedPaymentCount: number;
   activeUsers: number;
+  desktopDownloadUsers: number;
+  desktopDownloadCount: number;
   kafkaLagMessages: number | null;
   kafkaConsumerGroupId: string | null;
   kafkaLagState: ApiKafkaLagState;
@@ -246,8 +250,10 @@ export type AdminBootstrap = {
   logs: typeof logs;
   revenueBars: number[];
   activeUserSeries: number[];
+  desktopDownloadSeries: number[];
   revenueTrendMeta: AdminTrendSeries;
   activeUserTrendMeta: AdminTrendSeries;
+  desktopDownloadTrendMeta: AdminTrendSeries;
   overviewSummary: AdminOverviewSummary;
   users: AdminUser[];
   inquiries: AdminInquiry[];
@@ -285,6 +291,7 @@ export const fallbackAdminBootstrap: AdminBootstrap = {
   logs,
   revenueBars,
   activeUserSeries: traffic,
+  desktopDownloadSeries: Array.from({ length: traffic.length }, () => 0),
   revenueTrendMeta: {
     metric: "monthlyRevenue",
     values: revenueBars,
@@ -301,12 +308,22 @@ export const fallbackAdminBootstrap: AdminBootstrap = {
     timezone: "Asia/Seoul",
     source: "mock"
   },
+  desktopDownloadTrendMeta: {
+    metric: "desktopDownloadCount",
+    values: Array.from({ length: traffic.length }, () => 0),
+    periodLabel: "최근 14일 다운로드 없음",
+    pointCount: traffic.length,
+    timezone: "Asia/Seoul",
+    source: "mock"
+  },
   overviewSummary: {
     monthlyRevenue: 0,
     activeSubscriptions: 0,
     mrr: 0,
     failedPaymentCount: 0,
     activeUsers: 0,
+    desktopDownloadUsers: 0,
+    desktopDownloadCount: 0,
     totalNotes: 0,
     totalStorageBytes: 0,
     notesCreatedToday: 0,
@@ -376,6 +393,10 @@ function formatDate(value?: string | null) {
   }).format(new Date(value));
 }
 
+function isAuthErrorMessage(message: string) {
+  return message.includes("401") || message.includes("403") || message.includes("UNAUTHORIZED") || message.includes("FORBIDDEN");
+}
+
 function formatShortDateTime(value?: string | null) {
   if (!value) return "";
   return new Intl.DateTimeFormat("sv-SE", {
@@ -433,6 +454,21 @@ function normalizeLocationLabel(value?: string | null) {
   return trimmed;
 }
 
+function normalizeDeviceLabel(value?: string | null) {
+  if (!value) return "BrainX App / Desktop";
+  const trimmed = value.trim();
+  if (!trimmed) return "BrainX App / Desktop";
+
+  const normalized = trimmed.toLowerCase();
+  if (normalized === "browser / unknown" || normalized === "unknown / unknown") {
+    return "BrainX App / Desktop";
+  }
+  if (normalized.includes("electron")) {
+    return "BrainX App / Desktop";
+  }
+  return trimmed;
+}
+
 function buildActivities(row: ApiUserRow | ApiUserDetail) {
   const activities = (row.activities ?? []).map((activity) => ({
     text: activity.message,
@@ -470,9 +506,12 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
   if ((response.status === 401 || response.status === 403) && !path.endsWith("/auth/login")) {
     if (method === "GET") {
-      clearSession();
-      if (typeof window !== "undefined") {
-        window.location.href = "/login";
+      const currentToken = getToken();
+      if (!token || currentToken === token) {
+        clearSession();
+        if (typeof window !== "undefined") {
+          window.location.href = "/login";
+        }
       }
     }
     throw new Error(errorMessage);
@@ -524,6 +563,25 @@ function currentAdminSession() {
   return getSession()?.admin ?? null;
 }
 
+function buildFallbackAdminBootstrap(profileOverride?: AdminProfile): AdminBootstrap {
+  return {
+    ...fallbackAdminBootstrap,
+    adminProfile: profileOverride ?? currentAdminSession() ?? fallbackAdminBootstrap.adminProfile
+  };
+}
+
+async function apiFetchWithFallback<T>(path: string, fallbackValue: T, init?: RequestInit): Promise<T> {
+  try {
+    return await apiFetch<T>(path, init);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("401") || message.includes("403")) {
+      throw error;
+    }
+    return fallbackValue;
+  }
+}
+
 function currentAdminMessageHeaders(viewer?: AdminMessageViewer) {
   const admin = viewer ?? currentAdminSession();
   const headers: Record<string, string> = {};
@@ -560,7 +618,7 @@ function mapUser(row: ApiUserRow): AdminUser {
     storage: bytesToStorage(row.storageBytes),
     lastActive: recentActiveAt ? formatShortDateTime(recentActiveAt) : "-",
     location: row.lastLogin?.location ?? "-",
-    device: row.lastLogin?.device ?? "-",
+    device: normalizeDeviceLabel(row.lastLogin?.device),
     activities: buildActivities(row)
   };
 }
@@ -568,7 +626,7 @@ function mapUser(row: ApiUserRow): AdminUser {
 function mapSession(session: ApiLoginSession): AdminLoginSession {
   return {
     sessionId: session.sessionId,
-    device: session.device,
+    device: normalizeDeviceLabel(session.device),
     location: normalizeLocationLabel(session.location),
     ipAddress: session.ipAddress ?? "127.0.0.1",
     userAgentHash: session.userAgentHash ?? null,
@@ -676,43 +734,60 @@ function mapPlan(plan: ApiPlan): PlanCard {
 }
 
 export async function loadAdminBootstrap(): Promise<AdminBootstrap> {
+  const sessionAdmin = currentAdminSession();
+  const profileFallback = sessionAdmin ?? fallbackAdminBootstrap.adminProfile;
   const [dashboard, userData, supportData, billingSummary, paymentData, subscriptionData, failureData, planData, monitoringSnapshots, profile] = await Promise.all([
-    apiFetch<{
+    apiFetchWithFallback<{
       kpis: AdminBootstrap["kpis"];
       services: ReadonlyArray<AdminServiceHealthSummary>;
       logs: typeof logs;
       revenueTrend: AdminTrendSeries;
       activeUserTrend: AdminTrendSeries;
+      desktopDownloadTrend: AdminTrendSeries;
       summary: AdminOverviewSummary;
-    }>("/api/v1/admin/dashboard/overview"),
-    apiFetch<{ users: ApiUserRow[] }>("/api/v1/admin/users"),
-    apiFetch<{ tickets: ApiTicket[] }>("/api/v1/admin/support/tickets"),
-    apiFetch<{ monthlyRevenue: number; activeSubscriptions: number; mrr: number; failedPaymentCount: number }>("/api/v1/admin/billing/summary"),
-    apiFetch<{ payments: ApiPayment[] }>("/api/v1/admin/billing/payments"),
-    apiFetch<{ subscriptions: ApiSubscription[] }>("/api/v1/admin/billing/subscriptions"),
-    apiFetch<{ failures: ApiPaymentFailure[] }>("/api/v1/admin/billing/payment-failures"),
-    apiFetch<{ plans: ApiPlan[] }>("/api/v1/admin/billing/plans"),
-    apiFetch<AdminMonitoringSnapshot[]>("/api/v1/admin/monitoring/snapshots"),
-    apiFetch<AdminProfile>("/api/v1/admin/me")
+    }>("/api/v1/admin/dashboard/overview", {
+      kpis: fallbackAdminBootstrap.kpis,
+      services: fallbackAdminBootstrap.services,
+      logs: fallbackAdminBootstrap.logs,
+      revenueTrend: fallbackAdminBootstrap.revenueTrendMeta,
+      activeUserTrend: fallbackAdminBootstrap.activeUserTrendMeta,
+      desktopDownloadTrend: fallbackAdminBootstrap.desktopDownloadTrendMeta,
+      summary: fallbackAdminBootstrap.overviewSummary
+    }),
+    apiFetchWithFallback<{ users: ApiUserRow[] }>("/api/v1/admin/users", { users: [] }),
+    apiFetchWithFallback<{ tickets: ApiTicket[] }>("/api/v1/admin/support/tickets", { tickets: [] }),
+    apiFetchWithFallback<{ monthlyRevenue: number; activeSubscriptions: number; mrr: number; failedPaymentCount: number }>(
+      "/api/v1/admin/billing/summary",
+      fallbackAdminBootstrap.billingSummary
+    ),
+    apiFetchWithFallback<{ payments: ApiPayment[] }>("/api/v1/admin/billing/payments", { payments: [] }),
+    apiFetchWithFallback<{ subscriptions: ApiSubscription[] }>("/api/v1/admin/billing/subscriptions", { subscriptions: [] }),
+    apiFetchWithFallback<{ failures: ApiPaymentFailure[] }>("/api/v1/admin/billing/payment-failures", { failures: [] }),
+    apiFetchWithFallback<{ plans: ApiPlan[] }>("/api/v1/admin/billing/plans", { plans: [] }),
+    apiFetchWithFallback<AdminMonitoringSnapshot[]>("/api/v1/admin/monitoring/snapshots", []),
+    apiFetchWithFallback<AdminProfile>("/api/v1/admin/me", profileFallback)
   ]);
 
   const usersById = new Map(userData.users.map((user) => [user.userId, { name: user.name }]));
 
   return {
-    kpis: dashboard.kpis,
-    services: dashboard.services,
-    logs: dashboard.logs,
-    revenueBars: dashboard.revenueTrend.values,
-    activeUserSeries: dashboard.activeUserTrend.values,
-    revenueTrendMeta: dashboard.revenueTrend,
-    activeUserTrendMeta: dashboard.activeUserTrend,
-    overviewSummary: dashboard.summary,
+    ...buildFallbackAdminBootstrap(profile),
+    kpis: dashboard.kpis ?? fallbackAdminBootstrap.kpis,
+    services: dashboard.services ?? fallbackAdminBootstrap.services,
+    logs: dashboard.logs ?? fallbackAdminBootstrap.logs,
+    revenueBars: dashboard.revenueTrend?.values ?? fallbackAdminBootstrap.revenueBars,
+    activeUserSeries: dashboard.activeUserTrend?.values ?? fallbackAdminBootstrap.activeUserSeries,
+    desktopDownloadSeries: dashboard.desktopDownloadTrend?.values ?? fallbackAdminBootstrap.desktopDownloadSeries,
+    revenueTrendMeta: dashboard.revenueTrend ?? fallbackAdminBootstrap.revenueTrendMeta,
+    activeUserTrendMeta: dashboard.activeUserTrend ?? fallbackAdminBootstrap.activeUserTrendMeta,
+    desktopDownloadTrendMeta: dashboard.desktopDownloadTrend ?? fallbackAdminBootstrap.desktopDownloadTrendMeta,
+    overviewSummary: dashboard.summary ?? fallbackAdminBootstrap.overviewSummary,
     users: userData.users.map((user) => mapUser(user)),
     inquiries: supportData.tickets.map(mapTicket),
     billingTransactions: paymentData.payments.map((payment) => mapPayment(payment, usersById)),
     billingSubscriptions: subscriptionData.subscriptions.map((subscription) => mapSubscription(subscription, usersById)),
     failedBilling: failureData.failures.map((failure) => mapPaymentFailure(failure, usersById)),
-    planCards: planData.plans.map(mapPlan),
+    planCards: planData.plans.length > 0 ? planData.plans.map(mapPlan) : fallbackAdminBootstrap.planCards,
     monitoringSnapshots,
     billingSummary,
     adminProfile: profile, /*
@@ -838,3 +913,5 @@ export const adminApi = {
   deleteSubscription: (subscriptionId: string) =>
     apiFetch<void>("/api/v1/admin/billing/subscriptions/" + subscriptionId, { method: "DELETE" })
 };
+
+export { isAuthErrorMessage };

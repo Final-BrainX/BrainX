@@ -6,7 +6,14 @@ import { cx } from "@/lib/utils";
 import { Icon } from "@/components/brainx-ui";
 import { MockNote } from "@/lib/notes/noteTypes";
 import { MOCK_CONTEXT_DATA } from "@/lib/notes/mockNotes";
-import { createChatThread, createInlineAssistStream, decideAiSuggestion, sendChatMessageStream } from "@/lib/intelligence-api";
+import {
+  AiUsageLimitExceededError,
+  createChatThread,
+  createInlineAssistStream,
+  decideAiSuggestion,
+  sendChatMessageStream,
+} from "@/lib/intelligence-api";
+import { useBrainX } from "@/components/brainx-provider";
 import { useWorkspace } from "@/components/workspace-provider";
 import {
   DEFAULT_DRAFT_TARGET_LENGTH,
@@ -408,6 +415,7 @@ export default function RightSidebar({
   const activeDraftSessionRef = useRef<InlineDraftSession | null>(null);
   const chatThreadIdsRef = useRef<Record<string, string>>({});
   const { currentWorkspaceId } = useWorkspace();
+  const { openAiUsageLimitModal } = useBrainX();
 
   // Ticket16: Workspace를 전환하면 이전 Workspace 기준으로 만들어둔 노트별 스레드 캐시를 그대로
   // 재사용하지 않는다 — 재사용하면 새 메시지의 noteScope.documentGroupId(현재 Workspace)가 그
@@ -569,6 +577,9 @@ export default function RightSidebar({
       draftSession.rollback();
       const message = error instanceof Error ? error.message : "AI 작성 요청에 실패했습니다.";
       updateLatestAiMessage(message, false);
+      if (error instanceof AiUsageLimitExceededError) {
+        openAiUsageLimitModal(error.reason);
+      }
     }
   };
 
@@ -640,6 +651,9 @@ export default function RightSidebar({
       if (aiRequestAbortRef.current === controller) aiRequestAbortRef.current = null;
       const message = error instanceof Error ? error.message : "AI 요청에 실패했습니다.";
       updateLatestAiMessage(message, false);
+      if (error instanceof AiUsageLimitExceededError) {
+        openAiUsageLimitModal(error.reason);
+      }
     }
   };
 

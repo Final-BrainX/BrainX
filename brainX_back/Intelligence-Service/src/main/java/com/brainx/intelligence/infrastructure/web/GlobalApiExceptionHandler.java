@@ -1,12 +1,17 @@
 package com.brainx.intelligence.infrastructure.web;
 
+import java.io.IOException;
+
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletResponse;
 
 import com.brainx.intelligence.agent.domain.AgentConflictException;
 import com.brainx.intelligence.agent.domain.AgentDomainException;
@@ -37,9 +42,23 @@ import com.brainx.intelligence.settings.domain.SettingsDomainException;
 
 /**
  * Public REST API 오류를 OpenAPI 공통 오류 wrapper로 변환합니다.
+ *
+ * /api/v1/ai/chat-threads/{id}/messages 같은 SSE(produces=text/event-stream) 엔드포인트는
+ * 요청의 Accept 헤더도 프론트가 명시적으로 "text/event-stream"만 보낸다. 스트림 시작 전
+ * 예외(엔티틀먼트 거부 등)가 나면 이 어드바이스가 JSON으로 응답하려 해도 Spring의 컨텐츠
+ * 네고시에이션이 "이 요청은 text/event-stream만 받아들인다"고 판단해 JSON을 쓸 컨버터를
+ * 아예 찾지 않고 HttpMediaTypeNotAcceptableException을 던진다. 그 예외조차 잡히지 않아
+ * 브라우저에는 빈 응답(연결 실패)으로 보인다 — ResponseEntity 대신 HttpServletResponse에
+ * 직접 써서 컨텐츠 네고시에이션 자체를 건너뛴다(SecurityConfig.writeError와 동일한 패턴).
  */
 @RestControllerAdvice
 public class GlobalApiExceptionHandler {
+
+    private final ObjectMapper objectMapper;
+
+    public GlobalApiExceptionHandler(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
 
     @ExceptionHandler({
         MethodArgumentNotValidException.class,
@@ -54,9 +73,8 @@ public class GlobalApiExceptionHandler {
         SettingsDomainException.class,
         IllegalArgumentException.class
     })
-    public ResponseEntity<ApiErrorResponse> handleBadRequest(Exception exception) {
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-            .body(ApiErrorResponse.of("BAD_REQUEST", safeMessage(exception)));
+    public void handleBadRequest(Exception exception, HttpServletResponse response) throws IOException {
+        writeError(response, HttpStatus.BAD_REQUEST, "BAD_REQUEST", safeMessage(exception));
     }
 
     @ExceptionHandler({
@@ -65,9 +83,8 @@ public class GlobalApiExceptionHandler {
         InsightForbiddenException.class,
         OrganizationForbiddenException.class
     })
-    public ResponseEntity<ApiErrorResponse> handleForbidden(Exception exception) {
-        return ResponseEntity.status(HttpStatus.FORBIDDEN)
-            .body(ApiErrorResponse.of("FORBIDDEN", safeMessage(exception)));
+    public void handleForbidden(Exception exception, HttpServletResponse response) throws IOException {
+        writeError(response, HttpStatus.FORBIDDEN, "FORBIDDEN", safeMessage(exception));
     }
 
     @ExceptionHandler({
@@ -79,9 +96,8 @@ public class GlobalApiExceptionHandler {
         LlmOpsNotFoundException.class,
         OrganizationNotFoundException.class
     })
-    public ResponseEntity<ApiErrorResponse> handleNotFound(Exception exception) {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-            .body(ApiErrorResponse.of("NOT_FOUND", safeMessage(exception)));
+    public void handleNotFound(Exception exception, HttpServletResponse response) throws IOException {
+        writeError(response, HttpStatus.NOT_FOUND, "NOT_FOUND", safeMessage(exception));
     }
 
     @ExceptionHandler({
@@ -92,18 +108,24 @@ public class GlobalApiExceptionHandler {
         InsightConflictException.class,
         OrganizationConflictException.class
     })
-    public ResponseEntity<ApiErrorResponse> handleConflict(Exception exception) {
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-            .body(ApiErrorResponse.of("CONFLICT", safeMessage(exception)));
+    public void handleConflict(Exception exception, HttpServletResponse response) throws IOException {
+        writeError(response, HttpStatus.CONFLICT, "CONFLICT", safeMessage(exception));
     }
 
     @ExceptionHandler({
         ConnectionProviderUnavailableException.class,
         OrganizationProviderUnavailableException.class
     })
-    public ResponseEntity<ApiErrorResponse> handleProviderUnavailable(Exception exception) {
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-            .body(ApiErrorResponse.of("INTERNAL_SERVER_ERROR", safeMessage(exception)));
+    public void handleProviderUnavailable(Exception exception, HttpServletResponse response) throws IOException {
+        writeError(response, HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR", safeMessage(exception));
+    }
+
+    private void writeError(HttpServletResponse response, HttpStatus status, String code, String message)
+            throws IOException {
+        response.reset();
+        response.setStatus(status.value());
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        objectMapper.writeValue(response.getOutputStream(), ApiErrorResponse.of(code, message));
     }
 
     private static String safeMessage(Exception exception) {

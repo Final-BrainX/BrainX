@@ -30,6 +30,7 @@ export function OnboardingScreen() {
   const [returnTo] = useState(() => readReturnToParam());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const requiresConsentStep = Boolean(onboardingToken);
+  const requiresConsentForCompletion = Boolean(onboardingToken);
   const stepSequence = requiresConsentStep ? [0, 1, 2, 3] : [0, 1, 3];
   const activeStepIndex = Math.max(0, stepSequence.indexOf(step));
   const progressPercent = ((activeStepIndex + 1) / stepSequence.length) * 100;
@@ -257,7 +258,7 @@ export function OnboardingScreen() {
                   이전
                 </Btn>
                 {step === 3 ? (
-                  <Btn variant="primary" size="lg" className="flex-1" icon="bolt" disabled={submitting || !requiredConsentsAccepted(consents)} onClick={handleComplete}>
+                  <Btn variant="primary" size="lg" className="flex-1" icon="bolt" disabled={submitting || (requiresConsentForCompletion && !requiredConsentsAccepted(consents))} onClick={handleComplete}>
                     {submitting ? "저장 중..." : "회원가입 완료"}
                   </Btn>
                 ) : (
