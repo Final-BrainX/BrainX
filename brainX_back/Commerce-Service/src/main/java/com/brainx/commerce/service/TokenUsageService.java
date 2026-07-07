@@ -111,7 +111,8 @@ public class TokenUsageService {
         return new TokenUsageData(planName, monthlyCreditLimit, usedCredits, usagePercent, resetDate, byFeature, recentDays);
     }
 
-    private Long calculateRemainingQuota(String userId, String yearMonth) {
+    @Transactional(readOnly = true)
+    public Long calculateRemainingQuota(String userId, String yearMonth) {
         long monthlyUsedCredits = monthlyRepository.findByIdUserIdAndIdYearMonth(userId, yearMonth).stream()
                 .mapToLong(row -> CreditConverter.toCredits(row.getEstimatedCost()))
                 .sum();

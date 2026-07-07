@@ -3,6 +3,7 @@ package com.brainx.commerce.controller;
 import com.brainx.commerce.dto.ApiResponse;
 import com.brainx.commerce.dto.CommerceDtos.*;
 import com.brainx.commerce.service.CommerceService;
+import com.brainx.commerce.service.EntitlementService;
 import com.brainx.commerce.service.TokenUsageService;
 import com.brainx.commerce.security.AuthenticatedUser;
 import jakarta.validation.Valid;
@@ -20,6 +21,7 @@ public class CommerceController {
 
     private final CommerceService commerceService;
     private final TokenUsageService tokenUsageService;
+    private final EntitlementService entitlementService;
 
     // TEMP: 로그인 없이 결제 기능 테스트할 때 쓰는 고정 사용자 ID. 실제 로그인 연동 완료 후 제거할 것.
     private static final String DEV_TEST_USER_ID = "dev-test-user";
@@ -52,6 +54,29 @@ public class CommerceController {
         YearMonth ym = month != null ? YearMonth.parse(month) : YearMonth.now();
         TokenUsageData data = tokenUsageService.getMyTokenUsage(resolveUserId(auth), ym);
         return ResponseEntity.ok(ApiResponse.success(data, "토큰 사용량 조회 성공"));
+    }
+
+    // GET /api/v1/ai/usage
+    // 로그인 사용자는 이번 달 크레딧 사용률을, 게스트는 AI 기능 총 사용 횟수(10회 한도)를 반환한다.
+    // Gateway가 로그인이 아니면 X-Guest-Id 쿠키/헤더를 세팅해서 넘기므로 둘 다 없을 때만 DEV 폴백을 쓴다.
+    @GetMapping("/ai/usage")
+    public ResponseEntity<ApiResponse<AiUsageData>> getAiUsage(
+            Authentication auth,
+            @RequestHeader(value = "X-Guest-Id", required = false) String guestId) {
+        if (auth == null && guestId != null && !guestId.isBlank()) {
+            long usedCount = entitlementService.guestUsedCount(guestId);
+            int limit = EntitlementService.GUEST_AI_CALL_LIMIT;
+            int remaining = (int) Math.max(0, limit - usedCount);
+            double usagePercent = (usedCount * 100.0) / limit;
+            AiUsageData data = new AiUsageData("GUEST", usedCount, limit, remaining, usagePercent);
+            return ResponseEntity.ok(ApiResponse.success(data, "게스트 AI 사용 횟수 조회 성공"));
+        }
+
+        TokenUsageData tokenUsage = tokenUsageService.getMyTokenUsage(resolveUserId(auth), YearMonth.now());
+        Integer limit = tokenUsage.monthlyCreditLimit() != null ? tokenUsage.monthlyCreditLimit().intValue() : null;
+        Integer remaining = limit != null ? Math.max(0, limit - (int) tokenUsage.usedCredits()) : null;
+        AiUsageData data = new AiUsageData("USER", tokenUsage.usedCredits(), limit, remaining, tokenUsage.usagePercent());
+        return ResponseEntity.ok(ApiResponse.success(data, "AI 크레딧 사용량 조회 성공"));
     }
 
     // POST /api/v1/subscriptions/checkout-sessions

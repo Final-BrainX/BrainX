@@ -62,7 +62,7 @@ public class JwtAuthenticationGlobalFilter implements GlobalFilter, Ordered {
 
         Optional<String> token = bearerToken(request);
         if (token.isEmpty()) {
-            if (isGuestWorkspaceRequest(request)) {
+            if (isGuestEligibleRequest(request)) {
                 return authenticateGuest(sanitizedExchange, chain, request);
             }
             return unauthorized(sanitizedExchange);
@@ -80,7 +80,7 @@ public class JwtAuthenticationGlobalFilter implements GlobalFilter, Ordered {
                     .build();
             return chain.filter(sanitizedExchange.mutate().request(authenticatedRequest).build());
         } catch (IllegalArgumentException exception) {
-            if (isGuestWorkspaceRequest(request)) {
+            if (isGuestEligibleRequest(request)) {
                 return authenticateGuest(sanitizedExchange, chain, request);
             }
             return unauthorized(sanitizedExchange);
@@ -112,7 +112,7 @@ public class JwtAuthenticationGlobalFilter implements GlobalFilter, Ordered {
         return requestedToken != null && !requestedToken.isBlank() && requestedToken.equals(serviceToken);
     }
 
-    private boolean isGuestWorkspaceRequest(ServerHttpRequest request) {
+    private boolean isGuestEligibleRequest(ServerHttpRequest request) {
         String path = request.getPath().pathWithinApplication().value();
         return pathMatcher.match("/api/v1/workspace/**", path)
                 || pathMatcher.match("/api/v1/notes", path)
@@ -126,7 +126,11 @@ public class JwtAuthenticationGlobalFilter implements GlobalFilter, Ordered {
                 || pathMatcher.match("/api/v1/graph", path)
                 || pathMatcher.match("/api/v1/graph/**", path)
                 || pathMatcher.match("/api/v1/share-links", path)
-                || pathMatcher.match("/api/v1/share-links/**", path);
+                || pathMatcher.match("/api/v1/share-links/**", path)
+                // 게스트도 AI 기능을 쓸 수 있게 한다 — 합산 10회 한도는 Commerce-Service의
+                // entitlements 판정(Intelligence-Service가 X-Guest-Id로 동기 호출)이 담당한다.
+                || pathMatcher.match("/api/v1/ai/**", path)
+                || pathMatcher.match("/api/v1/intelligence/semantic-search", path);
     }
 
     private Mono<Void> authenticateGuest(ServerWebExchange exchange, GatewayFilterChain chain, ServerHttpRequest request) {

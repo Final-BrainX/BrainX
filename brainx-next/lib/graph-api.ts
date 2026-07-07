@@ -1,6 +1,6 @@
 "use client";
 
-import { clearAuthSession, isDevAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { clearAuthSession, isDevAuthSession, readAuthSession, refreshAuthSessionOnce, type ApiResponse } from "@/lib/auth-api";
 import { getWorkspaceApiBaseUrl } from "@/lib/api-base";
 import { CLUSTERS, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
 import { requestDesktopApiJson } from "@/lib/desktop-api-request";
@@ -53,7 +53,7 @@ function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
   return response.message ?? response.error?.message ?? fallback;
 }
 
-async function workspaceRequest<T>(path: string, init?: RequestInit): Promise<T> {
+async function workspaceRequest<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
   const session = readAuthSession();
   const useAuthenticatedSession = Boolean(session?.accessToken) && !isDevAuthSession(session);
   const useDevUserHeader = Boolean(WORKSPACE_DEV_USER_ID) && !useAuthenticatedSession;
@@ -75,6 +75,9 @@ async function workspaceRequest<T>(path: string, init?: RequestInit): Promise<T>
     ? desktopResponse.payload
     : ((await (response as Response).json().catch(() => null)) as ApiResponse<T> | null);
   if (response.status === 401 || response.status === 403) {
+    if (!retried && session?.refreshToken && (await refreshAuthSessionOnce())) {
+      return workspaceRequest<T>(path, init, true);
+    }
     clearAuthSession();
     throw new Error("Login expired. Please sign in again.");
   }
