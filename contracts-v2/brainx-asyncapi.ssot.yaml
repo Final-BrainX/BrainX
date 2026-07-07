@@ -5267,6 +5267,7 @@ x-ssot:
   openapi: brainx-openapi.ssot.yaml
   sourceNotes:
   - Discovery-Service/Eureka is infrastructure and is outside the async event contract surface.
+  - Workspace note lifecycle events must include `documentGroupId` in their payloads so downstream consumers preserve Workspace boundaries.
   rules:
   - All event consumers must be idempotent by eventId.
   - Use correlationId from the originating HTTP request when available.

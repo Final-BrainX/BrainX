@@ -45,6 +45,9 @@ public class McpApiClientService implements ApiKeyAuthenticator {
         if (normalizedScopes.isEmpty()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_SCOPES", "At least one scope is required.");
         }
+        if (normalizedScopes.contains("*")) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_SCOPES", "Wildcard scope '*' is not allowed.");
+        }
         if (expiresAt != null && !expiresAt.isAfter(clock.instant())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_EXPIRATION", "expiresAt must be in the future.");
         }
