@@ -4,6 +4,7 @@ import com.brainx.admin.dto.AdminDtos.AdminBillingSummaryData;
 import com.brainx.admin.dto.AdminDtos.AdminDashboardOverviewData;
 import com.brainx.admin.dto.AdminDtos.AdminMonitoringSnapshotData;
 import com.brainx.admin.dto.AdminDtos.KafkaLagState;
+import com.brainx.admin.entity.AdminDesktopDownloadEvent;
 import com.brainx.admin.entity.AdminMonitoringSnapshot;
 import com.brainx.admin.entity.AdminServiceHealthSnapshot;
 import com.brainx.admin.repository.AdminDesktopDownloadEventRepository;
@@ -232,7 +233,7 @@ class AdminServiceMonitoringSnapshotTest {
     }
 
     @Test
-    void dashboardOverviewUsesPersistedSnapshotsForPreviousDaysAndTodayLiveOverlay() {
+    void dashboardOverviewUsesPersistedSnapshotsForPreviousDaysAndTodayCurrentActiveUsers() {
         OffsetDateTime julyThirdMorning = OffsetDateTime.parse("2026-07-03T08:50:00+09:00");
         ReflectionTestUtils.setField(adminService, "monitoringTimezone", "Asia/Seoul");
 
@@ -281,7 +282,7 @@ class AdminServiceMonitoringSnapshotTest {
 
         doReturn(julyThirdMorning).when(adminService).currentMonitoringTime();
         doReturn(summary).when(adminService).billingSummary();
-        doReturn(userGrowthSummary).when(adminService).fetchUserGrowthSummary(14);
+        doReturn(42).when(adminService).resolveLiveActiveUsers();
         doReturn(List.of()).when(adminService).collectServiceHealths(eq(false), any());
         when(desktopDownloadEventRepository.findAllByOrderByDownloadedAtDesc()).thenReturn(List.of());
         when(operationEvents.findTop20ByOrderByCreatedAtDesc()).thenReturn(List.of());
@@ -292,9 +293,100 @@ class AdminServiceMonitoringSnapshotTest {
         AdminDashboardOverviewData overview = adminService.dashboardOverview();
 
         Assertions.assertThat(overview.activeUserTrend().values()).hasSize(14);
-        Assertions.assertThat(overview.activeUserTrend().values().subList(11, 14)).containsExactly(7, 8, 9);
-        Assertions.assertThat(overview.activeUserTrend().periodLabel()).isEqualTo("최근 13일 snapshot + 오늘 live");
+        Assertions.assertThat(overview.activeUserTrend().values().subList(11, 14)).containsExactly(7, 8, 42);
+        Assertions.assertThat(overview.activeUserTrend().periodLabel()).isEqualTo("최근 13일 snapshot + 오늘 실시간 활성 회원 수");
         Assertions.assertThat(overview.activeUserTrend().source()).isEqualTo("AdminMonitoringSnapshot + User-Service live overlay");
+    }
+
+    @Test
+    void dashboardOverviewBuildsDesktopDownloadTrendFromSnapshotsWithTodayLiveOverlay() {
+        OffsetDateTime julyThirdMorning = OffsetDateTime.parse("2026-07-03T08:50:00+09:00");
+
+        AdminBillingSummaryData summary = new AdminBillingSummaryData(
+                new BigDecimal("1234567"),
+                12,
+                new BigDecimal("890123"),
+                3
+        );
+
+        AdminMonitoringSnapshot juneTwentySeventhSnapshot = createMonitoringSnapshot(
+                "ams_20260627",
+                new BigDecimal("1"),
+                1,
+                new BigDecimal("1"),
+                0,
+                5,
+                0,
+                "intelligence-service",
+                KafkaLagState.HEALTHY,
+                "Current lag 0 msgs",
+                OffsetDateTime.parse("2026-06-27T23:59:00+09:00")
+        );
+        ReflectionTestUtils.setField(juneTwentySeventhSnapshot, "desktopDownloadCount", 2);
+        AdminMonitoringSnapshot juneTwentyEighthSnapshot = createMonitoringSnapshot(
+                "ams_20260628",
+                new BigDecimal("1"),
+                1,
+                new BigDecimal("1"),
+                0,
+                5,
+                0,
+                "intelligence-service",
+                KafkaLagState.HEALTHY,
+                "Current lag 0 msgs",
+                OffsetDateTime.parse("2026-06-28T23:59:00+09:00")
+        );
+        ReflectionTestUtils.setField(juneTwentyEighthSnapshot, "desktopDownloadCount", 4);
+        AdminMonitoringSnapshot julySecondSnapshot = createMonitoringSnapshot(
+                "ams_20260702",
+                new BigDecimal("1"),
+                1,
+                new BigDecimal("1"),
+                0,
+                8,
+                0,
+                "intelligence-service",
+                KafkaLagState.HEALTHY,
+                "Current lag 0 msgs",
+                OffsetDateTime.parse("2026-07-02T23:59:00+09:00")
+        );
+        ReflectionTestUtils.setField(julySecondSnapshot, "desktopDownloadCount", 7);
+
+        AdminDesktopDownloadEvent firstEvent = new AdminDesktopDownloadEvent(
+                com.brainx.admin.dto.AdminDtos.DesktopPlatform.WINDOWS,
+                "0.1.0",
+                "landing",
+                "hash-a",
+                "ua-a",
+                "1.1.1.1",
+                OffsetDateTime.parse("2026-07-03T08:00:00+09:00")
+        );
+        AdminDesktopDownloadEvent secondEvent = new AdminDesktopDownloadEvent(
+                com.brainx.admin.dto.AdminDtos.DesktopPlatform.WINDOWS,
+                "0.1.0",
+                "landing",
+                "hash-b",
+                "ua-b",
+                "2.2.2.2",
+                OffsetDateTime.parse("2026-07-03T08:10:00+09:00")
+        );
+
+        doReturn(julyThirdMorning).when(adminService).currentMonitoringTime();
+        doReturn(summary).when(adminService).billingSummary();
+        doReturn(42).when(adminService).resolveLiveActiveUsers();
+        doReturn(List.of()).when(adminService).collectServiceHealths(eq(false), any());
+        when(operationEvents.findTop20ByOrderByCreatedAtDesc()).thenReturn(List.of());
+        when(desktopDownloadEventRepository.findAllByOrderByDownloadedAtDesc()).thenReturn(List.of(secondEvent, firstEvent));
+        when(monitoringSnapshotRepository.findAll()).thenReturn(List.of(juneTwentySeventhSnapshot, juneTwentyEighthSnapshot, julySecondSnapshot));
+        when(monitoringSnapshotRepository.findAllByOrderByCapturedAtDesc()).thenReturn(List.of(julySecondSnapshot, juneTwentyEighthSnapshot, juneTwentySeventhSnapshot));
+        when(monitoringSnapshotRepository.findTop2ByOrderByCapturedAtDesc()).thenReturn(List.of(julySecondSnapshot, juneTwentyEighthSnapshot));
+
+        AdminDashboardOverviewData overview = adminService.dashboardOverview();
+
+        Assertions.assertThat(overview.desktopDownloadTrend().values()).containsExactly(2, 4, 0, 0, 0, 7, 2);
+        Assertions.assertThat(overview.desktopDownloadTrend().source()).isEqualTo("AdminMonitoringSnapshot + Landing live overlay");
+        Assertions.assertThat(overview.summary().desktopDownloadCount()).isEqualTo(2);
+        Assertions.assertThat(overview.summary().desktopDownloadUsers()).isEqualTo(2);
     }
 
     private void stubCaptureInputs(OffsetDateTime capturedAt) {
@@ -315,10 +407,11 @@ class AdminServiceMonitoringSnapshotTest {
         );
         AdminService.InternalUserGrowthSummaryDto userGrowthSummary = new AdminService.InternalUserGrowthSummaryDto(42, userTrend);
         doReturn(summary).when(adminService).billingSummary();
-        doReturn(userGrowthSummary).when(adminService).fetchUserGrowthSummary(14);
+        doReturn(42).when(adminService).resolveLiveActiveUsers();
         doReturn(List.of()).when(adminService).collectServiceHealths(true, capturedAt);
         when(monitoringSnapshotRepository.findTop2ByOrderByCapturedAtDesc()).thenReturn(List.of());
         when(monitoringSnapshotRepository.findAll()).thenReturn(List.of());
+        when(monitoringSnapshotRepository.findAllByOrderByCapturedAtDesc()).thenReturn(List.of());
     }
 
     private AdminMonitoringSnapshot createMonitoringSnapshot(

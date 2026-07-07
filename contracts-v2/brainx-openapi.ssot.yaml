@@ -10673,7 +10673,7 @@ paths:
         reason: signup and active user summary
       x-produces-events: []
       x-async-boundary: false
-      x-implementation-note: KPI cards are rendered from Admin-Service authoritative aggregates. KPI deltas compare the latest live values with the most recent persisted daily monitoring snapshot, and service uptime is derived from recent persisted health snapshots instead of a frontend placeholder. A Spring scheduler captures the daily snapshot at 23:59 Asia/Seoul. Before that cutoff, the admin web app must keep overview data refreshed from live reads instead of relying on the persisted snapshot list. `activeUserTrend` must be rendered as the previous persisted daily snapshots plus a current-day live overlay from User-Service, and if a same-day snapshot already exists it must win over the live overlay. `desktopDownloadTrend` and the summary download fields are derived from the public landing Windows installer download ledger. If Commerce-Service billing reads fail, Admin-Service may respond with zeroed billing aggregates so the admin shell can still render.
+      x-implementation-note: KPI cards are rendered from Admin-Service authoritative aggregates. KPI deltas compare the latest live values with the most recent persisted daily monitoring snapshot, and service uptime is derived from recent persisted health snapshots instead of a frontend placeholder. A Spring scheduler captures the daily snapshot at 23:59 Asia/Seoul. Before that cutoff, the admin web app must keep overview data refreshed from live reads instead of relying on the persisted snapshot list. `activeUserTrend` must be rendered as the previous persisted daily snapshots plus a current-day live overlay of the current ACTIVE member count, and if a same-day snapshot already exists it must win over the live overlay. `desktopDownloadTrend` is a recent 7-day cumulative snapshot trend built from persisted monitoring snapshots plus a current-day live overlay from the public landing Windows installer download ledger; the summary download fields use the same ledger. If Commerce-Service billing reads fail, Admin-Service may respond with zeroed billing aggregates so the admin shell can still render.
       x-runtime-note: If persisted monitoring snapshot schema drift is detected during rollout, Admin-Service should self-heal missing download columns and degrade to live-only overview metrics instead of failing the dashboard with a 500.
       responses:
         '200':
@@ -19408,7 +19408,7 @@ components:
           $ref: '#/components/schemas/AdminTrendSeriesData'
         desktopDownloadTrend:
           $ref: '#/components/schemas/AdminTrendSeriesData'
-          description: 관리자 모니터링 overview의 활성 사용자 추이 시계열. 전일 값은 persisted monitoring snapshot, 오늘 값은 User-Service live overlay를 우선 사용하되 당일 snapshot이 있으면 persisted 값을 사용한다.
+          description: 관리자 모니터링 overview의 Windows 다운로드 누적 추이 시계열. 최근 6일 값은 persisted monitoring snapshot 누적값, 오늘 값은 landing live overlay를 우선 사용하되 당일 snapshot이 있으면 persisted 값을 사용한다.
       required:
       - kpis
       - services
