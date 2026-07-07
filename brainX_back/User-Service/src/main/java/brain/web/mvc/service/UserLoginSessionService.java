@@ -253,6 +253,10 @@ public class UserLoginSessionService {
         }
 
         String normalized = userAgent.toLowerCase(Locale.ROOT);
+        String operatingSystem = resolveOperatingSystem(normalized);
+        if (normalized.contains("electron") || normalized.contains("brainx-desktop") || normalized.contains("brainx-electron")) {
+            return "BrainX App / " + operatingSystem;
+        }
         if (normalized.contains("iphone") || normalized.contains("ipad") || normalized.contains("ios")) {
             return normalized.contains("crios") ? "Chrome / iOS" : "Safari / iOS";
         }
@@ -275,6 +279,25 @@ public class UserLoginSessionService {
             return "Safari / macOS";
         }
         return "Browser / Unknown";
+    }
+
+    private String resolveOperatingSystem(String normalizedUserAgent) {
+        if (normalizedUserAgent.contains("iphone") || normalizedUserAgent.contains("ipad") || normalizedUserAgent.contains("ios")) {
+            return "iOS";
+        }
+        if (normalizedUserAgent.contains("android")) {
+            return "Android";
+        }
+        if (normalizedUserAgent.contains("windows")) {
+            return "Windows";
+        }
+        if (normalizedUserAgent.contains("mac os x") || normalizedUserAgent.contains("macintosh")) {
+            return "macOS";
+        }
+        if (normalizedUserAgent.contains("linux")) {
+            return "Linux";
+        }
+        return "Desktop";
     }
 
     private String hashUserAgent(HttpServletRequest request) {

@@ -9819,6 +9819,49 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security: []
+  /api/v1/landing/desktop-downloads:
+    post:
+      operationId: recordLandingDesktopDownload
+      summary: Record a public desktop installer download
+      tags:
+      - Commerce & Operations
+      - Admin
+      x-producer-service: admin-service
+      x-visibility: public
+      x-consumers:
+      - id: web.landing.download
+        type: frontend
+        description: Public landing page Windows installer download tracking
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LandingDesktopDownloadRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/LandingDesktopDownloadData'
+        '400':
+          description: ?섎せ???붿껌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security: []
   /api/v1/admin/users:
     get:
       operationId: listAdminUsers
@@ -10552,7 +10595,7 @@ paths:
         reason: signup and active user summary
       x-produces-events: []
       x-async-boundary: false
-      x-implementation-note: KPI cards are rendered from Admin-Service authoritative aggregates. KPI deltas compare the latest live values with the most recent persisted daily monitoring snapshot, and service uptime is derived from recent persisted health snapshots instead of a frontend placeholder. A Spring scheduler captures the daily snapshot at 23:59 Asia/Seoul. Before that cutoff, the admin web app must keep overview data refreshed from live reads instead of relying on the persisted snapshot list. `activeUserTrend` must be rendered as the previous persisted daily snapshots plus a current-day live overlay from User-Service, and if a same-day snapshot already exists it must win over the live overlay. If Commerce-Service billing reads fail, Admin-Service may respond with zeroed billing aggregates so the admin shell can still render.
+      x-implementation-note: KPI cards are rendered from Admin-Service authoritative aggregates. KPI deltas compare the latest live values with the most recent persisted daily monitoring snapshot, and service uptime is derived from recent persisted health snapshots instead of a frontend placeholder. A Spring scheduler captures the daily snapshot at 23:59 Asia/Seoul. Before that cutoff, the admin web app must keep overview data refreshed from live reads instead of relying on the persisted snapshot list. `activeUserTrend` must be rendered as the previous persisted daily snapshots plus a current-day live overlay from User-Service, and if a same-day snapshot already exists it must win over the live overlay. `desktopDownloadTrend` and the summary download fields are derived from the public landing Windows installer download ledger. If Commerce-Service billing reads fail, Admin-Service may respond with zeroed billing aggregates so the admin shell can still render.
       responses:
         '200':
           description: Success
@@ -18947,7 +18990,7 @@ components:
           type: string
         device:
           type: string
-          description: Browser and OS label, for example "Chrome / macOS".
+          description: Client label shown in the admin console, for example "Chrome / macOS" or "BrainX App / Windows".
         location:
           type: string
           nullable: true
@@ -19136,6 +19179,50 @@ components:
       - accepted
       - failed
       additionalProperties: false
+    LandingDesktopDownloadRequest:
+      type: object
+      properties:
+        platform:
+          type: string
+          enum:
+          - WINDOWS
+        installerVersion:
+          type: string
+          nullable: true
+        source:
+          type: string
+          nullable: true
+        clientKey:
+          type: string
+          nullable: true
+      required:
+      - platform
+      additionalProperties: false
+    LandingDesktopDownloadData:
+      type: object
+      properties:
+        downloadId:
+          type: string
+        platform:
+          type: string
+          enum:
+          - WINDOWS
+        installerVersion:
+          type: string
+          nullable: true
+        source:
+          type: string
+          nullable: true
+        downloadedAt:
+          type: string
+          format: date-time
+      required:
+      - downloadId
+      - platform
+      - installerVersion
+      - source
+      - downloadedAt
+      additionalProperties: false
     AdminDashboardOverviewData:
       type: object
       properties:
@@ -19160,6 +19247,8 @@ components:
           $ref: '#/components/schemas/AdminTrendSeriesData'
         activeUserTrend:
           $ref: '#/components/schemas/AdminTrendSeriesData'
+        desktopDownloadTrend:
+          $ref: '#/components/schemas/AdminTrendSeriesData'
           description: 관리자 모니터링 overview의 활성 사용자 추이 시계열. 전일 값은 persisted monitoring snapshot, 오늘 값은 User-Service live overlay를 우선 사용하되 당일 snapshot이 있으면 persisted 값을 사용한다.
       required:
       - kpis
@@ -19168,6 +19257,7 @@ components:
       - summary
       - revenueTrend
       - activeUserTrend
+      - desktopDownloadTrend
       additionalProperties: false
     AdminTrendSeriesData:
       type: object
@@ -19207,6 +19297,10 @@ components:
           type: integer
         activeUsers:
           type: integer
+        desktopDownloadUsers:
+          type: integer
+        desktopDownloadCount:
+          type: integer
         totalNotes:
           type: integer
         totalStorageBytes:
@@ -19228,6 +19322,8 @@ components:
       - mrr
       - failedPaymentCount
       - activeUsers
+      - desktopDownloadUsers
+      - desktopDownloadCount
       - totalNotes
       - totalStorageBytes
       - notesCreatedToday
@@ -19250,6 +19346,10 @@ components:
         failedPaymentCount:
           type: integer
         activeUsers:
+          type: integer
+        desktopDownloadUsers:
+          type: integer
+        desktopDownloadCount:
           type: integer
         kafkaLagMessages:
           type: integer
@@ -19276,6 +19376,8 @@ components:
       - mrr
       - failedPaymentCount
       - activeUsers
+      - desktopDownloadUsers
+      - desktopDownloadCount
       - kafkaLagMessages
       - kafkaConsumerGroupId
       - kafkaLagState
@@ -20014,6 +20116,7 @@ components:
           type: string
         device:
           type: string
+          description: Client label shown in the admin console, for example "Chrome / macOS" or "BrainX App / Windows".
         location:
           type: string
           nullable: true
