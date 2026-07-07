@@ -235,7 +235,7 @@ public class WorkspaceService {
         } else {
             note.applyDraft(title, markdown, draft.folderId(), now);
             syncWikiLinksForNote(note, now);
-            eventPublisher.publish("NoteContentSaved", userId, Map.of(
+            eventPublisher.publish("NoteContentSaved", userId, payload(
                     "noteId", note.getNoteId(),
                     "documentGroupId", note.getDocumentGroupId(),
                     "userId", userId,
@@ -268,7 +268,7 @@ public class WorkspaceService {
         Instant now = Instant.now();
         if ("permanent".equalsIgnoreCase(mode)) {
             noteRepository.delete(note);
-            eventPublisher.publish("NoteDeleted", userId, Map.of(
+            eventPublisher.publish("NoteDeleted", userId, payload(
                     "noteId", noteId,
                     "documentGroupId", note.getDocumentGroupId(),
                     "userId", userId,
@@ -278,7 +278,7 @@ public class WorkspaceService {
             return new DeleteNoteData(noteId, now, null);
         }
         note.trash(now);
-        eventPublisher.publish("NoteTrashed", userId, Map.of(
+        eventPublisher.publish("NoteTrashed", userId, payload(
                 "noteId", noteId,
                 "documentGroupId", note.getDocumentGroupId(),
                 "userId", userId,
@@ -299,7 +299,7 @@ public class WorkspaceService {
         syncWikiLinksForNote(note, now);
         snapshot(note, now);
         activity(userId, note, "updated", now);
-        eventPublisher.publish("NoteContentSaved", userId, Map.of(
+        eventPublisher.publish("NoteContentSaved", userId, payload(
                 "noteId", noteId,
                 "documentGroupId", note.getDocumentGroupId(),
                 "userId", userId,
@@ -401,7 +401,7 @@ public class WorkspaceService {
         note.saveContent(version.getMarkdown(), now);
         syncWikiLinksForNote(note, now);
         snapshot(note, now);
-        eventPublisher.publish("NoteContentSaved", userId, Map.of(
+        eventPublisher.publish("NoteContentSaved", userId, payload(
                 "noteId", noteId,
                 "documentGroupId", note.getDocumentGroupId(),
                 "userId", userId,
@@ -613,13 +613,26 @@ public class WorkspaceService {
         }
         boolean[] createdTarget = {false};
         Note target = request.targetNoteId() == null
-                ? noteRepository.findFirstByUserIdAndTitleAndDeletedFalse(userId, request.targetTitle().trim())
+                ? noteRepository.findFirstByUserIdAndDocumentGroupIdAndTitleAndDeletedFalse(
+                        userId,
+                        source.getDocumentGroupId(),
+                        request.targetTitle().trim()
+                )
                 .orElseGet(() -> {
                     if (!request.createIfMissing()) {
                         return null;
                     }
                     createdTarget[0] = true;
-                    return new Note(Ids.note(), userId, request.targetTitle().trim(), "", null, List.of(), Instant.now());
+                    return new Note(
+                            Ids.note(),
+                            userId,
+                            source.getDocumentGroupId(),
+                            request.targetTitle().trim(),
+                            "",
+                            null,
+                            List.of(),
+                            Instant.now()
+                    );
                 })
                 : note(userId, request.targetNoteId());
         if (target == null) {
@@ -893,6 +906,13 @@ public class WorkspaceService {
                 ))
                 .toList();
         return new InternalUserWorkspaceStatsData((int) noteCount, storageBytes, activities);
+    }
+
+    @Transactional(readOnly = true)
+    public WorkspaceUserStatsData getPublicUserWorkspaceStats(String userId) {
+        InternalUserWorkspaceStatsData stats = getUserWorkspaceStats(userId);
+        int workspaceCount = listWorkspaces(userId).workspaces().size();
+        return new WorkspaceUserStatsData(workspaceCount, stats.noteCount(), stats.storageBytes(), stats.activities());
     }
 
     @Transactional(readOnly = true)

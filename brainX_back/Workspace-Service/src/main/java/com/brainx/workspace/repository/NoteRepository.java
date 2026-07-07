@@ -17,6 +17,13 @@ public interface NoteRepository extends JpaRepository<Note, String> {
     List<Note> findByUserIdAndFolderIdIn(String userId, Collection<String> folderIds);
     Optional<Note> findFirstByUserIdAndTitleAndDeletedFalse(String userId, String title);
 
+    @Query("SELECT n FROM Note n WHERE n.userId = :userId AND n.title = :title AND n.deleted = false AND " +
+            "((:documentGroupId IS NULL AND n.documentGroupId IS NULL) OR n.documentGroupId = :documentGroupId) " +
+            "ORDER BY n.createdAt ASC LIMIT 1")
+    Optional<Note> findFirstByUserIdAndDocumentGroupIdAndTitleAndDeletedFalse(@Param("userId") String userId,
+                                                                               @Param("documentGroupId") String documentGroupId,
+                                                                               @Param("title") String title);
+
     @Query("SELECT n FROM Note n WHERE n.userId = :userId AND LOWER(n.title) = LOWER(:title) AND n.deleted = false ORDER BY n.createdAt ASC LIMIT 1")
     Optional<Note> findFirstByUserIdAndTitleIgnoreCaseAndDeletedFalse(@Param("userId") String userId, @Param("title") String title);
 
