@@ -185,6 +185,16 @@ spring:
                     name: workspaceServiceCircuitBreaker
                     fallbackUri: forward:/fallback/workspace
 
+            - id: internal-intelligence-service
+              uri: lb://intelligence-service
+              predicates:
+                - Path=/internal/v1/intelligence/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: intelligenceServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/intelligence
+
             - id: internal-ingestion-health
               uri: lb://ingestion-service
               predicates:

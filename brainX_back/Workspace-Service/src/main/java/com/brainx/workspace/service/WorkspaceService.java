@@ -87,8 +87,15 @@ public class WorkspaceService {
         );
     }
 
-    @Transactional(readOnly = true)
+    /** User-Service의 provisionDefaultWorkspaceBestEffort()는 이름 그대로 best-effort라 실패할 수
+        있다 — 그 경우 이 사용자는 Default Workspace 없이 남아 다른 Workspace만 계속 쌓일 수 있다
+        (예: OAuth 온보딩 직후 내부 호출이 일시적으로 실패한 계정). 조회 시점에 한 번 더 존재를
+        보정해, 실패가 회원가입 순간에 국한되지 않고 다음 목록 조회에서 스스로 복구되게 한다. */
+    @Transactional
     public WorkspaceListData listWorkspaces(String userId) {
+        if (workspaceRepository.findDefaultWorkspacesByUserId(userId).isEmpty()) {
+            getOrCreateDefaultWorkspace(userId);
+        }
         return new WorkspaceListData(workspaceRepository.findByUserIdOrderByDefaultFirst(userId).stream()
                 .map(this::workspaceSummaryData)
                 .toList());
@@ -188,6 +195,7 @@ public class WorkspaceService {
         activity(userId, note, "created", now);
         eventPublisher.publish("NoteCreated", userId, payload(
                 "noteId", note.getNoteId(),
+                "documentGroupId", note.getDocumentGroupId(),
                 "userId", userId,
                 "title", note.getTitle(),
                 "folderId", note.getFolderId(),
@@ -217,6 +225,7 @@ public class WorkspaceService {
             syncIncomingWikiLinksForTitle(userId, note.getTitle(), note.getNoteId(), now);
             eventPublisher.publish("NoteCreated", userId, payload(
                     "noteId", note.getNoteId(),
+                    "documentGroupId", note.getDocumentGroupId(),
                     "userId", userId,
                     "title", note.getTitle(),
                     "folderId", note.getFolderId(),
@@ -226,8 +235,9 @@ public class WorkspaceService {
         } else {
             note.applyDraft(title, markdown, draft.folderId(), now);
             syncWikiLinksForNote(note, now);
-            eventPublisher.publish("NoteContentSaved", userId, Map.of(
+            eventPublisher.publish("NoteContentSaved", userId, payload(
                     "noteId", note.getNoteId(),
+                    "documentGroupId", note.getDocumentGroupId(),
                     "userId", userId,
                     "version", note.getVersion(),
                     "markdownHash", sha256(note.getMarkdown()),
@@ -258,12 +268,19 @@ public class WorkspaceService {
         Instant now = Instant.now();
         if ("permanent".equalsIgnoreCase(mode)) {
             noteRepository.delete(note);
-            eventPublisher.publish("NoteDeleted", userId, Map.of("noteId", noteId, "userId", userId, "deletedAt", now, "permanent", true));
+            eventPublisher.publish("NoteDeleted", userId, payload(
+                    "noteId", noteId,
+                    "documentGroupId", note.getDocumentGroupId(),
+                    "userId", userId,
+                    "deletedAt", now,
+                    "permanent", true
+            ));
             return new DeleteNoteData(noteId, now, null);
         }
         note.trash(now);
-        eventPublisher.publish("NoteTrashed", userId, Map.of(
+        eventPublisher.publish("NoteTrashed", userId, payload(
                 "noteId", noteId,
+                "documentGroupId", note.getDocumentGroupId(),
                 "userId", userId,
                 "deletedAt", now,
                 "purgeAt", now.plus(30, ChronoUnit.DAYS)
@@ -282,8 +299,9 @@ public class WorkspaceService {
         syncWikiLinksForNote(note, now);
         snapshot(note, now);
         activity(userId, note, "updated", now);
-        eventPublisher.publish("NoteContentSaved", userId, Map.of(
+        eventPublisher.publish("NoteContentSaved", userId, payload(
                 "noteId", noteId,
+                "documentGroupId", note.getDocumentGroupId(),
                 "userId", userId,
                 "version", note.getVersion(),
                 "markdownHash", sha256(note.getMarkdown()),
@@ -331,7 +349,11 @@ public class WorkspaceService {
                 requireFolderInWorkspace(userId, targetFolderId, note.getDocumentGroupId(),
                         "FOLDER_WORKSPACE_MISMATCH", "Folder does not belong to the note's Workspace.");
             }
-            finalTitle = dedupeNoteTitle(userId, note.getDocumentGroupId(), targetFolderId, desiredTitle, noteId);
+            boolean titleChanged = request.title() != null && !Objects.equals(desiredTitle, note.getTitle());
+            boolean folderChanged = request.folderId() != null && !Objects.equals(targetFolderId, note.getFolderId());
+            finalTitle = (titleChanged || folderChanged)
+                    ? dedupeNoteTitle(userId, note.getDocumentGroupId(), targetFolderId, desiredTitle, noteId)
+                    : note.getTitle();
             note.patchMetadata(finalTitle, request.folderId(), request.tags(), request.archived(), typographyJson(request.typography()), now);
         }
 
@@ -352,6 +374,7 @@ public class WorkspaceService {
         }
         eventPublisher.publish("NoteMetadataChanged", userId, payload(
                 "noteId", noteId,
+                "documentGroupId", note.getDocumentGroupId(),
                 "userId", userId,
                 "title", note.getTitle(),
                 "folderId", note.getFolderId(),
@@ -378,8 +401,9 @@ public class WorkspaceService {
         note.saveContent(version.getMarkdown(), now);
         syncWikiLinksForNote(note, now);
         snapshot(note, now);
-        eventPublisher.publish("NoteContentSaved", userId, Map.of(
+        eventPublisher.publish("NoteContentSaved", userId, payload(
                 "noteId", noteId,
+                "documentGroupId", note.getDocumentGroupId(),
                 "userId", userId,
                 "version", note.getVersion(),
                 "markdownHash", sha256(note.getMarkdown()),
@@ -589,13 +613,26 @@ public class WorkspaceService {
         }
         boolean[] createdTarget = {false};
         Note target = request.targetNoteId() == null
-                ? noteRepository.findFirstByUserIdAndTitleAndDeletedFalse(userId, request.targetTitle().trim())
+                ? noteRepository.findFirstByUserIdAndDocumentGroupIdAndTitleAndDeletedFalse(
+                        userId,
+                        source.getDocumentGroupId(),
+                        request.targetTitle().trim()
+                )
                 .orElseGet(() -> {
                     if (!request.createIfMissing()) {
                         return null;
                     }
                     createdTarget[0] = true;
-                    return new Note(Ids.note(), userId, request.targetTitle().trim(), "", null, List.of(), Instant.now());
+                    return new Note(
+                            Ids.note(),
+                            userId,
+                            source.getDocumentGroupId(),
+                            request.targetTitle().trim(),
+                            "",
+                            null,
+                            List.of(),
+                            Instant.now()
+                    );
                 })
                 : note(userId, request.targetNoteId());
         if (target == null) {
@@ -614,6 +651,7 @@ public class WorkspaceService {
             snapshot(target, Instant.now());
             eventPublisher.publish("NoteCreated", userId, payload(
                     "noteId", target.getNoteId(),
+                    "documentGroupId", target.getDocumentGroupId(),
                     "userId", userId,
                     "title", target.getTitle(),
                     "folderId", null,
@@ -868,6 +906,13 @@ public class WorkspaceService {
                 ))
                 .toList();
         return new InternalUserWorkspaceStatsData((int) noteCount, storageBytes, activities);
+    }
+
+    @Transactional(readOnly = true)
+    public WorkspaceUserStatsData getPublicUserWorkspaceStats(String userId) {
+        InternalUserWorkspaceStatsData stats = getUserWorkspaceStats(userId);
+        int workspaceCount = listWorkspaces(userId).workspaces().size();
+        return new WorkspaceUserStatsData(workspaceCount, stats.noteCount(), stats.storageBytes(), stats.activities());
     }
 
     @Transactional(readOnly = true)

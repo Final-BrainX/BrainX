@@ -638,7 +638,7 @@ function downloadAdminReport(payload: {
 function TrendAxisLabels({ labels }: { labels: string[] }) {
   if (labels.length === 0) return null;
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${labels.length}, minmax(0, 1fr))`, gap: 4, marginTop: 10, color: "#a8a29e", fontSize: 10 }}>
+    <div className="trend-axis-labels" style={{ display: "grid", gridTemplateColumns: `repeat(${labels.length}, minmax(0, 1fr))` }}>
       {labels.map((label) => (
         <div key={label} style={{ textAlign: "center", whiteSpace: "nowrap" }}>
           {label}
@@ -1188,22 +1188,24 @@ function Dashboard({
           ))}
         </div>
       </div>
-      <div className="grid-bottom">
-          <div className="card revenue-card">
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+      <div className="grid-bottom-top">
+        <div className="card revenue-card monitoring-chart-card">
+          <div className="monitoring-card-header" style={{ display: "flex", justifyContent: "space-between" }}>
             <div className="card-title">매출 분석 <span style={{ color: "#a8a29e", fontSize: 12, fontWeight: 500 }}>{revenueTrendMeta.periodLabel}</span></div>
             <span className="mono" style={{ color: "#0d9488", fontSize: 13, fontWeight: 600 }}>{revenueTrendMeta.timezone}</span>
           </div>
-          <div className="revenue-chart">
-            {revenueBars.map((bar, index) => (
-              <div key={`${bar}-${index}`} style={{ flex: 1, height: `${Math.max(4, (bar / maxRevenueBar) * 100)}%`, borderRadius: "7px 7px 3px 3px", background: index > 10 ? "#0d9488" : "#d6d3d1" }} />
-            ))}
+          <div className="monitoring-chart-body">
+            <div className="revenue-chart revenue-chart-compact">
+              {revenueBars.map((bar, index) => (
+                <div key={`${bar}-${index}`} style={{ flex: 1, height: `${Math.max(4, (bar / maxRevenueBar) * 100)}%`, borderRadius: "7px 7px 3px 3px", background: index > 10 ? "#0d9488" : "#d6d3d1" }} />
+              ))}
+            </div>
+            <TrendAxisLabels labels={revenueTrendLabels} />
           </div>
-          <TrendAxisLabels labels={revenueTrendLabels} />
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div className="card">
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+        <div className="grid-bottom-side">
+          <div className="card monitoring-chart-card">
+            <div className="monitoring-card-header" style={{ display: "flex", justifyContent: "space-between" }}>
               <div className="card-title">Windows 앱 다운로드</div>
               <span className="mono" style={{ color: "#2563eb", fontSize: 13, fontWeight: 600 }}>{desktopDownloadTrendMeta.timezone}</span>
             </div>
@@ -1211,23 +1213,26 @@ function Dashboard({
               <div className="mono" style={{ fontSize: 24, fontWeight: 600 }}>{desktopDownloadCount.toLocaleString("ko-KR")}</div>
               <div style={{ color: "#6b7280", fontSize: 12 }}>사용자 {desktopDownloadUsers.toLocaleString("ko-KR")}명</div>
             </div>
-            <div className="revenue-chart" style={{ height: 120 }}>
-              {desktopDownloadSeries.map((bar, index) => (
-                <div
-                  key={`${bar}-${index}-download`}
-                  style={{
-                    flex: 1,
-                    height: `${Math.max(4, (bar / maxDesktopDownloadBar) * 100)}%`,
-                    borderRadius: "7px 7px 3px 3px",
-                    background: index > Math.max(0, desktopDownloadSeries.length - 4) ? "#2563eb" : "#bfdbfe"
-                  }}
-                />
-              ))}
+            <div className="monitoring-chart-body monitoring-chart-body-compact">
+              <div className="revenue-chart monitoring-mini-chart" style={{ height: 120 }}>
+                {desktopDownloadSeries.map((bar, index) => (
+                  <div
+                    key={`${bar}-${index}-download`}
+                    style={{
+                      flex: 1,
+                      height: `${Math.max(4, (bar / maxDesktopDownloadBar) * 100)}%`,
+                      borderRadius: "7px 7px 3px 3px",
+                      background: index > Math.max(0, desktopDownloadSeries.length - 4) ? "#2563eb" : "#bfdbfe"
+                    }}
+                  />
+                ))}
+              </div>
+              <TrendAxisLabels labels={desktopDownloadTrendLabels} />
+              <div className="monitoring-footnote">{desktopDownloadTrendMeta.periodLabel} · {desktopDownloadTrendMeta.source}</div>
             </div>
-            <TrendAxisLabels labels={desktopDownloadTrendLabels} />
-            <div style={{ marginTop: 8, color: "#9ca3af", fontSize: 11 }}>{desktopDownloadTrendMeta.periodLabel} · {desktopDownloadTrendMeta.source}</div>
           </div>
           <AlertMetric
+            className="monitoring-metric-card"
             title={intelligenceService ? "Intelligence-Service 응답" : "AI 응답 서비스"}
             left="상태"
             leftValue={healthMeta(intelligenceService?.state).label}
@@ -1235,32 +1240,35 @@ function Dashboard({
             rightValue={intelligenceService?.latency ?? "-"}
             tone={healthMeta(intelligenceService?.state).tone}
           />
-          <div className="card">
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>Kafka 큐 대기 Lag</div>
-              <Tag meta={kafkaLagTone(latestKafkaLagView)}>
-                {kafkaLagLabel(latestKafkaLagView)}
-              </Tag>
-            </div>
-            <div className="mono" style={{ marginTop: 8, fontSize: 24, fontWeight: 600 }}>
-              {latestKafkaLagView?.kafkaLagMessages == null ? "-" : latestKafkaLagView.kafkaLagMessages.toLocaleString("ko-KR")} <span style={{ color: "#a8a29e", fontSize: 12 }}>msgs</span>
-            </div>
-            <div style={{ marginTop: 2, color: "#a8a29e", fontSize: 11 }}>
-              {latestKafkaLagView?.consumerGroupId ?? "intelligence-service"} · {kafkaLagDetail(latestKafkaLagView)}
-            </div>
-            <div style={{ marginTop: 4, color: "#a8a29e", fontSize: 11 }}>
-              경고 기준 {kafkaLagThresholds(latestKafkaLagView).warningThreshold.toLocaleString("ko-KR")} msgs · 심각 기준 {kafkaLagThresholds(latestKafkaLagView).criticalThreshold.toLocaleString("ko-KR")} msgs
-            </div>
+        </div>
+      </div>
+      <div className="grid-bottom-metrics">
+        <AlertMetric
+          className="monitoring-metric-card"
+          title="Workspace 원장"
+          left="전체 노트"
+          leftValue={overviewSummary.totalNotes.toLocaleString("ko-KR")}
+          right="오늘 생성"
+          rightValue={overviewSummary.notesCreatedToday.toLocaleString("ko-KR")}
+          tone="neutral"
+          detail={`총 저장량 ${formatStorage(overviewSummary.totalStorageBytes)} · ${overviewSummary.workspaceSource}`}
+        />
+        <div className="card monitoring-metric-card">
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Kafka 큐 대기 Lag</div>
+            <Tag meta={kafkaLagTone(latestKafkaLagView)}>
+              {kafkaLagLabel(latestKafkaLagView)}
+            </Tag>
           </div>
-          <AlertMetric
-            title="Workspace 원장"
-            left="전체 노트"
-            leftValue={overviewSummary.totalNotes.toLocaleString("ko-KR")}
-            right="오늘 생성"
-            rightValue={overviewSummary.notesCreatedToday.toLocaleString("ko-KR")}
-            tone="neutral"
-            detail={`총 저장량 ${formatStorage(overviewSummary.totalStorageBytes)} · ${overviewSummary.workspaceSource}`}
-          />
+          <div className="mono" style={{ marginTop: 8, fontSize: 24, fontWeight: 600 }}>
+            {latestKafkaLagView?.kafkaLagMessages == null ? "-" : latestKafkaLagView.kafkaLagMessages.toLocaleString("ko-KR")} <span style={{ color: "#a8a29e", fontSize: 12 }}>msgs</span>
+          </div>
+          <div style={{ marginTop: 2, color: "#a8a29e", fontSize: 11 }}>
+            {latestKafkaLagView?.consumerGroupId ?? "intelligence-service"} · {kafkaLagDetail(latestKafkaLagView)}
+          </div>
+          <div style={{ marginTop: 4, color: "#a8a29e", fontSize: 11 }}>
+            경고 기준 {kafkaLagThresholds(latestKafkaLagView).warningThreshold.toLocaleString("ko-KR")} msgs · 심각 기준 {kafkaLagThresholds(latestKafkaLagView).criticalThreshold.toLocaleString("ko-KR")} msgs
+          </div>
         </div>
       </div>
       <div className="table-wrap">
@@ -1986,6 +1994,7 @@ function formatHistoryTime(value: string) {
 }
 
 function AlertMetric({
+  className,
   title,
   left,
   leftValue,
@@ -1994,6 +2003,7 @@ function AlertMetric({
   detail,
   tone = "warn"
 }: {
+  className?: string;
   title: string;
   left: string;
   leftValue: string;
@@ -2005,7 +2015,7 @@ function AlertMetric({
   const bar = tone === "good" ? { width: "82%", background: "linear-gradient(90deg,#14b8a6,#0f766e)" } : tone === "warn" ? { width: "76%", background: "linear-gradient(90deg,#f59e0b,#d97706)" } : { width: "62%", background: "linear-gradient(90deg,#94a3b8,#64748b)" };
   const valueColor = tone === "good" ? "#0f766e" : tone === "warn" ? "#d97706" : "#64748b";
   return (
-    <div className="card">
+    <div className={`card${className ? ` ${className}` : ""}`}>
       <div style={{ marginBottom: 12, fontSize: 13, fontWeight: 600 }}>{title}</div>
       <div style={{ display: "flex", gap: 20 }}>
         {[{ label: left, value: leftValue }, { label: right, value: rightValue }].map((item) => (

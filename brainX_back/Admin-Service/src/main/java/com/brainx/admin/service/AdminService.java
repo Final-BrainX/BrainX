@@ -19,6 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -52,6 +53,7 @@ public class AdminService {
     private static final OffsetDateTime BASE = OffsetDateTime.now();
     private static final int HEALTH_UPTIME_SAMPLE_SIZE = 20;
     private static final int OVERVIEW_TREND_DAYS = 14;
+    private static final int DOWNLOAD_TREND_DAYS = 7;
     private static final long DEGRADED_LATENCY_THRESHOLD_MS = 1_000L;
 
     private final RestClient userRestClient;
@@ -124,10 +126,9 @@ public class AdminService {
         OffsetDateTime capturedAt = currentMonitoringTime();
         AdminBillingSummaryData summary = billingSummary();
         TrendSeriesData revenueTrend = fetchRevenueTrend(summary.monthlyRevenue(), OVERVIEW_TREND_DAYS);
-        InternalUserGrowthSummaryDto userGrowthSummary = fetchUserGrowthSummary(OVERVIEW_TREND_DAYS);
         InternalWorkspaceMonitoringSummaryDto workspaceSummary = fetchWorkspaceMonitoringSummary();
-        int activeUsers = userGrowthSummary != null ? userGrowthSummary.activeUsers() : countActiveUsers();
-        TrendSeriesData activeUserTrend = buildOverviewActiveUserTrend(capturedAt, userGrowthSummary, activeUsers);
+        int activeUsers = resolveLiveActiveUsers();
+        TrendSeriesData activeUserTrend = buildOverviewActiveUserTrend(capturedAt, activeUsers);
         DesktopDownloadSummary desktopDownloadSummary = desktopDownloadSummary(capturedAt);
         SnapshotDelta delta = snapshotDelta();
 
@@ -191,8 +192,7 @@ public class AdminService {
                 })
                 .orElseGet(() -> {
                     AdminBillingSummaryData summary = billingSummary();
-                    InternalUserGrowthSummaryDto userGrowthSummary = fetchUserGrowthSummary(OVERVIEW_TREND_DAYS);
-                    int activeUsers = userGrowthSummary != null ? userGrowthSummary.activeUsers() : countActiveUsers();
+                    int activeUsers = resolveLiveActiveUsers();
                     DesktopDownloadSummary desktopDownloadSummary = desktopDownloadSummary(effectiveCapturedAt);
 
                     collectServiceHealths(true, effectiveCapturedAt);
@@ -308,8 +308,7 @@ public class AdminService {
 
     private AdminMonitoringSnapshotData buildLiveMonitoringSnapshotData(OffsetDateTime capturedAt) {
         AdminBillingSummaryData summary = billingSummary();
-        InternalUserGrowthSummaryDto userGrowthSummary = fetchUserGrowthSummary(OVERVIEW_TREND_DAYS);
-        int activeUsers = userGrowthSummary != null ? userGrowthSummary.activeUsers() : countActiveUsers();
+        int activeUsers = resolveLiveActiveUsers();
         DesktopDownloadSummary desktopDownloadSummary = desktopDownloadSummary(capturedAt);
         AdminKafkaLagObservation kafkaLag = kafkaLagCollector.collect(kafkaMonitoringConsumerGroupId);
         String snapshotDate = snapshotWindow(capturedAt).snapshotDate().toString().replace("-", "");
@@ -413,7 +412,7 @@ public class AdminService {
     public List<AdminMonitoringSnapshotData> getMonitoringSnapshots() {
         OffsetDateTime now = currentMonitoringTime();
         SnapshotWindow today = snapshotWindow(now);
-        List<AdminMonitoringSnapshotData> persistedSnapshots = monitoringSnapshotRepository.findAllByOrderByCapturedAtDesc().stream()
+        List<AdminMonitoringSnapshotData> persistedSnapshots = safeFindAllMonitoringSnapshotsDesc().stream()
                 .map(this::toMonitoringSnapshotData)
                 .toList();
 
@@ -1210,6 +1209,10 @@ public class AdminService {
                 .count();
     }
 
+    int resolveLiveActiveUsers() {
+        return countActiveUsers();
+    }
+
     private List<LogData> buildDashboardLogs(InternalWorkspaceMonitoringSummaryDto workspaceSummary) {
         List<DashboardLogEntry> entries = new ArrayList<>();
         operationEvents.findTop20ByOrderByCreatedAtDesc().forEach(event -> entries.add(new DashboardLogEntry(
@@ -1245,10 +1248,11 @@ public class AdminService {
     }
 
     private TrendSeriesData buildRevenueTrend(BigDecimal currentRevenue) {
-        List<Integer> values = monitoringSnapshotRepository.findAll().stream()
+        List<AdminMonitoringSnapshot> snapshots = safeFindAllMonitoringSnapshots();
+        List<Integer> values = snapshots.stream()
                 .sorted(Comparator.comparing(AdminMonitoringSnapshot::getCapturedAt))
                 .map(snapshot -> snapshot.getMonthlyRevenue().intValue())
-                .skip(Math.max(0, monitoringSnapshotRepository.findAll().size() - 13L))
+                .skip(Math.max(0, snapshots.size() - 13L))
                 .collect(Collectors.toCollection(ArrayList::new));
         values.add(currentRevenue.intValue());
         return new TrendSeriesData(
@@ -1262,10 +1266,11 @@ public class AdminService {
     }
 
     private TrendSeriesData buildActiveUserTrend(int activeUsers) {
-        List<Integer> values = monitoringSnapshotRepository.findAll().stream()
+        List<AdminMonitoringSnapshot> snapshots = safeFindAllMonitoringSnapshots();
+        List<Integer> values = snapshots.stream()
                 .sorted(Comparator.comparing(AdminMonitoringSnapshot::getCapturedAt))
                 .map(AdminMonitoringSnapshot::getActiveUsers)
-                .skip(Math.max(0, monitoringSnapshotRepository.findAll().size() - 13L))
+                .skip(Math.max(0, snapshots.size() - 13L))
                 .collect(Collectors.toCollection(ArrayList::new));
         values.add(activeUsers);
         return new TrendSeriesData(
@@ -1278,24 +1283,17 @@ public class AdminService {
         );
     }
 
-    private TrendSeriesData buildOverviewActiveUserTrend(
-            OffsetDateTime capturedAt,
-            InternalUserGrowthSummaryDto userGrowthSummary,
-            int activeUsers
-    ) {
+    private TrendSeriesData buildOverviewActiveUserTrend(OffsetDateTime capturedAt, int activeUsers) {
         SnapshotWindow today = snapshotWindow(capturedAt);
         Map<LocalDate, Integer> activeUsersBySnapshotDate = new HashMap<>();
 
-        for (AdminMonitoringSnapshot snapshot : monitoringSnapshotRepository.findAllByOrderByCapturedAtDesc()) {
+        for (AdminMonitoringSnapshot snapshot : safeFindAllMonitoringSnapshotsDesc()) {
             LocalDate snapshotDate = snapshotWindow(snapshot.getCapturedAt()).snapshotDate();
             activeUsersBySnapshotDate.putIfAbsent(snapshotDate, snapshot.getActiveUsers());
         }
 
         Integer todaySnapshotValue = activeUsersBySnapshotDate.get(today.snapshotDate());
-        Integer todayLiveValue = latestTrendValue(userGrowthSummary != null ? userGrowthSummary.trend() : null);
-        int todayValue = todaySnapshotValue != null
-                ? todaySnapshotValue
-                : todayLiveValue != null ? todayLiveValue : activeUsers;
+        int todayValue = todaySnapshotValue != null ? todaySnapshotValue : activeUsers;
 
         List<Integer> values = new ArrayList<>(OVERVIEW_TREND_DAYS);
         LocalDate startDate = today.snapshotDate().minusDays(OVERVIEW_TREND_DAYS - 1L);
@@ -1311,7 +1309,7 @@ public class AdminService {
         return new TrendSeriesData(
                 "activeUsers",
                 values,
-                "최근 13일 snapshot + 오늘 live",
+                "최근 13일 snapshot + 오늘 실시간 활성 회원 수",
                 OVERVIEW_TREND_DAYS,
                 monitoringZoneId().getId(),
                 source
@@ -1320,7 +1318,8 @@ public class AdminService {
 
     private DesktopDownloadSummary desktopDownloadSummary(OffsetDateTime capturedAt) {
         List<AdminDesktopDownloadEvent> events = desktopDownloadEventRepository.findAllByOrderByDownloadedAtDesc();
-        if (events.isEmpty()) {
+        List<AdminMonitoringSnapshot> monitoringSnapshots = safeFindAllMonitoringSnapshotsDesc();
+        if (events.isEmpty() && monitoringSnapshots.isEmpty()) {
             return new DesktopDownloadSummary(
                     0,
                     0,
@@ -1336,19 +1335,29 @@ public class AdminService {
         }
 
         LinkedHashSet<String> uniqueDownloaders = new LinkedHashSet<>();
-        Map<LocalDate, Integer> downloadsByDate = new HashMap<>();
         for (AdminDesktopDownloadEvent event : events) {
             uniqueDownloaders.add(downloadIdentityKey(event));
-            LocalDate downloadDate = snapshotWindow(event.getDownloadedAt()).snapshotDate();
-            downloadsByDate.merge(downloadDate, 1, Integer::sum);
+        }
+
+        Map<LocalDate, Integer> downloadCountsBySnapshotDate = new HashMap<>();
+        for (AdminMonitoringSnapshot snapshot : monitoringSnapshots) {
+            LocalDate snapshotDate = snapshotWindow(snapshot.getCapturedAt()).snapshotDate();
+            downloadCountsBySnapshotDate.putIfAbsent(snapshotDate, snapshot.getDesktopDownloadCount());
         }
 
         SnapshotWindow today = snapshotWindow(capturedAt);
-        LocalDate startDate = today.snapshotDate().minusDays(OVERVIEW_TREND_DAYS - 1L);
-        List<Integer> values = new ArrayList<>(OVERVIEW_TREND_DAYS);
-        for (int i = 0; i < OVERVIEW_TREND_DAYS; i++) {
-            values.add(downloadsByDate.getOrDefault(startDate.plusDays(i), 0));
+        Integer todaySnapshotValue = downloadCountsBySnapshotDate.get(today.snapshotDate());
+        int todayValue = todaySnapshotValue != null ? todaySnapshotValue : events.size();
+        LocalDate startDate = today.snapshotDate().minusDays(DOWNLOAD_TREND_DAYS - 1L);
+        List<Integer> values = new ArrayList<>(DOWNLOAD_TREND_DAYS);
+        for (int i = 0; i < DOWNLOAD_TREND_DAYS - 1; i++) {
+            values.add(downloadCountsBySnapshotDate.getOrDefault(startDate.plusDays(i), 0));
         }
+        values.add(todayValue);
+
+        String source = todaySnapshotValue != null
+                ? "AdminMonitoringSnapshot"
+                : "AdminMonitoringSnapshot + Landing live overlay";
 
         return new DesktopDownloadSummary(
                 uniqueDownloaders.size(),
@@ -1356,10 +1365,10 @@ public class AdminService {
                 new TrendSeriesData(
                         "desktopDownloadCount",
                         values,
-                        "최근 14일 Windows 앱 다운로드",
-                        OVERVIEW_TREND_DAYS,
+                        "최근 6일 snapshot + 오늘 Windows 다운로드 누적",
+                        DOWNLOAD_TREND_DAYS,
                         monitoringZoneId().getId(),
-                        "AdminDesktopDownloadEvent"
+                        source
                 )
         );
     }
@@ -1456,7 +1465,7 @@ public class AdminService {
     }
 
     private SnapshotDelta snapshotDelta() {
-        List<AdminMonitoringSnapshot> snapshots = monitoringSnapshotRepository.findTop2ByOrderByCapturedAtDesc();
+        List<AdminMonitoringSnapshot> snapshots = safeFindTop2MonitoringSnapshots();
         if (snapshots.size() < 2) {
             return new SnapshotDelta(null, null, null, null, null, null);
         }
@@ -1487,6 +1496,38 @@ public class AdminService {
                 .multiply(BigDecimal.valueOf(100))
                 .divide(previous.abs(), 1, RoundingMode.HALF_UP)
                 .doubleValue();
+    }
+
+    private List<AdminMonitoringSnapshot> safeFindAllMonitoringSnapshots() {
+        try {
+            return monitoringSnapshotRepository.findAll();
+        } catch (RuntimeException exception) {
+            return handleMonitoringSnapshotAccessFailure("findAll", exception);
+        }
+    }
+
+    private List<AdminMonitoringSnapshot> safeFindAllMonitoringSnapshotsDesc() {
+        try {
+            return monitoringSnapshotRepository.findAllByOrderByCapturedAtDesc();
+        } catch (RuntimeException exception) {
+            return handleMonitoringSnapshotAccessFailure("findAllByOrderByCapturedAtDesc", exception);
+        }
+    }
+
+    private List<AdminMonitoringSnapshot> safeFindTop2MonitoringSnapshots() {
+        try {
+            return monitoringSnapshotRepository.findTop2ByOrderByCapturedAtDesc();
+        } catch (RuntimeException exception) {
+            return handleMonitoringSnapshotAccessFailure("findTop2ByOrderByCapturedAtDesc", exception);
+        }
+    }
+
+    private List<AdminMonitoringSnapshot> handleMonitoringSnapshotAccessFailure(String operation, RuntimeException exception) {
+        if (exception instanceof DataAccessException || exception.getCause() instanceof org.hibernate.exception.SQLGrammarException) {
+            log.warn("Monitoring snapshot repository operation {} failed, falling back to live-only metrics: {}", operation, exception.getMessage());
+            return List.of();
+        }
+        throw exception;
     }
 
     private String formatDelta(Double value) {

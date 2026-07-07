@@ -1,6 +1,7 @@
 package com.brainx.workspace.service;
 
 import com.brainx.workspace.dto.WorkspaceDtos.InternalDefaultWorkspaceData;
+import com.brainx.workspace.dto.WorkspaceDtos.WorkspaceListData;
 import com.brainx.workspace.entity.Workspace;
 import com.brainx.workspace.event.WorkspaceEventPublisher;
 import com.brainx.workspace.graph.Neo4jGraphProjection;
@@ -81,5 +82,37 @@ class WorkspaceServiceDefaultWorkspaceTest {
         assertThat(Boolean.TRUE.equals(created.isDefault())).isTrue();
         verify(workspaceRepository).findById("dgrp_default_usr_new");
         verify(workspaceRepository).save(any(Workspace.class));
+    }
+
+    @Test
+    void listWorkspacesSelfHealsMissingDefaultBeforeReturningList() {
+        Instant now = Instant.parse("2026-07-07T00:00:00Z");
+        Workspace named = new Workspace("dgrp_named", "usr_gap", "테스트", false, now);
+        given(workspaceRepository.findDefaultWorkspacesByUserId("usr_gap")).willReturn(List.of());
+        given(workspaceRepository.findById("dgrp_default_usr_gap")).willReturn(Optional.empty());
+        given(workspaceRepository.save(any(Workspace.class))).willAnswer(invocation -> invocation.getArgument(0));
+        given(workspaceRepository.findByUserIdOrderByDefaultFirst("usr_gap")).willReturn(List.of(
+                new Workspace("dgrp_default_usr_gap", "usr_gap", "Default", true, now),
+                named
+        ));
+
+        WorkspaceListData result = workspaceService.listWorkspaces("usr_gap");
+
+        assertThat(result.workspaces()).hasSize(2);
+        assertThat(result.workspaces().get(0).isDefault()).isTrue();
+        verify(workspaceRepository).save(any(Workspace.class));
+    }
+
+    @Test
+    void listWorkspacesDoesNotDuplicateExistingDefault() {
+        Instant now = Instant.parse("2026-07-07T00:00:00Z");
+        Workspace existingDefault = new Workspace("dgrp_default_usr_ok", "usr_ok", "Default", true, now);
+        given(workspaceRepository.findDefaultWorkspacesByUserId("usr_ok")).willReturn(List.of(existingDefault));
+        given(workspaceRepository.findByUserIdOrderByDefaultFirst("usr_ok")).willReturn(List.of(existingDefault));
+
+        WorkspaceListData result = workspaceService.listWorkspaces("usr_ok");
+
+        assertThat(result.workspaces()).hasSize(1);
+        verify(workspaceRepository, times(0)).save(any(Workspace.class));
     }
 }

@@ -238,6 +238,10 @@ public final class WorkspaceDtos {
     public record InternalUserWorkspaceStatsData(int noteCount, long storageBytes, List<InternalUserActivityDto> activities) {
     }
 
+    public record WorkspaceUserStatsData(int workspaceCount, int noteCount, long storageBytes,
+                                         List<InternalUserActivityDto> activities) {
+    }
+
     public record InternalUserActivityDto(String noteId, String type, String title, Instant occurredAt) {
     }
 

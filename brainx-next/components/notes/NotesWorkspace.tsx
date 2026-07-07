@@ -600,10 +600,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     folders: USE_MOCK_NOTES ? [...MOCK_FOLDERS] : [],
   });
 
-  /* 게스트 여부 — 인증 세션이 없으면 게스트 */
-  const isGuest = useMemo(() => {
-    const session = readAuthSession();
-    return !session?.accessToken;
+  /* 게스트 여부 — 인증 세션 변경 이벤트를 구독해 stale 값이 남지 않게 한다. */
+  const [isGuest, setIsGuest] = useState(() => !readAuthSession()?.accessToken);
+  useEffect(() => {
+    const syncGuestState = () => {
+      setIsGuest(!readAuthSession()?.accessToken);
+    };
+    window.addEventListener("brainx-auth-session-changed", syncGuestState);
+    return () => {
+      window.removeEventListener("brainx-auth-session-changed", syncGuestState);
+    };
   }, []);
   const refreshDesktopSyncPolicy = useCallback(async () => {
     if (!isElectronDesktop()) {
@@ -933,7 +939,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
      같은 위치에 동일 제목이 이미 있으면 커밋하지 않는다 — 사이드바 rename(handleRenameNoteFromExplorer)과
      동일한 중복 검사를 공유한다. 거부되면 notes 상태가 바뀌지 않으므로 EditorPanel은 note.title을
      그대로 다시 보여줘 자동으로 이전 제목으로 되돌아간다. */
-  const handleTitleChange = useCallback((noteId: string, newTitle: string) => {
+  const handleTitleChange = useCallback(async (noteId: string, newTitle: string) => {
     const note = notes.find((n) => n.id === noteId);
     if (!note) return;
     if (newTitle !== note.title && checkNoteDuplicate(newTitle, note.folderId)) {
@@ -979,6 +985,27 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         return { ...n, content: entry.result.content, updatedAt: Date.now() };
       })
     );
+
+    // 제목 자체는 이 노트가 activeNote로 Ctrl+S/autosave 대상이 될 때까지 서버에 반영되지 않았다
+    // (content autosave는 activeNote만, metadata PATCH는 이동/타이포그래피 등 다른 액션에서만
+    // 호출됨) — 그 사이 다른 화면(위키링크 relink, notes-refresh 등)이 loadFromServer()를
+    // 트리거하면 Postgres에 남은 옛 제목으로 되돌아가 보이는 롤백 버그의 원인이었다.
+    // handleMoveNoteToFolder와 동일한 best-effort 패턴으로 제목 변경 즉시 반영한다.
+    if (!USE_MOCK_NOTES && newTitle !== oldTitle) {
+      const renamedNote = { ...note, title: newTitle };
+      const persistTitle = renamedNote.persisted
+        ? updateWorkspaceNoteMetadata(renamedNote)
+        : renamedNote.id.startsWith("note_")
+          ? saveWorkspaceNoteDraft(renamedNote)
+          : null;
+      if (persistTitle) {
+        try {
+          await persistTitle;
+        } catch (error) {
+          pushToast(error instanceof Error ? error.message : "제목을 저장하지 못했습니다.", "err");
+        }
+      }
+    }
 
     if (relinked.length > 0 && !USE_MOCK_NOTES) {
       // 위키링크가 갱신된 다른 노트들도 최소한 한 번은 백그라운드로 저장해야, 그래프/마인드맵처럼

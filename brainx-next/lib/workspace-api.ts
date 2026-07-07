@@ -133,6 +133,11 @@ export type DeleteFolderResult = {
 
 export type NoteDraftData = {
   noteId: string;
+  // SSOT NoteDraftData.documentGroupId: 서버는 이미 이 필드를 draft 저장 시 Redis에 함께 넣고
+  // 목록/단건 조회 응답에도 그대로 내려준다. 이 타입에 필드가 없어 workspaceDraftToMock()이
+  // 계속 누락시켰고, 그 결과 draft-only 노트(아직 Postgres에 flush되지 않은 새 노트)가 새로고침/
+  // 재조회 후 documentGroupId를 잃고 기본 Workspace 소속처럼 보이던 버그의 원인이었다.
+  documentGroupId: string | null;
   actorType: "USER" | "GUEST";
   title: string | null;
   markdown: string;
@@ -164,6 +169,7 @@ export type WorkspaceUserActivityData = {
 };
 
 export type WorkspaceUserStatsData = {
+  workspaceCount: number;
   noteCount: number;
   storageBytes: number;
   activities: WorkspaceUserActivityData[];
@@ -459,18 +465,22 @@ export async function putFavorite(targetType: FavoriteTargetType, targetId: stri
 
 export async function getMyWorkspaceStats() {
   const emptyStats: WorkspaceUserStatsData = {
+    workspaceCount: 0,
     noteCount: 0,
     storageBytes: 0,
     activities: [],
   };
   if (await shouldUseDesktopVault()) {
-    return (await getDesktopVaultWorkspaceStats()) ?? emptyStats;
+    const desktopStats = await getDesktopVaultWorkspaceStats();
+    return desktopStats
+      ? { workspaceCount: 1, ...desktopStats }
+      : emptyStats;
   }
-  // SSOT와 백엔드 구현 모두 `/api/v1/workspace/me/stats`를 인증 사용자 전용으로 취급한다.
+  // SSOT와 백엔드 구현 모두 `/api/v1/workspaces/me/stats`를 인증 사용자 전용으로 취급한다.
   // guest는 draft 기반 체험 모드만 유지하면 되므로, 여기서 조용히 기본 통계값으로 fallback해
   // /home, 설정 모달이 user-only stats endpoint를 치지 않게 한다.
   if (!hasWorkspaceUserIdentity()) return emptyStats;
-  return authedRequest<WorkspaceUserStatsData>("/api/v1/workspace/me/stats");
+  return authedRequest<WorkspaceUserStatsData>("/api/v1/workspaces/me/stats");
 }
 
 /** 다중 Workspace(documentGroup) 목록 조회 — Ticket11(Workspace Context)의 기반 API다.
@@ -728,6 +738,7 @@ export function workspaceDraftToMock(draft: NoteDraftData): MockNote {
     tags: [],
     category: "frontend",
     folderId: draft.folderId ?? undefined,
+    documentGroupId: draft.documentGroupId ?? null,
     createdAt: savedAt,
     updatedAt: savedAt,
     version: draft.baseVersion ?? 1,

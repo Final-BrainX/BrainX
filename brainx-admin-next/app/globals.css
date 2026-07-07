@@ -906,9 +906,72 @@ button {
 
 .grid-bottom {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
   gap: 14px;
   margin-top: 14px;
+}
+
+.grid-bottom-top {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 14px;
+  align-items: stretch;
+  margin-top: 14px;
+}
+
+.grid-bottom-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.grid-bottom-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.monitoring-chart-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.monitoring-card-header {
+  margin-bottom: 16px;
+}
+
+.monitoring-chart-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.monitoring-chart-body-compact {
+  gap: 0;
+}
+
+.monitoring-mini-chart {
+  min-height: 120px;
+}
+
+.trend-axis-labels {
+  gap: 4px;
+  margin-top: 10px;
+  color: #a8a29e;
+  font-size: 10px;
+}
+
+.monitoring-footnote {
+  margin-top: 8px;
+  color: #9ca3af;
+  font-size: 11px;
+}
+
+.monitoring-metric-card {
+  display: flex;
+  min-height: 146px;
+  flex-direction: column;
+  justify-content: space-between;
 }
 
 .card {
@@ -1062,8 +1125,8 @@ input[type="checkbox"] {
 
 .revenue-card {
   display: flex;
-  height: 100%;
   flex-direction: column;
+  height: 100%;
 }
 
 .revenue-chart {
@@ -1072,6 +1135,17 @@ input[type="checkbox"] {
   align-items: flex-end;
   gap: 7px;
   min-height: 150px;
+}
+
+.revenue-chart-compact {
+  flex: 1;
+  min-height: 176px;
+}
+
+.metric-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .toast {
@@ -2526,7 +2600,10 @@ input[type="checkbox"] {
 @media (max-width: 1100px) {
   .grid-4,
   .grid-wide,
+  .grid-bottom-top,
+  .grid-bottom-metrics,
   .grid-bottom,
+  .metric-pair,
   .split,
   .dashboard-layout {
     grid-template-columns: 1fr;
