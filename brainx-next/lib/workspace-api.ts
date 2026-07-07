@@ -169,6 +169,7 @@ export type WorkspaceUserActivityData = {
 };
 
 export type WorkspaceUserStatsData = {
+  workspaceCount: number;
   noteCount: number;
   storageBytes: number;
   activities: WorkspaceUserActivityData[];
@@ -464,12 +465,16 @@ export async function putFavorite(targetType: FavoriteTargetType, targetId: stri
 
 export async function getMyWorkspaceStats() {
   const emptyStats: WorkspaceUserStatsData = {
+    workspaceCount: 0,
     noteCount: 0,
     storageBytes: 0,
     activities: [],
   };
   if (await shouldUseDesktopVault()) {
-    return (await getDesktopVaultWorkspaceStats()) ?? emptyStats;
+    const desktopStats = await getDesktopVaultWorkspaceStats();
+    return desktopStats
+      ? { workspaceCount: 1, ...desktopStats }
+      : emptyStats;
   }
   // SSOT와 백엔드 구현 모두 `/api/v1/workspaces/me/stats`를 인증 사용자 전용으로 취급한다.
   // guest는 draft 기반 체험 모드만 유지하면 되므로, 여기서 조용히 기본 통계값으로 fallback해

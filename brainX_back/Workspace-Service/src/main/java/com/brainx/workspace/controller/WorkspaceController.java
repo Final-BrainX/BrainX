@@ -148,8 +148,8 @@ public class WorkspaceController {
     }
 
     @GetMapping("/api/v1/workspaces/me/stats")
-    public ApiResponse<InternalUserWorkspaceStatsData> getMyWorkspaceStats() {
-        return ApiResponse.success(workspaceService.getUserWorkspaceStats(memberUserId()));
+    public ApiResponse<WorkspaceUserStatsData> getMyWorkspaceStats() {
+        return ApiResponse.success(workspaceService.getPublicUserWorkspaceStats(memberUserId()));
     }
 
     @PostMapping("/api/v1/folders")
