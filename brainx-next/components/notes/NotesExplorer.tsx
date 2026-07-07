@@ -46,6 +46,16 @@ function reorderIdInArray(order: string[], id: string, refId: string, position: 
   return [...without.slice(0, insertAt), id, ...without.slice(insertAt)];
 }
 
+function isTextInputLikeTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  if (target instanceof HTMLInputElement) return true;
+  if (target instanceof HTMLTextAreaElement) return true;
+  if (target instanceof HTMLSelectElement) return true;
+  if (target.closest(".ProseMirror")) return true;
+  const editable = target.closest("[contenteditable='true'], [contenteditable='']");
+  return !!editable;
+}
+
 function FavNoteRow({
   note,
   isActive,
@@ -951,6 +961,7 @@ export default function NotesExplorer({
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[] | null>(null);
   const [pendingMoveItems, setPendingMoveItems] = useState<SelectableItem[] | null>(null);
   const explorerRef = useRef<HTMLDivElement>(null);
+  const explorerInteractionActiveRef = useRef(false);
 
   /* 플랫 가시 항목 목록 — Shift 범위 선택에 사용 */
   const flatVisibleItems = useMemo((): SelectableItem[] => {
@@ -1128,14 +1139,40 @@ export default function NotesExplorer({
     return `${totalCount}개의 항목을 삭제하시겠습니까?`;
   }, [pendingDeleteExpanded, pendingDeleteIds, notes, folders]);
 
+  /* 탐색기와의 "마지막 상호작용"을 별도 추적한다. 노트/폴더 row는 일반 div라 클릭 선택 후에도
+     DOM focus가 body나 이전 editor에 남을 수 있어, keydown target만으로는 사용자의 의도를
+     알 수 없다. 대신 document capture 단계에서 pointer/focus 출처를 보고 탐색기 활성 상태를
+     갱신한다. editor/input/contenteditable/ProseMirror 쪽 상호작용은 항상 false가 되므로,
+     그 상태에서 Delete/Backspace가 탐색기 삭제로 오동작하지 않는다. */
+  useEffect(() => {
+    const syncExplorerInteractionState = (target: EventTarget | null) => {
+      const explorer = explorerRef.current;
+      if (!explorer || !(target instanceof Node)) {
+        explorerInteractionActiveRef.current = false;
+        return;
+      }
+      explorerInteractionActiveRef.current = explorer.contains(target);
+    };
+    const handlePointerDown = (event: PointerEvent) => syncExplorerInteractionState(event.target);
+    const handleFocusIn = (event: FocusEvent) => syncExplorerInteractionState(event.target);
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("focusin", handleFocusIn, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("focusin", handleFocusIn, true);
+    };
+  }, []);
+
   /* Delete 키 처리 — 현재 다중 선택 전체를 스냅샷으로 삼는다(선택이 없으면 무시) */
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Delete") return;
-      const target = e.target as HTMLElement;
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
       if (selectedIds.size === 0) return;
-      if (!explorerRef.current?.contains(target)) return;
+      const explorer = explorerRef.current;
+      const targetInExplorer = explorer && e.target instanceof Node ? explorer.contains(e.target) : false;
+      const unsafeTarget = isTextInputLikeTarget(e.target);
+      if (unsafeTarget && !explorerInteractionActiveRef.current) return;
+      if (!targetInExplorer && !explorerInteractionActiveRef.current) return;
       e.preventDefault();
       requestDelete([...selectedIds]);
     };
