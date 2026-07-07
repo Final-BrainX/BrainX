@@ -704,7 +704,7 @@ Gateway health proxy(`/internal/v1/health/*`)는 downstream actuator가 직접 `
 관리자 모니터링 화면은 상단 선형 차트를 활성 사용자 추이로, 하단 막대 차트를 매출 분석으로 분리해 overview의 `activeUserTrend`와 `revenueTrend`를 각각 실데이터 그대로 사용합니다. `activeUserTrend`는 최근 13일 persisted monitoring snapshot에 오늘 현재 활성 회원 수 live overlay를 합성하며, 당일 snapshot이 이미 있으면 live 대신 persisted 값을 사용합니다.
 Windows 앱 다운로드 차트는 최근 7일 누적 기준으로 동작합니다. 최근 6일은 persisted monitoring snapshot의 `desktopDownloadCount` 누적값을 사용하고, 오늘 값만 landing download ledger live overlay를 합성하며 당일 snapshot이 이미 있으면 persisted 값이 우선합니다.
 overview summary는 결제/사용자 지표 외에 `Workspace-Service`의 `/internal/v1/workspace/monitoring/summary`를 통해 전체 노트 수, 총 저장량, 오늘 생성된 노트 수를 함께 내려줍니다. 관리자 모니터링의 Workspace 원장 카드와 일부 실시간 로그는 이 내부 API의 최근 활동 목록을 사용합니다.
-관리자 모니터링 카드 배치는 `매출 분석`과 `Windows 앱 다운로드 + Intelligence-Service 응답`을 상단 두 열로 맞추고, 그 아래 행에 `Workspace 원장`과 `Kafka 큐 대기 Lag`를 좌우 동일 폭으로 배치해 빈 공간 없이 읽히도록 유지합니다.
+관리자 모니터링 카드 배치는 `매출 분석`과 `Windows 앱 다운로드 + Intelligence-Service 응답`을 상단 두 열로 맞추고, 그 아래 행에 `Workspace 원장`과 `Kafka 큐 대기 Lag`를 좌우 동일 폭으로 배치해 빈 공간 없이 읽히도록 유지합니다. 차트 카드는 축 라벨과 보조 문구를 포함한 하단 여백을 서로 맞춰 카드 간 시각 간격이 일정하게 보이도록 정렬합니다.
 
 | 화면 | Method | Path | 소유 데이터/연동 |
 | --- | --- | --- | --- |
