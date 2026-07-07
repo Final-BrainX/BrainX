@@ -81,6 +81,18 @@ export type ChatStreamStatusEvent = {
   webSearchQuery?: string | null;
 };
 
+export type ChatWebSearchProgressEvent = {
+  status?: string;
+  actionType?: string;
+  query?: string | null;
+  message?: string;
+};
+
+export type ChatWebSourcesEvent = {
+  webSearchQuery?: string | null;
+  sources: ChatWebSourceData[];
+};
+
 export type ChatThreadListStatus = "active" | "archived";
 
 export type IntelligenceRequestOptions = {
@@ -93,6 +105,8 @@ export type IntelligenceStreamHandlers<TDone> = IntelligenceRequestOptions & {
   onDone?: (data: TDone) => void;
   onStatus?: (data: ChatStreamStatusEvent) => void;
   onRoute?: (data: ChatRouteEvent) => void;
+  onWebSearchProgress?: (data: ChatWebSearchProgressEvent) => void;
+  onWebSources?: (data: ChatWebSourcesEvent) => void;
   onActionProposed?: (data: AgentActionData) => void;
   onActionStatus?: (data: AgentActionData) => void;
   onActionResult?: (data: AgentActionData) => void;
@@ -246,6 +260,10 @@ async function readSseStream<TDone>(
         handlers.onStatus?.(statusEventFrom(parsed));
       } else if (frame.event === "route") {
         handlers.onRoute?.(routeEventFrom(parsed));
+      } else if (frame.event === "web_search_progress") {
+        handlers.onWebSearchProgress?.(webSearchProgressEventFrom(parsed));
+      } else if (frame.event === "web_sources") {
+        handlers.onWebSources?.(webSourcesEventFrom(parsed));
       } else if (frame.event === "action_proposed") {
         handlers.onActionProposed?.(parsed as AgentActionData);
       } else if (frame.event === "action_status") {
@@ -268,6 +286,10 @@ async function readSseStream<TDone>(
       handlers.onStatus?.(statusEventFrom(parseJson(frame.data)));
     } else if (frame.event === "route") {
       handlers.onRoute?.(routeEventFrom(parseJson(frame.data)));
+    } else if (frame.event === "web_search_progress") {
+      handlers.onWebSearchProgress?.(webSearchProgressEventFrom(parseJson(frame.data)));
+    } else if (frame.event === "web_sources") {
+      handlers.onWebSources?.(webSourcesEventFrom(parseJson(frame.data)));
     } else if (frame.event === "action_proposed") {
       handlers.onActionProposed?.(parseJson(frame.data) as AgentActionData);
     } else if (frame.event === "action_status") {
@@ -332,6 +354,49 @@ function statusEventFrom(value: unknown): ChatStreamStatusEvent {
       typeof record.webSearchQuery === "string"
         ? record.webSearchQuery
         : null,
+  };
+}
+
+function webSearchProgressEventFrom(value: unknown): ChatWebSearchProgressEvent {
+  if (!value || typeof value !== "object") return {};
+  const record = value as Record<string, unknown>;
+  return {
+    status: typeof record.status === "string" ? record.status : undefined,
+    actionType: typeof record.actionType === "string" ? record.actionType : undefined,
+    query: typeof record.query === "string" ? record.query : null,
+    message: typeof record.message === "string" ? record.message : undefined,
+  };
+}
+
+function webSourcesEventFrom(value: unknown): ChatWebSourcesEvent {
+  if (!value || typeof value !== "object") {
+    return { sources: [] };
+  }
+  const record = value as Record<string, unknown>;
+  const sources = Array.isArray(record.sources)
+    ? record.sources
+        .map(chatWebSourceFrom)
+        .filter((source): source is ChatWebSourceData => Boolean(source))
+    : [];
+  return {
+    webSearchQuery:
+      typeof record.webSearchQuery === "string"
+        ? record.webSearchQuery
+        : null,
+    sources,
+  };
+}
+
+function chatWebSourceFrom(value: unknown): ChatWebSourceData | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const url = typeof record.url === "string" ? record.url.trim() : "";
+  if (!url) return null;
+  return {
+    title: typeof record.title === "string" ? record.title : "",
+    url,
+    snippet: typeof record.snippet === "string" ? record.snippet : "",
+    rank: typeof record.rank === "number" ? record.rank : 1,
   };
 }
 

@@ -15,6 +15,7 @@ public class ExternalSearchDevProperties {
     private String userId = "sample-user";
     private String modelId = "";
     private int maxSources;
+    private boolean streamEvents;
     private List<String> allowedDomains = new ArrayList<>();
     private List<String> blockedDomains = new ArrayList<>();
 
@@ -56,6 +57,14 @@ public class ExternalSearchDevProperties {
 
     public void setMaxSources(int maxSources) {
         this.maxSources = Math.max(0, maxSources);
+    }
+
+    public boolean isStreamEvents() {
+        return streamEvents;
+    }
+
+    public void setStreamEvents(boolean streamEvents) {
+        this.streamEvents = streamEvents;
     }
 
     public List<String> getAllowedDomains() {

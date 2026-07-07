@@ -38,6 +38,13 @@ final class OpenAiExternalSearchResponseMapper {
         );
     }
 
+    List<ExternalSearchSource> sourcesFromOutputItem(JsonNode item, String answer, int maxSources) {
+        SourceCollector collector = new SourceCollector(Math.max(1, maxSources));
+        collectCitationSourcesFromItem(item, answer, collector);
+        collectActionSourcesFromItem(item, collector);
+        return collector.sources();
+    }
+
     private static String answer(JsonNode response) {
         String outputText = text(response.path("output_text"));
         if (StringUtils.hasText(outputText)) {
@@ -75,26 +82,7 @@ final class OpenAiExternalSearchResponseMapper {
             return;
         }
         for (JsonNode item : output) {
-            JsonNode content = item.path("content");
-            if (!content.isArray()) {
-                continue;
-            }
-            for (JsonNode contentItem : content) {
-                JsonNode annotations = contentItem.path("annotations");
-                if (!annotations.isArray()) {
-                    continue;
-                }
-                for (JsonNode annotation : annotations) {
-                    if (!"url_citation".equals(text(annotation.path("type")))) {
-                        continue;
-                    }
-                    collector.add(
-                        text(annotation.path("title")),
-                        text(annotation.path("url")),
-                        citedText(answer, annotation.path("start_index"), annotation.path("end_index"))
-                    );
-                }
-            }
+            collectCitationSourcesFromItem(item, answer, collector);
         }
     }
 
@@ -103,17 +91,54 @@ final class OpenAiExternalSearchResponseMapper {
             return;
         }
         for (JsonNode item : output) {
-            JsonNode sources = item.path("action").path("sources");
-            if (!sources.isArray()) {
+            collectActionSourcesFromItem(item, collector);
+        }
+    }
+
+    private static void collectCitationSourcesFromItem(JsonNode item, String answer, SourceCollector collector) {
+        JsonNode content = item.path("content");
+        if (!content.isArray()) {
+            return;
+        }
+        for (JsonNode contentItem : content) {
+            JsonNode annotations = contentItem.path("annotations");
+            if (!annotations.isArray()) {
                 continue;
             }
-            for (JsonNode source : sources) {
-                collector.add(
-                    text(source.path("title")),
-                    text(source.path("url")),
-                    text(source.path("snippet"))
-                );
+            for (JsonNode annotation : annotations) {
+                collectCitationSource(annotation, answer, collector);
             }
+        }
+    }
+
+    static List<ExternalSearchSource> sourcesFromAnnotation(JsonNode annotation, String answer) {
+        SourceCollector collector = new SourceCollector(1);
+        collectCitationSource(annotation, answer, collector);
+        return collector.sources();
+    }
+
+    private static void collectCitationSource(JsonNode annotation, String answer, SourceCollector collector) {
+        if (!"url_citation".equals(text(annotation.path("type")))) {
+            return;
+        }
+        collector.add(
+            text(annotation.path("title")),
+            text(annotation.path("url")),
+            citedText(answer, annotation.path("start_index"), annotation.path("end_index"))
+        );
+    }
+
+    private static void collectActionSourcesFromItem(JsonNode item, SourceCollector collector) {
+        JsonNode sources = item.path("action").path("sources");
+        if (!sources.isArray()) {
+            return;
+        }
+        for (JsonNode source : sources) {
+            collector.add(
+                text(source.path("title")),
+                text(source.path("url")),
+                text(source.path("snippet"))
+            );
         }
     }
 

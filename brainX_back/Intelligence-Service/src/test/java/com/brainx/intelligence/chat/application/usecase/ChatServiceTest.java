@@ -724,11 +724,28 @@ class ChatServiceTest {
             "gpt-test"
         )).collectList().block();
 
-        assertThat(eventNames(events)).containsExactly("status", "route", "status", "delta", "delta", "done");
+        assertThat(eventNames(events)).containsExactly(
+            "status",
+            "route",
+            "status",
+            "web_sources",
+            "status",
+            "delta",
+            "delta",
+            "done"
+        );
         assertThat(events.get(2).data())
             .containsEntry("phase", "WEB_SEARCHING")
             .containsEntry("requiresWebSearch", true)
             .containsEntry("webSearchQuery", "홍명보호 월드컵 성적 최신");
+        assertThat(firstEvent(events, "web_sources").data())
+            .containsEntry("webSearchQuery", "홍명보호 월드컵 성적 최신");
+        Object webSources = firstEvent(events, "web_sources").data().get("sources");
+        assertThat(webSources).isInstanceOf(List.class);
+        assertThat((List<?>) webSources).hasSize(1);
+        assertThat(events.get(4).data())
+            .containsEntry("phase", "ANSWERING")
+            .containsEntry("requiresWebSearch", true);
         assertThat(firstEvent(events, "route").data())
             .containsEntry("route", "COMPOSE")
             .containsEntry("requiresWebSearch", true)

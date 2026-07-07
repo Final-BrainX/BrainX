@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -94,8 +95,10 @@ public class ChatService implements
         "현재 제공된 노트 내용이 너무 짧아 이 요청을 처리할 수 없습니다. 답변에 필요한 본문이나 선택 영역을 더 제공해 주세요.";
     private static final String STREAM_PHASE_ROUTING = "ROUTING";
     private static final String STREAM_PHASE_WEB_SEARCHING = "WEB_SEARCHING";
+    private static final String STREAM_PHASE_ANSWERING = "ANSWERING";
     private static final String STREAM_STATUS_ROUTING = "Routing chat request.";
     private static final String STREAM_STATUS_WEB_SEARCHING = "Searching the web.";
+    private static final String STREAM_STATUS_ANSWERING = "Generating an answer.";
     private static final String DRAFT_NOTE_FORMAT_INSTRUCTION = """
         Format draft responses as Markdown for a personal Workspace note.
         The first line must be a level-1 Markdown heading in the exact form "# <title>".
@@ -334,7 +337,93 @@ public class ChatService implements
             routeDecision,
             route
         ));
-        WebSearchContext webSearch = webSearchResolver.resolve(userId, message, routeDecision);
+        if (routeDecision.requiresWebSearch()) {
+            return webSearchStreamThenAnswer(
+                userId,
+                message,
+                modelId,
+                thread,
+                userMessage,
+                history,
+                clientContextPrompt,
+                hasClientContext,
+                routeDecision,
+                route,
+                clientContext
+            );
+        }
+
+        return answerAfterWebSearch(
+            userId,
+            message,
+            modelId,
+            thread,
+            userMessage,
+            history,
+            clientContextPrompt,
+            hasClientContext,
+            routeDecision,
+            route,
+            clientContext,
+            WebSearchContext.none()
+        );
+    }
+
+    private Flux<ChatStreamEvent> webSearchStreamThenAnswer(
+        String userId,
+        String message,
+        String modelId,
+        ChatThread thread,
+        ChatMessage userMessage,
+        List<ChatMessage> history,
+        String clientContextPrompt,
+        boolean hasClientContext,
+        ChatRouteDecision routeDecision,
+        ChatRoute route,
+        Map<String, Object> clientContext
+    ) {
+        AtomicReference<WebSearchContext> context = new AtomicReference<>(WebSearchContext.unavailable(routeDecision.webSearchQuery()));
+        Flux<ChatStreamEvent> searchEvents = webSearchResolver.resolveStream(userId, message, routeDecision)
+            .handle((resolution, sink) -> {
+                if (resolution.completed()) {
+                    context.set(resolution.context());
+                } else if (resolution.event() != null) {
+                    sink.next(resolution.event());
+                }
+            });
+        return Flux.concat(
+            searchEvents,
+            Flux.defer(() -> answerAfterWebSearch(
+                userId,
+                message,
+                modelId,
+                thread,
+                userMessage,
+                history,
+                clientContextPrompt,
+                hasClientContext,
+                routeDecision,
+                route,
+                clientContext,
+                context.get()
+            ))
+        );
+    }
+
+    private Flux<ChatStreamEvent> answerAfterWebSearch(
+        String userId,
+        String message,
+        String modelId,
+        ChatThread thread,
+        ChatMessage userMessage,
+        List<ChatMessage> history,
+        String clientContextPrompt,
+        boolean hasClientContext,
+        ChatRouteDecision routeDecision,
+        ChatRoute route,
+        Map<String, Object> clientContext,
+        WebSearchContext webSearch
+    ) {
         if (routeDecision.requiresWebSearch() && !webSearch.available()) {
             return Flux.concat(
                 Flux.just(routeEvent(unavailableWebSearchRouteDecision(routeDecision))),
@@ -363,7 +452,7 @@ public class ChatService implements
         if (requiresNoteContext(route) && !hasClientContext && contexts.isEmpty() && !webSearch.available()) {
             return fixedAnswerStream(thread, userMessage, modelId, NO_CONTEXT_ANSWER);
         }
-        return aiStream(
+        Flux<ChatStreamEvent> answerStream = aiStream(
             thread,
             userMessage,
             modelId,
@@ -375,6 +464,18 @@ public class ChatService implements
             userPrompt,
             contexts,
             webSearch
+        );
+        if (!routeDecision.requiresWebSearch()) {
+            return answerStream;
+        }
+        return Flux.concat(
+            Flux.just(ChatStreamEvent.status(
+                STREAM_PHASE_ANSWERING,
+                STREAM_STATUS_ANSWERING,
+                true,
+                routeDecision.webSearchQuery()
+            )),
+            answerStream
         );
     }
 

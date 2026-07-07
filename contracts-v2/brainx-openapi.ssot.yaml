@@ -6987,7 +6987,7 @@ paths:
             text/event-stream:
               schema:
                 type: string
-                description: Server-Sent Events 스트림. 이벤트는 줄 단위 text/event-stream 프레임으로 전달된다. 서버는 `status`, `route`, `delta`, `done`, `error` 이벤트를 보낼 수 있으며, 웹 검색이 필요한 요청은 검색 전 `status.phase=WEB_SEARCHING` 이벤트를 먼저 보낸다. COMPOSE/NOTE_ACTION 초안 응답의 delta text는 첫 줄이 `# 제목`인 Markdown 문자열로 시작한다.
+                description: Server-Sent Events 스트림. 이벤트는 줄 단위 text/event-stream 프레임으로 전달된다. 서버는 `status`, `route`, `web_search_progress`, `web_sources`, `delta`, `done`, `error` 이벤트를 보낼 수 있으며, 웹 검색이 필요한 요청은 답변 전 `status.phase=WEB_SEARCHING`, 검색 진행 `web_search_progress`, 출처 `web_sources`, 답변 생성 `status.phase=ANSWERING` 이벤트를 보낼 수 있다. COMPOSE/NOTE_ACTION 초안 응답의 delta text는 첫 줄이 `# 제목`인 Markdown 문자열로 시작한다.
               examples:
                 delta_done:
                   summary: status와 종료 이벤트가 포함된 델타 스트림
@@ -7027,6 +7027,21 @@ paths:
                     event: status
 
                     data: {"phase":"WEB_SEARCHING","message":"Searching the web.","requiresWebSearch":true,"webSearchQuery":"latest AI news"}
+
+
+                    event: web_search_progress
+
+                    data: {"status":"started","actionType":"search","query":"latest AI news","message":"Web search search started."}
+
+
+                    event: web_sources
+
+                    data: {"webSearchQuery":"latest AI news","sources":[{"title":"Example AI news","url":"https://example.com/ai-news","snippet":"Recent AI news summary","rank":1}]}
+
+
+                    event: status
+
+                    data: {"phase":"ANSWERING","message":"Generating an answer.","requiresWebSearch":true,"webSearchQuery":"latest AI news"}
 
 
                     event: delta
