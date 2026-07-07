@@ -2265,7 +2265,8 @@ function GraphScreenInner() {
         folderId: undefined,
         createdAt: now,
         updatedAt: now,
-        persisted: false
+        persisted: false,
+        documentGroupId: currentWorkspaceId ?? undefined
       });
       const graphNote = bridgeRecommendationToGraphNote(recommendation, created, bridgeSelectedNotes);
       optimisticGraphNotesRef.current[graphNote.id] = graphNote;

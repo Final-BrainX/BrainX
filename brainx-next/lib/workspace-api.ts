@@ -133,6 +133,11 @@ export type DeleteFolderResult = {
 
 export type NoteDraftData = {
   noteId: string;
+  // SSOT NoteDraftData.documentGroupId: 서버는 이미 이 필드를 draft 저장 시 Redis에 함께 넣고
+  // 목록/단건 조회 응답에도 그대로 내려준다. 이 타입에 필드가 없어 workspaceDraftToMock()이
+  // 계속 누락시켰고, 그 결과 draft-only 노트(아직 Postgres에 flush되지 않은 새 노트)가 새로고침/
+  // 재조회 후 documentGroupId를 잃고 기본 Workspace 소속처럼 보이던 버그의 원인이었다.
+  documentGroupId: string | null;
   actorType: "USER" | "GUEST";
   title: string | null;
   markdown: string;
@@ -728,6 +733,7 @@ export function workspaceDraftToMock(draft: NoteDraftData): MockNote {
     tags: [],
     category: "frontend",
     folderId: draft.folderId ?? undefined,
+    documentGroupId: draft.documentGroupId ?? null,
     createdAt: savedAt,
     updatedAt: savedAt,
     version: draft.baseVersion ?? 1,
