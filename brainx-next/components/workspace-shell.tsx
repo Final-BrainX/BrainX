@@ -19,6 +19,7 @@ import { cx, stripMarkdown } from "@/lib/utils";
 import { matchesWorkspaceScope } from "@/lib/workspace-api";
 import {
   semanticSearch,
+  AiUsageLimitExceededError,
   type SemanticSearchData,
 } from "@/lib/intelligence-api";
 import { formatCreditCount, formatTokenPercent } from "@/lib/token-usage";
@@ -522,7 +523,7 @@ function SearchBar() {
       });
     } catch (error) {
       if (controller.signal.aborted) return;
-      if (isAuthExpiredError(error)) {
+      if (isAuthExpiredError(error) || error instanceof AiUsageLimitExceededError) {
         pushToast((error as Error).message, "err");
       }
       setSemanticState({
