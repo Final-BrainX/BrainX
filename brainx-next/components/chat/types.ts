@@ -30,6 +30,8 @@ export type ChatRoute =
   | "NOTE_ACTION"
   | "OUT_OF_SCOPE";
 
+export type ChatStreamPhase = "ROUTING" | "WEB_SEARCHING" | "ANSWERING";
+
 export type ChatMessageView = {
   id: string;
   role: "ai" | "user";
@@ -41,6 +43,7 @@ export type ChatMessageView = {
   feedbackRating?: LlmFeedbackRating | null;
   requiresWebSearch?: boolean;
   webSearchQuery?: string | null;
+  streamPhase?: ChatStreamPhase | null;
   streaming?: boolean;
   error?: boolean;
   citations?: ChatCitation[];

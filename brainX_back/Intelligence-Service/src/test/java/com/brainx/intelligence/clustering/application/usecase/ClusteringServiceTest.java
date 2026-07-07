@@ -29,13 +29,8 @@ import com.brainx.intelligence.llmops.LlmOpsTestSupport;
 import com.brainx.intelligence.llmops.application.port.outbound.LlmOpsStore;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
-import com.brainx.intelligence.settings.application.port.outbound.StyleProfilePort;
-import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
 import com.brainx.intelligence.settings.domain.AiModel;
 import com.brainx.intelligence.settings.domain.AiModelSettings;
-import com.brainx.intelligence.settings.domain.ConversationTone;
-import com.brainx.intelligence.settings.domain.StyleProfile;
-import com.brainx.intelligence.settings.domain.WritingStyle;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatChunk;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -64,8 +59,6 @@ class ClusteringServiceTest {
     private final FakeTokenUsagePort tokenUsagePort = new FakeTokenUsagePort();
     private final FakeClusteringEventPort eventPort = new FakeClusteringEventPort();
     private final ClusteringProperties properties = new ClusteringProperties();
-    private final FakeStyleProfilePort styleProfilePort = new FakeStyleProfilePort();
-    private final StylePromptCompiler stylePromptCompiler = new StylePromptCompiler(styleProfilePort);
     private final LlmOpsStore llmOpsStore = LlmOpsTestSupport.store();
     private final ClusteringService service = new ClusteringService(
         store,
@@ -79,19 +72,12 @@ class ClusteringServiceTest {
         eventPort,
         properties,
         new ObjectMapper(),
-        stylePromptCompiler,
         Clock.fixed(Instant.parse("2026-06-26T00:00:00Z"), ZoneOffset.UTC)
     );
 
     @Test
     void requestClusterJobDefaultsDocumentGroupAndStoresCompletedJob() {
         settingsPort.settings = Optional.of(new AiModelSettings("user-1", "gpt-user", Map.of()));
-        styleProfilePort.profile = new StyleProfile(
-            "user-1",
-            new ConversationTone(Map.of("directness", "high")),
-            new WritingStyle(Map.of("formality", "business", "informationDensity", "dense")),
-            null
-        );
         noteSource.notes = List.of(
             note("note-1", "Java", List.of("backend"), List.of("Spring"), "Spring Boot service"),
             note("note-2", "Database", List.of("sql"), List.of("Transaction"), "PostgreSQL transaction")
@@ -120,11 +106,14 @@ class ClusteringServiceTest {
         assertThat(job.clusters().getFirst().noteIds()).containsExactly("note-1", "note-2");
         assertThat(chatPort.lastRequest.modelId()).isEqualTo("gpt-user");
         assertThat(chatPort.lastRequest.messages().getFirst().content())
-            .contains("Mandatory user style instructions")
-            .contains("every final generated or edited user-facing text segment")
-            .contains("Use this formality/tone: business")
-            .doesNotContain("every final user-facing conversational sentence");
-        assertThat(chatPort.lastRequest.messages().get(1).content()).contains("Spring Boot service");
+            .contains("Every input note ID must appear exactly once")
+            .contains("Do not duplicate note IDs")
+            .doesNotContain("Mandatory user style instructions")
+            .doesNotContain("Use this formality/tone: business");
+        assertThat(chatPort.lastRequest.messages().get(1).content())
+            .contains("Spring Boot service")
+            .contains("All input note IDs")
+            .contains("[\"note-1\",\"note-2\"]");
         assertThat(entitlementPort.lastRequest.capability()).isEqualTo("AI_CLUSTERING");
         assertThat(tokenUsagePort.records).hasSize(1);
         assertThat(tokenUsagePort.records.getFirst().featureId()).isEqualTo("ai-clustering-chat");
@@ -187,6 +176,83 @@ class ClusteringServiceTest {
     }
 
     @Test
+    void validationFailureRunsOneRepairPassAndStoresRepairedClusters() {
+        noteSource.notes = List.of(
+            note("note-1", "Java", List.of(), List.of(), "Spring"),
+            note("note-2", "Database", List.of(), List.of(), "PostgreSQL")
+        );
+        chatPort.responses.add(new AiChatResponse(
+            """
+                [
+                  {"title":"Broken A","summary":"summary","noteIds":["note-1","note-1","ghost"],"keywords":["bad"],"confidence":0.4},
+                  {"title":"Broken B","summary":"summary","noteIds":[],"keywords":["empty"],"confidence":0.2}
+                ]
+                """,
+            new AiTokenUsage(40, 10, 50)
+        ));
+        chatPort.responses.add(new AiChatResponse(
+            """
+                [
+                  {"title":"Backend Data","summary":"summary","noteIds":["note-1","note-2"],"keywords":["Spring","PostgreSQL"],"confidence":0.91}
+                ]
+                """,
+            new AiTokenUsage(30, 8, 38)
+        ));
+
+        ClusterJob job = service.requestClusterJob(new ClusterJobCommand(
+            "user-1",
+            Map.of(),
+            Map.of("maxClusters", 1),
+            null
+        ));
+
+        assertThat(job.status()).isEqualTo(ClusterJobStatus.COMPLETED);
+        assertThat(job.clusters()).hasSize(1);
+        assertThat(job.clusters().getFirst().noteIds()).containsExactly("note-1", "note-2");
+        assertThat(chatPort.generateCalls).isEqualTo(2);
+        assertThat(chatPort.requests.get(1).messages().get(1).content())
+            .contains("Your previous clustering failed validation")
+            .contains("missing note IDs")
+            .contains("unknown note IDs")
+            .contains("duplicate note IDs")
+            .contains("clusterCount exceeds maxClusters")
+            .contains("cluster[2] noteIds is empty");
+        assertThat(entitlementPort.requests).hasSize(2);
+        assertThat(tokenUsagePort.records).hasSize(2);
+        assertThat(eventPort.completedEvents).hasSize(1);
+        assertThat(job.llmRunId()).isNotBlank();
+    }
+
+    @Test
+    void repairFailureStoresFailedJobWithoutCompletedEvent() {
+        noteSource.notes = List.of(
+            note("note-1", "Java", List.of(), List.of(), "Spring"),
+            note("note-2", "Database", List.of(), List.of(), "PostgreSQL")
+        );
+        chatPort.responses.add(new AiChatResponse(
+            """
+                [{"title":"Broken","summary":"summary","noteIds":["note-1"],"keywords":["bad"],"confidence":0.4}]
+                """,
+            new AiTokenUsage(40, 10, 50)
+        ));
+        chatPort.responses.add(new AiChatResponse(
+            """
+                [{"title":"Still Broken","summary":"summary","noteIds":["note-1","ghost"],"keywords":["bad"],"confidence":0.4}]
+                """,
+            new AiTokenUsage(30, 8, 38)
+        ));
+
+        ClusterJob job = service.requestClusterJob(new ClusterJobCommand("user-1", Map.of(), Map.of(), null));
+
+        assertThat(job.status()).isEqualTo(ClusterJobStatus.FAILED);
+        assertThat(job.failureMessage()).contains("Cluster response failed validation");
+        assertThat(chatPort.generateCalls).isEqualTo(2);
+        assertThat(tokenUsagePort.records).hasSize(2);
+        assertThat(eventPort.completedEvents).isEmpty();
+        assertThat(job.llmRunId()).isNotBlank();
+    }
+
+    @Test
     void invalidProviderJsonIsStoredAsFailedJob() {
         noteSource.notes = List.of(note("note-1", "Java", List.of(), List.of(), "Spring"));
         chatPort.response = new AiChatResponse("not json", null);
@@ -196,6 +262,7 @@ class ClusteringServiceTest {
         assertThat(job.status()).isEqualTo(ClusterJobStatus.FAILED);
         assertThat(job.failureMessage()).contains("not valid JSON");
         assertThat(store.jobsById.get(job.clusterJobId()).status()).isEqualTo(ClusterJobStatus.FAILED);
+        assertThat(chatPort.generateCalls).isEqualTo(2);
         assertThat(eventPort.requestedEvents).hasSize(1);
         assertThat(eventPort.completedEvents).isEmpty();
     }
@@ -378,11 +445,13 @@ class ClusteringServiceTest {
     private static class FakeEntitlementPort implements EntitlementPort {
         private boolean allowed = true;
         private String reasonCode = "OK";
+        private final List<EntitlementRequest> requests = new ArrayList<>();
         private EntitlementRequest lastRequest;
 
         @Override
         public EntitlementDecision checkEntitlement(EntitlementRequest request) {
             lastRequest = request;
+            requests.add(request);
             return new EntitlementDecision(allowed, reasonCode, 1000);
         }
     }
@@ -404,13 +473,19 @@ class ClusteringServiceTest {
 
     private static class FakeAiChatPort implements AiChatPort {
         private AiChatResponse response = new AiChatResponse("[]", null);
+        private final List<AiChatResponse> responses = new ArrayList<>();
+        private final List<AiChatRequest> requests = new ArrayList<>();
         private AiChatRequest lastRequest;
         private int generateCalls;
 
         @Override
         public AiChatResponse generate(AiChatRequest request) {
             lastRequest = request;
+            requests.add(request);
             generateCalls++;
+            if (!responses.isEmpty()) {
+                return responses.remove(0);
+            }
             return response;
         }
 
@@ -441,23 +516,6 @@ class ClusteringServiceTest {
         @Override
         public void clusterJobCompleted(ClusterJobCompletedEvent event) {
             completedEvents.add(event);
-        }
-    }
-
-    private static class FakeStyleProfilePort implements StyleProfilePort {
-
-        private StyleProfile profile;
-
-        @Override
-        public StyleProfile save(StyleProfile styleProfile) {
-            profile = styleProfile;
-            return styleProfile;
-        }
-
-        @Override
-        public Optional<StyleProfile> findStyleProfileByUserId(String userId) {
-            return Optional.ofNullable(profile)
-                .filter(item -> item.userId().equals(userId));
         }
     }
 

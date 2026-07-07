@@ -72,7 +72,6 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
     private final ClusteringProperties properties;
     private final ObjectMapper objectMapper;
     private final ClusterResponseParser clusterResponseParser;
-    private final StylePromptCompiler stylePromptCompiler;
     private final Clock clock;
 
     @Autowired
@@ -87,8 +86,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
         PromptRegistryService promptRegistryService,
         ClusteringEventPort clusteringEventPort,
         ClusteringProperties properties,
-        ObjectMapper objectMapper,
-        StylePromptCompiler stylePromptCompiler
+        ObjectMapper objectMapper
     ) {
         this(
             clusterJobStore,
@@ -102,7 +100,6 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
             clusteringEventPort,
             properties,
             objectMapper,
-            stylePromptCompiler,
             Clock.systemUTC()
         );
     }
@@ -119,7 +116,6 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
         ClusteringEventPort clusteringEventPort,
         ClusteringProperties properties,
         ObjectMapper objectMapper,
-        StylePromptCompiler stylePromptCompiler,
         Clock clock
     ) {
         this.clusterJobStore = clusterJobStore;
@@ -134,7 +130,6 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.clusterResponseParser = new ClusterResponseParser(objectMapper);
-        this.stylePromptCompiler = stylePromptCompiler;
         this.clock = clock;
     }
 
@@ -163,9 +158,9 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
         String systemPrompt = StylePromptCompiler.appendToSystemPrompt(
             StylePromptCompiler.appendToSystemPrompt(
                 promptResolution.template(),
-                runtimeInstructions(maxClusters)
+                clusteringInstructions()
             ),
-            stylePromptCompiler.writingStyleInstructions(userId)
+            runtimeInstructions(maxClusters, notes.size())
         );
         String userPrompt = userPrompt(notes, maxClusters);
         int tokenEstimate = estimateTokens(systemPrompt + "\n" + userPrompt);
@@ -197,28 +192,39 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
             running.algorithmOptions()
         ));
 
+        String llmRunId = null;
         try {
-            List<AiChatMessage> messages = List.of(
-                new AiChatMessage(AiRole.SYSTEM, systemPrompt),
-                new AiChatMessage(AiRole.USER, userPrompt)
-            );
-            AiRunRecorder.RecordedChatResponse recorded = aiRunRecorder.recordChatGenerateWithRun(
+            ClusteringAttempt initialAttempt = runClusteringAttempt(
                 userId,
-                AI_CLUSTERING_FEATURE_ID,
-                promptResolution.promptKey(),
-                promptResolution.version(),
                 modelId,
-                "CLUSTER_JOB",
                 clusterJobId,
-                messages,
-                Map.of("documentGroupId", scope.documentGroupId()),
-                () -> aiChatPort.generate(new AiChatRequest(modelId, messages))
+                scope.documentGroupId(),
+                promptResolution,
+                systemPrompt,
+                userPrompt,
+                "initial"
             );
-            AiChatResponse response = recorded.response();
-            String content = response == null || response.content() == null ? "" : response.content();
-            recordUsage(userId, modelId, clusterJobId, response == null ? null : response.tokenUsage());
-            List<Cluster> clusters = clusterResponseParser.parseClusters(clusterJobId, content, notes, maxClusters);
-            ClusterJob completed = clusterJobStore.save(running.withLlmRunId(recorded.llmRunId()).completed(clusters, Instant.now(clock)));
+            llmRunId = initialAttempt.llmRunId();
+            List<Cluster> clusters;
+            try {
+                clusters = clusterResponseParser.parseClusters(clusterJobId, initialAttempt.content(), notes, maxClusters);
+            } catch (IllegalArgumentException validationException) {
+                String repairPrompt = repairPrompt(notes, maxClusters, initialAttempt.content(), validationException);
+                checkRepairEntitlement(userId, systemPrompt, repairPrompt);
+                ClusteringAttempt repairAttempt = runClusteringAttempt(
+                    userId,
+                    modelId,
+                    clusterJobId,
+                    scope.documentGroupId(),
+                    promptResolution,
+                    systemPrompt,
+                    repairPrompt,
+                    "repair"
+                );
+                llmRunId = repairAttempt.llmRunId();
+                clusters = clusterResponseParser.parseClusters(clusterJobId, repairAttempt.content(), notes, maxClusters);
+            }
+            ClusterJob completed = clusterJobStore.save(running.withLlmRunId(llmRunId).completed(clusters, Instant.now(clock)));
             clusteringEventPort.clusterJobCompleted(new ClusterJobCompletedEvent(
                 userId,
                 clusterJobId,
@@ -226,7 +232,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
             ));
             return completed;
         } catch (RuntimeException exception) {
-            return clusterJobStore.save(running.failed(safeFailureMessage(exception), Instant.now(clock)));
+            return clusterJobStore.save(running.withLlmRunId(llmRunId).failed(safeFailureMessage(exception), Instant.now(clock)));
         }
     }
 
@@ -317,6 +323,63 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
     }
 
     private String userPrompt(List<KnowledgeAnalysisNote> notes, int maxClusters) {
+        List<Map<String, Object>> noteCards = noteCards(notes);
+        List<String> noteIds = noteIds(notes);
+        return """
+            Note cards from one document group:
+            %s
+
+            All input note IDs:
+            %s
+
+            Group these notes into meaningful knowledge clusters.
+
+            Requirements:
+            - Use only the note IDs listed in All input note IDs.
+            - Every listed note ID must appear exactly once.
+            - Do not invent note IDs.
+            - Do not omit note IDs.
+            - Return at most %d clusters.
+            """.formatted(toJson(noteCards), toJson(noteIds), maxClusters);
+    }
+
+    private String repairPrompt(
+        List<KnowledgeAnalysisNote> notes,
+        int maxClusters,
+        String previousOutput,
+        RuntimeException validationException
+    ) {
+        return """
+            Your previous clustering failed validation.
+
+            Note cards from one document group:
+            %s
+
+            All input note IDs:
+            %s
+
+            Previous output:
+            %s
+
+            Validation errors:
+            %s
+
+            Return a corrected JSON array only.
+            Every input note ID must appear exactly once.
+            Do not invent IDs.
+            Do not duplicate IDs.
+            Do not exceed %d clusters.
+            Do not create empty clusters.
+            """.formatted(
+                toJson(noteCards(notes)),
+                toJson(noteIds(notes)),
+                previousOutput == null ? "" : previousOutput,
+                validationException.getMessage(),
+                maxClusters
+            );
+    }
+
+    private static List<Map<String, Object>> noteCards(List<KnowledgeAnalysisNote> notes) {
         List<Map<String, Object>> noteCards = notes.stream()
             .map(note -> {
                 Map<String, Object> values = new LinkedHashMap<>();
@@ -328,31 +391,110 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
                 return values;
             })
             .toList();
-        return """
-            Note cards from one document group:
-            %s
+        return noteCards;
+    }
 
-            Group these notes into at most %d meaningful knowledge clusters.
-            Use only these note cards. Do not invent note IDs.
-            """.formatted(toJson(noteCards), maxClusters);
+    private static List<String> noteIds(List<KnowledgeAnalysisNote> notes) {
+        return notes.stream().map(KnowledgeAnalysisNote::noteId).toList();
     }
 
     private static String systemPrompt() {
         return """
             You are BrainX knowledge structure analyst.
+
             Return only a strict JSON array of cluster objects.
-            Each object must contain:
-            - title: concise Korean cluster title
+            Do not return markdown fences, prose, comments, or additional fields.
+            """;
+    }
+
+    private static String clusteringInstructions() {
+        return """
+            Your task is to create useful knowledge clusters from the provided note cards.
+            A good cluster groups notes that share a meaningful topic, problem, concept, project, method, decision, or workflow stage.
+
+            Hard requirements:
+            - Use only note IDs that appear in the input note cards.
+            - Every input note ID must appear exactly once across all clusters.
+            - Do not omit ambiguous notes. Assign each ambiguous note to the closest reasonable cluster and lower the confidence if needed.
+            - Do not duplicate note IDs across clusters.
+            - Do not invent note IDs.
+            - Do not create a "미분류", "기타", "Other", or "Unclassified" cluster unless the note card is nearly empty, corrupted, or impossible to relate to any other note.
+            - If maxClusters is too small, merge the closest themes instead of dropping notes.
+            - Prefer meaningful data-driven clusters over predefined categories.
+            - Avoid singleton clusters. A cluster with only one note is allowed only when that note has no plausible semantic relation to any other note.
+            - If there are enough notes, do not collapse everything into one cluster unless all notes clearly share one central theme.
+
+            Each cluster object must contain exactly:
+            - title: concise Korean cluster title, 2 to 10 words
             - summary: one Korean sentence explaining the cluster
             - noteIds: array of source note IDs in this cluster
             - keywords: array of 2 to 6 Korean or technical keywords
             - confidence: number from 0 to 1
-            Do not return markdown fences, prose, or additional fields.
+
+            Clustering guidance:
+            - Prefer clusters that are internally coherent and clearly separated from other clusters.
+            - Prefer broader conceptual groupings over superficial grouping by identical tags.
+            - Use title, tags, headings, and excerpt together.
+            - When tags conflict with content, prioritize the semantic content of title, headings, and excerpt.
+            - Confidence should be high only when the cluster has strong internal coherence and clear separation.
             """;
     }
 
-    private static String runtimeInstructions(int maxClusters) {
-        return "Return at most %d cluster objects.".formatted(maxClusters);
+    private static String runtimeInstructions(int maxClusters, int noteCount) {
+        int softTarget = Math.min(maxClusters, Math.max(1, (int) Math.round(Math.sqrt(noteCount))));
+        return """
+            Runtime constraints:
+            - Input note count: %d
+            - Return at most %d cluster objects.
+            - Suggested cluster count is around %d, but choose fewer or more if the notes clearly require it.
+            - If input note count is 5 or more, return at least 2 clusters unless all notes clearly share one central theme.
+            - If returning only 1 cluster for 5 or more notes, the cluster must be highly coherent and confidence should reflect that.
+            - Prefer clusters with 2 or more notes.
+            - Do not leave notes unassigned.
+            """.formatted(noteCount, maxClusters, softTarget);
+    }
+
+    private ClusteringAttempt runClusteringAttempt(
+        String userId,
+        String modelId,
+        String clusterJobId,
+        String documentGroupId,
+        PromptResolution promptResolution,
+        String systemPrompt,
+        String userPrompt,
+        String stage
+    ) {
+        List<AiChatMessage> messages = List.of(
+            new AiChatMessage(AiRole.SYSTEM, systemPrompt),
+            new AiChatMessage(AiRole.USER, userPrompt)
+        );
+        AiRunRecorder.RecordedChatResponse recorded = aiRunRecorder.recordChatGenerateWithRun(
+            userId,
+            AI_CLUSTERING_FEATURE_ID,
+            promptResolution.promptKey(),
+            promptResolution.version(),
+            modelId,
+            "CLUSTER_JOB",
+            clusterJobId,
+            messages,
+            Map.of("documentGroupId", documentGroupId, "stage", stage),
+            () -> aiChatPort.generate(new AiChatRequest(modelId, messages))
+        );
+        AiChatResponse response = recorded.response();
+        recordUsage(userId, modelId, clusterJobId, response == null ? null : response.tokenUsage());
+        String content = response == null || response.content() == null ? "" : response.content();
+        return new ClusteringAttempt(recorded.llmRunId(), content);
+    }
+
+    private void checkRepairEntitlement(String userId, String systemPrompt, String repairPrompt) {
+        var entitlement = entitlementPort.checkEntitlement(new EntitlementRequest(
+            userId,
+            AI_CLUSTERING_CAPABILITY,
+            estimateTokens(systemPrompt + "\n" + repairPrompt)
+        ));
+        if (!entitlement.allowed()) {
+            throw new ClusteringForbiddenException("AI capability is not available: " + entitlement.reasonCode());
+        }
     }
 
     private void recordUsage(
@@ -568,5 +710,8 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
             }
             return List.copyOf(values);
         }
+    }
+
+    private record ClusteringAttempt(String llmRunId, String content) {
     }
 }
