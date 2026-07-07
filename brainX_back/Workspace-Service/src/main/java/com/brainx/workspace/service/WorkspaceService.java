@@ -1005,7 +1005,12 @@ public class WorkspaceService {
         Map<String, DesiredWikiLink> desiredByTarget = new LinkedHashMap<>();
 
         for (ParsedWikiLink parsed : parsedLinks) {
-            Note target = noteRepository.findFirstByUserIdAndTitleAndDeletedFalse(source.getUserId(), parsed.title())
+            // createLink(createIfMissing)와 동일한 Workspace 정책: source note와 같은
+            // documentGroupId(null이면 null끼리만, Ticket8 findSiblingsBy...와 동일한 null-매치
+            // 규칙) 안에서만 target을 찾는다 — 그래야 동일 제목 노트가 여러 Workspace에 있어도
+            // 다른 Workspace의 노트가 잘못 연결되지 않는다.
+            Note target = noteRepository.findFirstByUserIdAndDocumentGroupIdAndTitleAndDeletedFalse(
+                            source.getUserId(), source.getDocumentGroupId(), parsed.title())
                     .orElse(null);
             if (target == null || Objects.equals(target.getNoteId(), source.getNoteId())) {
                 continue;
