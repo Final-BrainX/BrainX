@@ -6,6 +6,8 @@ import brain.web.mvc.exception.ApiException;
 import brain.web.mvc.repository.EmailVerificationRepository;
 import brain.web.mvc.repository.UserRepository;
 import jakarta.mail.MessagingException;
+import jakarta.mail.internet.AddressException;
+import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +34,9 @@ public class EmailVerificationService {
     @Value("${spring.mail.username:}")
     private String mailUsername;
 
+    @Value("${spring.mail.password:}")
+    private String mailPassword;
+
     @Value("${brainx.email.from:}")
     private String mailFrom;
 
@@ -41,7 +46,7 @@ public class EmailVerificationService {
     @Transactional
     public EmailVerification requestVerification(String email, VerificationPurpose purpose) {
         if (purpose == VerificationPurpose.SIGNUP && userRepository.existsByEmail(email)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "이미 가입된 이메일입니다.");
+            throw new ApiException(HttpStatus.BAD_REQUEST, "이미 가입한 이메일입니다.");
         }
         if (purpose == VerificationPurpose.PASSWORD_CHANGE && !userRepository.existsByEmail(email)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "존재하지 않는 이메일입니다.");
@@ -101,8 +106,8 @@ public class EmailVerificationService {
     }
 
     private void sendVerificationMail(EmailVerification verification) {
-        if (!StringUtils.hasText(mailUsername)) {
-            log.info("Mail username is empty. Verification code for {} is {}", verification.getEmail(), verification.getCode());
+        if (!isMailDeliveryConfigured()) {
+            log.warn("SMTP is not fully configured. Verification code for {} is {}", verification.getEmail(), verification.getCode());
             return;
         }
 
@@ -110,8 +115,9 @@ public class EmailVerificationService {
             MimeMessage message = javaMailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
             helper.setTo(verification.getEmail());
-            if (StringUtils.hasText(mailFrom)) {
-                helper.setFrom(mailFrom);
+            String senderAddress = resolveSenderAddress();
+            if (senderAddress != null) {
+                helper.setFrom(senderAddress);
             }
             helper.setSubject("[BrainX] 이메일 인증 코드");
             helper.setText(mailContent(verification.getCode()), true);
@@ -122,8 +128,8 @@ public class EmailVerificationService {
     }
 
     public void sendTemporaryPasswordMail(String email, String temporaryPassword) {
-        if (!StringUtils.hasText(mailUsername)) {
-            log.info("Mail username is empty. Temporary password for {} is {}", email, temporaryPassword);
+        if (!isMailDeliveryConfigured()) {
+            log.warn("SMTP is not fully configured. Temporary password for {} is {}", email, temporaryPassword);
             return;
         }
 
@@ -131,14 +137,40 @@ public class EmailVerificationService {
             MimeMessage message = javaMailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
             helper.setTo(email);
-            if (StringUtils.hasText(mailFrom)) {
-                helper.setFrom(mailFrom);
+            String senderAddress = resolveSenderAddress();
+            if (senderAddress != null) {
+                helper.setFrom(senderAddress);
             }
             helper.setSubject("[BrainX] 임시 비밀번호 안내");
             helper.setText(temporaryPasswordMailContent(temporaryPassword), true);
             javaMailSender.send(message);
         } catch (MessagingException | RuntimeException exception) {
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "임시 비밀번호 이메일 발송에 실패했습니다.");
+        }
+    }
+
+    private boolean isMailDeliveryConfigured() {
+        return StringUtils.hasText(mailUsername) && StringUtils.hasText(mailPassword);
+    }
+
+    private String resolveSenderAddress() {
+        String preferred = normalizeAddress(mailFrom);
+        if (preferred != null) {
+            return preferred;
+        }
+        return normalizeAddress(mailUsername);
+    }
+
+    private String normalizeAddress(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return null;
+        }
+        try {
+            InternetAddress address = new InternetAddress(raw.trim(), true);
+            return address.getAddress();
+        } catch (AddressException exception) {
+            log.warn("Ignoring invalid sender address configuration: {}", raw);
+            return null;
         }
     }
 
