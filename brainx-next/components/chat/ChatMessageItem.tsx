@@ -89,11 +89,15 @@ export function ChatMessageItem({
         </div>
         {message.role === "ai" &&
         message.streaming &&
-        message.requiresWebSearch ? (
+        message.streamPhase === "WEB_SEARCHING" ? (
           <div className="mt-2 flex max-w-full items-center gap-2 rounded-xl border border-line bg-surface2 px-3 py-2 text-[12.5px] text-txt2">
-            <Icon name="search" size={13} className="shrink-0 text-primary" />
+            <Icon
+              name="refresh"
+              size={13}
+              className="shrink-0 animate-spin text-primary"
+            />
             <span className="min-w-0 truncate">
-              웹에서 최신 정보를 확인 중
+              웹 검색 중…
               {message.webSearchQuery ? `: ${message.webSearchQuery}` : ""}
             </span>
           </div>

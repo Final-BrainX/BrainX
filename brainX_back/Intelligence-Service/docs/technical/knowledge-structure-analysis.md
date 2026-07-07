@@ -5,7 +5,7 @@
 ## 동작 방식
 
 - v1은 실제 background worker가 없다. POST 요청 안에서 분석 대상 note card 조회, entitlement 확인, LLM 호출, 결과 저장까지 수행한 뒤 `202 Accepted`와 현재 job 상태를 반환한다.
-- 성공하면 `COMPLETED`, provider 오류나 JSON parse 실패는 `FAILED` job으로 저장하고 `202`로 반환한다.
+- 성공하면 `COMPLETED`, provider 오류나 JSON parse/validation 실패는 `FAILED` job으로 저장하고 `202`로 반환한다.
 - `Idempotency-Key`가 같은 user/job type에 이미 있으면 저장된 job을 반환하고 AI를 다시 호출하지 않는다.
 - 분석 범위는 `documentGroupId` 안으로 격리된다. `scope.documentGroupId`가 없으면 `default`로 normalize한다.
 - `/latest`는 AI를 호출하지 않는다. 현재 searchable note card와 최근 document-group 전체 분석 job을 비교해 화면용 상태만 반환한다.
@@ -38,7 +38,19 @@ LLM에는 raw full markdown을 넣지 않는다. `KnowledgeAnalysisNoteSourcePor
 - `headings`
 - `excerpt`
 
-응답은 strict JSON array 또는 `{ "clusters": [...] }`를 허용하고, 서버는 존재하는 `noteId`만 보존한다. public response의 `clusters[]` object는 다음 필드를 가진다.
+클러스터링 prompt는 사용자 `writingStyle`을 적용하지 않는다. system prompt는 모든 입력 `noteId`가 정확히 한 번만 포함되어야 한다고 지시하고, user prompt에는 `All input note IDs` JSON 배열을 함께 넣는다. runtime instruction은 `maxClusters`, 입력 note 수, `softTarget = min(maxClusters, max(1, round(sqrt(noteCount))))`를 포함한다.
+
+응답은 strict JSON array 또는 `{ "clusters": [...] }`를 허용한다. 서버는 unknown noteId를 조용히 제거하거나 `maxClusters` 초과 cluster를 자르지 않고, 아래 조건을 validation error로 처리한다.
+
+- 누락된 noteId
+- 입력에 없는 noteId
+- 중복 noteId
+- 빈 cluster
+- `maxClusters` 초과 cluster 수
+
+validation 실패 시 최대 1회 repair pass를 실행한다. repair prompt에는 원본 note cards, 전체 input note IDs, 이전 출력, validation error 목록이 들어간다. repair 호출 전 `AI_CLUSTERING` entitlement를 repair prompt token estimate로 다시 확인하고, initial/repair provider 호출의 token usage는 각각 기록한다. repair가 성공하면 repair run의 `llmRunId`가 job에 저장되고, repair도 실패하면 job은 `FAILED`로 저장하며 `ClusterJobCompleted` event는 발행하지 않는다.
+
+public response의 `clusters[]` object는 다음 필드를 가진다.
 
 - `clusterId`
 - `title`

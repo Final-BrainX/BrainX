@@ -165,7 +165,7 @@ OpenAI chat은 Spring AI `ChatClient`를 통해 호출한다. OpenAI audio/image
 | AI link suggestions | `conversationTone` | LLM link reason 생성 prompt | 사용자가 보는 추천 이유에만 적용한다. 내부 relation verifier에는 적용하지 않는다. |
 | Bridge concepts | `conversationTone` | bridge reason 생성 prompt | 추천 개념과 이유가 사용자-facing 설명이다. |
 | Folder organization proposals | `conversationTone` | proposed folder/move reason 생성 prompt | 정리 제안의 이유 설명에 적용한다. |
-| AI clustering | `writingStyle` | cluster summary/report 생성 prompt | cluster title, summary, keyword 결과물 문체를 조정한다. |
+| AI clustering | 적용 안 함 | 없음 | noteId coverage와 구조 분석 검증이 우선인 내부 분석 prompt라 사용자 문체를 적용하지 않는다. |
 | Insight reports | `writingStyle` | report 생성 prompt | summary, gap, recommendation 결과물 문체를 조정한다. |
 | Chat router | 적용 안 함 | 없음 | 내부 라우팅 판단이며 사용자-facing 결과물이 아니다. |
 | Chat title generation | 적용 안 함 | 없음 | 짧은 thread title 생성은 별도 고정 정책을 따른다. |

@@ -124,6 +124,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/intelligence/note-index-statuses:
     post:
       operationId: getNoteIndexStatuses
@@ -276,6 +277,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
       x-streaming: sse
   /api/v1/ai/suggestions/{suggestionId}/decision:
     post:
@@ -361,6 +363,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/llm-feedback:
     put:
       operationId: upsertLlmFeedback
@@ -432,6 +435,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/chat-threads:
     get:
       operationId: listChatThreads
@@ -512,6 +516,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
     post:
       operationId: createChatThread
       summary: AI 채팅 스레드 생성
@@ -585,6 +590,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/chat-threads/{threadId}/messages:
     post:
       operationId: sendChatMessage
@@ -625,14 +631,55 @@ paths:
             text/event-stream:
               schema:
                 type: string
-                description: Server-Sent Events 스트림. 이벤트는 줄 단위 text/event-stream 프레임으로 전달된다. COMPOSE/NOTE_ACTION 초안 응답의 delta
-                  text는 첫 줄이 `# 제목`인 Markdown 문자열로 시작한다.
+                description: Server-Sent Events 스트림. 이벤트는 줄 단위 text/event-stream 프레임으로 전달된다. 서버는 `status`, `route`, `delta`,
+                  `done`, `error` 이벤트를 보낼 수 있으며, 웹 검색이 필요한 요청은 검색 전 `status.phase=WEB_SEARCHING` 이벤트를 먼저 보낸다. COMPOSE/NOTE_ACTION
+                  초안 응답의 delta text는 첫 줄이 `# 제목`인 Markdown 문자열로 시작한다.
               examples:
                 delta_done:
-                  summary: 종료 이벤트가 포함된 델타 스트림
-                  value: 'event: delta
+                  summary: status와 종료 이벤트가 포함된 델타 스트림
+                  value: 'event: status
+
+                    data: {"phase":"ROUTING","message":"Routing chat request.","requiresWebSearch":false,"webSearchQuery":""}
+
+
+                    event: route
+
+                    data: {"route":"NOTE_QA","reason":"note question","routerModel":"gpt-5.4-nano","requiresWebSearch":false,"webSearchQuery":""}
+
+
+                    event: delta
 
                     data: {"text":"JWT는"}
+
+
+                    event: done
+
+                    data: {"messageId":"msg_01J...","llmRunId":"run_01J..."}
+
+
+                    '
+                web_search_status:
+                  summary: 웹 검색 상태 이벤트가 포함된 스트림
+                  value: 'event: status
+
+                    data: {"phase":"ROUTING","message":"Routing chat request.","requiresWebSearch":false,"webSearchQuery":""}
+
+
+                    event: route
+
+                    data: {"route":"COMPOSE","reason":"current topic draft","routerModel":"gpt-5.4-nano","requiresWebSearch":true,"webSearchQuery":"latest
+                    AI news"}
+
+
+                    event: status
+
+                    data: {"phase":"WEB_SEARCHING","message":"Searching the web.","requiresWebSearch":true,"webSearchQuery":"latest
+                    AI news"}
+
+
+                    event: delta
+
+                    data: {"text":"# 최신 AI 뉴스\n\n"}
 
 
                     event: done
@@ -680,6 +727,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
       x-streaming: sse
   /api/v1/ai/chat-threads/{threadId}:
     get:
@@ -754,6 +802,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
     patch:
       operationId: updateChatThread
       summary: 채팅 스레드 상태 수정
@@ -832,6 +881,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
     delete:
       operationId: deleteChatThread
       summary: 채팅 스레드 삭제
@@ -899,6 +949,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/agent-threads:
     get:
       operationId: listAgentThreads
@@ -963,6 +1014,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
     post:
       operationId: createAgentThread
       summary: Create experimental Agent thread
@@ -1023,6 +1075,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/agent-threads/{threadId}:
     get:
       operationId: getAgentThread
@@ -1090,6 +1143,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/agent-threads/{threadId}/messages:
     post:
       operationId: sendAgentMessage
@@ -1183,6 +1237,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
       x-streaming: sse
   /api/v1/ai/agent-actions/{actionId}/approve:
     post:
@@ -1261,6 +1316,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/agent-actions/{actionId}/reject:
     post:
       operationId: rejectAgentAction
@@ -1334,6 +1390,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/models:
     get:
       operationId: listAiModels
@@ -1404,6 +1461,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/model-settings:
     put:
       operationId: putAiModelSettings
@@ -1478,6 +1536,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/notes/{noteId}/summary:
     get:
       operationId: getNoteSummary
@@ -1635,6 +1694,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/link-suggestions:
     post:
       operationId: createLinkSuggestions
@@ -1717,6 +1777,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/clusters:
     post:
       operationId: requestAiClusterJob
@@ -1798,6 +1859,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/clusters/latest:
     get:
       operationId: getLatestAiClusterJob
@@ -1854,6 +1916,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/clusters/{clusterJobId}:
     get:
       operationId: getAiClusterJob
@@ -1927,6 +1990,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/bridge-concepts:
     post:
       operationId: createBridgeConcepts
@@ -2006,6 +2070,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/insight-reports:
     post:
       operationId: requestInsightReport
@@ -2090,6 +2155,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/insight-reports/latest:
     get:
       operationId: getLatestInsightReport
@@ -2152,6 +2218,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/insight-reports/{reportId}:
     get:
       operationId: getInsightReport
@@ -2228,6 +2295,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/users/me/style-profile:
     get:
       operationId: getStyleProfile
@@ -2965,6 +3033,11 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    guestSessionAuth:
+      type: apiKey
+      in: cookie
+      name: brainx_guest_id
+      description: 게이트웨이가 발급한 게스트 워크스페이스 세션 쿠키. 비회원 임시 노트, 폴더, 링크, 그래프 체험 데이터에 사용한다.
     serviceTokenAuth:
       type: apiKey
       in: header

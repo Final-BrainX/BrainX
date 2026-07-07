@@ -40,24 +40,26 @@ final class ClusterResponseParser {
             }
             LinkedHashSet<String> allowedNoteIds = new LinkedHashSet<>();
             notes.forEach(note -> allowedNoteIds.add(note.noteId()));
-            List<Cluster> clusters = new ArrayList<>();
+            List<String> issues = new ArrayList<>();
+            if (root.size() > maxClusters) {
+                issues.add("clusterCount exceeds maxClusters: " + root.size() + " > " + maxClusters);
+            }
+
+            List<ParsedCluster> parsedClusters = new ArrayList<>();
+            List<String> assignedIds = new ArrayList<>();
+            int index = 0;
             for (JsonNode node : root) {
-                if (clusters.size() >= maxClusters) {
-                    break;
-                }
+                index += 1;
                 String title = text(node, "title");
                 if (!StringUtils.hasText(title)) {
-                    continue;
+                    issues.add("cluster[" + index + "] title is blank");
                 }
-                List<String> noteIds = stringList(node.path("noteIds")).stream()
-                    .filter(allowedNoteIds::contains)
-                    .toList();
+                List<String> noteIds = stringList(node.path("noteIds"));
                 if (noteIds.isEmpty()) {
-                    continue;
+                    issues.add("cluster[" + index + "] noteIds is empty");
                 }
-                int ordinal = clusters.size() + 1;
-                clusters.add(new Cluster(
-                    clusterId(clusterJobId, ordinal, title),
+                assignedIds.addAll(noteIds);
+                parsedClusters.add(new ParsedCluster(
                     title,
                     text(node, "summary"),
                     noteIds,
@@ -65,13 +67,53 @@ final class ClusterResponseParser {
                     doubleValue(node.path("confidence"), 0.0d)
                 ));
             }
-            if (clusters.isEmpty()) {
-                throw new IllegalArgumentException("Cluster response did not contain valid clusters.");
+
+            LinkedHashSet<String> assignedUniqueIds = new LinkedHashSet<>(assignedIds);
+            LinkedHashSet<String> missingIds = new LinkedHashSet<>(allowedNoteIds);
+            missingIds.removeAll(assignedUniqueIds);
+            LinkedHashSet<String> unknownIds = new LinkedHashSet<>(assignedUniqueIds);
+            unknownIds.removeAll(allowedNoteIds);
+            List<String> duplicateIds = duplicates(assignedIds);
+            if (!missingIds.isEmpty()) {
+                issues.add("missing note IDs: " + missingIds);
+            }
+            if (!unknownIds.isEmpty()) {
+                issues.add("unknown note IDs: " + unknownIds);
+            }
+            if (!duplicateIds.isEmpty()) {
+                issues.add("duplicate note IDs: " + duplicateIds);
+            }
+            if (!issues.isEmpty()) {
+                throw new IllegalArgumentException("Cluster response failed validation: " + String.join("; ", issues));
+            }
+
+            List<Cluster> clusters = new ArrayList<>();
+            for (ParsedCluster parsed : parsedClusters) {
+                int ordinal = clusters.size() + 1;
+                clusters.add(new Cluster(
+                    clusterId(clusterJobId, ordinal, parsed.title()),
+                    parsed.title(),
+                    parsed.summary(),
+                    parsed.noteIds(),
+                    parsed.keywords(),
+                    parsed.confidence()
+                ));
             }
             return clusters;
         } catch (JsonProcessingException exception) {
             throw new IllegalArgumentException("Cluster response was not valid JSON.", exception);
         }
+    }
+
+    private static List<String> duplicates(List<String> values) {
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
+        LinkedHashSet<String> duplicates = new LinkedHashSet<>();
+        for (String value : values) {
+            if (!seen.add(value)) {
+                duplicates.add(value);
+            }
+        }
+        return List.copyOf(duplicates);
     }
 
     private static double doubleValue(JsonNode node, double defaultValue) {
@@ -108,7 +150,7 @@ final class ClusterResponseParser {
                 values.add(value.trim());
             }
         }
-        return values.stream().distinct().toList();
+        return values;
     }
 
     private static String jsonPayload(String content) {
@@ -137,5 +179,14 @@ final class ClusterResponseParser {
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is not available.", exception);
         }
+    }
+
+    private record ParsedCluster(
+        String title,
+        String summary,
+        List<String> noteIds,
+        List<String> keywords,
+        double confidence
+    ) {
     }
 }
