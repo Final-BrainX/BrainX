@@ -23,6 +23,7 @@ import { useRouter } from "next/navigation";
 import {
   adminApi,
   fallbackAdminBootstrap,
+  isAuthErrorMessage,
   loadAdminBootstrap,
   type AdminBootstrap,
   type AdminMessage,
@@ -672,6 +673,7 @@ export function AdminConsole() {
       router.replace("/login");
       return;
     }
+    const sessionToken = session.accessToken;
 
     let active = true;
     adminApi
@@ -684,10 +686,17 @@ export function AdminConsole() {
         }
         setAuthReady(true);
       })
-      .catch(() => {
+      .catch((error) => {
         if (!active) return;
-        clearSession();
-        router.replace("/login");
+        const errorMessage = error instanceof Error ? error.message : "";
+        if (isAuthErrorMessage(errorMessage) && getSession()?.accessToken === sessionToken) {
+          clearSession();
+          router.replace("/login");
+          return;
+        }
+        setAuthReady(true);
+        setAdminError(errorMessage || "관리자 세션 확인 중 오류가 발생했습니다.");
+        setToast("관리자 세션 확인 중 오류가 발생했습니다.");
       });
 
     return () => {

@@ -393,6 +393,10 @@ function formatDate(value?: string | null) {
   }).format(new Date(value));
 }
 
+function isAuthErrorMessage(message: string) {
+  return message.includes("401") || message.includes("403") || message.includes("UNAUTHORIZED") || message.includes("FORBIDDEN");
+}
+
 function formatShortDateTime(value?: string | null) {
   if (!value) return "";
   return new Intl.DateTimeFormat("sv-SE", {
@@ -502,9 +506,12 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
   if ((response.status === 401 || response.status === 403) && !path.endsWith("/auth/login")) {
     if (method === "GET") {
-      clearSession();
-      if (typeof window !== "undefined") {
-        window.location.href = "/login";
+      const currentToken = getToken();
+      if (!token || currentToken === token) {
+        clearSession();
+        if (typeof window !== "undefined") {
+          window.location.href = "/login";
+        }
       }
     }
     throw new Error(errorMessage);
@@ -906,3 +913,5 @@ export const adminApi = {
   deleteSubscription: (subscriptionId: string) =>
     apiFetch<void>("/api/v1/admin/billing/subscriptions/" + subscriptionId, { method: "DELETE" })
 };
+
+export { isAuthErrorMessage };

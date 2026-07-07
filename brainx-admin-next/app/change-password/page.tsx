@@ -2,8 +2,8 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { adminApi } from "@/lib/admin-api";
-import { clearSession, getSession, updateSessionAdmin } from "@/lib/admin-auth";
+import { adminApi, isAuthErrorMessage } from "@/lib/admin-api";
+import { clearSession, getSession, getToken, updateSessionAdmin } from "@/lib/admin-auth";
 
 export default function ChangePasswordPage() {
   const router = useRouter();
@@ -23,6 +23,7 @@ export default function ChangePasswordPage() {
       router.replace("/login");
       return;
     }
+    const sessionToken = session.accessToken;
 
     let active = true;
     setForced(session.admin.mustChangePassword);
@@ -35,10 +36,15 @@ export default function ChangePasswordPage() {
           updateSessionAdmin(fresh);
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (!active) return;
-        clearSession();
-        router.replace("/login");
+        const message = error instanceof Error ? error.message : "";
+        if (isAuthErrorMessage(message) && getToken() === sessionToken) {
+          clearSession();
+          router.replace("/login");
+          return;
+        }
+        setError("관리자 세션을 확인하는 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
       });
 
     return () => {
