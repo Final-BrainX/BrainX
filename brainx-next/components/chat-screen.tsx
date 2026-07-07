@@ -475,6 +475,57 @@ export function ChatScreen() {
               ),
             );
           },
+          onWebSearchProgress: (event) => {
+            const progressQuery =
+              typeof event.query === "string" && event.query.trim()
+                ? event.query.trim()
+                : null;
+            if (progressQuery) {
+              streamWebSearchQuery = progressQuery;
+            }
+            streamRequiresWebSearch = true;
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId
+                  ? {
+                      ...message,
+                      streamPhase: "WEB_SEARCHING",
+                      requiresWebSearch: true,
+                      webSearchQuery:
+                        progressQuery ?? message.webSearchQuery ?? null,
+                      webSearchProgress: event,
+                    }
+                  : message,
+              ),
+            );
+          },
+          onWebSources: (event) => {
+            const sourceQuery =
+              typeof event.webSearchQuery === "string" &&
+              event.webSearchQuery.trim()
+                ? event.webSearchQuery.trim()
+                : null;
+            if (sourceQuery) {
+              streamWebSearchQuery = sourceQuery;
+            }
+            streamRequiresWebSearch = true;
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId
+                  ? {
+                      ...message,
+                      requiresWebSearch: true,
+                      webSearchQuery:
+                        sourceQuery ?? message.webSearchQuery ?? null,
+                      webSources:
+                        event.sources.length > 0
+                          ? event.sources
+                          : message.webSources,
+                    }
+                  : message,
+              ),
+            );
+          },
           onDelta: (text) => {
             setMessages((current) =>
               current.map((message) =>

@@ -132,7 +132,8 @@ brainx:
   external-search:
     provider: ${BRAINX_EXTERNAL_SEARCH_PROVIDER:none}
     max-sources: ${BRAINX_EXTERNAL_SEARCH_MAX_SOURCES:8}
-    timeout: ${BRAINX_EXTERNAL_SEARCH_TIMEOUT:20s}
+    timeout: ${BRAINX_EXTERNAL_SEARCH_TIMEOUT:60s}
+    search-context-size: ${BRAINX_EXTERNAL_SEARCH_CONTEXT_SIZE:low}
     openai:
       api-key: ${OPENAI_API_KEY:}
       base-url: ${OPENAI_BASE_URL:https://api.openai.com}

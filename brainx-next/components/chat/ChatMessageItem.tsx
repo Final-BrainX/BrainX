@@ -45,6 +45,11 @@ export function ChatMessageItem({
     !message.streaming &&
     !message.error &&
     Boolean(message.llmRunId);
+  const webSearchProgressText =
+    message.webSearchProgress?.message ||
+    (message.webSearchProgress?.status
+      ? `웹 검색 ${message.webSearchProgress.status}`
+      : "웹 검색 중");
 
   return (
     <div
@@ -90,7 +95,7 @@ export function ChatMessageItem({
         {message.role === "ai" &&
         message.streaming &&
         message.streamPhase === "WEB_SEARCHING" ? (
-          <div className="mt-2 flex max-w-full items-center gap-2 rounded-xl border border-line bg-surface2 px-3 py-2 text-[12.5px] text-txt2">
+          <div className="mt-2 flex max-w-full flex-wrap items-center gap-2 rounded-xl border border-line bg-surface2 px-3 py-2 text-[12.5px] text-txt2">
             <Icon
               name="refresh"
               size={13}
@@ -100,6 +105,12 @@ export function ChatMessageItem({
               웹 검색 중…
               {message.webSearchQuery ? `: ${message.webSearchQuery}` : ""}
             </span>
+            {message.webSearchProgress?.message ||
+            message.webSearchProgress?.status ? (
+              <span className="min-w-0 truncate text-[11.5px] text-txt3">
+                {webSearchProgressText}
+              </span>
+            ) : null}
           </div>
         ) : null}
         {message.role === "ai" &&
@@ -145,8 +156,7 @@ export function ChatMessageItem({
         ) : null}
         {message.role === "ai" &&
         message.webSources &&
-        message.webSources.length > 0 &&
-        !message.streaming ? (
+        message.webSources.length > 0 ? (
           <div className="mt-2.5 w-full">
             <div className="mb-1.5 flex items-center gap-1.5 text-[13px] font-semibold text-txt3">
               <Icon name="search" size={12} />
