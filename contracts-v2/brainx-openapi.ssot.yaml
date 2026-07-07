@@ -6478,6 +6478,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/intelligence/note-index-statuses:
     post:
       operationId: getNoteIndexStatuses
@@ -6629,6 +6630,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
       x-streaming: sse
   /api/v1/ai/suggestions/{suggestionId}/decision:
     post:
@@ -6714,6 +6716,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/llm-feedback:
     put:
       operationId: upsertLlmFeedback
@@ -6785,6 +6788,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/chat-threads:
     get:
       operationId: listChatThreads
@@ -6865,6 +6869,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
     post:
       operationId: createChatThread
       summary: AI 채팅 스레드 생성
@@ -6938,6 +6943,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/chat-threads/{threadId}/messages:
     post:
       operationId: sendChatMessage
@@ -7032,6 +7038,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
       x-streaming: sse
   /api/v1/ai/chat-threads/{threadId}:
     get:
@@ -7106,6 +7113,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
     patch:
       operationId: updateChatThread
       summary: 채팅 스레드 상태 수정
@@ -7184,6 +7192,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
     delete:
       operationId: deleteChatThread
       summary: 채팅 스레드 삭제
@@ -7251,6 +7260,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/agent-threads:
     get:
       operationId: listAgentThreads
@@ -7315,6 +7325,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
     post:
       operationId: createAgentThread
       summary: Create experimental Agent thread
@@ -7375,6 +7386,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/agent-threads/{threadId}:
     get:
       operationId: getAgentThread
@@ -7442,6 +7454,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/agent-threads/{threadId}/messages:
     post:
       operationId: sendAgentMessage
@@ -7534,6 +7547,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
       x-streaming: sse
   /api/v1/ai/agent-actions/{actionId}/approve:
     post:
@@ -7612,6 +7626,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/agent-actions/{actionId}/reject:
     post:
       operationId: rejectAgentAction
@@ -7685,6 +7700,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/models:
     get:
       operationId: listAiModels
@@ -7755,6 +7771,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/model-settings:
     put:
       operationId: putAiModelSettings
@@ -7829,6 +7846,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/notes/{noteId}/summary:
     get:
       operationId: getNoteSummary
@@ -7986,6 +8004,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/link-suggestions:
     post:
       operationId: createLinkSuggestions
@@ -8068,6 +8087,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/clusters:
     post:
       operationId: requestAiClusterJob
@@ -8149,6 +8169,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/clusters/latest:
     get:
       operationId: getLatestAiClusterJob
@@ -8205,6 +8226,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/clusters/{clusterJobId}:
     get:
       operationId: getAiClusterJob
@@ -8278,6 +8300,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/bridge-concepts:
     post:
       operationId: createBridgeConcepts
@@ -8357,6 +8380,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/insight-reports:
     post:
       operationId: requestInsightReport
@@ -8441,6 +8465,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/insight-reports/latest:
     get:
       operationId: getLatestInsightReport
@@ -8503,6 +8528,7 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/insight-reports/{reportId}:
     get:
       operationId: getInsightReport
@@ -8579,6 +8605,54 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+      - guestSessionAuth: []
+  /api/v1/ai/usage:
+    get:
+      operationId: getAiUsage
+      summary: AI 기능 사용량 조회 (회원 크레딧 % / 게스트 사용 횟수)
+      tags:
+      - Commerce & Operations
+      x-producer-service: commerce-operations
+      x-visibility: public
+      x-consumers:
+      - id: web.workspace-shell
+        type: frontend
+        description: 좌측 하단 AI 사용량 패널 — 회원은 크레딧 사용률, 게스트는 총 사용 횟수(10회 한도)를 표시
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      description: >
+        Authorization Bearer가 있으면 회원 이번 달 크레딧 사용률을, 없고 게스트 세션 쿠키만
+        있으면 게스트의 합산 AI 호출 횟수(총 10회 한도)를 반환한다.
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/AiUsageData'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/users/me/style-profile:
     get:
       operationId: getStyleProfile
@@ -19670,6 +19744,15 @@ components:
       properties:
         userId:
           type: string
+          nullable: true
+          description: >
+            회원 userId. 게스트 호출은 Gateway가 발급한 gst_ 접두 게스트 id를 그대로 이
+            필드에 실어 보낼 수도 있다(단일 opaque actor id) — Commerce-Service가 접두어로
+            회원/게스트를 판정한다. guestId가 별도로 채워져 있으면 그 값이 우선한다.
+        guestId:
+          type: string
+          nullable: true
+          description: 게스트(비회원) actor id(gst_ 접두). userId와 동시에 채우지 않아도 된다.
         capability:
           type: string
           enum:
@@ -19689,7 +19772,6 @@ components:
           type: object
           additionalProperties: true
       required:
-      - userId
       - capability
       - quantity
       additionalProperties: false
@@ -19704,11 +19786,39 @@ components:
         remaining:
           type: integer
           nullable: true
+          description: >
+            회원은 이번 달 잔여 크레딧, 게스트는 잔여 AI 호출 횟수(총 10회 한도). 무제한 플랜이면
+            null.
         entitlementSnapshotVersion:
           type: integer
       required:
       - allowed
       - entitlementSnapshotVersion
+      additionalProperties: false
+    AiUsageData:
+      type: object
+      properties:
+        actorType:
+          type: string
+          enum:
+          - USER
+          - GUEST
+        usedCount:
+          type: integer
+          description: 회원은 이번 달 사용 크레딧, 게스트는 총 AI 호출 횟수.
+        limit:
+          type: integer
+          nullable: true
+          description: 회원은 월 크레딧 한도(무제한이면 null), 게스트는 항상 10.
+        remaining:
+          type: integer
+          nullable: true
+        usagePercent:
+          type: number
+          nullable: true
+      required:
+      - actorType
+      - usedCount
       additionalProperties: false
     InternalNoteBulkCreateRequest:
       type: object

@@ -1,5 +1,8 @@
 package com.brainx.commerce.controller;
 
+import com.brainx.commerce.dto.ApiResponse;
+import com.brainx.commerce.dto.CommerceDtos.EntitlementsCheckData;
+import com.brainx.commerce.dto.CommerceDtos.EntitlementsCheckRequest;
 import com.brainx.commerce.dto.CommerceDtos.SubscriptionChangeRequest;
 import com.brainx.commerce.dto.CommerceDtos.SubscriptionChangeData;
 import com.brainx.commerce.entity.CheckoutSession;
@@ -9,6 +12,7 @@ import com.brainx.commerce.repository.CheckoutSessionRepository;
 import com.brainx.commerce.repository.PlanRepository;
 import com.brainx.commerce.repository.SubscriptionRepository;
 import com.brainx.commerce.service.CommerceService;
+import com.brainx.commerce.service.EntitlementService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +41,15 @@ public class InternalCommerceController {
     private final SubscriptionRepository subscriptionRepository;
     private final PlanRepository planRepository;
     private final CommerceService commerceService;
+    private final EntitlementService entitlementService;
+
+    @PostMapping("/entitlements/check")
+    public ResponseEntity<ApiResponse<EntitlementsCheckData>> checkEntitlements(
+            @RequestBody EntitlementsCheckRequest request
+    ) {
+        EntitlementsCheckData data = entitlementService.checkAndConsume(request.userId(), request.guestId());
+        return ResponseEntity.ok(ApiResponse.success(data, "권한/쿼터 확인 완료"));
+    }
 
     @GetMapping("/billing/summary")
     public ResponseEntity<Map<String, Object>> getBillingSummary() {

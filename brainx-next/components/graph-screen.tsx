@@ -1531,7 +1531,10 @@ function GraphScreenInner() {
   const hasRealLogin = !!currentSession?.accessToken && !isDevAuthSession(currentSession);
   const { currentWorkspaceId, workspaces } = useWorkspace();
   // Ticket16: "default" 문자열 대신 현재 선택된 Workspace의 실제 documentGroupId가 있을 때만
-  // AI 클러스터링을 활성화한다 — Guest/미선택 상태(currentWorkspaceId=null)는 기존과 동일하게 비활성.
+  // AI 클러스터링을 활성화한다. 게스트는 AI 기능 호출 자체(10회 한도)는 허용되지만, 실제
+  // documentGroupId를 가진 Workspace가 없어 이 요청을 만들 수 없다 — 여기서 막지 않으면
+  // 항상 실패하는 호출로 게스트의 귀중한 10회 한도만 소모하게 된다. 게스트도 문서 그룹 없이
+  // 클러스터링을 쓰게 하려면 별도로 게스트 Workspace 컨텍스트 지원이 필요하다(범위 밖).
   const aiClusterPanelEnabled = hasRealLogin && !!currentWorkspaceId && !USE_MOCK_GRAPH && !USE_MOCK_GRAPH_CLUSTERS;
   const rawNotes = aiClusterPanelEnabled ? (liveNotes ?? []) : (liveNotes ?? mockNotes);
   const aiClusterProjection = useMemo(

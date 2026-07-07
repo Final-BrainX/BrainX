@@ -1,7 +1,7 @@
 "use client";
 
 import { getPublicApiBaseUrl } from "@/lib/api-base";
-import { clearAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { clearAuthSession, readAuthSession, refreshAuthSessionOnce, type ApiResponse } from "@/lib/auth-api";
 import { requestDesktopApiJson } from "@/lib/desktop-api-request";
 
 export const PAYMENT_RESULT_MESSAGE_TYPE = "brainx-payment-result";
@@ -62,7 +62,7 @@ function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
   return response.message ?? response.error?.message ?? fallback;
 }
 
-async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
+async function authedRequest<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
   const session = readAuthSession();
   const requestInit: RequestInit = {
     ...init,
@@ -80,6 +80,12 @@ async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
     ? desktopResponse.payload
     : ((await (response as Response).json().catch(() => null)) as ApiResponse<T> | null);
   if (response.status === 401 || response.status === 403) {
+    // 액세스 토큰이 만료된 흔한 정상 케이스도 여기 걸리므로, 바로 로그아웃시키기 전에
+    // refreshToken으로 한 번 갱신을 시도하고 새 토큰으로 같은 요청을 한 번만 재시도한다
+    // (retried 플래그로 재귀를 1회로 제한해 갱신도 실패하는 경우 무한 루프를 막는다).
+    if (!retried && session?.refreshToken && (await refreshAuthSessionOnce())) {
+      return authedRequest<T>(path, init, true);
+    }
     clearAuthSession();
     throw new Error("로그인이 만료되었습니다. 다시 로그인해 주세요.");
   }
@@ -125,4 +131,18 @@ export async function cancelSubscription(cancelAtPeriodEnd: boolean) {
 export async function getMyTokenUsage(month?: string) {
   const query = month ? `?month=${encodeURIComponent(month)}` : "";
   return authedRequest<TokenUsageData>(`/api/v1/users/me/token-usage${query}`);
+}
+
+export type AiUsageData = {
+  actorType: "USER" | "GUEST";
+  usedCount: number;
+  limit: number | null;
+  remaining: number | null;
+  usagePercent: number | null;
+};
+
+// 로그인 세션이 없어도(게스트) 호출한다 — Gateway가 세팅하는 브라우저 쿠키(brainx_guest_id)로
+// 게스트를 식별하므로 credentials를 명시적으로 실어 보내야 한다.
+export async function getAiUsage() {
+  return authedRequest<AiUsageData>("/api/v1/ai/usage", { credentials: "include" });
 }

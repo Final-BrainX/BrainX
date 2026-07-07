@@ -1,7 +1,7 @@
 "use client";
 
 import { getPublicApiBaseUrl } from "@/lib/api-base";
-import { clearAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { clearAuthSession, readAuthSession, refreshAuthSessionOnce, type ApiResponse } from "@/lib/auth-api";
 
 export type McpOAuthAuthorizationRequest = {
   clientId: string;
@@ -29,7 +29,10 @@ function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
   return response.message ?? response.error?.message ?? fallback;
 }
 
-export async function createMcpOAuthAuthorization(payload: McpOAuthAuthorizationRequest) {
+export async function createMcpOAuthAuthorization(
+  payload: McpOAuthAuthorizationRequest,
+  retried = false
+): Promise<McpOAuthAuthorizationData> {
   const session = readAuthSession();
   if (!session?.accessToken) {
     throw new McpOAuthAuthRequiredError("로그인이 필요합니다.");
@@ -46,6 +49,9 @@ export async function createMcpOAuthAuthorization(payload: McpOAuthAuthorization
 
   const body = (await response.json().catch(() => null)) as ApiResponse<McpOAuthAuthorizationData> | null;
   if (response.status === 401 || response.status === 403) {
+    if (!retried && session.refreshToken && (await refreshAuthSessionOnce())) {
+      return createMcpOAuthAuthorization(payload, true);
+    }
     clearAuthSession();
     throw new McpOAuthAuthRequiredError();
   }

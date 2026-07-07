@@ -159,6 +159,10 @@ brainx:
     base-url: ${BRAINX_WORKSPACE_BASE_URL:http://localhost:8081}
     service-token: ${BRAINX_WORKSPACE_SERVICE_TOKEN:}
     timeout: ${BRAINX_WORKSPACE_TIMEOUT:5s}
+  commerce:
+    base-url: ${BRAINX_COMMERCE_BASE_URL:http://localhost:8084}
+    service-token: ${BRAINX_COMMERCE_SERVICE_TOKEN:}
+    timeout: ${BRAINX_COMMERCE_TIMEOUT:2s}
   dev:
     external-search:
       enabled: ${BRAINX_DEV_EXTERNAL_SEARCH_ENABLED:false}

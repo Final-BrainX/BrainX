@@ -162,4 +162,29 @@ public class CommerceDtos {
 
     public record DailyUsage(String date, long credits) {
     }
+
+    public record EntitlementsCheckRequest(
+            String userId,
+            String guestId,
+            String capability,
+            Integer quantity
+    ) {
+    }
+
+    public record EntitlementsCheckData(
+            boolean allowed,
+            String reason,
+            Integer remaining,
+            int entitlementSnapshotVersion
+    ) {
+    }
+
+    public record AiUsageData(
+            String actorType,
+            long usedCount,
+            Integer limit,
+            Integer remaining,
+            Double usagePercent
+    ) {
+    }
 }

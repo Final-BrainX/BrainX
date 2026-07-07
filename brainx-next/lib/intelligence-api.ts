@@ -1,7 +1,7 @@
 
 "use client";
 
-import { clearAuthSession, isDevAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { clearAuthSession, isDevAuthSession, readAuthSession, refreshAuthSessionOnce, type ApiResponse } from "@/lib/auth-api";
 import { requestDesktopApiJson } from "@/lib/desktop-api-request";
 import { DEV_USER_ID } from "@/lib/dev-user";
 import type { components } from "@/lib/generated/intelligence-openapi";
@@ -98,10 +98,29 @@ export class IntelligenceAuthRequiredError extends Error {
 const INTELLIGENCE_API_BASE_URL = "";
 
 function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
-  return response.message ?? response.error?.message ?? fallback;
+  return friendlyEntitlementMessage(response.message ?? response.error?.message ?? fallback);
 }
 
-async function authedRequest<T>(path: string, init?: RequestInit, options?: IntelligenceRequestOptions): Promise<T> {
+// Intelligence-Service의 entitlement 거부는 400으로 내려오고 메시지에 Commerce-Service가
+// 내려준 reasonCode가 그대로 붙어 있다("AI capability is not available: GUEST_AI_CALL_LIMIT_EXCEEDED").
+// 모든 AI 호출이 authedRequest/streamRequest를 거치므로 여기서 한 번만 다듬으면 각 화면에서
+// 따로 처리하지 않아도 된다.
+function friendlyEntitlementMessage(message: string): string {
+  if (message.includes("GUEST_AI_CALL_LIMIT_EXCEEDED")) {
+    return "게스트는 AI 기능을 10회까지 사용할 수 있어요. 로그인하면 계속 이용할 수 있어요.";
+  }
+  if (message.includes("MONTHLY_CREDIT_LIMIT_EXCEEDED")) {
+    return "이번 달 AI 크레딧을 모두 사용했어요. 플랜을 업그레이드하면 계속 이용할 수 있어요.";
+  }
+  return message;
+}
+
+async function authedRequest<T>(
+  path: string,
+  init?: RequestInit,
+  options?: IntelligenceRequestOptions,
+  retried = false
+): Promise<T> {
   const requestInit: RequestInit = {
     ...init,
     signal: options?.signal ?? init?.signal,
@@ -110,12 +129,17 @@ async function authedRequest<T>(path: string, init?: RequestInit, options?: Inte
   const desktopResponse = await requestDesktopApiJson<ApiResponse<T>>(path, requestInit);
   const response = desktopResponse
     ? { ok: desktopResponse.ok, status: desktopResponse.status }
-    : await fetch(`${INTELLIGENCE_API_BASE_URL}${path}`, requestInit);
+    : await fetch(`${INTELLIGENCE_API_BASE_URL}${path}`, { credentials: "include", ...requestInit });
 
   const payload = desktopResponse
     ? desktopResponse.payload
     : ((await (response as Response).json().catch(() => null)) as ApiResponse<T> | null);
   if (response.status === 401 || response.status === 403) {
+    // 액세스 토큰이 만료된 흔한 정상 케이스도 여기 걸리므로, 바로 로그아웃시키기 전에
+    // refreshToken으로 한 번 갱신을 시도하고 새 토큰으로 같은 요청을 한 번만 재시도한다.
+    if (!retried && readAuthSession()?.refreshToken && (await refreshAuthSessionOnce())) {
+      return authedRequest<T>(path, init, options, true);
+    }
     clearAuthSession();
     throw new IntelligenceAuthRequiredError();
   }
@@ -131,16 +155,22 @@ async function authedRequest<T>(path: string, init?: RequestInit, options?: Inte
 async function streamRequest<TDone>(
   path: string,
   body: unknown,
-  handlers: IntelligenceStreamHandlers<TDone> = {}
+  handlers: IntelligenceStreamHandlers<TDone> = {},
+  retried = false
 ): Promise<TDone | null> {
   const response = await fetch(`${INTELLIGENCE_API_BASE_URL}${path}`, {
     method: "POST",
+    credentials: "include",
     signal: handlers.signal,
     headers: buildHeaders({ Accept: "text/event-stream" }, handlers),
     body: JSON.stringify(body),
   });
 
   if (response.status === 401 || response.status === 403) {
+    // 스트림 바디를 아직 읽기 시작하지 않은 시점이라 안전하게 재시도할 수 있다.
+    if (!retried && readAuthSession()?.refreshToken && (await refreshAuthSessionOnce())) {
+      return streamRequest<TDone>(path, body, handlers, true);
+    }
     clearAuthSession();
     throw new IntelligenceAuthRequiredError();
   }
