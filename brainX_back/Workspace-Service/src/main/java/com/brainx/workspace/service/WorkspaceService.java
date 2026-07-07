@@ -195,6 +195,7 @@ public class WorkspaceService {
         activity(userId, note, "created", now);
         eventPublisher.publish("NoteCreated", userId, payload(
                 "noteId", note.getNoteId(),
+                "documentGroupId", note.getDocumentGroupId(),
                 "userId", userId,
                 "title", note.getTitle(),
                 "folderId", note.getFolderId(),
@@ -224,6 +225,7 @@ public class WorkspaceService {
             syncIncomingWikiLinksForTitle(userId, note.getTitle(), note.getNoteId(), now);
             eventPublisher.publish("NoteCreated", userId, payload(
                     "noteId", note.getNoteId(),
+                    "documentGroupId", note.getDocumentGroupId(),
                     "userId", userId,
                     "title", note.getTitle(),
                     "folderId", note.getFolderId(),
@@ -235,6 +237,7 @@ public class WorkspaceService {
             syncWikiLinksForNote(note, now);
             eventPublisher.publish("NoteContentSaved", userId, Map.of(
                     "noteId", note.getNoteId(),
+                    "documentGroupId", note.getDocumentGroupId(),
                     "userId", userId,
                     "version", note.getVersion(),
                     "markdownHash", sha256(note.getMarkdown()),
@@ -265,12 +268,19 @@ public class WorkspaceService {
         Instant now = Instant.now();
         if ("permanent".equalsIgnoreCase(mode)) {
             noteRepository.delete(note);
-            eventPublisher.publish("NoteDeleted", userId, Map.of("noteId", noteId, "userId", userId, "deletedAt", now, "permanent", true));
+            eventPublisher.publish("NoteDeleted", userId, Map.of(
+                    "noteId", noteId,
+                    "documentGroupId", note.getDocumentGroupId(),
+                    "userId", userId,
+                    "deletedAt", now,
+                    "permanent", true
+            ));
             return new DeleteNoteData(noteId, now, null);
         }
         note.trash(now);
         eventPublisher.publish("NoteTrashed", userId, Map.of(
                 "noteId", noteId,
+                "documentGroupId", note.getDocumentGroupId(),
                 "userId", userId,
                 "deletedAt", now,
                 "purgeAt", now.plus(30, ChronoUnit.DAYS)
@@ -291,6 +301,7 @@ public class WorkspaceService {
         activity(userId, note, "updated", now);
         eventPublisher.publish("NoteContentSaved", userId, Map.of(
                 "noteId", noteId,
+                "documentGroupId", note.getDocumentGroupId(),
                 "userId", userId,
                 "version", note.getVersion(),
                 "markdownHash", sha256(note.getMarkdown()),
@@ -338,7 +349,11 @@ public class WorkspaceService {
                 requireFolderInWorkspace(userId, targetFolderId, note.getDocumentGroupId(),
                         "FOLDER_WORKSPACE_MISMATCH", "Folder does not belong to the note's Workspace.");
             }
-            finalTitle = dedupeNoteTitle(userId, note.getDocumentGroupId(), targetFolderId, desiredTitle, noteId);
+            boolean titleChanged = request.title() != null && !Objects.equals(desiredTitle, note.getTitle());
+            boolean folderChanged = request.folderId() != null && !Objects.equals(targetFolderId, note.getFolderId());
+            finalTitle = (titleChanged || folderChanged)
+                    ? dedupeNoteTitle(userId, note.getDocumentGroupId(), targetFolderId, desiredTitle, noteId)
+                    : note.getTitle();
             note.patchMetadata(finalTitle, request.folderId(), request.tags(), request.archived(), typographyJson(request.typography()), now);
         }
 
@@ -359,6 +374,7 @@ public class WorkspaceService {
         }
         eventPublisher.publish("NoteMetadataChanged", userId, payload(
                 "noteId", noteId,
+                "documentGroupId", note.getDocumentGroupId(),
                 "userId", userId,
                 "title", note.getTitle(),
                 "folderId", note.getFolderId(),
@@ -387,6 +403,7 @@ public class WorkspaceService {
         snapshot(note, now);
         eventPublisher.publish("NoteContentSaved", userId, Map.of(
                 "noteId", noteId,
+                "documentGroupId", note.getDocumentGroupId(),
                 "userId", userId,
                 "version", note.getVersion(),
                 "markdownHash", sha256(note.getMarkdown()),
@@ -621,6 +638,7 @@ public class WorkspaceService {
             snapshot(target, Instant.now());
             eventPublisher.publish("NoteCreated", userId, payload(
                     "noteId", target.getNoteId(),
+                    "documentGroupId", target.getDocumentGroupId(),
                     "userId", userId,
                     "title", target.getTitle(),
                     "folderId", null,

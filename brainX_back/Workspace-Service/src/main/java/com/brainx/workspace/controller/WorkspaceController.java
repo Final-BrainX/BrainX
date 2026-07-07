@@ -147,7 +147,7 @@ public class WorkspaceController {
         return ApiResponse.success(workspaceService.recentActivities(currentUser.userId(), limit));
     }
 
-    @GetMapping("/api/v1/workspace/me/stats")
+    @GetMapping("/api/v1/workspaces/me/stats")
     public ApiResponse<InternalUserWorkspaceStatsData> getMyWorkspaceStats() {
         return ApiResponse.success(workspaceService.getUserWorkspaceStats(memberUserId()));
     }

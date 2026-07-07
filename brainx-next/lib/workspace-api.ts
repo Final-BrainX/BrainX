@@ -471,11 +471,11 @@ export async function getMyWorkspaceStats() {
   if (await shouldUseDesktopVault()) {
     return (await getDesktopVaultWorkspaceStats()) ?? emptyStats;
   }
-  // SSOT와 백엔드 구현 모두 `/api/v1/workspace/me/stats`를 인증 사용자 전용으로 취급한다.
+  // SSOT와 백엔드 구현 모두 `/api/v1/workspaces/me/stats`를 인증 사용자 전용으로 취급한다.
   // guest는 draft 기반 체험 모드만 유지하면 되므로, 여기서 조용히 기본 통계값으로 fallback해
   // /home, 설정 모달이 user-only stats endpoint를 치지 않게 한다.
   if (!hasWorkspaceUserIdentity()) return emptyStats;
-  return authedRequest<WorkspaceUserStatsData>("/api/v1/workspace/me/stats");
+  return authedRequest<WorkspaceUserStatsData>("/api/v1/workspaces/me/stats");
 }
 
 /** 다중 Workspace(documentGroup) 목록 조회 — Ticket11(Workspace Context)의 기반 API다.
