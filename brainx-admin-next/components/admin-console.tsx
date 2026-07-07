@@ -1201,7 +1201,7 @@ function Dashboard({
           </div>
           <TrendAxisLabels labels={revenueTrendLabels} />
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div className="monitoring-side-stack">
           <div className="card">
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
               <div className="card-title">Windows 앱 다운로드</div>
