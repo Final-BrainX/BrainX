@@ -13,7 +13,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
-import org.springframework.mail.MailException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -121,7 +120,7 @@ public class EmailVerificationService {
                     "[BrainX] 이메일 인증 코드",
                     mailContent(verification.getCode())
             );
-        } catch (MessagingException | MailException | RuntimeException exception) {
+        } catch (MessagingException | RuntimeException exception) {
             log.warn("HTML verification mail send failed for {}: {}", verification.getEmail(), exception.getMessage(), exception);
             try {
                 sendPlainTextMail(
@@ -131,7 +130,7 @@ public class EmailVerificationService {
                         plainVerificationMailContent(verification.getCode())
                 );
                 log.info("Plain-text verification mail fallback succeeded for {}", verification.getEmail());
-            } catch (MailException | RuntimeException fallbackException) {
+            } catch (RuntimeException fallbackException) {
                 log.error("Verification mail send failed for {} after HTML and plain-text attempts: {}", verification.getEmail(), fallbackException.getMessage(), fallbackException);
                 throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "인증 코드 이메일 발송에 실패했습니다.");
             }
@@ -152,7 +151,7 @@ public class EmailVerificationService {
                     "[BrainX] 임시 비밀번호 안내",
                     temporaryPasswordMailContent(temporaryPassword)
             );
-        } catch (MessagingException | MailException | RuntimeException exception) {
+        } catch (MessagingException | RuntimeException exception) {
             log.warn("HTML temporary password mail send failed for {}: {}", email, exception.getMessage(), exception);
             try {
                 sendPlainTextMail(
@@ -162,7 +161,7 @@ public class EmailVerificationService {
                         plainTemporaryPasswordMailContent(temporaryPassword)
                 );
                 log.info("Plain-text temporary password mail fallback succeeded for {}", email);
-            } catch (MailException | RuntimeException fallbackException) {
+            } catch (RuntimeException fallbackException) {
                 log.error("Temporary password mail send failed for {} after HTML and plain-text attempts: {}", email, fallbackException.getMessage(), fallbackException);
                 throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "임시 비밀번호 이메일 발송에 실패했습니다.");
             }
