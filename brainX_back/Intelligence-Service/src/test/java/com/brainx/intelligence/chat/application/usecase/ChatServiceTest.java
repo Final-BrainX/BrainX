@@ -804,11 +804,76 @@ class ChatServiceTest {
         )).collectList().block();
 
         assertThat(events).hasSize(3);
-        assertThat(events.getFirst().data()).containsEntry("requiresWebSearch", true);
-        assertThat(events.get(1).data().get("text")).asString().contains("현재 웹 검색을 사용할 수 없어");
+        assertThat(events.getFirst().data())
+            .containsEntry("route", "OUT_OF_SCOPE")
+            .containsEntry("requiresWebSearch", true);
+        assertThat(events.getFirst().data()).containsKey("webSearchQuery");
+        assertThat(events.get(1).data().get("text")).asString().isNotBlank();
         assertThat(externalSearchPort.calls).isEqualTo(1);
         assertThat(aiChatPort.calls).isZero();
-        assertThat(persistencePort.messages.get(1).content()).contains("현재 웹 검색을 사용할 수 없어");
+        assertThat(persistencePort.messages.get(1).content()).isEqualTo(events.get(1).data().get("text"));
+    }
+
+    @Test
+    void noteActionWithUnavailableWebSearchReturnsNonDraftRoute() {
+        routeDecider.decision = new ChatRouteDecision(
+            ChatRoute.NOTE_ACTION,
+            "note action needs current facts",
+            "gpt-5.4-nano",
+            true,
+            "latest roadmap"
+        );
+        ChatThread thread = existingThread();
+        persistencePort.saveThread(thread);
+
+        var events = service.sendChatMessage(new SendChatMessageCommand(
+            "user-1",
+            thread.threadId(),
+            "latest roadmap 내용을 노트에 추가할 초안 줘",
+            Map.of(),
+            Map.of(),
+            "gpt-test"
+        )).collectList().block();
+
+        assertThat(events).hasSize(3);
+        assertThat(events.getFirst().data())
+            .containsEntry("route", "OUT_OF_SCOPE")
+            .containsEntry("requiresWebSearch", true)
+            .containsEntry("webSearchQuery", "latest roadmap");
+        assertThat(events.get(1).data().get("text")).asString().isNotBlank();
+        assertThat(externalSearchPort.calls).isEqualTo(1);
+        assertThat(aiChatPort.calls).isZero();
+    }
+
+    @Test
+    void webSearchRouteStopsBeforeExternalSearchWhenEntitlementDenied() {
+        routeDecider.decision = new ChatRouteDecision(
+            ChatRoute.COMPOSE,
+            "write current draft",
+            "gpt-5.4-nano",
+            true,
+            "latest AI news"
+        );
+        entitlementPort.allowed = false;
+        entitlementPort.reasonCode = "QUOTA_EXHAUSTED";
+        ChatThread thread = existingThread();
+        persistencePort.saveThread(thread);
+
+        assertThatThrownBy(() -> service.sendChatMessage(new SendChatMessageCommand(
+            "user-1",
+            thread.threadId(),
+            "latest AI news report",
+            Map.of(),
+            Map.of(),
+            "gpt-test"
+        )).collectList().block())
+            .isInstanceOf(ChatDomainException.class)
+            .hasMessageContaining("QUOTA_EXHAUSTED");
+
+        assertThat(entitlementPort.calls).isEqualTo(1);
+        assertThat(entitlementPort.lastRequest.capability()).isEqualTo("RAG_CHAT");
+        assertThat(externalSearchPort.calls).isZero();
+        assertThat(aiChatPort.calls).isZero();
     }
 
     @Test
@@ -1195,9 +1260,11 @@ class ChatServiceTest {
         private boolean allowed = true;
         private String reasonCode;
         private EntitlementRequest lastRequest;
+        private int calls;
 
         @Override
         public EntitlementDecision checkEntitlement(EntitlementRequest request) {
+            calls++;
             lastRequest = request;
             return new EntitlementDecision(allowed, reasonCode, allowed ? 1000 : 0);
         }

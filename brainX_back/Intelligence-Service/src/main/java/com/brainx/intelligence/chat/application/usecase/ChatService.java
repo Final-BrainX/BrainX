@@ -113,6 +113,7 @@ public class ChatService implements
     private static final int MAX_THREAD_LIST_LIMIT = 50;
     private static final int THREAD_PREVIEW_LENGTH = 160;
     private static final int DEFAULT_WEB_SEARCH_MAX_SOURCES = 8;
+    private static final int WEB_SEARCH_PREFLIGHT_TOKEN_BUFFER = 1_500;
     private static final String NOOP_SEARCH_PROVIDER = "none";
 
     private final ChatProperties properties;
@@ -252,18 +253,31 @@ public class ChatService implements
             command.clientContext()
         ));
         ChatRoute route = routeDecision.route();
-        WebSearchContext webSearch = resolveWebSearch(userId, message, routeDecision);
         if (route == ChatRoute.OUT_OF_SCOPE && !routeDecision.requiresWebSearch()) {
             return withRouteEvent(routeDecision, fixedAnswerStream(thread, userMessage, modelId, OUT_OF_SCOPE_ANSWER));
-        }
-        if (routeDecision.requiresWebSearch() && !webSearch.available()) {
-            return withRouteEvent(routeDecision, fixedAnswerStream(thread, userMessage, modelId, WEB_SEARCH_UNAVAILABLE_ANSWER));
         }
         if (requiresNoteContext(route)
             && hasClientContext
             && isRightSidebarContext(command.clientContext())
             && clientContextContentLength(command.clientContext()) < MIN_CLIENT_CONTEXT_CHARS) {
             return withRouteEvent(routeDecision, fixedAnswerStream(thread, userMessage, modelId, INSUFFICIENT_CONTEXT_ANSWER));
+        }
+        checkRagChatEntitlement(userId, preflightTokenEstimate(
+            userId,
+            message,
+            history,
+            clientContextPrompt,
+            command.clientContext(),
+            routeDecision,
+            route
+        ));
+
+        WebSearchContext webSearch = resolveWebSearch(userId, message, routeDecision);
+        if (routeDecision.requiresWebSearch() && !webSearch.available()) {
+            return withRouteEvent(
+                unavailableWebSearchRouteDecision(routeDecision),
+                fixedAnswerStream(thread, userMessage, modelId, WEB_SEARCH_UNAVAILABLE_ANSWER)
+            );
         }
 
         List<RagContext> contexts = hasClientContext || !requiresNoteContext(route)
@@ -282,14 +296,7 @@ public class ChatService implements
             ? userPromptFromClientContext(message, clientContextPrompt, route, webSearch)
             : userPrompt(message, contexts, route, webSearch);
         int tokenEstimate = estimateTokens(systemPrompt + "\n" + historyPrompt(history) + "\n" + userPrompt);
-        var entitlement = entitlementPort.checkEntitlement(new EntitlementRequest(
-            userId,
-            RAG_CHAT_CAPABILITY,
-            tokenEstimate
-        ));
-        if (!entitlement.allowed()) {
-            throw new ChatDomainException("AI capability is not available: " + entitlement.reasonCode());
-        }
+        checkRagChatEntitlement(userId, tokenEstimate);
 
         if (requiresNoteContext(route) && !hasClientContext && contexts.isEmpty() && !webSearch.available()) {
             return withRouteEvent(routeDecision, fixedAnswerStream(thread, userMessage, modelId, NO_CONTEXT_ANSWER));
@@ -307,6 +314,43 @@ public class ChatService implements
             contexts,
             webSearch
         ));
+    }
+
+    private int preflightTokenEstimate(
+        String userId,
+        String message,
+        List<ChatMessage> history,
+        String clientContextPrompt,
+        Map<String, Object> clientContext,
+        ChatRouteDecision routeDecision,
+        ChatRoute route
+    ) {
+        WebSearchContext noWebSearch = WebSearchContext.none();
+        boolean hasClientContext = StringUtils.hasText(clientContextPrompt);
+        boolean noteScopedSidebar = isRightSidebarContext(clientContext);
+        String systemPrompt = StylePromptCompiler.appendToSystemPrompt(
+            StylePromptCompiler.appendToSystemPrompt(
+                systemPrompt(route, noWebSearch),
+                noteScopedSidebarInstructions(noteScopedSidebar)
+            ),
+            styleInstructions(userId, route)
+        );
+        String userPrompt = hasClientContext
+            ? userPromptFromClientContext(message, clientContextPrompt, route, noWebSearch)
+            : userPrompt(message, List.of(), route, noWebSearch);
+        int estimate = estimateTokens(systemPrompt + "\n" + historyPrompt(history) + "\n" + userPrompt);
+        return routeDecision.requiresWebSearch() ? estimate + WEB_SEARCH_PREFLIGHT_TOKEN_BUFFER : estimate;
+    }
+
+    private void checkRagChatEntitlement(String userId, int tokenEstimate) {
+        var entitlement = entitlementPort.checkEntitlement(new EntitlementRequest(
+            userId,
+            RAG_CHAT_CAPABILITY,
+            tokenEstimate
+        ));
+        if (!entitlement.allowed()) {
+            throw new ChatDomainException("AI capability is not available: " + entitlement.reasonCode());
+        }
     }
 
     @Override
@@ -377,6 +421,16 @@ public class ChatService implements
             routeDecision.requiresWebSearch(),
             routeDecision.webSearchQuery()
         )), events);
+    }
+
+    private static ChatRouteDecision unavailableWebSearchRouteDecision(ChatRouteDecision routeDecision) {
+        return new ChatRouteDecision(
+            ChatRoute.OUT_OF_SCOPE,
+            routeDecision.reason(),
+            routeDecision.routerModel(),
+            true,
+            routeDecision.webSearchQuery()
+        );
     }
 
     private Flux<ChatStreamEvent> aiStream(
