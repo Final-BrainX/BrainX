@@ -54,6 +54,19 @@ rg "vaults/|AGENTS.md|knowledge-intelligence.openapi.yaml|knowledge-intelligence
 
 새 guide를 만들면 `vaults/INDEX.md` 또는 root guide에서 라우팅되는지 확인합니다.
 
+## Large Refactor Bundle
+
+큰 usecase/service 리팩토링은 다음 묶음을 기본 검증으로 사용합니다.
+
+```powershell
+.\gradlew.bat --no-daemon test --tests "*ChatServiceTest" --tests "*ChatRouteDeciderTest" --tests "*ChatControllerTest" --tests "*OpenAiExternalSearchAdapterTest" --tests "*ExternalSearchConfigurationTest" --tests "*NoteAutoLinkServiceTest" --tests "*ConnectionServiceTest" --tests "*AgentServiceTest" --tests "*ClusteringServiceTest" --tests "*InsightServiceTest" --tests "*ArchitectureTest" --console=plain
+.\gradlew.bat --no-daemon clean check --console=plain
+git diff --check
+rg "vaults/agents/refactoring-guide.md|vaults/workflows/verification.md|AGENTS.md|knowledge-intelligence.openapi.yaml|knowledge-intelligence.asyncapi.yaml|knowledge-intelligence.consumed.openapi.yaml" README.md AGENTS.md vaults src/main/resources/contracts/README.md
+```
+
+계약 파일을 의도적으로 바꾸지 않은 리팩토링에서는 contract extraction/codegen을 실행하지 않습니다. 생략 사유는 worklog와 final response에 남깁니다.
+
 ## Reporting
 
 Final response와 worklog에는 다음을 남깁니다.

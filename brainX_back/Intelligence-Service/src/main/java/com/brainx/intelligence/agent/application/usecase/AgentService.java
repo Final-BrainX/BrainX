@@ -38,8 +38,6 @@ import com.brainx.intelligence.shared.application.port.outbound.WorkspaceNotePor
 import com.brainx.intelligence.shared.application.port.outbound.WorkspaceNotePort.AppendNoteContentCommand;
 import com.brainx.intelligence.shared.application.port.outbound.WorkspaceNotePort.CreateNoteCommand;
 import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import reactor.core.publisher.Flux;
@@ -53,9 +51,6 @@ public class AgentService {
     private static final int MAX_THREAD_LIST_LIMIT = 50;
     private static final int HISTORY_LIMIT = 12;
     private static final int PREVIEW_LENGTH = 180;
-    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
-    };
-
     private static final String SYSTEM_PROMPT = """
         You are the BrainX experimental Agent. You chat with the user and may propose safe Workspace actions.
 
@@ -94,7 +89,7 @@ public class AgentService {
     private final PromptRegistryService promptRegistryService;
     private final WorkspaceNotePort workspaceNotePort;
     private final AgentNoteSourcePort agentNoteSourcePort;
-    private final ObjectMapper objectMapper;
+    private final AgentPlanParser planParser;
 
     public AgentService(
         AgentPersistencePort persistencePort,
@@ -115,7 +110,7 @@ public class AgentService {
         this.promptRegistryService = promptRegistryService;
         this.workspaceNotePort = workspaceNotePort;
         this.agentNoteSourcePort = agentNoteSourcePort;
-        this.objectMapper = objectMapper;
+        this.planParser = new AgentPlanParser(objectMapper);
     }
 
     public AgentThreadView createThread(CreateAgentThreadCommand command) {
@@ -369,12 +364,7 @@ public class AgentService {
     }
 
     private Map<String, Object> parseJson(String content) {
-        String json = extractJson(content);
-        try {
-            return objectMapper.readValue(json, MAP_TYPE);
-        } catch (JsonProcessingException exception) {
-            throw new AgentDomainException("Agent planner returned invalid JSON.");
-        }
+        return planParser.parseJson(content);
     }
 
     private static String agentContextPrompt(AgentThread thread, List<AgentMessage> history, AgentMessage userMessage) {
@@ -456,18 +446,6 @@ public class AgentService {
             return 0;
         }
         return Math.max(1, text.length() / 4);
-    }
-
-    private static String extractJson(String content) {
-        if (!StringUtils.hasText(content)) {
-            throw new AgentDomainException("Agent planner returned an empty response.");
-        }
-        int start = content.indexOf('{');
-        int end = content.lastIndexOf('}');
-        if (start < 0 || end < start) {
-            throw new AgentDomainException("Agent planner returned no JSON object.");
-        }
-        return content.substring(start, end + 1);
     }
 
     private static Map<String, Object> mapValue(Object value) {
