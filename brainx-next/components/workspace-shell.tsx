@@ -31,11 +31,11 @@ import {
   type AuthSession,
 } from "@/lib/auth-api";
 import {
+  getAiUsage,
   getMySubscription,
-  getMyTokenUsage,
   PAYMENT_RESULT_MESSAGE_TYPE,
+  type AiUsageData,
   type Subscription,
-  type TokenUsageData,
 } from "@/lib/commerce-api";
 import {
   AuthRequiredError,
@@ -954,50 +954,66 @@ function Sidebar({
   notesExplorerOpen?: boolean;
 }) {
   const { t } = useBrainX();
-  const [tokenUsage, setTokenUsage] = useState<TokenUsageData | null>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+  const [aiUsage, setAiUsage] = useState<AiUsageData | null>(null);
 
   useEffect(() => {
     let active = true;
 
-    const refreshTokenUsage = () => {
-      if (!readAuthSession()?.accessToken) {
-        if (active) setTokenUsage(null);
-        return;
-      }
-      getMyTokenUsage()
+    const refreshAiUsage = () => {
+      getAiUsage()
         .then((data) => {
-          if (active) setTokenUsage(data);
+          if (active) setAiUsage(data);
         })
         .catch(() => {
-          if (active) setTokenUsage(null);
+          if (active) setAiUsage(null);
         });
     };
 
-    refreshTokenUsage();
-    window.addEventListener("brainx-auth-session-changed", refreshTokenUsage);
-    window.addEventListener("brainx-subscription-changed", refreshTokenUsage);
-    window.addEventListener("brainx-token-usage-changed", refreshTokenUsage);
+    refreshAiUsage();
+    window.addEventListener("brainx-auth-session-changed", refreshAiUsage);
+    window.addEventListener("brainx-subscription-changed", refreshAiUsage);
+    window.addEventListener("brainx-token-usage-changed", refreshAiUsage);
 
     return () => {
       active = false;
       window.removeEventListener(
         "brainx-auth-session-changed",
-        refreshTokenUsage,
+        refreshAiUsage,
       );
       window.removeEventListener(
         "brainx-subscription-changed",
-        refreshTokenUsage,
+        refreshAiUsage,
       );
       window.removeEventListener(
         "brainx-token-usage-changed",
-        refreshTokenUsage,
+        refreshAiUsage,
       );
     };
   }, []);
 
-  const usedCredits = tokenUsage?.usedCredits ?? 0;
-  const usagePercent = tokenUsage?.usagePercent ?? 0;
-  const monthlyCreditLimit = tokenUsage?.monthlyCreditLimit ?? null;
+  const isGuest = aiUsage?.actorType === "GUEST";
+  const usedCredits = aiUsage?.usedCount ?? 0;
+  const usagePercent = aiUsage?.usagePercent ?? 0;
+  const creditLimit = aiUsage?.limit ?? null;
+  const panelLabel = isGuest ? "AI 기능 사용 횟수" : "AI 크레딧 사용량";
+  const panelValue = isGuest
+    ? `${formatCreditCount(usedCredits)} / ${formatCreditCount(creditLimit ?? 0)}`
+    : formatTokenPercent(usagePercent);
+  const panelSubValue = isGuest
+    ? "게스트 · 로그인하면 계속 이용할 수 있어요"
+    : `${formatCreditCount(usedCredits)} / ${
+        creditLimit != null ? `${formatCreditCount(creditLimit)} 크레딧` : "무제한"
+      }`;
+
+  const handlePanelClick = () => {
+    if (isGuest) {
+      router.push(buildAuthPath("/login", pathname));
+      return;
+    }
+    onOpenSettings("usage");
+  };
 
   return (
     <aside className="relative z-20 hidden h-full w-[50px] shrink-0 flex-col border-r border-line/50 bg-bg2/40 backdrop-blur-xl transition-all duration-300 md:flex pt-4">
@@ -1016,9 +1032,9 @@ function Sidebar({
       <div className="group relative mt-auto px-1 pb-3 flex flex-col gap-2">
         <button
           type="button"
-          onClick={() => onOpenSettings("usage")}
+          onClick={handlePanelClick}
           className="group relative grid aspect-square w-full place-items-center rounded-[0.4rem] glass text-accent transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-soft"
-          aria-label="AI 크레딧 사용량 보기"
+          aria-label={panelLabel}
         >
           <Icon name="bolt" size={18} />
           <span className="hidden">
@@ -1032,39 +1048,36 @@ function Sidebar({
         <div className="pointer-events-none absolute bottom-0 left-[calc(100%+12px)] z-50 w-[280px] opacity-0 transition duration-200 ease-out group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
           <button
             type="button"
-            onClick={() => onOpenSettings("usage")}
+            onClick={handlePanelClick}
             className="w-full rounded-[18px] border border-[#ded8cf] bg-white p-4 text-left shadow-[0_18px_45px_rgba(18,16,14,.14)] transition-transform duration-200 hover:-translate-y-0.5"
           >
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#8c877f]">
-                  AI 크레딧 사용량
+                  {panelLabel}
                 </div>
                 <div className="mt-2 text-[22px] font-bold tracking-[-0.03em] text-[#2f2d2a]">
-                  {formatTokenPercent(usagePercent)}
+                  {panelValue}
                 </div>
                 <div className="mt-1 text-[12px] text-[#6d6861]">
-                  {formatCreditCount(usedCredits)} /{" "}
-                  {monthlyCreditLimit != null
-                    ? `${formatCreditCount(monthlyCreditLimit)} 크레딧`
-                    : "무제한"}
+                  {panelSubValue}
                 </div>
               </div>
               <div className="rounded-full bg-[#f4efe8] px-2.5 py-1 text-[11px] font-semibold text-[#8c877f]">
-                이번 달
+                {isGuest ? "게스트" : "이번 달"}
               </div>
             </div>
 
             <div className="mt-4">
               <div className="mb-2 flex items-center justify-between text-[11px] text-[#6d6861]">
-                <span>현재 전체 크레딧 사용량</span>
-                <span>{formatTokenPercent(usagePercent)}</span>
+                <span>{isGuest ? "현재 AI 기능 사용 횟수" : "현재 전체 크레딧 사용량"}</span>
+                <span>{formatTokenPercent(usagePercent ?? 0)}</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-[#ebe7e1]">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-primary via-accent to-cyan"
                   style={{
-                    width: `${Math.min(100, Math.max(0, usagePercent))}%`,
+                    width: `${Math.min(100, Math.max(0, usagePercent ?? 0))}%`,
                   }}
                 />
               </div>
@@ -1072,7 +1085,7 @@ function Sidebar({
 
             <div className="mt-4 flex items-center justify-between border-t border-[#eee7dc] pt-3">
               <span className="text-[12px] font-medium text-[#4d4944]">
-                자세히 보기
+                {isGuest ? "로그인하기" : "자세히 보기"}
               </span>
               <span className="grid h-7 w-7 place-items-center rounded-full bg-[#f4efe8] text-[#6d6861]">
                 <Icon name="chevR" size={14} />

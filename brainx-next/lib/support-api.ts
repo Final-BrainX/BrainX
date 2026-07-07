@@ -1,7 +1,7 @@
 "use client";
 
 import { getPublicApiBaseUrl } from "@/lib/api-base";
-import { clearAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { clearAuthSession, readAuthSession, refreshAuthSessionOnce, type ApiResponse } from "@/lib/auth-api";
 
 export type SupportTicket = {
   ticketId: string;
@@ -40,7 +40,7 @@ function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
   return response.message ?? response.error?.message ?? fallback;
 }
 
-async function authedRequest<T>(path: string, init?: RequestInit) {
+async function authedRequest<T>(path: string, init?: RequestInit, retried = false) {
   const session = readAuthSession();
   if (!session?.accessToken) {
     throw new Error("로그인이 필요합니다.");
@@ -57,6 +57,9 @@ async function authedRequest<T>(path: string, init?: RequestInit) {
 
   const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
   if (response.status === 401 || response.status === 403) {
+    if (!retried && session.refreshToken && (await refreshAuthSessionOnce())) {
+      return authedRequest<T>(path, init, true);
+    }
     clearAuthSession();
     throw new Error("로그인이 만료되었습니다. 다시 로그인해 주세요.");
   }

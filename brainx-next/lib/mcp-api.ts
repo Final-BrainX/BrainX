@@ -1,7 +1,7 @@
 "use client";
 
 import { getPublicApiBaseUrl } from "@/lib/api-base";
-import { clearAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { clearAuthSession, readAuthSession, refreshAuthSessionOnce, type ApiResponse } from "@/lib/auth-api";
 
 export type McpApiClientItem = {
   clientId: string;
@@ -39,7 +39,7 @@ function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
   return response.message ?? response.error?.message ?? fallback;
 }
 
-async function authedMcpRequest<T>(path: string, init?: RequestInit) {
+async function authedMcpRequest<T>(path: string, init?: RequestInit, retried = false) {
   const session = readAuthSession();
   if (!session?.accessToken) {
     throw new McpAuthRequiredError("로그인이 필요합니다.");
@@ -56,6 +56,9 @@ async function authedMcpRequest<T>(path: string, init?: RequestInit) {
 
   const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
   if (response.status === 401 || response.status === 403) {
+    if (!retried && session.refreshToken && (await refreshAuthSessionOnce())) {
+      return authedMcpRequest<T>(path, init, true);
+    }
     clearAuthSession();
     throw new McpAuthRequiredError();
   }

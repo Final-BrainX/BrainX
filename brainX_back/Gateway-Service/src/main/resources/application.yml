@@ -84,6 +84,18 @@ spring:
                     name: intelligenceServiceCircuitBreaker
                     fallbackUri: forward:/fallback/intelligence
 
+            # /api/v1/ai/** 캐치올(아래 intelligence-service 라우트)보다 먼저 나와야 이 경로가
+            # Intelligence-Service가 아니라 Commerce-Service(entitlement/사용량 소유 서비스)로 간다.
+            - id: commerce-service-ai-usage
+              uri: lb://Commerce-Service
+              predicates:
+                - Path=/api/v1/ai/usage
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: commerceServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/commerce
+
             - id: intelligence-service
               uri: lb://intelligence-service
               predicates:
@@ -117,7 +129,7 @@ spring:
             - id: internal-commerce-service
               uri: lb://Commerce-Service
               predicates:
-                - Path=/internal/v1/billing/**,/internal/v1/plans/**
+                - Path=/internal/v1/billing/**,/internal/v1/plans/**,/internal/v1/entitlements/**
               filters:
                 - name: CircuitBreaker
                   args:

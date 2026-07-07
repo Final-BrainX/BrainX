@@ -5,7 +5,6 @@ const projectDir = dirname(fileURLToPath(import.meta.url));
 const apiServerUrl = process.env.API_SERVER_URL ?? "http://localhost:8088";
 const userApiBaseUrl = process.env.USER_SERVICE_URL ?? "http://localhost:8080";
 const mcpApiBaseUrl = process.env.MCP_SERVICE_URL ?? "http://localhost:8087";
-const intelligenceApiBaseUrl = process.env.INTELLIGENCE_API_BASE_URL ?? "http://localhost:8086";
 const isStandaloneBuild = process.env.BRAINX_NEXT_OUTPUT_MODE === "standalone";
 
 /** @type {import('next').NextConfig} */
@@ -42,22 +41,11 @@ const nextConfig = {
         destination: `${mcpApiBaseUrl}/mcp/:path*`,
       },
       {
-        source: "/api/v1/ai/:path*",
-        destination: `${intelligenceApiBaseUrl}/api/v1/ai/:path*`,
-      },
-      {
-        source: "/api/v1/intelligence/:path*",
-        destination: `${intelligenceApiBaseUrl}/api/v1/intelligence/:path*`,
-      },
-      {
-        source: "/api/v1/notes/:noteId/summary",
-        destination: `${intelligenceApiBaseUrl}/api/v1/notes/:noteId/summary`,
-      },
-      {
-        source: "/api/v1/users/me/style-profile",
-        destination: `${intelligenceApiBaseUrl}/api/v1/users/me/style-profile`,
-      },
-      {
+        // AI/게스트 관련 경로는 Gateway를 거쳐야 한다 — Gateway의
+        // JwtAuthenticationGlobalFilter가 게스트 무토큰 요청에 X-Guest-Id를
+        // 세팅해 주고(게스트 AI 10회 한도), /api/v1/ai/usage는 Gateway 라우트에서
+        // Commerce-Service로 보내지기 때문에 Intelligence-Service로 직접 우회하면
+        // 게스트 인증과 사용량 조회가 모두 깨진다.
         source: "/api/v1/:path*",
         destination: `${apiServerUrl}/api/v1/:path*`,
       },

@@ -9,7 +9,7 @@ import {
   setLocalStoredValue,
   setSessionStoredValue,
 } from "@/lib/client-storage";
-import { clearAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { clearAuthSession, readAuthSession, refreshAuthSessionOnce, type ApiResponse } from "@/lib/auth-api";
 import { requestDesktopApiJson } from "@/lib/desktop-api-request";
 import { getBrainxDesktopConfig, isElectronDesktop } from "@/lib/desktop-bridge";
 import { createDesktopVaultNote, importDesktopVaultZip, writeDesktopVaultAsset } from "@/lib/desktop-vault";
@@ -210,7 +210,7 @@ async function importDesktopVaultFile(file: File, targetFolderId?: string): Prom
   };
 }
 
-async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
+async function authedRequest<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
   const session = readAuthSession();
   const requestInit: RequestInit = {
     ...init,
@@ -228,6 +228,11 @@ async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
     ? desktopResponse.payload
     : ((await (response as Response).json().catch(() => null)) as ApiResponse<T> | null);
   if (response.status === 401 || response.status === 403) {
+    // 액세스 토큰이 만료된 흔한 정상 케이스도 여기 걸리므로, 바로 로그아웃시키기 전에
+    // refreshToken으로 한 번 갱신을 시도하고 새 토큰으로 같은 요청을 한 번만 재시도한다.
+    if (!retried && session?.refreshToken && (await refreshAuthSessionOnce())) {
+      return authedRequest<T>(path, init, true);
+    }
     clearAuthSession();
     throw new Error("로그인이 만료되었습니다. 다시 로그인해 주세요.");
   }
@@ -241,7 +246,7 @@ async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 // 바이너리(multipart) 업로드 전용: Content-Type을 직접 지정하지 않아 브라우저가 boundary를 채우도록 한다.
-async function authedUpload(path: string, file: File): Promise<void> {
+async function authedUpload(path: string, file: File, retried = false): Promise<void> {
   const session = readAuthSession();
   const formData = new FormData();
   formData.append("file", file);
@@ -254,6 +259,9 @@ async function authedUpload(path: string, file: File): Promise<void> {
 
   const payload = (await response.json().catch(() => null)) as ApiResponse<unknown> | null;
   if (response.status === 401 || response.status === 403) {
+    if (!retried && session?.refreshToken && (await refreshAuthSessionOnce())) {
+      return authedUpload(path, file, true);
+    }
     clearAuthSession();
     throw new Error("로그인이 만료되었습니다. 다시 로그인해 주세요.");
   }
