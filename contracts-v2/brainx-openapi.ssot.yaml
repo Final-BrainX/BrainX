@@ -10031,7 +10031,7 @@ paths:
       x-produces-events: []
       x-internal-sync-calls: []
       x-async-boundary: false
-      x-implementation-note: The admin web app is served behind `admin.brainx.p-e.kr -> admin-frontend -> admin-service`. The issued access token must remain usable for same-origin follow-up requests even when the Next.js proxy route reconstructs the upstream call, so the frontend may persist the token in a same-site cookie in addition to browser local storage.
+      x-implementation-note: The admin web app is served behind `admin.brainx.p-e.kr -> admin-frontend -> admin-service`. The issued access token must remain usable for same-origin follow-up requests even when the Next.js proxy route reconstructs the upstream call, so the frontend may persist the token in a same-site cookie in addition to browser local storage. Admin-Service startup also treats `SEED_ADMIN_LOGIN_ID` and `SEED_ADMIN_PASSWORD` as the authoritative break-glass owner credential and synchronizes that account on boot so the documented runtime admin login stays deployable after DB reuse.
       description: loginId/password 검증 후 JWT 액세스 토큰을 발급한다. 임시 비밀번호로 로그인한 경우 admin.mustChangePassword가 true로 내려간다.
       requestBody:
         required: true
