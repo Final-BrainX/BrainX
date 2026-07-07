@@ -30,7 +30,6 @@ COPY brainx-next/lib ./lib
 COPY brainx-next/scripts ./scripts
 COPY brainx-next/public ./public
 COPY brainx-next/next.config.mjs brainx-next/postcss.config.js brainx-next/tailwind.config.js brainx-next/tsconfig.json brainx-next/next-env.d.ts ./
-COPY ["brainx-electron/release/BrainX Setup 0.1.0.exe", "../brainx-electron/release/BrainX Setup 0.1.0.exe"]
 RUN npm run build
 
 FROM node:22-alpine
