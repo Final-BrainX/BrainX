@@ -81,6 +81,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai/llm-feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * LLM 응답 사용자 피드백 등록/수정
+         * @description 같은 userId + llmRunId 조합은 upsert한다. llmRunId는 실제 provider 호출이 있는 생성형 AI 응답에만 제공된다.
+         */
+        put: operations["upsertLlmFeedback"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ai/chat-threads": {
         parameters: {
             query?: never;
@@ -472,6 +492,210 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/internal/v1/intelligence/llmops/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** [Internal] LLM run 로그 목록 조회 */
+        get: operations["listLlmRunsInternal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/intelligence/llmops/runs/{llmRunId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** [Internal] LLM run 상세 조회 */
+        get: operations["getLlmRunInternal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/intelligence/llmops/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** [Internal] LLM 피드백 목록 조회 */
+        get: operations["listLlmFeedbackInternal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/intelligence/llmops/prompts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** [Internal] Prompt definition 목록 조회 */
+        get: operations["listPromptDefinitionsInternal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/intelligence/llmops/prompts/{promptKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** [Internal] Prompt definition 등록/수정 */
+        put: operations["upsertPromptDefinitionInternal"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/intelligence/llmops/prompts/{promptKey}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** [Internal] Prompt version 생성 */
+        post: operations["createPromptVersionInternal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/intelligence/llmops/prompts/{promptKey}/versions/{version}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** [Internal] Prompt active version 전환 */
+        post: operations["activatePromptVersionInternal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/intelligence/llmops/eval-sets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** [Internal] Eval set 생성 */
+        post: operations["createEvalSetInternal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/intelligence/llmops/eval-sets/{evalSetId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** [Internal] Eval set 상세 조회 */
+        get: operations["getEvalSetInternal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/intelligence/llmops/eval-sets/{evalSetId}/scenarios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** [Internal] Eval scenario 생성 */
+        post: operations["createEvalScenarioInternal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/intelligence/llmops/eval-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** [Internal] Eval run 동기 실행 */
+        post: operations["runLlmEvalInternal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/intelligence/llmops/eval-runs/{evalRunId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** [Internal] Eval run 결과 조회 */
+        get: operations["getLlmEvalRunInternal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -587,6 +811,203 @@ export interface components {
             /** @enum {string} */
             decision: "ACCEPTED" | "REJECTED" | "REGENERATED";
         };
+        /** @enum {string} */
+        LlmFeedbackRating: "LIKE" | "DISLIKE";
+        LlmFeedbackRequest: {
+            llmRunId: string;
+            rating: components["schemas"]["LlmFeedbackRating"];
+            reasonCode?: string | null;
+            comment?: string | null;
+        };
+        LlmFeedbackData: {
+            feedbackId: string;
+            llmRunId: string;
+            rating: components["schemas"]["LlmFeedbackRating"];
+            reasonCode?: string | null;
+            comment?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        LlmFeedbackListData: {
+            feedback: components["schemas"]["LlmFeedbackData"][];
+        };
+        /** @enum {string} */
+        LlmRunStatus: "RUNNING" | "SUCCEEDED" | "FAILED";
+        LlmRunData: {
+            llmRunId: string;
+            userId?: string | null;
+            featureId?: string | null;
+            targetType?: string | null;
+            targetId?: string | null;
+            promptKey?: string | null;
+            promptVersion?: string | null;
+            modelId?: string | null;
+            provider?: string | null;
+            status: components["schemas"]["LlmRunStatus"];
+            /** Format: int64 */
+            latencyMs?: number | null;
+            inputTokens?: number | null;
+            cachedInputTokens?: number | null;
+            billableInputTokens?: number | null;
+            outputTokens?: number | null;
+            reasoningTokens?: number | null;
+            totalTokens?: number | null;
+            estimatedCost?: number | null;
+            costCurrency?: string | null;
+            inputPreview?: {
+                [key: string]: unknown;
+            };
+            outputPreview?: {
+                [key: string]: unknown;
+            };
+            metadata?: {
+                [key: string]: unknown;
+            };
+            errorCode?: string | null;
+            errorMessage?: string | null;
+            /** Format: date-time */
+            startedAt: string;
+            /** Format: date-time */
+            completedAt?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        LlmRunListData: {
+            runs: components["schemas"]["LlmRunData"][];
+        };
+        /** @enum {string} */
+        PromptVersionStatus: "DRAFT" | "ACTIVE" | "ARCHIVED";
+        PromptDefinitionRequest: {
+            featureId?: string | null;
+            description?: string | null;
+            variableSchema?: {
+                [key: string]: unknown;
+            };
+        };
+        PromptDefinitionData: {
+            promptKey: string;
+            featureId?: string | null;
+            description?: string | null;
+            variableSchema?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        PromptDefinitionListData: {
+            prompts: components["schemas"]["PromptDefinitionData"][];
+        };
+        PromptVersionCreateRequest: {
+            version?: number | null;
+            template: string;
+            variableSchema?: {
+                [key: string]: unknown;
+            };
+        };
+        PromptVersionData: {
+            promptVersionId: string;
+            promptKey: string;
+            version: number;
+            status: components["schemas"]["PromptVersionStatus"];
+            template: string;
+            variableSchema?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            activatedAt?: string | null;
+        };
+        /** @enum {string} */
+        EvalScenarioType: "PROMPT_COMPLETION" | "CHAT_ROUTE" | "INLINE_ASSIST" | "CONNECTION_LINK" | "CONNECTION_BRIDGE" | "RAG_CHAT";
+        /** @enum {string} */
+        EvalRunStatus: "RUNNING" | "COMPLETED" | "FAILED";
+        /** @enum {string} */
+        EvalResultStatus: "PASSED" | "FAILED" | "ERROR";
+        /** @enum {string} */
+        EvalFailureType: "PROVIDER" | "QUALITY" | "CONFIG" | "VALIDATION";
+        EvalSetCreateRequest: {
+            name: string;
+            description?: string | null;
+        };
+        EvalSetData: {
+            evalSet: components["schemas"]["EvalSetCoreData"];
+            scenarios: components["schemas"]["EvalScenarioData"][];
+        };
+        EvalSetCoreData: {
+            evalSetId: string;
+            name: string;
+            description?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        EvalScenarioCreateRequest: {
+            scenarioType: components["schemas"]["EvalScenarioType"];
+            name: string;
+            input?: {
+                [key: string]: unknown;
+            };
+            validation?: {
+                [key: string]: unknown;
+            };
+        };
+        EvalScenarioData: {
+            scenarioId: string;
+            evalSetId: string;
+            scenarioType: components["schemas"]["EvalScenarioType"];
+            name: string;
+            input?: {
+                [key: string]: unknown;
+            };
+            validation?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            createdAt: string;
+        };
+        EvalRunRequest: {
+            evalSetId: string;
+            modelId: string;
+        };
+        EvalRunData: {
+            run: components["schemas"]["EvalRunCoreData"];
+            results: components["schemas"]["EvalResultData"][];
+        };
+        EvalRunCoreData: {
+            evalRunId: string;
+            evalSetId: string;
+            status: components["schemas"]["EvalRunStatus"];
+            modelId: string;
+            scenarioCount?: number;
+            passedCount?: number;
+            failedCount?: number;
+            failureType?: components["schemas"]["EvalFailureType"];
+            failureMessage?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            completedAt?: string | null;
+        };
+        EvalResultData: {
+            resultId: string;
+            evalRunId: string;
+            scenarioId: string;
+            status: components["schemas"]["EvalResultStatus"];
+            output?: {
+                [key: string]: unknown;
+            };
+            failureType?: components["schemas"]["EvalFailureType"];
+            failureMessage?: string | null;
+            llmRunId?: string | null;
+            /** Format: int64 */
+            latencyMs?: number | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
         ChatThreadCreateRequest: {
             /** @description 이 채팅 스레드의 논리적 문서 그룹 경계. 생략하면 Knowledge Intelligence는 default로 처리한다. */
             documentGroupId?: string;
@@ -670,11 +1091,42 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        ChatThreadDetailData: {
-            thread: components["schemas"]["ChatThreadData"];
-            messages: {
+        ChatWebSource: {
+            title: string;
+            /** Format: uri */
+            url: string;
+            snippet: string;
+            /** Format: int32 */
+            rank: number;
+        };
+        ChatMessageData: {
+            messageId: string;
+            threadId: string;
+            /** @enum {string} */
+            role: "USER" | "ASSISTANT";
+            content: string;
+            modelId?: string | null;
+            noteScope?: {
+                [key: string]: unknown;
+            } | null;
+            clientContext?: {
+                [key: string]: unknown;
+            } | null;
+            citations: {
                 [key: string]: unknown;
             }[];
+            webSources: components["schemas"]["ChatWebSource"][];
+            tokenUsage?: {
+                [key: string]: unknown;
+            } | null;
+            llmRunId?: string | null;
+            feedbackRating?: (string & components["schemas"]["LlmFeedbackRating"]) | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ChatThreadDetailData: {
+            thread: components["schemas"]["ChatThreadData"];
+            messages: components["schemas"]["ChatMessageData"][];
         };
         AgentThreadCreateRequest: {
             /** @description Optional document group boundary. The server uses default when omitted. */
@@ -724,6 +1176,7 @@ export interface components {
             role: "USER" | "AGENT";
             content: string;
             modelId?: string | null;
+            llmRunId?: string | null;
             /** Format: date-time */
             createdAt: string;
             actions: components["schemas"]["AgentActionData"][];
@@ -809,11 +1262,13 @@ export interface components {
             proposedMoves?: {
                 [key: string]: unknown;
             }[];
+            llmRunId?: string | null;
         };
         LinkSuggestionsRequest: {
             noteId: string;
         };
         LinkSuggestionsData: {
+            llmRunId?: string | null;
             suggestions: {
                 suggestionId: string;
                 targetNoteId: string;
@@ -846,6 +1301,7 @@ export interface components {
             clusterJobId: string;
             documentGroupId: string;
             status: components["schemas"]["JobStatus"];
+            llmRunId?: string | null;
             clusters?: {
                 [key: string]: unknown;
             }[];
@@ -870,6 +1326,7 @@ export interface components {
             noteIds: string[];
         };
         BridgeConceptsData: {
+            llmRunId?: string | null;
             recommendations: {
                 noteId: string;
                 title: string;
@@ -885,6 +1342,7 @@ export interface components {
         InsightReportData: {
             reportId: string;
             status?: components["schemas"]["JobStatus"];
+            llmRunId?: string | null;
             summary?: string | null;
             knowledgeGaps?: string[];
             recommendations?: {
@@ -1219,6 +1677,77 @@ export interface operations {
             };
             /** @description 충돌 */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 서버 내부 오류 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    upsertLlmFeedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LlmFeedbackRequest"];
+            };
+        };
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["LlmFeedbackData"];
+                    };
+                };
+            };
+            /** @description 잘못된 요청 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 인증 필요 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 권한 없음 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description LLM run을 찾을 수 없음 */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3204,6 +3733,359 @@ export interface operations {
             };
             /** @description Server error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    listLlmRunsInternal: {
+        parameters: {
+            query?: {
+                userId?: string;
+                featureId?: string;
+                status?: components["schemas"]["LlmRunStatus"];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["LlmRunListData"];
+                    };
+                };
+            };
+            /** @description 인증 필요 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 권한 없음 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    getLlmRunInternal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                llmRunId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["LlmRunData"];
+                    };
+                };
+            };
+            /** @description 찾을 수 없음 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    listLlmFeedbackInternal: {
+        parameters: {
+            query?: {
+                userId?: string;
+                llmRunId?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["LlmFeedbackListData"];
+                    };
+                };
+            };
+        };
+    };
+    listPromptDefinitionsInternal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["PromptDefinitionListData"];
+                    };
+                };
+            };
+        };
+    };
+    upsertPromptDefinitionInternal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                promptKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromptDefinitionRequest"];
+            };
+        };
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["PromptDefinitionData"];
+                    };
+                };
+            };
+        };
+    };
+    createPromptVersionInternal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                promptKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromptVersionCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["PromptVersionData"];
+                    };
+                };
+            };
+        };
+    };
+    activatePromptVersionInternal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                promptKey: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["PromptVersionData"];
+                    };
+                };
+            };
+        };
+    };
+    createEvalSetInternal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvalSetCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["EvalSetData"];
+                    };
+                };
+            };
+        };
+    };
+    getEvalSetInternal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evalSetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["EvalSetData"];
+                    };
+                };
+            };
+            /** @description 찾을 수 없음 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    createEvalScenarioInternal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evalSetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvalScenarioCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["EvalScenarioData"];
+                    };
+                };
+            };
+        };
+    };
+    runLlmEvalInternal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvalRunRequest"];
+            };
+        };
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["EvalRunData"];
+                    };
+                };
+            };
+        };
+    };
+    getLlmEvalRunInternal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evalRunId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["EvalRunData"];
+                    };
+                };
+            };
+            /** @description 찾을 수 없음 */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

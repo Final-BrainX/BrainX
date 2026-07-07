@@ -181,6 +181,7 @@ class WorkspaceServiceCrudTests {
                 USER_ID,
                 "NOTION_IMPORT",
                 null,
+                null,
                 List.of(new InternalNoteCreateItem("notion-1", "Imported note", "imported", List.of("import"), List.of()))
         ));
         assertThat(bulk.createdNotes()).hasSize(1);
@@ -199,6 +200,23 @@ class WorkspaceServiceCrudTests {
         InternalNoteSnapshotData afterPatch = workspaceService.snapshot(noteId);
         assertThat(afterPatch.documentGroupId()).isEqualTo("dgrp_default_" + USER_ID);
         assertThat(afterPatch.markdown()).contains("appended");
+    }
+
+    @Test
+    void internalBulkCreatePreservesRequestedDocumentGroupId() {
+        WorkspaceDetailData workspace = workspaceService.createWorkspace(USER_ID, new WorkspaceCreateRequest("Agent Workspace"));
+
+        InternalNoteBulkCreateData bulk = workspaceService.bulkCreate(new InternalNoteBulkCreateRequest(
+                USER_ID,
+                "INTELLIGENCE_AGENT",
+                workspace.documentGroupId(),
+                null,
+                List.of(new InternalNoteCreateItem("agent-action-1", "Agent note", "agent body", List.of("agent"), List.of()))
+        ));
+
+        assertThat(bulk.createdNotes()).hasSize(1);
+        InternalNoteSnapshotData snapshot = workspaceService.snapshot(bulk.createdNotes().getFirst().noteId());
+        assertThat(snapshot.documentGroupId()).isEqualTo(workspace.documentGroupId());
     }
 
     @Test

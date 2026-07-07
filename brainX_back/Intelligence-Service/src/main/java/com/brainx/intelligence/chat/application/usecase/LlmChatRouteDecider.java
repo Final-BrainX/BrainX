@@ -63,7 +63,7 @@ public class LlmChatRouteDecider implements ChatRouteDecider {
                 null,
                 routed.response().tokenUsage()
             );
-            return parseDecision(routed.response().content(), routerModel);
+            return parseDecision(routed.response().content(), routerModel, request.message());
         } catch (RuntimeException exception) {
             return ChatRouteDecision.outOfScope("router failed", routerModel);
         }
@@ -90,7 +90,7 @@ public class LlmChatRouteDecider implements ChatRouteDecider {
         return new AiChatResponseWithPrompt(response);
     }
 
-    private ChatRouteDecision parseDecision(String content, String routerModel) {
+    private ChatRouteDecision parseDecision(String content, String routerModel, String fallbackQuery) {
         if (!StringUtils.hasText(content)) {
             return ChatRouteDecision.outOfScope("empty router response", routerModel);
         }
@@ -98,7 +98,12 @@ public class LlmChatRouteDecider implements ChatRouteDecider {
             JsonNode root = objectMapper.readTree(content);
             ChatRoute route = ChatRoute.fromValue(root.path("route").asText());
             String reason = root.path("reason").asText("");
-            return new ChatRouteDecision(route, reason, routerModel);
+            boolean requiresWebSearch = root.path("requiresWebSearch").asBoolean(false);
+            String webSearchQuery = root.path("webSearchQuery").asText("");
+            if (requiresWebSearch && !StringUtils.hasText(webSearchQuery)) {
+                webSearchQuery = fallbackQuery;
+            }
+            return new ChatRouteDecision(route, reason, routerModel, requiresWebSearch, webSearchQuery);
         } catch (Exception exception) {
             return ChatRouteDecision.outOfScope("invalid router response", routerModel);
         }
@@ -107,13 +112,19 @@ public class LlmChatRouteDecider implements ChatRouteDecider {
     private static String systemPrompt() {
         return """
             You are BrainX chat router.
-            Return only strict JSON with keys route and reason.
+            Return only strict JSON with keys route, reason, requiresWebSearch, and webSearchQuery.
             Allowed routes:
             - NOTE_QA: asks a question that should be answered from the current note/document group context.
             - WORKSPACE_SEARCH: asks to find, search, compare, or summarize information across the user's notes.
-            - COMPOSE: asks to write, draft, rewrite, outline, or create content. Choose COMPOSE for writing requests even when the topic mentions external, current, news, sports, political, or general web knowledge.
+            - COMPOSE: asks to write, draft, rewrite, outline, or create content. Choose COMPOSE for writing requests even when the topic needs external, current, news, sports, political, or general web knowledge.
             - NOTE_ACTION: asks to save, insert, append, apply, or add generated content to a note. This only produces a draft; no mutation is performed.
-            - OUT_OF_SCOPE: weather, news, general web knowledge, coding help, app navigation, account, billing, settings, or anything unrelated to notes/search/writing/note draft application. Do not choose OUT_OF_SCOPE solely because a writing request mentions current or external facts.
+            - OUT_OF_SCOPE: pure weather, news, general web knowledge, coding help, app navigation, account, billing, settings, or anything unrelated to notes/search/writing/note draft application. Do not choose OUT_OF_SCOPE solely because a writing request needs current or external facts.
+            Web search flags:
+            - Set requiresWebSearch=true when the user asks for latest/current/today/news/recent facts, says to search/check the web, or the answer/draft needs information outside the user's notes.
+            - Keep route as the final user intent. For example, a report draft that needs current facts is route=COMPOSE with requiresWebSearch=true.
+            - Pure current-fact lookup without a writing deliverable is route=OUT_OF_SCOPE with requiresWebSearch=true.
+            - Set requiresWebSearch=false for note-only questions, note search, or writing that can be handled without current external facts.
+            - webSearchQuery must be a short standalone search query when requiresWebSearch=true; otherwise use null.
             Routing priority:
             - If the message refers to the current note, this note, selected note/text, current document group, current thread, or current document-group notes, choose NOTE_QA unless it asks to save/insert/apply content.
             - Choose WORKSPACE_SEARCH only when the user explicitly asks across all notes, the whole workspace, every note, my entire notes, or user-wide/global note search.
@@ -124,9 +135,10 @@ public class LlmChatRouteDecider implements ChatRouteDecider {
             - "현재 문서 그룹 노트 기준으로 RAG 흐름을 설명해줘" -> NOTE_QA
             - "이 노트에서 토큰 사용량 기록 과정을 설명해줘" -> NOTE_QA
             - "내 전체 노트에서 인증과 토큰 사용량 관련 내용을 찾아 비교해줘" -> WORKSPACE_SEARCH
-            - "최신 홍명보호 월드컵 성적에 대한 문서 작성해줘" -> COMPOSE
-            - "홍명보호 월드컵 성적을 바탕으로 보고서 초안 써줘" -> COMPOSE
-            - "오늘 월드컵 예선 결과 알려줘" -> OUT_OF_SCOPE
+            - "최신 홍명보호 월드컵 성적에 대한 문서 작성해줘" -> route=COMPOSE, requiresWebSearch=true
+            - "홍명보호 월드컵 성적을 바탕으로 보고서 초안 써줘" -> route=COMPOSE, requiresWebSearch=true
+            - "오늘 월드컵 예선 결과 알려줘" -> route=OUT_OF_SCOPE, requiresWebSearch=true
+            - "이 노트 기준으로 요약해줘" -> route=NOTE_QA, requiresWebSearch=false
             Do not answer the user. Classify only.
             """;
     }

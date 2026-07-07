@@ -86,6 +86,14 @@ public final class LlmOpsTestSupport {
         }
 
         @Override
+        public List<LlmFeedback> listFeedbackByRunIds(String userId, List<String> llmRunIds) {
+            return feedback.values().stream()
+                .filter(item -> userId == null || userId.equals(item.userId()))
+                .filter(item -> llmRunIds != null && llmRunIds.contains(item.llmRunId()))
+                .toList();
+        }
+
+        @Override
         public PromptDefinition savePromptDefinition(PromptDefinition definition) {
             promptDefinitions.put(definition.promptKey(), definition);
             return definition;

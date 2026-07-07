@@ -13,6 +13,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 import com.brainx.intelligence.shared.application.port.outbound.WorkspaceNotePort;
+import com.brainx.intelligence.shared.domain.DocumentGroups;
 
 @Component
 public class ExternalWorkspaceNoteAdapter implements WorkspaceNotePort {
@@ -76,6 +77,7 @@ public class ExternalWorkspaceNoteAdapter implements WorkspaceNotePort {
                 .body(new BulkCreateRequest(
                     command.userId(),
                     AGENT_SOURCE,
+                    workspaceDocumentGroupId(command.documentGroupId()),
                     blankToNull(command.targetFolderId()),
                     List.of(new BulkCreateNoteItem(
                         command.actionId(),
@@ -162,6 +164,11 @@ public class ExternalWorkspaceNoteAdapter implements WorkspaceNotePort {
         return StringUtils.hasText(value) ? value.trim() : null;
     }
 
+    private static String workspaceDocumentGroupId(String documentGroupId) {
+        String normalized = blankToNull(documentGroupId);
+        return DocumentGroups.DEFAULT_DOCUMENT_GROUP_ID.equals(normalized) ? null : normalized;
+    }
+
     record SnapshotResponse(boolean success, String message, SnapshotData data) {
     }
 
@@ -193,6 +200,7 @@ public class ExternalWorkspaceNoteAdapter implements WorkspaceNotePort {
     record BulkCreateRequest(
         String userId,
         String source,
+        String documentGroupId,
         String targetFolderId,
         List<BulkCreateNoteItem> notes
     ) {

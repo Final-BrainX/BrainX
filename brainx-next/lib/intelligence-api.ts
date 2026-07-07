@@ -23,6 +23,11 @@ export type ChatThreadDeleteData = Schemas["ChatThreadDeleteData"];
 export type ChatThreadListData = Schemas["ChatThreadListData"];
 export type ChatMessageCreateRequest = Schemas["ChatMessageCreateRequest"];
 export type ChatThreadDetailData = Schemas["ChatThreadDetailData"];
+export type ChatMessageData = Schemas["ChatMessageData"];
+export type ChatWebSourceData = Schemas["ChatWebSource"];
+export type LlmFeedbackRating = Schemas["LlmFeedbackRating"];
+export type LlmFeedbackRequest = Schemas["LlmFeedbackRequest"];
+export type LlmFeedbackData = Schemas["LlmFeedbackData"];
 export type AgentThreadCreateRequest = Schemas["AgentThreadCreateRequest"];
 export type AgentMessageCreateRequest = Schemas["AgentMessageCreateRequest"];
 export type AgentThreadData = Schemas["AgentThreadData"];
@@ -54,6 +59,7 @@ export type InlineAssistDoneEvent = {
 
 export type ChatMessageDoneEvent = {
   messageId: string;
+  llmRunId?: string | null;
 };
 
 export type AgentMessageDoneEvent = {
@@ -64,6 +70,8 @@ export type ChatRouteEvent = {
   route?: string;
   reason?: string;
   routerModel?: string;
+  requiresWebSearch?: boolean;
+  webSearchQuery?: string | null;
 };
 
 export type ChatThreadListStatus = "active" | "archived";
@@ -237,7 +245,15 @@ function routeEventFrom(value: unknown): ChatRouteEvent {
   return {
     route: typeof record.route === "string" ? record.route : undefined,
     reason: typeof record.reason === "string" ? record.reason : undefined,
-    routerModel: typeof record.routerModel === "string" ? record.routerModel : undefined
+    routerModel: typeof record.routerModel === "string" ? record.routerModel : undefined,
+    requiresWebSearch:
+      typeof record.requiresWebSearch === "boolean"
+        ? record.requiresWebSearch
+        : undefined,
+    webSearchQuery:
+      typeof record.webSearchQuery === "string"
+        ? record.webSearchQuery
+        : null,
   };
 }
 
@@ -407,6 +423,17 @@ export function deleteChatThread(threadId: string, options?: IntelligenceRequest
     `/api/v1/ai/chat-threads/${encodeURIComponent(threadId)}`,
     {
       method: "DELETE",
+    },
+    options
+  );
+}
+
+export function upsertLlmFeedback(payload: LlmFeedbackRequest, options?: IntelligenceRequestOptions) {
+  return authedRequest<LlmFeedbackData>(
+    "/api/v1/ai/llm-feedback",
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
     },
     options
   );

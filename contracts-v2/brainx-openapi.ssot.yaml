@@ -12360,6 +12360,9 @@ paths:
       - id: internal.mcp-service
         type: internal-service
         description: Mcp-Service create-note tool writes through the authoritative Workspace command API.
+      - id: internal.knowledge-intelligence
+        type: internal-service
+        description: Intelligence Agent approved CREATE_NOTE actions write through the authoritative Workspace command API.
       x-produces-events:
       - NoteCreated
       x-internal-sync-calls: []
@@ -17612,6 +17615,84 @@ components:
       - type
       - text
       additionalProperties: false
+    ChatWebSource:
+      type: object
+      properties:
+        title:
+          type: string
+        url:
+          type: string
+          format: uri
+        snippet:
+          type: string
+        rank:
+          type: integer
+          format: int32
+          minimum: 1
+      required:
+      - title
+      - url
+      - snippet
+      - rank
+      additionalProperties: false
+    ChatMessageData:
+      type: object
+      properties:
+        messageId:
+          type: string
+        threadId:
+          type: string
+        role:
+          type: string
+          enum:
+          - USER
+          - ASSISTANT
+        content:
+          type: string
+        modelId:
+          type: string
+          nullable: true
+        noteScope:
+          type: object
+          nullable: true
+          additionalProperties: true
+        clientContext:
+          type: object
+          nullable: true
+          additionalProperties: true
+        citations:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        webSources:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatWebSource'
+        tokenUsage:
+          type: object
+          nullable: true
+          additionalProperties: true
+        llmRunId:
+          type: string
+          nullable: true
+        feedbackRating:
+          type: string
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/LlmFeedbackRating'
+        createdAt:
+          type: string
+          format: date-time
+      required:
+      - messageId
+      - threadId
+      - role
+      - content
+      - citations
+      - webSources
+      - createdAt
+      additionalProperties: false
     ChatThreadDetailData:
       type: object
       properties:
@@ -17620,8 +17701,7 @@ components:
         messages:
           type: array
           items:
-            type: object
-            additionalProperties: true
+            $ref: '#/components/schemas/ChatMessageData'
       required:
       - thread
       - messages
@@ -19723,6 +19803,10 @@ components:
           - EXTENSION_CAPTURE
           - MCP_TOOL_CALL
           - INTELLIGENCE_AGENT
+        documentGroupId:
+          type: string
+          nullable: true
+          description: Optional target Workspace document group. If omitted, Workspace-Service resolves the user's default group.
         targetFolderId:
           type: string
           nullable: true

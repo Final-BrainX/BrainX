@@ -1,5 +1,6 @@
 package com.brainx.intelligence.chat.application.port.inbound;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import reactor.core.publisher.Flux;
@@ -42,11 +43,23 @@ public interface SendChatMessageUseCase {
         }
 
         public static ChatStreamEvent route(String route, String reason, String routerModel) {
-            return new ChatStreamEvent("route", Map.of(
-                "route", route == null || route.isBlank() ? "OUT_OF_SCOPE" : route,
-                "reason", reason == null ? "" : reason,
-                "routerModel", routerModel == null ? "" : routerModel
-            ));
+            return route(route, reason, routerModel, false, null);
+        }
+
+        public static ChatStreamEvent route(
+            String route,
+            String reason,
+            String routerModel,
+            boolean requiresWebSearch,
+            String webSearchQuery
+        ) {
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("route", route == null || route.isBlank() ? "OUT_OF_SCOPE" : route);
+            values.put("reason", reason == null ? "" : reason);
+            values.put("routerModel", routerModel == null ? "" : routerModel);
+            values.put("requiresWebSearch", requiresWebSearch);
+            values.put("webSearchQuery", webSearchQuery == null ? "" : webSearchQuery);
+            return new ChatStreamEvent("route", values);
         }
 
         public static ChatStreamEvent error(String code, String message) {

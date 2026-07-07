@@ -7,6 +7,7 @@ import type {
   ChatMessageView,
   DraftNoteSaveState,
 } from "@/components/chat/types";
+import type { LlmFeedbackRating } from "@/lib/intelligence-api";
 import { cx } from "@/lib/utils";
 
 const SUGGESTION_CARDS = [
@@ -52,6 +53,8 @@ type ChatConversationProps = {
   onOpenNote: (noteId: string) => void;
   onCopyMessage: (message: ChatMessageView) => void;
   onSaveAiMessageAsNote: (message: ChatMessageView) => void;
+  onSubmitFeedback: (message: ChatMessageView, rating: LlmFeedbackRating) => void;
+  feedbackLoadingByRunId: Record<string, boolean>;
 };
 
 export function ChatConversation({
@@ -67,6 +70,8 @@ export function ChatConversation({
   onOpenNote,
   onCopyMessage,
   onSaveAiMessageAsNote,
+  onSubmitFeedback,
+  feedbackLoadingByRunId,
 }: ChatConversationProps) {
   return (
     <div ref={scrollRef} className="scroll flex-1 overflow-y-auto">
@@ -134,6 +139,10 @@ export function ChatConversation({
               onOpenNote={onOpenNote}
               onCopyMessage={onCopyMessage}
               onSaveAiMessageAsNote={onSaveAiMessageAsNote}
+              onSubmitFeedback={onSubmitFeedback}
+              feedbackLoading={Boolean(
+                message.llmRunId && feedbackLoadingByRunId[message.llmRunId],
+              )}
             />
           ))}
         </div>

@@ -838,7 +838,7 @@ public class WorkspaceService {
         List<InternalCreatedNote> created = new ArrayList<>();
         for (InternalNoteCreateItem item : request.notes()) {
             NoteCreatedData data = createNote(request.userId(),
-                    new NoteCreateRequest(null, item.title(), item.markdown(), request.targetFolderId(), item.tags()));
+                    new NoteCreateRequest(request.documentGroupId(), item.title(), item.markdown(), request.targetFolderId(), item.tags()));
             created.add(new InternalCreatedNote(item.externalId(), data.noteId(), data.version()));
         }
         return new InternalNoteBulkCreateData(created, List.of());

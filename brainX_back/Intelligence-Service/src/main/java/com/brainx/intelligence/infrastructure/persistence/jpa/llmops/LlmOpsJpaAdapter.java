@@ -107,6 +107,17 @@ public class LlmOpsJpaAdapter implements LlmOpsStore {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<LlmFeedback> listFeedbackByRunIds(String userId, List<String> llmRunIds) {
+        if (blankToNull(userId) == null || llmRunIds == null || llmRunIds.isEmpty()) {
+            return List.of();
+        }
+        return feedbackRepository.listFeedbackByRunIds(userId.trim(), llmRunIds).stream()
+            .map(LlmFeedbackJpaEntity::toDomain)
+            .toList();
+    }
+
+    @Override
     @Transactional
     public PromptDefinition savePromptDefinition(PromptDefinition definition) {
         return promptDefinitionRepository.save(PromptDefinitionJpaEntity.fromDomain(definition)).toDomain();

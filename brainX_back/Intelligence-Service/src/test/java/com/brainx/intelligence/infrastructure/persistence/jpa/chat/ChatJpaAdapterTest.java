@@ -21,6 +21,7 @@ import com.brainx.intelligence.chat.domain.ChatRole;
 import com.brainx.intelligence.chat.domain.ChatThread;
 import com.brainx.intelligence.chat.domain.ChatThreadStatus;
 import com.brainx.intelligence.chat.domain.ChatTokenUsage;
+import com.brainx.intelligence.chat.domain.ChatWebSource;
 
 @DataJpaTest
 @ActiveProfiles("test")
@@ -96,6 +97,12 @@ class ChatJpaAdapterTest {
                 "rag.md",
                 0.91d
             )),
+            List.of(new ChatWebSource(
+                "검색 결과",
+                "https://example.com/source",
+                "웹 출처 스니펫",
+                1
+            )),
             new ChatTokenUsage(
                 10,
                 0,
@@ -109,6 +116,7 @@ class ChatJpaAdapterTest {
                 new BigDecimal("0.003"),
                 "USD"
             ),
+            null,
             Instant.parse("2026-06-23T00:00:02Z")
         ));
         entityManager.flush();
@@ -123,6 +131,8 @@ class ChatJpaAdapterTest {
         assertThat(messages.get(1).role()).isEqualTo(ChatRole.ASSISTANT);
         assertThat(messages.get(1).citations()).hasSize(1);
         assertThat(messages.get(1).citations().getFirst().sourcePath()).isEqualTo("docs/rag.md");
+        assertThat(messages.get(1).webSources()).hasSize(1);
+        assertThat(messages.get(1).webSources().getFirst().url()).isEqualTo("https://example.com/source");
         assertThat(messages.get(1).tokenUsage().inputTokens()).isEqualTo(10);
         assertThat(messages.get(1).tokenUsage().estimatedCost()).isEqualByComparingTo("0.003");
     }

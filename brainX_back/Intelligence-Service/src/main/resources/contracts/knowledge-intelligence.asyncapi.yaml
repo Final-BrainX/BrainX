@@ -1320,7 +1320,7 @@ components:
           type: string
         documentGroupId:
           type: string
-          description: Logical document group boundary. If omitted by older producers, consumers should use default.
+          description: Note가 속한 Workspace(documentGroup) 식별자.
         title:
           type: string
         folderId:
@@ -1335,6 +1335,7 @@ components:
       required:
       - noteId
       - userId
+      - documentGroupId
       - title
       - version
       additionalProperties: false
@@ -1347,7 +1348,7 @@ components:
           type: string
         documentGroupId:
           type: string
-          description: Logical document group boundary. If omitted by older producers, consumers should use default.
+          description: Note가 속한 Workspace(documentGroup) 식별자.
         version:
           type: integer
         markdownHash:
@@ -1358,6 +1359,7 @@ components:
       required:
       - noteId
       - userId
+      - documentGroupId
       - version
       - markdownHash
       - savedAt
@@ -1371,7 +1373,7 @@ components:
           type: string
         documentGroupId:
           type: string
-          description: Logical document group boundary. If omitted by older producers, consumers should use default.
+          description: Note가 속한 Workspace(documentGroup) 식별자.
         title:
           type: string
           nullable: true
@@ -1395,6 +1397,7 @@ components:
       required:
       - noteId
       - userId
+      - documentGroupId
       - version
       additionalProperties: false
     NoteTypography:
@@ -1435,7 +1438,7 @@ components:
           type: string
         documentGroupId:
           type: string
-          description: Logical document group boundary. If omitted by older producers, consumers should use default.
+          description: Note가 속한 Workspace(documentGroup) 식별자.
         deletedAt:
           type: string
           format: date-time
@@ -1445,6 +1448,7 @@ components:
       required:
       - noteId
       - userId
+      - documentGroupId
       - deletedAt
       - purgeAt
       additionalProperties: false
@@ -1457,7 +1461,7 @@ components:
           type: string
         documentGroupId:
           type: string
-          description: Logical document group boundary. If omitted by older producers, consumers should use default.
+          description: Note가 속한 Workspace(documentGroup) 식별자.
         deletedAt:
           type: string
           format: date-time
@@ -1466,6 +1470,7 @@ components:
       required:
       - noteId
       - userId
+      - documentGroupId
       - deletedAt
       - permanent
       additionalProperties: false
@@ -1476,6 +1481,9 @@ components:
           type: string
         userId:
           type: string
+        documentGroupId:
+          type: string
+          description: Folder가 속한 Workspace(documentGroup) 식별자.
         name:
           type: string
         parentFolderId:
@@ -1484,6 +1492,7 @@ components:
       required:
       - folderId
       - userId
+      - documentGroupId
       - name
       additionalProperties: false
     FolderChangedPayload:
@@ -1493,6 +1502,9 @@ components:
           type: string
         userId:
           type: string
+        documentGroupId:
+          type: string
+          description: Folder가 속한 Workspace(documentGroup) 식별자.
         name:
           type: string
           nullable: true
@@ -1505,12 +1517,16 @@ components:
       required:
       - folderId
       - userId
+      - documentGroupId
       additionalProperties: false
     FolderDeletedPayload:
       type: object
       properties:
         userId:
           type: string
+        documentGroupId:
+          type: string
+          description: 삭제된 folderIds와 noteIds가 속한 Workspace(documentGroup) 식별자.
         folderIds:
           type: array
           items:
@@ -1526,6 +1542,7 @@ components:
             type: string
       required:
       - userId
+      - documentGroupId
       - folderIds
       - mode
       - noteIds
@@ -1539,7 +1556,7 @@ components:
           type: string
         documentGroupId:
           type: string
-          description: Logical document group boundary. If omitted by older producers, consumers should use default.
+          description: Note가 속한 Workspace(documentGroup) 식별자.
         tags:
           type: array
           items:
@@ -1547,6 +1564,7 @@ components:
       required:
       - noteId
       - userId
+      - documentGroupId
       - tags
       additionalProperties: false
     NoteLinkCreatedPayload:
@@ -1886,6 +1904,8 @@ x-ssot:
   owner: BrainX architecture
   revisionDate: '2026-06-16'
   openapi: brainx-openapi.ssot.yaml
+  sourceNotes:
+  - Discovery-Service/Eureka is infrastructure and is outside the async event contract surface.
   rules:
   - All event consumers must be idempotent by eventId.
   - Use correlationId from the originating HTTP request when available.

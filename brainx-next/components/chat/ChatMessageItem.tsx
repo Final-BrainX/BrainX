@@ -1,3 +1,5 @@
+import { ThumbsDown, ThumbsUp } from "lucide-react";
+import type { ReactNode } from "react";
 import type { BrainXNote } from "@/lib/brainx-data";
 import { clusterById } from "@/lib/brainx-data";
 import { Avatar, Icon } from "@/components/brainx-ui";
@@ -7,6 +9,7 @@ import type {
   ChatMessageView,
   DraftNoteSaveState,
 } from "@/components/chat/types";
+import type { LlmFeedbackRating } from "@/lib/intelligence-api";
 import { cx } from "@/lib/utils";
 
 const CHAT_MESSAGE_ACTION_CLASS =
@@ -19,6 +22,8 @@ type ChatMessageItemProps = {
   onOpenNote: (noteId: string) => void;
   onCopyMessage: (message: ChatMessageView) => void;
   onSaveAiMessageAsNote: (message: ChatMessageView) => void;
+  onSubmitFeedback: (message: ChatMessageView, rating: LlmFeedbackRating) => void;
+  feedbackLoading: boolean;
 };
 
 export function ChatMessageItem({
@@ -28,11 +33,18 @@ export function ChatMessageItem({
   onOpenNote,
   onCopyMessage,
   onSaveAiMessageAsNote,
+  onSubmitFeedback,
+  feedbackLoading,
 }: ChatMessageItemProps) {
   const saveStatus = saveState?.status ?? "idle";
   const isSavingDraft = saveStatus === "saving";
   const isSavedDraft = saveStatus === "saved" && !!saveState?.noteId;
   const canSaveDraft = canSaveAiMessageDraft(message);
+  const canSubmitFeedback =
+    message.role === "ai" &&
+    !message.streaming &&
+    !message.error &&
+    Boolean(message.llmRunId);
 
   return (
     <div
@@ -76,6 +88,17 @@ export function ChatMessageItem({
           )}
         </div>
         {message.role === "ai" &&
+        message.streaming &&
+        message.requiresWebSearch ? (
+          <div className="mt-2 flex max-w-full items-center gap-2 rounded-xl border border-line bg-surface2 px-3 py-2 text-[12.5px] text-txt2">
+            <Icon name="search" size={13} className="shrink-0 text-primary" />
+            <span className="min-w-0 truncate">
+              웹에서 최신 정보를 확인 중
+              {message.webSearchQuery ? `: ${message.webSearchQuery}` : ""}
+            </span>
+          </div>
+        ) : null}
+        {message.role === "ai" &&
         message.citations &&
         message.citations.length > 0 &&
         !message.streaming ? (
@@ -116,6 +139,50 @@ export function ChatMessageItem({
             </div>
           </div>
         ) : null}
+        {message.role === "ai" &&
+        message.webSources &&
+        message.webSources.length > 0 &&
+        !message.streaming ? (
+          <div className="mt-2.5 w-full">
+            <div className="mb-1.5 flex items-center gap-1.5 text-[13px] font-semibold text-txt3">
+              <Icon name="search" size={12} />
+              웹 출처 {message.webSources.length}
+            </div>
+            <div className="space-y-2">
+              {message.webSources.map((source) => (
+                <a
+                  key={`${message.id}-${source.rank}-${source.url}`}
+                  href={source.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex min-w-0 items-start gap-2 rounded-xl border border-line bg-surface2 px-3 py-2 text-left transition-colors hover:border-primary/45 focus-visible:ring-2 focus-visible:ring-primary/60"
+                >
+                  <Icon
+                    name="link"
+                    size={13}
+                    className="mt-0.5 shrink-0 text-primary"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13.5px] font-semibold text-txt">
+                      {source.title || source.url}
+                    </span>
+                    <span className="mt-0.5 block truncate text-[12px] text-txt3">
+                      {webSourceHost(source.url)}
+                    </span>
+                    {source.snippet ? (
+                      <span className="mt-1 block truncate text-[12.5px] leading-5 text-txt2">
+                        {source.snippet}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="shrink-0 font-mono text-[12px] text-txt3">
+                    [W{source.rank}]
+                  </span>
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {message.role === "user" ? (
           <div className="pointer-events-none mt-1 flex h-7 justify-end opacity-0 transition-opacity group-hover/message:pointer-events-auto group-hover/message:opacity-100 group-focus-within/message:pointer-events-auto group-focus-within/message:opacity-100">
             <CopyMessageButton message={message} onCopy={onCopyMessage} />
@@ -146,6 +213,13 @@ export function ChatMessageItem({
               </span>
             ) : null}
             <div className="flex shrink-0 items-center">
+              {canSubmitFeedback ? (
+                <FeedbackButtons
+                  message={message}
+                  loading={feedbackLoading}
+                  onSubmit={onSubmitFeedback}
+                />
+              ) : null}
               <CopyMessageButton message={message} onCopy={onCopyMessage} />
               {canSaveDraft ? (
                 <button
@@ -177,6 +251,78 @@ export function ChatMessageItem({
         )}
       </div>
     </div>
+  );
+}
+
+function webSourceHost(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+function FeedbackButtons({
+  message,
+  loading,
+  onSubmit,
+}: {
+  message: ChatMessageView;
+  loading: boolean;
+  onSubmit: (message: ChatMessageView, rating: LlmFeedbackRating) => void;
+}) {
+  return (
+    <div className="mr-1 flex items-center gap-0.5">
+      <FeedbackButton
+        label="AI 응답 좋아요"
+        selected={message.feedbackRating === "LIKE"}
+        disabled={loading}
+        onClick={() => onSubmit(message, "LIKE")}
+      >
+        <ThumbsUp size={13} />
+      </FeedbackButton>
+      <FeedbackButton
+        label="AI 응답 싫어요"
+        selected={message.feedbackRating === "DISLIKE"}
+        disabled={loading}
+        onClick={() => onSubmit(message, "DISLIKE")}
+      >
+        <ThumbsDown size={13} />
+      </FeedbackButton>
+    </div>
+  );
+}
+
+function FeedbackButton({
+  label,
+  selected,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string;
+  selected: boolean;
+  disabled: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={selected}
+      disabled={disabled}
+      onClick={onClick}
+      className={cx(
+        CHAT_MESSAGE_ACTION_CLASS,
+        "px-2",
+        selected
+          ? "bg-primary/10 text-primary hover:bg-primary/15"
+          : "text-txt3",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
