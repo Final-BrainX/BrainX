@@ -3,15 +3,15 @@ package com.brainx.admin.config;
 import com.brainx.admin.entity.AdminAccount;
 import com.brainx.admin.entity.AdminRole;
 import com.brainx.admin.repository.AdminAccountRepository;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
-
-import jakarta.annotation.PostConstruct;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 최상위 관리자(owner) 계정 초기 시드. admin_accounts 테이블이 비어 있을 때만 생성한다.
- * 운영 전환 시 SEED_ADMIN_PASSWORD를 반드시 교체할 것.
+ * Ensures the runtime seed owner account always exists and stays aligned
+ * with the configured SEED_ADMIN_* values.
  */
 @Component
 public class AdminAccountSeeder {
@@ -25,7 +25,7 @@ public class AdminAccountSeeder {
     @Value("${brainx.admin.seed.password:admin1234}")
     private String seedPassword;
 
-    @Value("${brainx.admin.seed.name:최고관리자}")
+    @Value("${brainx.admin.seed.name:BrainX Admin}")
     private String seedName;
 
     public AdminAccountSeeder(AdminAccountRepository adminAccountRepository, PasswordEncoder passwordEncoder) {
@@ -34,12 +34,33 @@ public class AdminAccountSeeder {
     }
 
     @PostConstruct
+    @Transactional
     public void seed() {
-        if (adminAccountRepository.count() > 0) {
-            return;
+        AdminAccount seedAdmin = adminAccountRepository.findByLoginId(seedLoginId)
+                .map(this::syncExistingSeedAccount)
+                .orElseGet(this::createSeedAccount);
+
+        adminAccountRepository.save(seedAdmin);
+    }
+
+    private AdminAccount syncExistingSeedAccount(AdminAccount admin) {
+        admin.setName(seedName);
+        admin.setRole(AdminRole.owner);
+        admin.setMustChangePassword(false);
+
+        if (!passwordEncoder.matches(seedPassword, admin.getPasswordHash())) {
+            admin.setPasswordHash(passwordEncoder.encode(seedPassword));
         }
 
-        AdminAccount owner = new AdminAccount(
+        return admin;
+    }
+
+    private AdminAccount createSeedAccount() {
+        if (seedPassword == null || seedPassword.isBlank()) {
+            throw new IllegalStateException("SEED_ADMIN_PASSWORD must not be blank when creating the seed admin account.");
+        }
+
+        return new AdminAccount(
                 seedLoginId,
                 seedName,
                 null,
@@ -47,6 +68,5 @@ public class AdminAccountSeeder {
                 AdminRole.owner,
                 false
         );
-        adminAccountRepository.save(owner);
     }
 }

@@ -488,7 +488,7 @@ docker compose --profile apps up -d --build admin-service
 | Mcp-Service | `../.env`, `../env/mcp-service.env` |
 
 `JWT_SECRET`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, `DB_DRIVER`, `JPA_DDL_AUTO`처럼 모든 서비스가 공유하는 값은 `.env`에 둡니다. 서비스별 논리 DB 이름도 `.env`의 `USER_DB_NAME`, `WORKSPACE_DB_NAME`, `INGESTION_DB_NAME`, `COMMERCE_DB_NAME`, `INTELLIGENCE_DB_NAME`, `MCP_DB_NAME`으로 관리합니다.
-Admin-Service는 관리자 시드용 `SEED_ADMIN_LOGIN_ID`, `SEED_ADMIN_PASSWORD`, `SEED_ADMIN_NAME`도 `../env/admin-service.env`에서 함께 읽습니다.
+Admin-Service는 관리자 시드용 `SEED_ADMIN_LOGIN_ID`, `SEED_ADMIN_PASSWORD`, `SEED_ADMIN_NAME`도 `../env/admin-service.env`에서 함께 읽습니다. 2026-07 기준으로 이 시드 계정은 "빈 DB일 때만 1회 생성"이 아니라, 서비스 부팅 때마다 해당 `loginId` 계정을 owner 권한/지정 비밀번호와 동기화하는 운영용 break-glass 자격으로 취급합니다. 따라서 운영 DB를 재사용하더라도 `SEED_ADMIN_PASSWORD`를 바꾸고 재배포하면 `https://admin.brainx.p-e.kr/login`의 기본 관리자 로그인과 Grafana 초기 로그인 비밀번호가 다시 환경값과 일치해야 합니다.
 Docker Compose로 앱을 실행할 때는 앱 컨테이너에만 `POSTGRES_HOST=postgres`를 자동으로 덮어씁니다. 로컬 Gradle/IDE 실행은 `.env`의 `POSTGRES_HOST=localhost`를 그대로 사용합니다.
 기존 `brainx_postgres_data` 볼륨이 있는 개발 환경에서도 새 논리 DB가 누락되지 않도록 `apps` 프로필은 `postgres-service-databases` one-shot 컨테이너로 DB 생성 스크립트를 매번 idempotent하게 확인한 뒤 앱 컨테이너를 시작합니다.
 
@@ -680,7 +680,7 @@ cd C:\Edu\Final\brainX_back\Commerce-Service
 
 `BrainX-Admin/brainx-admin-next`가 실제 데이터로 동작하기 위한 관리자 API는 `contracts-v2/brainx-openapi.ssot.yaml`의 `/api/v1/admin/**`로 확정합니다. Admin-Service는 관리자 화면 전용 read model/orchestration layer이며, 원장 데이터는 각 소유 서비스가 유지합니다.
 
-공개 랜딩(`brainx-next`) 첫 화면에는 `Windows 앱 다운로드` CTA가 추가되어 `brainx-electron/release/BrainX Setup 0.1.0.exe`를 브라우저 다운로드로 제공합니다. 다운로드 요청은 `brainx-next /download/windows` route가 파일을 스트리밍하면서 동시에 Admin-Service 공개 API `POST /api/v1/landing/desktop-downloads`에 집계를 남기고, 관리자 모니터링 overview에는 누적 다운로드 사용자 수/다운로드 횟수와 최근 14일 다운로드 그래프(`desktopDownloadTrend`)가 함께 노출됩니다. 실행 파일 자동 실행은 브라우저/OS 보안 정책을 따르므로, BrainX는 다운로드가 바로 시작되도록만 보장합니다.
+공개 랜딩(`brainx-next`) 첫 화면에는 `Windows 앱 다운로드` CTA가 추가되어 `BrainX Setup 0.1.0.exe`를 브라우저 다운로드로 제공합니다. 배포 빌드 전 `brainx-next`는 `prebuild` 단계에서 `brainx-electron/release/BrainX Setup 0.1.0.exe`를 `brainx-next/public/downloads/`로 복사하고, AWS dev frontend Docker 이미지는 repo root build context에서 `brainx-electron/release`를 함께 포함해 이 동기화가 배포 환경에서도 그대로 수행되게 맞춥니다. `/download/windows` route는 배포 산출물 안의 `public/downloads` 파일을 스트리밍하면서 동시에 Admin-Service 공개 API `POST /api/v1/landing/desktop-downloads`에 집계를 남깁니다. 관리자 모니터링 overview에는 누적 다운로드 사용자 수/다운로드 횟수와 최근 14일 다운로드 그래프(`desktopDownloadTrend`)가 함께 노출됩니다. 실행 파일 자동 실행은 브라우저/OS 보안 정책을 따르므로, BrainX는 다운로드가 바로 시작되도록만 보장합니다.
 
 현재 관리자 화면은 실제 백엔드 데이터를 기준으로 사용자 플랜, 메모 수, 가입일, 최근 활동을 표시하며, 시간 표시는 모두 `Asia/Seoul` 기준으로 통일합니다. 사용자 목록의 플랜은 결제/환불 이력으로 추정하지 않고 Commerce-Service의 현재 구독 상태를 그대로 보여 주며, 상세 패널과 같은 값이 나오도록 맞췄습니다. 사용자 목록의 메모 수는 `Workspace-Service` note 원장 개수, 최근 활동은 실제 마지막 로그인 세션 시간으로 채웁니다. 사용자 상세의 로그인 기기는 같은 기기/IP 접속을 하나로 합쳐 최신 접속 시간만 갱신하고, 최근 2건만 노출합니다. Electron 기반 데스크톱 앱 로그인은 관리자 화면에서 `BrainX App / Windows`, `BrainX App / macOS`처럼 앱 사용으로 구분해 표시합니다. 사용자 관리 화면에서는 정지된 계정을 바로 정지 취소할 수 있습니다.
 관리자 프런트는 `/favicon.ico`를 자체 route로 제공하며, 사용자 상세 활동 내역은 같은 문구와 같은 시각이 겹쳐도 React key 충돌이 나지 않도록 렌더링 키를 보강했습니다.

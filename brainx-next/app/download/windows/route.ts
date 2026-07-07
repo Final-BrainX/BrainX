@@ -7,8 +7,8 @@ export const runtime = "nodejs";
 
 const INSTALLER_FILE_NAME = "BrainX Setup 0.1.0.exe";
 const INSTALLER_VERSION = "0.1.0";
-const installerPath = join(process.cwd(), "..", "brainx-electron", "release", INSTALLER_FILE_NAME);
 const adminServiceBaseUrl = process.env.ADMIN_SERVICE_URL ?? "http://localhost:8085";
+const installerPath = join(process.cwd(), "public", "downloads", INSTALLER_FILE_NAME);
 
 function forwardedIp(request: Request) {
   const forwarded = request.headers.get("x-forwarded-for");
