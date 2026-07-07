@@ -95,24 +95,41 @@ export class IntelligenceAuthRequiredError extends Error {
   }
 }
 
-const INTELLIGENCE_API_BASE_URL = "";
+export type AiUsageLimitReason = "GUEST_AI_CALL_LIMIT_EXCEEDED" | "MONTHLY_CREDIT_LIMIT_EXCEEDED";
 
-function messageFromResponse<T>(response: ApiResponse<T>, fallback: string) {
-  return friendlyEntitlementMessage(response.message ?? response.error?.message ?? fallback);
+// 일반 요청 실패("요청 처리에 실패했습니다")와 구분해서 화면에서 별도로 처리(로그인 유도,
+// 업그레이드 유도 등)할 수 있도록 전용 예외 타입으로 던진다.
+export class AiUsageLimitExceededError extends Error {
+  readonly reason: AiUsageLimitReason;
+
+  constructor(reason: AiUsageLimitReason) {
+    super(
+      reason === "GUEST_AI_CALL_LIMIT_EXCEEDED"
+        ? "게스트로 이용 가능한 AI 사용 횟수를 모두 소모했습니다. 로그인하면 계속 이용할 수 있어요."
+        : "이번 달 AI 크레딧을 모두 소모했습니다. 플랜을 업그레이드하면 계속 이용할 수 있어요."
+    );
+    this.name = "AiUsageLimitExceededError";
+    this.reason = reason;
+  }
 }
+
+const INTELLIGENCE_API_BASE_URL = "";
 
 // Intelligence-Service의 entitlement 거부는 400으로 내려오고 메시지에 Commerce-Service가
 // 내려준 reasonCode가 그대로 붙어 있다("AI capability is not available: GUEST_AI_CALL_LIMIT_EXCEEDED").
-// 모든 AI 호출이 authedRequest/streamRequest를 거치므로 여기서 한 번만 다듬으면 각 화면에서
-// 따로 처리하지 않아도 된다.
-function friendlyEntitlementMessage(message: string): string {
-  if (message.includes("GUEST_AI_CALL_LIMIT_EXCEEDED")) {
-    return "게스트는 AI 기능을 10회까지 사용할 수 있어요. 로그인하면 계속 이용할 수 있어요.";
-  }
-  if (message.includes("MONTHLY_CREDIT_LIMIT_EXCEEDED")) {
-    return "이번 달 AI 크레딧을 모두 사용했어요. 플랜을 업그레이드하면 계속 이용할 수 있어요.";
-  }
-  return message;
+// 모든 AI 호출이 authedRequest/streamRequest를 거치므로 여기서 한 번만 판별하면 각 화면에서
+// 따로 문자열 매칭을 하지 않아도 된다.
+function usageLimitReasonFrom(message: string): AiUsageLimitReason | null {
+  if (message.includes("GUEST_AI_CALL_LIMIT_EXCEEDED")) return "GUEST_AI_CALL_LIMIT_EXCEEDED";
+  if (message.includes("MONTHLY_CREDIT_LIMIT_EXCEEDED")) return "MONTHLY_CREDIT_LIMIT_EXCEEDED";
+  return null;
+}
+
+function throwForFailedResponse(response: ApiResponse<unknown> | null, fallback: string): never {
+  const message = response?.message ?? response?.error?.message ?? fallback;
+  const reason = usageLimitReasonFrom(message);
+  if (reason) throw new AiUsageLimitExceededError(reason);
+  throw new Error(message);
 }
 
 async function authedRequest<T>(
@@ -147,7 +164,7 @@ async function authedRequest<T>(
     throw new Error("서버 응답을 읽을 수 없습니다.");
   }
   if (!response.ok || !payload.success) {
-    throw new Error(messageFromResponse(payload, "요청 처리에 실패했습니다."));
+    throwForFailedResponse(payload, "요청 처리에 실패했습니다.");
   }
   return payload.data as T;
 }
@@ -176,7 +193,7 @@ async function streamRequest<TDone>(
   }
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as ApiResponse<unknown> | null;
-    throw new Error(payload ? messageFromResponse(payload, "요청 처리에 실패했습니다.") : "요청 처리에 실패했습니다.");
+    throwForFailedResponse(payload, "요청 처리에 실패했습니다.");
   }
   if (!response.body) {
     throw new Error("스트림 응답을 읽을 수 없습니다.");

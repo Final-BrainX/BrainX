@@ -318,6 +318,10 @@ resilience4j:
       # 이 값은 그 전까지의 임시 완화책이다.
       ingestionServiceCircuitBreaker:
         timeout-duration: 60s
+      # 채팅/에이전트 등 실제 LLM 호출(SSE 스트리밍 포함)은 1s 안에 끝나지 않는 게 정상이라,
+      # 기본 1s로는 정상 응답도 전부 503(fallback)으로 끊긴다. 위 두 케이스와 동일한 문제.
+      intelligenceServiceCircuitBreaker:
+        timeout-duration: 30s
 
 eureka:
   client:

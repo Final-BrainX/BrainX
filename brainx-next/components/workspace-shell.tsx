@@ -993,19 +993,26 @@ function Sidebar({
     };
   }, []);
 
+  const hasUsage = aiUsage != null;
   const isGuest = aiUsage?.actorType === "GUEST";
   const usedCredits = aiUsage?.usedCount ?? 0;
   const usagePercent = aiUsage?.usagePercent ?? 0;
   const creditLimit = aiUsage?.limit ?? null;
   const panelLabel = isGuest ? "AI 기능 사용 횟수" : "AI 크레딧 사용량";
-  const panelValue = isGuest
-    ? `${formatCreditCount(usedCredits)} / ${formatCreditCount(creditLimit ?? 0)}`
-    : formatTokenPercent(usagePercent);
-  const panelSubValue = isGuest
-    ? "게스트 · 로그인하면 계속 이용할 수 있어요"
-    : `${formatCreditCount(usedCredits)} / ${
-        creditLimit != null ? `${formatCreditCount(creditLimit)} 크레딧` : "무제한"
-      }`;
+  // aiUsage가 null인 건 "요청 실패로 데이터가 없음"이지 "무제한"이 아니다 — 둘을 구분해야
+  // 인증/네트워크 문제로 요청이 실패했을 때도 실제 무제한 플랜인 것처럼 보이지 않는다.
+  const panelValue = !hasUsage
+    ? "-"
+    : isGuest
+      ? `${formatCreditCount(usedCredits)} / ${formatCreditCount(creditLimit ?? 0)}`
+      : formatTokenPercent(usagePercent);
+  const panelSubValue = !hasUsage
+    ? "사용량을 불러오지 못했어요"
+    : isGuest
+      ? "게스트 · 로그인하면 계속 이용할 수 있어요"
+      : `${formatCreditCount(usedCredits)} / ${
+          creditLimit != null ? `${formatCreditCount(creditLimit)} 크레딧` : "무제한"
+        }`;
 
   const handlePanelClick = () => {
     if (isGuest) {
