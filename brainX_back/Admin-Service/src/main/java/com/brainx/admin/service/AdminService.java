@@ -19,6 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -413,7 +414,7 @@ public class AdminService {
     public List<AdminMonitoringSnapshotData> getMonitoringSnapshots() {
         OffsetDateTime now = currentMonitoringTime();
         SnapshotWindow today = snapshotWindow(now);
-        List<AdminMonitoringSnapshotData> persistedSnapshots = monitoringSnapshotRepository.findAllByOrderByCapturedAtDesc().stream()
+        List<AdminMonitoringSnapshotData> persistedSnapshots = safeFindAllMonitoringSnapshotsDesc().stream()
                 .map(this::toMonitoringSnapshotData)
                 .toList();
 
@@ -1245,10 +1246,11 @@ public class AdminService {
     }
 
     private TrendSeriesData buildRevenueTrend(BigDecimal currentRevenue) {
-        List<Integer> values = monitoringSnapshotRepository.findAll().stream()
+        List<AdminMonitoringSnapshot> snapshots = safeFindAllMonitoringSnapshots();
+        List<Integer> values = snapshots.stream()
                 .sorted(Comparator.comparing(AdminMonitoringSnapshot::getCapturedAt))
                 .map(snapshot -> snapshot.getMonthlyRevenue().intValue())
-                .skip(Math.max(0, monitoringSnapshotRepository.findAll().size() - 13L))
+                .skip(Math.max(0, snapshots.size() - 13L))
                 .collect(Collectors.toCollection(ArrayList::new));
         values.add(currentRevenue.intValue());
         return new TrendSeriesData(
@@ -1262,10 +1264,11 @@ public class AdminService {
     }
 
     private TrendSeriesData buildActiveUserTrend(int activeUsers) {
-        List<Integer> values = monitoringSnapshotRepository.findAll().stream()
+        List<AdminMonitoringSnapshot> snapshots = safeFindAllMonitoringSnapshots();
+        List<Integer> values = snapshots.stream()
                 .sorted(Comparator.comparing(AdminMonitoringSnapshot::getCapturedAt))
                 .map(AdminMonitoringSnapshot::getActiveUsers)
-                .skip(Math.max(0, monitoringSnapshotRepository.findAll().size() - 13L))
+                .skip(Math.max(0, snapshots.size() - 13L))
                 .collect(Collectors.toCollection(ArrayList::new));
         values.add(activeUsers);
         return new TrendSeriesData(
@@ -1286,7 +1289,7 @@ public class AdminService {
         SnapshotWindow today = snapshotWindow(capturedAt);
         Map<LocalDate, Integer> activeUsersBySnapshotDate = new HashMap<>();
 
-        for (AdminMonitoringSnapshot snapshot : monitoringSnapshotRepository.findAllByOrderByCapturedAtDesc()) {
+        for (AdminMonitoringSnapshot snapshot : safeFindAllMonitoringSnapshotsDesc()) {
             LocalDate snapshotDate = snapshotWindow(snapshot.getCapturedAt()).snapshotDate();
             activeUsersBySnapshotDate.putIfAbsent(snapshotDate, snapshot.getActiveUsers());
         }
@@ -1456,7 +1459,7 @@ public class AdminService {
     }
 
     private SnapshotDelta snapshotDelta() {
-        List<AdminMonitoringSnapshot> snapshots = monitoringSnapshotRepository.findTop2ByOrderByCapturedAtDesc();
+        List<AdminMonitoringSnapshot> snapshots = safeFindTop2MonitoringSnapshots();
         if (snapshots.size() < 2) {
             return new SnapshotDelta(null, null, null, null, null, null);
         }
@@ -1487,6 +1490,38 @@ public class AdminService {
                 .multiply(BigDecimal.valueOf(100))
                 .divide(previous.abs(), 1, RoundingMode.HALF_UP)
                 .doubleValue();
+    }
+
+    private List<AdminMonitoringSnapshot> safeFindAllMonitoringSnapshots() {
+        try {
+            return monitoringSnapshotRepository.findAll();
+        } catch (RuntimeException exception) {
+            return handleMonitoringSnapshotAccessFailure("findAll", exception);
+        }
+    }
+
+    private List<AdminMonitoringSnapshot> safeFindAllMonitoringSnapshotsDesc() {
+        try {
+            return monitoringSnapshotRepository.findAllByOrderByCapturedAtDesc();
+        } catch (RuntimeException exception) {
+            return handleMonitoringSnapshotAccessFailure("findAllByOrderByCapturedAtDesc", exception);
+        }
+    }
+
+    private List<AdminMonitoringSnapshot> safeFindTop2MonitoringSnapshots() {
+        try {
+            return monitoringSnapshotRepository.findTop2ByOrderByCapturedAtDesc();
+        } catch (RuntimeException exception) {
+            return handleMonitoringSnapshotAccessFailure("findTop2ByOrderByCapturedAtDesc", exception);
+        }
+    }
+
+    private List<AdminMonitoringSnapshot> handleMonitoringSnapshotAccessFailure(String operation, RuntimeException exception) {
+        if (exception instanceof DataAccessException || exception.getCause() instanceof org.hibernate.exception.SQLGrammarException) {
+            log.warn("Monitoring snapshot repository operation {} failed, falling back to live-only metrics: {}", operation, exception.getMessage());
+            return List.of();
+        }
+        throw exception;
     }
 
     private String formatDelta(Double value) {
