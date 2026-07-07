@@ -1188,7 +1188,7 @@ function Dashboard({
           ))}
         </div>
       </div>
-      <div className="grid-bottom">
+      <div className="grid-bottom-top">
         <div className="card revenue-card">
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
             <div className="card-title">매출 분석 <span style={{ color: "#a8a29e", fontSize: 12, fontWeight: 500 }}>{revenueTrendMeta.periodLabel}</span></div>
@@ -1201,7 +1201,7 @@ function Dashboard({
           </div>
           <TrendAxisLabels labels={revenueTrendLabels} />
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div className="grid-bottom-side">
           <div className="card">
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
               <div className="card-title">Windows 앱 다운로드</div>
@@ -1235,33 +1235,33 @@ function Dashboard({
             rightValue={intelligenceService?.latency ?? "-"}
             tone={healthMeta(intelligenceService?.state).tone}
           />
-          <div className="metric-pair">
-            <AlertMetric
-              title="Workspace 원장"
-              left="전체 노트"
-              leftValue={overviewSummary.totalNotes.toLocaleString("ko-KR")}
-              right="오늘 생성"
-              rightValue={overviewSummary.notesCreatedToday.toLocaleString("ko-KR")}
-              tone="neutral"
-              detail={`총 저장량 ${formatStorage(overviewSummary.totalStorageBytes)} · ${overviewSummary.workspaceSource}`}
-            />
-            <div className="card">
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>Kafka 큐 대기 Lag</div>
-                <Tag meta={kafkaLagTone(latestKafkaLagView)}>
-                  {kafkaLagLabel(latestKafkaLagView)}
-                </Tag>
-              </div>
-              <div className="mono" style={{ marginTop: 8, fontSize: 24, fontWeight: 600 }}>
-                {latestKafkaLagView?.kafkaLagMessages == null ? "-" : latestKafkaLagView.kafkaLagMessages.toLocaleString("ko-KR")} <span style={{ color: "#a8a29e", fontSize: 12 }}>msgs</span>
-              </div>
-              <div style={{ marginTop: 2, color: "#a8a29e", fontSize: 11 }}>
-                {latestKafkaLagView?.consumerGroupId ?? "intelligence-service"} · {kafkaLagDetail(latestKafkaLagView)}
-              </div>
-              <div style={{ marginTop: 4, color: "#a8a29e", fontSize: 11 }}>
-                경고 기준 {kafkaLagThresholds(latestKafkaLagView).warningThreshold.toLocaleString("ko-KR")} msgs · 심각 기준 {kafkaLagThresholds(latestKafkaLagView).criticalThreshold.toLocaleString("ko-KR")} msgs
-              </div>
-            </div>
+        </div>
+      </div>
+      <div className="grid-bottom-metrics">
+        <AlertMetric
+          title="Workspace 원장"
+          left="전체 노트"
+          leftValue={overviewSummary.totalNotes.toLocaleString("ko-KR")}
+          right="오늘 생성"
+          rightValue={overviewSummary.notesCreatedToday.toLocaleString("ko-KR")}
+          tone="neutral"
+          detail={`총 저장량 ${formatStorage(overviewSummary.totalStorageBytes)} · ${overviewSummary.workspaceSource}`}
+        />
+        <div className="card">
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Kafka 큐 대기 Lag</div>
+            <Tag meta={kafkaLagTone(latestKafkaLagView)}>
+              {kafkaLagLabel(latestKafkaLagView)}
+            </Tag>
+          </div>
+          <div className="mono" style={{ marginTop: 8, fontSize: 24, fontWeight: 600 }}>
+            {latestKafkaLagView?.kafkaLagMessages == null ? "-" : latestKafkaLagView.kafkaLagMessages.toLocaleString("ko-KR")} <span style={{ color: "#a8a29e", fontSize: 12 }}>msgs</span>
+          </div>
+          <div style={{ marginTop: 2, color: "#a8a29e", fontSize: 11 }}>
+            {latestKafkaLagView?.consumerGroupId ?? "intelligence-service"} · {kafkaLagDetail(latestKafkaLagView)}
+          </div>
+          <div style={{ marginTop: 4, color: "#a8a29e", fontSize: 11 }}>
+            경고 기준 {kafkaLagThresholds(latestKafkaLagView).warningThreshold.toLocaleString("ko-KR")} msgs · 심각 기준 {kafkaLagThresholds(latestKafkaLagView).criticalThreshold.toLocaleString("ko-KR")} msgs
           </div>
         </div>
       </div>
