@@ -6987,13 +6987,51 @@ paths:
             text/event-stream:
               schema:
                 type: string
-                description: Server-Sent Events 스트림. 이벤트는 줄 단위 text/event-stream 프레임으로 전달된다. COMPOSE/NOTE_ACTION 초안 응답의 delta text는 첫 줄이 `# 제목`인 Markdown 문자열로 시작한다.
+                description: Server-Sent Events 스트림. 이벤트는 줄 단위 text/event-stream 프레임으로 전달된다. 서버는 `status`, `route`, `delta`, `done`, `error` 이벤트를 보낼 수 있으며, 웹 검색이 필요한 요청은 검색 전 `status.phase=WEB_SEARCHING` 이벤트를 먼저 보낸다. COMPOSE/NOTE_ACTION 초안 응답의 delta text는 첫 줄이 `# 제목`인 Markdown 문자열로 시작한다.
               examples:
                 delta_done:
-                  summary: 종료 이벤트가 포함된 델타 스트림
-                  value: 'event: delta
+                  summary: status와 종료 이벤트가 포함된 델타 스트림
+                  value: 'event: status
+
+                    data: {"phase":"ROUTING","message":"Routing chat request.","requiresWebSearch":false,"webSearchQuery":""}
+
+
+                    event: route
+
+                    data: {"route":"NOTE_QA","reason":"note question","routerModel":"gpt-5.4-nano","requiresWebSearch":false,"webSearchQuery":""}
+
+
+                    event: delta
 
                     data: {"text":"JWT는"}
+
+
+                    event: done
+
+                    data: {"messageId":"msg_01J...","llmRunId":"run_01J..."}
+
+
+                    '
+                web_search_status:
+                  summary: 웹 검색 상태 이벤트가 포함된 스트림
+                  value: 'event: status
+
+                    data: {"phase":"ROUTING","message":"Routing chat request.","requiresWebSearch":false,"webSearchQuery":""}
+
+
+                    event: route
+
+                    data: {"route":"COMPOSE","reason":"current topic draft","routerModel":"gpt-5.4-nano","requiresWebSearch":true,"webSearchQuery":"latest AI news"}
+
+
+                    event: status
+
+                    data: {"phase":"WEB_SEARCHING","message":"Searching the web.","requiresWebSearch":true,"webSearchQuery":"latest AI news"}
+
+
+                    event: delta
+
+                    data: {"text":"# 최신 AI 뉴스\n\n"}
 
 
                     event: done

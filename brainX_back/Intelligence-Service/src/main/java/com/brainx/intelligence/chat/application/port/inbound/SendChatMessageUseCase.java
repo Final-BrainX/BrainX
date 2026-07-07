@@ -62,6 +62,20 @@ public interface SendChatMessageUseCase {
             return new ChatStreamEvent("route", values);
         }
 
+        public static ChatStreamEvent status(
+            String phase,
+            String message,
+            boolean requiresWebSearch,
+            String webSearchQuery
+        ) {
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("phase", phase == null || phase.isBlank() ? "ROUTING" : phase);
+            values.put("message", message == null ? "" : message);
+            values.put("requiresWebSearch", requiresWebSearch);
+            values.put("webSearchQuery", webSearchQuery == null ? "" : webSearchQuery);
+            return new ChatStreamEvent("status", values);
+        }
+
         public static ChatStreamEvent error(String code, String message) {
             return new ChatStreamEvent("error", Map.of(
                 "code", code == null || code.isBlank() ? "STREAM_ERROR" : code,

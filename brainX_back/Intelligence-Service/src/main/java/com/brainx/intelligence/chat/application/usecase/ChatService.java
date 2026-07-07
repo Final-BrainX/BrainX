@@ -92,6 +92,10 @@ public class ChatService implements
         "현재 웹 검색을 사용할 수 없어 최신 정보를 확인할 수 없습니다. 검색이 필요한 요청은 나중에 다시 시도해 주세요.";
     private static final String INSUFFICIENT_CONTEXT_ANSWER =
         "현재 제공된 노트 내용이 너무 짧아 이 요청을 처리할 수 없습니다. 답변에 필요한 본문이나 선택 영역을 더 제공해 주세요.";
+    private static final String STREAM_PHASE_ROUTING = "ROUTING";
+    private static final String STREAM_PHASE_WEB_SEARCHING = "WEB_SEARCHING";
+    private static final String STREAM_STATUS_ROUTING = "Routing chat request.";
+    private static final String STREAM_STATUS_WEB_SEARCHING = "Searching the web.";
     private static final String DRAFT_NOTE_FORMAT_INSTRUCTION = """
         Format draft responses as Markdown for a personal Workspace note.
         The first line must be a level-1 Markdown heading in the exact form "# <title>".
@@ -235,6 +239,36 @@ public class ChatService implements
             .toList();
         String clientContextPrompt = clientContextPrompt(command.clientContext());
         boolean hasClientContext = StringUtils.hasText(clientContextPrompt);
+
+        return Flux.concat(
+            Flux.just(ChatStreamEvent.status(STREAM_PHASE_ROUTING, STREAM_STATUS_ROUTING, false, null)),
+            Flux.defer(() -> routedMessageStream(
+                command,
+                userId,
+                message,
+                modelId,
+                thread,
+                userMessage,
+                history,
+                clientContextPrompt,
+                hasClientContext,
+                noteScope
+            ))
+        ).onErrorResume(exception -> Flux.just(ChatStreamEvent.error("STREAM_ERROR", safeMessage(exception))));
+    }
+
+    private Flux<ChatStreamEvent> routedMessageStream(
+        SendChatMessageCommand command,
+        String userId,
+        String message,
+        String modelId,
+        ChatThread thread,
+        ChatMessage userMessage,
+        List<ChatMessage> history,
+        String clientContextPrompt,
+        boolean hasClientContext,
+        Map<String, Object> noteScope
+    ) {
         ChatRouteDecision routeDecision = chatRouteDecider.decide(new ChatRouteDecider.ChatRouteRequest(
             userId,
             message,
@@ -244,28 +278,66 @@ public class ChatService implements
         ));
         ChatRoute route = routeDecision.route();
         if (route == ChatRoute.OUT_OF_SCOPE && !routeDecision.requiresWebSearch()) {
-            return withRouteEvent(routeDecision, fixedAnswerStream(thread, userMessage, modelId, OUT_OF_SCOPE_ANSWER));
+            return Flux.concat(Flux.just(routeEvent(routeDecision)), fixedAnswerStream(thread, userMessage, modelId, OUT_OF_SCOPE_ANSWER));
         }
         if (requiresNoteContext(route)
             && hasClientContext
             && isRightSidebarContext(command.clientContext())
             && clientContextContentLength(command.clientContext()) < MIN_CLIENT_CONTEXT_CHARS) {
-            return withRouteEvent(routeDecision, fixedAnswerStream(thread, userMessage, modelId, INSUFFICIENT_CONTEXT_ANSWER));
+            return Flux.concat(Flux.just(routeEvent(routeDecision)), fixedAnswerStream(thread, userMessage, modelId, INSUFFICIENT_CONTEXT_ANSWER));
         }
+        return Flux.concat(
+            Flux.just(routeEvent(routeDecision)),
+            routeDecision.requiresWebSearch()
+                ? Flux.just(ChatStreamEvent.status(
+                    STREAM_PHASE_WEB_SEARCHING,
+                    STREAM_STATUS_WEB_SEARCHING,
+                    true,
+                    routeDecision.webSearchQuery()
+                ))
+                : Flux.empty(),
+            Flux.defer(() -> messageStreamAfterRoute(
+                userId,
+                message,
+                modelId,
+                thread,
+                userMessage,
+                history,
+                clientContextPrompt,
+                hasClientContext,
+                routeDecision,
+                route,
+                command.clientContext()
+            ))
+        );
+    }
+
+    private Flux<ChatStreamEvent> messageStreamAfterRoute(
+        String userId,
+        String message,
+        String modelId,
+        ChatThread thread,
+        ChatMessage userMessage,
+        List<ChatMessage> history,
+        String clientContextPrompt,
+        boolean hasClientContext,
+        ChatRouteDecision routeDecision,
+        ChatRoute route,
+        Map<String, Object> clientContext
+    ) {
         entitlementGuard.checkRagChat(userId, preflightTokenEstimate(
             userId,
             message,
             history,
             clientContextPrompt,
-            command.clientContext(),
+            clientContext,
             routeDecision,
             route
         ));
-
         WebSearchContext webSearch = webSearchResolver.resolve(userId, message, routeDecision);
         if (routeDecision.requiresWebSearch() && !webSearch.available()) {
-            return withRouteEvent(
-                unavailableWebSearchRouteDecision(routeDecision),
+            return Flux.concat(
+                Flux.just(routeEvent(unavailableWebSearchRouteDecision(routeDecision))),
                 fixedAnswerStream(thread, userMessage, modelId, WEB_SEARCH_UNAVAILABLE_ANSWER)
             );
         }
@@ -273,7 +345,7 @@ public class ChatService implements
         List<RagContext> contexts = hasClientContext || !requiresNoteContext(route)
             ? List.of()
             : retrieveContexts(thread, message, route);
-        boolean noteScopedSidebar = isRightSidebarContext(command.clientContext());
+        boolean noteScopedSidebar = isRightSidebarContext(clientContext);
         PromptResolution promptResolution = promptRegistryService.resolve(promptKey(route, webSearch), systemPrompt(route, webSearch));
         String systemPrompt = StylePromptCompiler.appendToSystemPrompt(
             StylePromptCompiler.appendToSystemPrompt(
@@ -289,9 +361,9 @@ public class ChatService implements
         entitlementGuard.checkRagChat(userId, tokenEstimate);
 
         if (requiresNoteContext(route) && !hasClientContext && contexts.isEmpty() && !webSearch.available()) {
-            return withRouteEvent(routeDecision, fixedAnswerStream(thread, userMessage, modelId, NO_CONTEXT_ANSWER));
+            return fixedAnswerStream(thread, userMessage, modelId, NO_CONTEXT_ANSWER);
         }
-        return withRouteEvent(routeDecision, aiStream(
+        return aiStream(
             thread,
             userMessage,
             modelId,
@@ -303,7 +375,7 @@ public class ChatService implements
             userPrompt,
             contexts,
             webSearch
-        ));
+        );
     }
 
     private int preflightTokenEstimate(
@@ -392,14 +464,14 @@ public class ChatService implements
         return Flux.just(ChatStreamEvent.delta(answer), ChatStreamEvent.done(assistantMessageId));
     }
 
-    private static Flux<ChatStreamEvent> withRouteEvent(ChatRouteDecision routeDecision, Flux<ChatStreamEvent> events) {
-        return Flux.concat(Flux.just(ChatStreamEvent.route(
+    private static ChatStreamEvent routeEvent(ChatRouteDecision routeDecision) {
+        return ChatStreamEvent.route(
             routeDecision.route().name(),
             routeDecision.reason(),
             routeDecision.routerModel(),
             routeDecision.requiresWebSearch(),
             routeDecision.webSearchQuery()
-        )), events);
+        );
     }
 
     private static ChatRouteDecision unavailableWebSearchRouteDecision(ChatRouteDecision routeDecision) {

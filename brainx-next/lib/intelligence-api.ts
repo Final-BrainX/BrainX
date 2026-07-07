@@ -74,6 +74,13 @@ export type ChatRouteEvent = {
   webSearchQuery?: string | null;
 };
 
+export type ChatStreamStatusEvent = {
+  phase?: string;
+  message?: string;
+  requiresWebSearch?: boolean;
+  webSearchQuery?: string | null;
+};
+
 export type ChatThreadListStatus = "active" | "archived";
 
 export type IntelligenceRequestOptions = {
@@ -84,6 +91,7 @@ export type IntelligenceRequestOptions = {
 export type IntelligenceStreamHandlers<TDone> = IntelligenceRequestOptions & {
   onDelta?: (text: string) => void;
   onDone?: (data: TDone) => void;
+  onStatus?: (data: ChatStreamStatusEvent) => void;
   onRoute?: (data: ChatRouteEvent) => void;
   onActionProposed?: (data: AgentActionData) => void;
   onActionStatus?: (data: AgentActionData) => void;
@@ -234,6 +242,8 @@ async function readSseStream<TDone>(
       if (frame.event === "delta") {
         const text = typeof parsed === "object" && parsed && "text" in parsed ? String(parsed.text ?? "") : frame.data;
         handlers.onDelta?.(text);
+      } else if (frame.event === "status") {
+        handlers.onStatus?.(statusEventFrom(parsed));
       } else if (frame.event === "route") {
         handlers.onRoute?.(routeEventFrom(parsed));
       } else if (frame.event === "action_proposed") {
@@ -246,7 +256,7 @@ async function readSseStream<TDone>(
         donePayload = parsed as TDone;
         handlers.onDone?.(donePayload);
       } else if (frame.event === "error") {
-        handlers.onError?.(parsed ?? frame.data);
+        handlers.onError?.(streamErrorFrom(parsed ?? frame.data));
       }
     }
   }
@@ -254,7 +264,9 @@ async function readSseStream<TDone>(
   const tail = buffer.trim();
   if (tail) {
     const frame = parseSseFrame(tail);
-    if (frame.event === "route") {
+    if (frame.event === "status") {
+      handlers.onStatus?.(statusEventFrom(parseJson(frame.data)));
+    } else if (frame.event === "route") {
       handlers.onRoute?.(routeEventFrom(parseJson(frame.data)));
     } else if (frame.event === "action_proposed") {
       handlers.onActionProposed?.(parseJson(frame.data) as AgentActionData);
@@ -265,6 +277,8 @@ async function readSseStream<TDone>(
     } else if (frame.event === "done") {
       donePayload = parseJson(frame.data) as TDone;
       handlers.onDone?.(donePayload);
+    } else if (frame.event === "error") {
+      handlers.onError?.(streamErrorFrom(parseJson(frame.data) ?? frame.data));
     }
   }
 
@@ -302,6 +316,36 @@ function routeEventFrom(value: unknown): ChatRouteEvent {
         ? record.webSearchQuery
         : null,
   };
+}
+
+function statusEventFrom(value: unknown): ChatStreamStatusEvent {
+  if (!value || typeof value !== "object") return {};
+  const record = value as Record<string, unknown>;
+  return {
+    phase: typeof record.phase === "string" ? record.phase : undefined,
+    message: typeof record.message === "string" ? record.message : undefined,
+    requiresWebSearch:
+      typeof record.requiresWebSearch === "boolean"
+        ? record.requiresWebSearch
+        : undefined,
+    webSearchQuery:
+      typeof record.webSearchQuery === "string"
+        ? record.webSearchQuery
+        : null,
+  };
+}
+
+function streamErrorFrom(value: unknown): unknown {
+  const message =
+    value instanceof Error
+      ? value.message
+      : typeof value === "object" && value && "message" in value
+        ? String((value as { message?: unknown }).message ?? "")
+        : typeof value === "string"
+          ? value
+          : "";
+  const reason = usageLimitReasonFrom(message);
+  return reason ? new AiUsageLimitExceededError(reason) : value;
 }
 
 function parseJson(value: string): unknown {
