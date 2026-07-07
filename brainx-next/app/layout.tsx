@@ -4,6 +4,7 @@ import type { CSSProperties, ReactNode } from "react";
 import "./globals.css";
 import { BrainXProvider } from "@/components/brainx-provider";
 import { ToastStack } from "@/components/brainx-ui";
+import { AiUsageLimitModal } from "@/components/utility/ai-usage-limit-modal";
 import { TutorialProvider } from "@/components/tutorial-provider";
 
 export const metadata: Metadata = {
@@ -61,6 +62,7 @@ export default function RootLayout({
               {children}
             </TutorialProvider>
             <ToastStack />
+            <AiUsageLimitModal />
           </BrainXProvider>
         </div>
       </body>

@@ -23,6 +23,7 @@ import { getLocalStoredValue, setLocalStoredValue } from "@/lib/client-storage";
 import { clearAuthSession, getAuthIdentityKey, readAuthSession } from "@/lib/auth-api";
 import { getBrainxDesktopConfig, isElectronDesktop } from "@/lib/desktop-bridge";
 import { translate, type I18nKey, type LanguageCode } from "@/lib/i18n";
+import type { AiUsageLimitReason } from "@/lib/intelligence-api";
 import { USE_MOCK_NOTES } from "@/lib/workspace-api";
 import { loadWorkspaceBrainXNotes } from "@/lib/workspace-live-notes";
 
@@ -55,6 +56,9 @@ type BrainXContextValue = {
   setSidebarCollapsed: Dispatch<SetStateAction<boolean>>;
   toasts: Toast[];
   pushToast: (message: string, kind?: ToastKind) => void;
+  aiUsageLimitReason: AiUsageLimitReason | null;
+  openAiUsageLimitModal: (reason: AiUsageLimitReason) => void;
+  closeAiUsageLimitModal: () => void;
 };
 
 const NOTES_KEY = "brainx_notes_v1";
@@ -120,6 +124,7 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [aiUsageLimitReason, setAiUsageLimitReason] = useState<AiUsageLimitReason | null>(null);
   const notesRef = useRef(notes);
   const [authIdentityKey, setAuthIdentityKey] = useState(() => getAuthIdentityKey(readAuthSession()));
 
@@ -291,6 +296,14 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
 
   const t = useCallback((key: I18nKey) => translate(language, key), [language]);
 
+  const openAiUsageLimitModal = useCallback((reason: AiUsageLimitReason) => {
+    setAiUsageLimitReason(reason);
+  }, []);
+
+  const closeAiUsageLimitModal = useCallback(() => {
+    setAiUsageLimitReason(null);
+  }, []);
+
   const value = useMemo<BrainXContextValue>(
     () => ({
       hydrated,
@@ -309,7 +322,10 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed,
       setSidebarCollapsed,
       toasts,
-      pushToast
+      pushToast,
+      aiUsageLimitReason,
+      openAiUsageLimitModal,
+      closeAiUsageLimitModal
     }),
     [
       hydrated,
@@ -324,7 +340,10 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
       saveStatus,
       sidebarCollapsed,
       toasts,
-      pushToast
+      pushToast,
+      aiUsageLimitReason,
+      openAiUsageLimitModal,
+      closeAiUsageLimitModal
     ]
   );
 

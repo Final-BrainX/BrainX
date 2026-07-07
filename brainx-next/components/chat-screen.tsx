@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  AiUsageLimitExceededError,
   createChatThread,
   deleteChatThread,
   getChatThread,
@@ -64,7 +65,7 @@ const CHAT_SUGGESTIONS = [
 
 export function ChatScreen() {
   const router = useRouter();
-  const { pushToast, notes, effectiveTheme } = useBrainX();
+  const { pushToast, notes, effectiveTheme, openAiUsageLimitModal } = useBrainX();
   const { currentWorkspaceId, workspaces } = useWorkspace();
   const isLight = effectiveTheme === "light";
   const [threads, setThreads] = useState<ChatThreadListItem[]>([]);
@@ -455,7 +456,11 @@ export function ChatScreen() {
             : message,
         ),
       );
-      pushToast(messageFromError(error), "err");
+      if (error instanceof AiUsageLimitExceededError) {
+        openAiUsageLimitModal(error.reason);
+      } else {
+        pushToast(messageFromError(error), "err");
+      }
     } finally {
       setStreaming(false);
     }
