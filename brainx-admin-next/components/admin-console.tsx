@@ -1189,12 +1189,12 @@ function Dashboard({
         </div>
       </div>
       <div className="grid-bottom">
-          <div className="card revenue-card">
+        <div className="card revenue-card">
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
             <div className="card-title">매출 분석 <span style={{ color: "#a8a29e", fontSize: 12, fontWeight: 500 }}>{revenueTrendMeta.periodLabel}</span></div>
             <span className="mono" style={{ color: "#0d9488", fontSize: 13, fontWeight: 600 }}>{revenueTrendMeta.timezone}</span>
           </div>
-          <div className="revenue-chart">
+          <div className="revenue-chart revenue-chart-compact">
             {revenueBars.map((bar, index) => (
               <div key={`${bar}-${index}`} style={{ flex: 1, height: `${Math.max(4, (bar / maxRevenueBar) * 100)}%`, borderRadius: "7px 7px 3px 3px", background: index > 10 ? "#0d9488" : "#d6d3d1" }} />
             ))}
@@ -1235,32 +1235,34 @@ function Dashboard({
             rightValue={intelligenceService?.latency ?? "-"}
             tone={healthMeta(intelligenceService?.state).tone}
           />
-          <div className="card">
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>Kafka 큐 대기 Lag</div>
-              <Tag meta={kafkaLagTone(latestKafkaLagView)}>
-                {kafkaLagLabel(latestKafkaLagView)}
-              </Tag>
-            </div>
-            <div className="mono" style={{ marginTop: 8, fontSize: 24, fontWeight: 600 }}>
-              {latestKafkaLagView?.kafkaLagMessages == null ? "-" : latestKafkaLagView.kafkaLagMessages.toLocaleString("ko-KR")} <span style={{ color: "#a8a29e", fontSize: 12 }}>msgs</span>
-            </div>
-            <div style={{ marginTop: 2, color: "#a8a29e", fontSize: 11 }}>
-              {latestKafkaLagView?.consumerGroupId ?? "intelligence-service"} · {kafkaLagDetail(latestKafkaLagView)}
-            </div>
-            <div style={{ marginTop: 4, color: "#a8a29e", fontSize: 11 }}>
-              경고 기준 {kafkaLagThresholds(latestKafkaLagView).warningThreshold.toLocaleString("ko-KR")} msgs · 심각 기준 {kafkaLagThresholds(latestKafkaLagView).criticalThreshold.toLocaleString("ko-KR")} msgs
+          <div className="metric-pair">
+            <AlertMetric
+              title="Workspace 원장"
+              left="전체 노트"
+              leftValue={overviewSummary.totalNotes.toLocaleString("ko-KR")}
+              right="오늘 생성"
+              rightValue={overviewSummary.notesCreatedToday.toLocaleString("ko-KR")}
+              tone="neutral"
+              detail={`총 저장량 ${formatStorage(overviewSummary.totalStorageBytes)} · ${overviewSummary.workspaceSource}`}
+            />
+            <div className="card">
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>Kafka 큐 대기 Lag</div>
+                <Tag meta={kafkaLagTone(latestKafkaLagView)}>
+                  {kafkaLagLabel(latestKafkaLagView)}
+                </Tag>
+              </div>
+              <div className="mono" style={{ marginTop: 8, fontSize: 24, fontWeight: 600 }}>
+                {latestKafkaLagView?.kafkaLagMessages == null ? "-" : latestKafkaLagView.kafkaLagMessages.toLocaleString("ko-KR")} <span style={{ color: "#a8a29e", fontSize: 12 }}>msgs</span>
+              </div>
+              <div style={{ marginTop: 2, color: "#a8a29e", fontSize: 11 }}>
+                {latestKafkaLagView?.consumerGroupId ?? "intelligence-service"} · {kafkaLagDetail(latestKafkaLagView)}
+              </div>
+              <div style={{ marginTop: 4, color: "#a8a29e", fontSize: 11 }}>
+                경고 기준 {kafkaLagThresholds(latestKafkaLagView).warningThreshold.toLocaleString("ko-KR")} msgs · 심각 기준 {kafkaLagThresholds(latestKafkaLagView).criticalThreshold.toLocaleString("ko-KR")} msgs
+              </div>
             </div>
           </div>
-          <AlertMetric
-            title="Workspace 원장"
-            left="전체 노트"
-            leftValue={overviewSummary.totalNotes.toLocaleString("ko-KR")}
-            right="오늘 생성"
-            rightValue={overviewSummary.notesCreatedToday.toLocaleString("ko-KR")}
-            tone="neutral"
-            detail={`총 저장량 ${formatStorage(overviewSummary.totalStorageBytes)} · ${overviewSummary.workspaceSource}`}
-          />
         </div>
       </div>
       <div className="table-wrap">

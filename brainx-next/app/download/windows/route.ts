@@ -7,7 +7,6 @@ export const runtime = "nodejs";
 
 const INSTALLER_FILE_NAME = "BrainX Setup 0.1.0.exe";
 const INSTALLER_VERSION = "0.1.0";
-const adminServiceBaseUrl = process.env.ADMIN_SERVICE_URL ?? "http://localhost:8085";
 const installerPath = join(process.cwd(), "public", "downloads", INSTALLER_FILE_NAME);
 
 function forwardedIp(request: Request) {
@@ -18,7 +17,8 @@ function forwardedIp(request: Request) {
 
 async function recordDesktopDownload(request: Request, clientKey: string | null, source: string | null) {
   try {
-    await fetch(`${adminServiceBaseUrl}/api/v1/landing/desktop-downloads`, {
+    const endpoint = new URL("/api/v1/landing/desktop-downloads", request.url);
+    await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -49,7 +49,7 @@ export async function GET(request: Request) {
   const clientKey = url.searchParams.get("clientKey");
   const source = url.searchParams.get("source");
 
-  void recordDesktopDownload(request, clientKey, source);
+  await recordDesktopDownload(request, clientKey, source);
 
   const fileStat = await stat(installerPath);
   const stream = createReadStream(installerPath);
