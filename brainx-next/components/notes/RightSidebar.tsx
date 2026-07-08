@@ -339,22 +339,48 @@ function LinkChip({
   type: "outbound" | "backlink";
   onClick: () => void;
 }) {
+  const isBacklink = type === "backlink";
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-start gap-2 rounded-lg border border-line/60 px-2.5 py-1.5 text-left transition-colors hover:border-line/80 hover:bg-surface2/50"
-      style={{ background: "rgb(var(--surface2) / 0.3)" }}
+      className={cx(
+        "flex w-full items-start gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors",
+        isBacklink
+          ? "border-line/70 hover:border-line/90 hover:bg-surface2/60"
+          : "border-line/60 hover:border-line/80 hover:bg-surface2/50"
+      )}
+      style={{
+        background: isBacklink
+          ? "rgb(var(--surface2) / 0.5)"
+          : "rgb(var(--surface2) / 0.3)",
+      }}
     >
       <Icon
-        name={type === "outbound" ? "link" : "arrowL"}
+        name="link"
         size={12}
-        className={type === "outbound" ? "shrink-0 text-cyan" : "shrink-0 text-txt3"}
+        className={cx(
+          "mt-0.5 shrink-0",
+          isBacklink ? "text-txt2" : "text-cyan"
+        )}
       />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12px] font-medium text-txt">{note.title}</span>
+        <span className={cx(
+          "block truncate text-[12px] font-medium",
+          isBacklink ? "text-txt" : "text-txt"
+        )}>
+          {note.title}
+        </span>
         {path ? <span className="block truncate text-[10px] text-txt3">{path}</span> : null}
       </span>
+      {isBacklink ? (
+        <span
+          className="shrink-0 rounded-md border border-line/70 px-1.5 py-0.5 text-[10px] font-medium text-txt2"
+          style={{ background: "rgb(var(--bg2) / 0.75)" }}
+        >
+          상위
+        </span>
+      ) : null}
     </button>
   );
 }
