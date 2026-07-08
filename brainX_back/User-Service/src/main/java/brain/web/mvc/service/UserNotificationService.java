@@ -1,6 +1,7 @@
 package brain.web.mvc.service;
 
 import brain.web.mvc.dto.response.UserResponses.NotificationItemResponse;
+import brain.web.mvc.dto.response.UserResponses.NotificationDeleteResponse;
 import brain.web.mvc.dto.response.UserResponses.NotificationsResponse;
 import brain.web.mvc.entity.User;
 import brain.web.mvc.entity.UserNotification;
@@ -53,6 +54,18 @@ public class UserNotificationService {
         LocalDateTime cutoff = LocalDateTime.now();
         userNotificationRepository.markAllAsReadByUserUserId(userId, cutoff, cutoff);
         return getMyNotifications(userId);
+    }
+
+    @Transactional
+    public NotificationDeleteResponse deleteNotification(String userId, String notificationId) {
+        UserNotification notification = userNotificationRepository.findByNotificationIdAndUserUserId(notificationId, userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "알림을 찾을 수 없습니다."));
+        userNotificationRepository.delete(notification);
+        long unreadCount = userNotificationRepository.countByUserUserIdAndReadAtIsNull(userId);
+        return NotificationDeleteResponse.builder()
+                .notificationId(notificationId)
+                .unreadCount(unreadCount)
+                .build();
     }
 
     @Transactional

@@ -3004,7 +3004,9 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
                     key={activeNoteId ?? "start"}
                     activeNote={activeNote}
                     allNotes={notes}
+                    allFolders={folders}
                     onCollapse={() => setContextOpen(false)}
+                    onNoteSelect={handleNoteClick}
                     pendingAiRequest={aiRequest}
                     onAiRequestHandled={() => setAiRequest(null)}
                     activeEditor={activeEditorHandle}

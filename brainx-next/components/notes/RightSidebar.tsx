@@ -4,8 +4,8 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { CollapseChevron } from "./CollapseChevron";
 import { cx } from "@/lib/utils";
 import { Icon } from "@/components/brainx-ui";
-import { MockNote } from "@/lib/notes/noteTypes";
-import { MOCK_CONTEXT_DATA } from "@/lib/notes/mockNotes";
+import { MockFolder, MockNote } from "@/lib/notes/noteTypes";
+import { extractResolvedWikiLinkTargets, resolveWikiLinkByTitle } from "@/lib/wiki-links";
 import {
   AiUsageLimitExceededError,
   createChatThread,
@@ -329,15 +329,21 @@ function TocItem({
 
 /* ── 링크 칩 ─────────────────────────────────────────── */
 function LinkChip({
-  title,
+  note,
+  path,
   type,
+  onClick,
 }: {
-  title: string;
+  note: Pick<MockNote, "id" | "title" | "documentGroupId">;
+  path?: string;
   type: "outbound" | "backlink";
+  onClick: () => void;
 }) {
   return (
-    <div
-      className="flex items-center gap-2 rounded-lg border border-line/60 px-2.5 py-1.5 transition-colors hover:border-line/80 hover:bg-surface2/50"
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-start gap-2 rounded-lg border border-line/60 px-2.5 py-1.5 text-left transition-colors hover:border-line/80 hover:bg-surface2/50"
       style={{ background: "rgb(var(--surface2) / 0.3)" }}
     >
       <Icon
@@ -345,8 +351,11 @@ function LinkChip({
         size={12}
         className={type === "outbound" ? "shrink-0 text-cyan" : "shrink-0 text-txt3"}
       />
-      <span className="flex-1 truncate text-[12px] font-medium text-txt">{title}</span>
-    </div>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[12px] font-medium text-txt">{note.title}</span>
+        {path ? <span className="block truncate text-[10px] text-txt3">{path}</span> : null}
+      </span>
+    </button>
   );
 }
 
@@ -373,7 +382,9 @@ function clampInlineAiHeight(height: number, sidebarHeight: number) {
 interface Props {
   activeNote: MockNote | null;
   allNotes: MockNote[];
+  allFolders: MockFolder[];
   onCollapse: () => void;
+  onNoteSelect?: (noteId: string) => void;
   pendingAiRequest?: PendingAiRequest | null;
   onAiRequestHandled?: () => void;
   activeEditor?: NoteEditorHandle | null;
@@ -385,7 +396,9 @@ interface Props {
 export default function RightSidebar({
   activeNote,
   allNotes,
+  allFolders,
   onCollapse,
+  onNoteSelect,
   pendingAiRequest,
   onAiRequestHandled,
   activeEditor,
@@ -424,7 +437,62 @@ export default function RightSidebar({
   }, [activeNoteDocumentGroupId]);
 
   const toc = useMemo(() => (activeNote ? parseHeadings(activeNote.content) : []), [activeNote]);
-  const ctx = (activeNote && MOCK_CONTEXT_DATA[activeNote.id]) || { backlinks: [], connections: [], aiSuggestions: [] };
+  const folderPathByNoteId = useMemo(() => {
+    if (!activeNote) return new Map<string, string>();
+
+    const folderById = new Map(
+      allFolders
+        .filter((folder) => (folder.documentGroupId ?? null) === (activeNote.documentGroupId ?? null))
+        .map((folder) => [folder.id, folder])
+    );
+
+    const resolveFolderPath = (folderId: string | undefined) => {
+      if (!folderId) return "";
+      const names: string[] = [];
+      const visited = new Set<string>();
+      let currentId: string | null | undefined = folderId;
+
+      while (currentId) {
+        if (visited.has(currentId)) break;
+        visited.add(currentId);
+        const folder = folderById.get(currentId);
+        if (!folder) break;
+        names.push(folder.name);
+        currentId = folder.parentFolderId;
+      }
+
+      return names.reverse().join(" / ");
+    };
+
+    return new Map(
+      allNotes
+        .filter((note) => (note.documentGroupId ?? null) === (activeNote.documentGroupId ?? null))
+        .map((note) => [note.id, resolveFolderPath(note.folderId)])
+    );
+  }, [activeNote, allFolders, allNotes]);
+  const ctx = useMemo(() => {
+    if (!activeNote) return { backlinks: [], connections: [], aiSuggestions: [] as string[] };
+
+    const workspaceNotes = allNotes.filter(
+      (note) => (note.documentGroupId ?? null) === (activeNote.documentGroupId ?? null)
+    );
+    const outboundSeen = new Set<string>();
+    const connections: MockNote[] = [];
+    for (const target of extractResolvedWikiLinkTargets(activeNote.content)) {
+      const resolved = resolveWikiLinkByTitle(workspaceNotes, target);
+      if (!resolved || resolved.id === activeNote.id || outboundSeen.has(resolved.id)) continue;
+      outboundSeen.add(resolved.id);
+      connections.push(resolved);
+    }
+
+    const backlinks = workspaceNotes.filter((note) => {
+      if (note.id === activeNote.id) return false;
+      const targets = extractResolvedWikiLinkTargets(note.content);
+      return targets.some((target) => resolveWikiLinkByTitle([activeNote], target)?.id === activeNote.id);
+    });
+
+    return { backlinks, connections, aiSuggestions: [] as string[] };
+  }, [activeNote, allNotes]);
 
   const cancelActiveAiRequest = useCallback(() => {
     aiRequestAbortRef.current?.abort();
@@ -860,10 +928,22 @@ export default function RightSidebar({
           {totalLinks > 0 ? (
             <div className="space-y-1.5">
               {ctx.connections.map((title) => (
-                <LinkChip key={`out-${title}`} title={title} type="outbound" />
+                <LinkChip
+                  key={`out-${title.id}`}
+                  note={title}
+                  path={folderPathByNoteId.get(title.id) || undefined}
+                  type="outbound"
+                  onClick={() => onNoteSelect?.(title.id)}
+                />
               ))}
               {ctx.backlinks.map((title) => (
-                <LinkChip key={`back-${title}`} title={title} type="backlink" />
+                <LinkChip
+                  key={`back-${title.id}`}
+                  note={title}
+                  path={folderPathByNoteId.get(title.id) || undefined}
+                  type="backlink"
+                  onClick={() => onNoteSelect?.(title.id)}
+                />
               ))}
             </div>
           ) : (

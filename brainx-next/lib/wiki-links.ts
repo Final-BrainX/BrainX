@@ -210,6 +210,24 @@ export function extractWikiLinkTargets(markdown: string) {
   return matches.map((match) => match.slice(2, -2)).filter(Boolean);
 }
 
+export function extractResolvedWikiLinkTargets(content: string) {
+  if (!content) return [];
+
+  const resolvedTargets: string[] = [];
+  if (content.includes("data-wiki-link")) {
+    const spanRe = /<span\b([^>]*)>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = spanRe.exec(content))) {
+      const attrs = match[1] ?? "";
+      if (!/data-wiki-link\s*=\s*["']true["']/i.test(attrs)) continue;
+      const titleMatch = attrs.match(/data-title\s*=\s*["']([^"']+)["']/i);
+      if (titleMatch?.[1]?.trim()) resolvedTargets.push(titleMatch[1].trim());
+    }
+  }
+
+  return resolvedTargets.length > 0 ? resolvedTargets : extractWikiLinkTargets(content);
+}
+
 /** 두 시점의 본문에서 "위키링크가 가리키는 target 집합" 자체가 달라졌는지만 비교한다(추가든
     삭제든 상관없이 집합이 달라지면 true) — Graph 즉시 동기화(NotesWorkspace의
     handleContentChange)가 모든 타이핑마다 저장을 트리거하지 않고, `[[bb]]`가 `[[bb]`로 깨지는

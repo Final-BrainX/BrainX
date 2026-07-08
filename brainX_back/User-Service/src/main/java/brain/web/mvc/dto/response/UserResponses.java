@@ -93,4 +93,11 @@ public class UserResponses {
             long unreadCount
     ) {
     }
+
+    @Builder
+    public record NotificationDeleteResponse(
+            String notificationId,
+            long unreadCount
+    ) {
+    }
 }
