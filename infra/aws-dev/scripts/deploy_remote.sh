@@ -47,6 +47,8 @@ if [ -n "${ARTIFACT_BUCKET:-}" ] && [ -n "${ARTIFACT_KEY:-}" ]; then
   cp /tmp/brainx-deploy-bundle/deploy/docker-compose.yml "$COMPOSE_FILE"
   cp /tmp/brainx-deploy-bundle/deploy/Caddyfile "$CURRENT_DIR/Caddyfile"
   cp -R /tmp/brainx-deploy-bundle/deploy/prometheus "$CURRENT_DIR/"
+  cp -R /tmp/brainx-deploy-bundle/deploy/loki "$CURRENT_DIR/"
+  cp -R /tmp/brainx-deploy-bundle/deploy/promtail "$CURRENT_DIR/"
   cp -R /tmp/brainx-deploy-bundle/deploy/grafana "$CURRENT_DIR/"
 fi
 

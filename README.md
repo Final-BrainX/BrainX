@@ -110,7 +110,7 @@ BrainX/
 │  ├─ Workspace-Service/  # 노트/폴더/그래프 원장 서비스 (포트 8082) — 구현 중
 │  └─ Commerce-Service/   # 결제/구독/플랜 서비스 (포트 8084) — 구현 중, Toss Payments 연동
 ├─ contracts-v2/          # OpenAPI/AsyncAPI SSOT 계약 문서
-├─ infra/aws-dev/         # AWS 개발환경 Terraform + GitHub Actions + Prometheus/Grafana 배포 구성
+├─ infra/aws-dev/         # AWS 개발환경 Terraform + GitHub Actions + Prometheus/Grafana/Loki 배포 구성
 └─ BrainX-Design/         # Next.js + iframe 기반 디자인 프로토타입 (포트 3000)
                           # Notion 가져오기 UI 구현됨 (BrainX-Design 전용, brainx-next와 별도)
 ```
@@ -132,6 +132,7 @@ BrainX/
 - 관리자 콘솔 mock 기준으로 관리자 계정 이메일 입력, 미확인 문의 수 배지, 답변 완료 문의의 답변 입력 숨김, 환불 시 무료 플랜 전환, 로그인 기기 국가만 표시, 구독 다음 결제일의 월간/연간 표기를 반영했습니다.
 - 관리자 생성 계정의 이메일은 로그인 후 프로필 이메일 칸까지 그대로 이어지도록 맞췄고, Billing 화면과 Admin 화면에서는 구독 시작일과 다음 결제일을 주기별(월간 30일, 연간 365일)로 표시합니다.
 - 관리자 모니터링 화면에는 검은색 `status-line` 업데이트 문구, 최근 14일 활성 사용자/매출 그래프, Excel 호환 리포트 다운로드가 추가되었습니다. 활성 사용자 추이는 전일까지는 `admin_monitoring_snapshots` persisted 이력을 사용하고, 오늘 23:59 Asia/Seoul snapshot이 아직 없으면 오늘 칸만 `User-Service` live 값으로 overlay합니다.
+- AWS dev 운영 관측 스택은 `Prometheus + Node Exporter`로 숫자 메트릭을, `Loki + Promtail`로 Docker/Spring Boot 로그를, `Grafana`로 두 데이터를 함께 조회합니다. 1차 수집 범위는 Docker 컨테이너 로그이며, EC2 시스템 로그는 2차로 Promtail scrape를 확장할 수 있도록 마운트만 먼저 열어둡니다.
 - 관리자 모니터링 우측 레일에는 관리자 목록 아래 게임 채팅형 메시지함이 있으며, 전체 발송/선택 발송과 unread `SMS` 건수, `읽음` 모달을 함께 지원합니다.
 - 환불은 관리자 사유를 함께 전달하고, 환불 안내 메일 발송과 Commerce 구독의 `free` 전환을 기준으로 사용자 화면이 주기적으로 최신 플랜을 다시 읽어오도록 맞췄습니다.
 - Commerce 환불은 `REFUNDED` 상태를 DB 체크 제약에 포함하도록 보정했고, 결제사에서 이미 취소된 결제라면 로컬 원장과 구독 상태를 `환불 완료 + free 전환`으로 재동기화하도록 처리했습니다.
