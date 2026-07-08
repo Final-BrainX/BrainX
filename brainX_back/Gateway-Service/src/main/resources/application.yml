@@ -246,7 +246,7 @@ spring:
                     fallbackUri: forward:/fallback/user
 
             - id: user-service-oauth
-              uri: ${USER_SERVICE_URL:http://localhost:8080}
+              uri: lb://User-Service
               predicates:
                 - Path=/api/v1/oauth/**
               filters:
