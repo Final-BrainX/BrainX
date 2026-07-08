@@ -78,8 +78,8 @@ export function stripDuplicateDraftTitleHeading(
   return markdown.slice(heading[0].length).replace(/^(?:[ \t]*(?:\r?\n))+/, "");
 }
 
-function markdownLinkLabel(value: string) {
-  return markdownTitleText(value).replace(/[[\]\\]/g, "\\$&") || "참고 노트";
+function markdownLinkLabel(value: string, fallback = "참고 노트") {
+  return markdownTitleText(value).replace(/[[\]\\]/g, "\\$&") || fallback;
 }
 
 function citationMarkdownLine(citation: ChatCitation, index: number) {
@@ -97,13 +97,28 @@ function citationMarkdownLine(citation: ChatCitation, index: number) {
 }
 
 function webSourceMarkdownLine(source: ChatWebSource, index: number) {
-  const label = markdownLinkLabel(
-    source.title || source.url || `웹 출처 ${index + 1}`,
-  );
-  if (!source.url) {
+  const fallback = `웹 출처 ${index + 1}`;
+  const url = source.url.trim();
+  const label = markdownLinkLabel(webSourceDomainLabel(url, fallback), fallback);
+  if (!url) {
     return `- ${label}`;
   }
-  return `- [${label}](${source.url})`;
+  return `- [${label}](${url})`;
+}
+
+function webSourceDomainLabel(url: string, fallback: string) {
+  if (!url) return fallback;
+  try {
+    return new URL(url).hostname.replace(/^www\./, "") || fallback;
+  } catch {
+    return (
+      url
+        .replace(/^https?:\/\//i, "")
+        .split(/[/?#]/)[0]
+        .replace(/^www\./i, "")
+        .trim() || fallback
+    );
+  }
 }
 
 export function buildChatDraftMarkdown(message: ChatMessageView) {

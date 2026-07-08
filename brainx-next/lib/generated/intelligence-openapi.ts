@@ -512,6 +512,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/internal/v1/intelligence/rag-answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * [Internal] RAG answer for MCP note tools
+         * @description Service-token protected RAG answer endpoint for internal callers that must provide the target userId explicitly.
+         */
+        post: operations["ragAnswerInternal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/internal/v1/intelligence/llmops/runs": {
         parameters: {
             query?: never;
@@ -759,6 +779,12 @@ export interface components {
             };
             limit?: number;
             hybridWithClientKeywordIds?: string[];
+            /**
+             * @description Search execution mode. SEMANTIC uses vector search, KEYWORD uses indexed note text/tags/title, HYBRID combines both.
+             * @default SEMANTIC
+             * @enum {string}
+             */
+            searchMode?: "SEMANTIC" | "KEYWORD" | "HYBRID";
         };
         InternalSemanticSearchRequest: {
             userId: string;
@@ -776,6 +802,51 @@ export interface components {
             };
             limit?: number;
             hybridWithClientKeywordIds?: string[];
+            /**
+             * @description Search execution mode. SEMANTIC uses vector search, KEYWORD uses indexed note text/tags/title, HYBRID combines both.
+             * @default SEMANTIC
+             * @enum {string}
+             */
+            searchMode?: "SEMANTIC" | "KEYWORD" | "HYBRID";
+        };
+        InternalRagAnswerRequest: {
+            userId: string;
+            /**
+             * @description Search scope for note context retrieval. USER searches all indexed notes owned by user; DOCUMENT_GROUP requires or defaults the document group boundary.
+             * @default USER
+             * @enum {string}
+             */
+            scope?: "DOCUMENT_GROUP" | "USER";
+            /** @description Document group boundary for DOCUMENT_GROUP scope. Must be omitted when scope is USER. */
+            documentGroupId?: string | null;
+            question: string;
+            /** @description Maximum number of note contexts to retrieve. */
+            limit?: number | null;
+            /** @description Optional AI model id. Omit to use the user's default model. */
+            modelId?: string | null;
+        };
+        RagAnswerData: {
+            answer: string;
+            citations: components["schemas"]["RagAnswerCitationData"][];
+            modelId?: string | null;
+            tokenEstimate: number;
+            charged: boolean;
+            tokenUsage?: components["schemas"]["RagAnswerTokenUsage"] | null;
+        };
+        RagAnswerCitationData: {
+            noteId: string;
+            title?: string | null;
+            excerpt: string;
+            score: number;
+            /** @enum {string} */
+            matchedType: "SEMANTIC" | "KEYWORD" | "HYBRID";
+        };
+        RagAnswerTokenUsage: {
+            promptTokens?: number | null;
+            completionTokens?: number | null;
+            totalTokens?: number | null;
+            cachedPromptTokens?: number | null;
+            reasoningTokens?: number | null;
         };
         SemanticSearchData: {
             results: {
@@ -3816,6 +3887,68 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ApiSuccessBase"] & {
                         data: components["schemas"]["SemanticSearchData"];
+                    };
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    ragAnswerInternal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InternalRagAnswerRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["RagAnswerData"];
                     };
                 };
             };

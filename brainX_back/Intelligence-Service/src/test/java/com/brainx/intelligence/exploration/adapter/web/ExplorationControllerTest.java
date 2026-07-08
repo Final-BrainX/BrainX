@@ -11,7 +11,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
-import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,18 +20,19 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase;
-import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase.GetNoteSummaryQuery;
-import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase.NoteSummaryResult;
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteIndexStatusesUseCase;
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteIndexStatusesUseCase.NoteIndexStatusView;
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteIndexStatusesUseCase.NoteIndexStatusesCommand;
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteIndexStatusesUseCase.NoteIndexStatusesResponse;
+import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase;
+import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase.GetNoteSummaryQuery;
+import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase.NoteSummaryResult;
 import com.brainx.intelligence.exploration.application.port.inbound.SemanticSearchUseCase;
 import com.brainx.intelligence.exploration.application.port.inbound.SemanticSearchUseCase.SearchResultView;
 import com.brainx.intelligence.exploration.application.port.inbound.SemanticSearchUseCase.SemanticSearchCommand;
 import com.brainx.intelligence.exploration.application.port.inbound.SemanticSearchUseCase.SemanticSearchResponse;
 import com.brainx.intelligence.exploration.domain.SearchMatchType;
+import com.brainx.intelligence.exploration.domain.SearchMode;
 import com.brainx.intelligence.exploration.domain.SearchScope;
 import com.brainx.intelligence.exploration.domain.SummarySource;
 import com.brainx.intelligence.infrastructure.security.SecurityConfig;
@@ -60,8 +60,8 @@ class ExplorationControllerTest {
             .thenReturn(new SemanticSearchResponse(
                 List.of(new SearchResultView(
                     "note-1",
-                    "RAG 검색 품질",
-                    "검색 결과에는 source note가 필요하다.",
+                    "RAG search memo",
+                    "Search results need source notes.",
                     0.91d,
                     SearchMatchType.HYBRID
                 )),
@@ -76,18 +76,19 @@ class ExplorationControllerTest {
                     {
                       "scope": "DOCUMENT_GROUP",
                       "documentGroupId": "group-1",
-                      "query": "RAG 검색",
+                      "query": "RAG search",
                       "filters": {},
                       "limit": 5,
-                      "hybridWithClientKeywordIds": ["keyword-1"]
+                      "hybridWithClientKeywordIds": ["keyword-1"],
+                      "searchMode": "HYBRID"
                     }
                     """))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success").value(true))
             .andExpect(jsonPath("$.message").value("Success"))
             .andExpect(jsonPath("$.data.results[0].noteId").value("note-1"))
-            .andExpect(jsonPath("$.data.results[0].title").value("RAG 검색 품질"))
-            .andExpect(jsonPath("$.data.results[0].excerpt").value("검색 결과에는 source note가 필요하다."))
+            .andExpect(jsonPath("$.data.results[0].title").value("RAG search memo"))
+            .andExpect(jsonPath("$.data.results[0].excerpt").value("Search results need source notes."))
             .andExpect(jsonPath("$.data.results[0].score").value(0.91d))
             .andExpect(jsonPath("$.data.results[0].matchedType").value("HYBRID"))
             .andExpect(jsonPath("$.data.tokenEstimate").value(42))
@@ -97,9 +98,10 @@ class ExplorationControllerTest {
             command.userId().equals("user-1")
                 && command.scope() == SearchScope.DOCUMENT_GROUP
                 && command.documentGroupId().equals("group-1")
-                && command.query().equals("RAG 검색")
+                && command.query().equals("RAG search")
                 && command.limit().equals(5)
                 && command.hybridWithClientKeywordIds().equals(List.of("keyword-1"))
+                && command.searchMode() == SearchMode.HYBRID
         ));
     }
 
@@ -114,7 +116,7 @@ class ExplorationControllerTest {
                 .content("""
                     {
                       "scope": "USER",
-                      "query": "전체 노트 검색"
+                      "query": "all notes"
                     }
                     """))
             .andExpect(status().isOk());
@@ -122,7 +124,8 @@ class ExplorationControllerTest {
         verify(semanticSearchUseCase).semanticSearch(argThat(command ->
             command.scope() == SearchScope.USER
                 && command.documentGroupId() == null
-                && command.query().equals("전체 노트 검색")
+                && command.query().equals("all notes")
+                && command.searchMode() == SearchMode.SEMANTIC
         ));
     }
 
@@ -139,7 +142,8 @@ class ExplorationControllerTest {
                       "userId": "user-from-mcp",
                       "scope": "USER",
                       "query": "fastapi notes",
-                      "limit": 10
+                      "limit": 10,
+                      "searchMode": "KEYWORD"
                     }
                     """))
             .andExpect(status().isOk())
@@ -153,6 +157,7 @@ class ExplorationControllerTest {
                 && command.documentGroupId() == null
                 && command.query().equals("fastapi notes")
                 && command.limit().equals(10)
+                && command.searchMode() == SearchMode.KEYWORD
         ));
     }
 
@@ -181,7 +186,7 @@ class ExplorationControllerTest {
                     {
                       "scope": "USER",
                       "documentGroupId": "group-1",
-                      "query": "전체 노트 검색"
+                      "query": "all notes"
                     }
                     """))
             .andExpect(status().isBadRequest())
@@ -241,13 +246,13 @@ class ExplorationControllerTest {
     @Test
     void getNoteSummaryMatchesOpenApiContract() throws Exception {
         when(getNoteSummaryUseCase.getNoteSummary(any(GetNoteSummaryQuery.class)))
-            .thenReturn(new NoteSummaryResult("note-1", "요약 본문", SummarySource.AI));
+            .thenReturn(new NoteSummaryResult("note-1", "summary body", SummarySource.AI));
 
         mockMvc.perform(get("/api/v1/notes/note-1/summary").with(user("user-1")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success").value(true))
             .andExpect(jsonPath("$.data.noteId").value("note-1"))
-            .andExpect(jsonPath("$.data.summary").value("요약 본문"))
+            .andExpect(jsonPath("$.data.summary").value("summary body"))
             .andExpect(jsonPath("$.data.source").value("AI"));
 
         verify(getNoteSummaryUseCase).getNoteSummary(argThat(query ->

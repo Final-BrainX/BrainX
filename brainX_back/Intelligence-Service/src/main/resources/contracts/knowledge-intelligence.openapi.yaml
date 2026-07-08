@@ -2610,6 +2610,73 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - serviceTokenAuth: []
+  /internal/v1/intelligence/rag-answer:
+    post:
+      operationId: ragAnswerInternal
+      summary: '[Internal] RAG answer for MCP note tools'
+      tags:
+      - Internal Service APIs
+      x-producer-service: knowledge-intelligence
+      x-visibility: internal
+      x-consumers:
+      - id: internal.mcp-service
+        type: internal-service
+        description: Mcp-Service ask-notes tool generates a cited answer using the API client's user context.
+      x-produces-events:
+      - TokenUsageRecordedRequested
+      x-internal-sync-calls:
+      - targetService: commerce-operations
+        operationId: checkEntitlementsInternal
+        reason: capability/quota must be decided synchronously before RAG answer generation.
+        required: true
+      x-async-boundary: false
+      description: Service-token protected RAG answer endpoint for internal callers that must provide the target userId explicitly.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InternalRagAnswerRequest'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/RagAnswerData'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - serviceTokenAuth: []
   /internal/v1/intelligence/llmops/runs:
     get:
       operationId: listLlmRunsInternal
@@ -3236,6 +3303,15 @@ components:
           type: array
           items:
             type: string
+        searchMode:
+          type: string
+          enum:
+          - SEMANTIC
+          - KEYWORD
+          - HYBRID
+          default: SEMANTIC
+          description: Search execution mode. SEMANTIC uses vector search, KEYWORD uses indexed note text/tags/title, HYBRID
+            combines both.
       required:
       - query
       additionalProperties: false
@@ -3266,9 +3342,119 @@ components:
           type: array
           items:
             type: string
+        searchMode:
+          type: string
+          enum:
+          - SEMANTIC
+          - KEYWORD
+          - HYBRID
+          default: SEMANTIC
+          description: Search execution mode. SEMANTIC uses vector search, KEYWORD uses indexed note text/tags/title, HYBRID
+            combines both.
       required:
       - userId
       - query
+      additionalProperties: false
+    InternalRagAnswerRequest:
+      type: object
+      properties:
+        userId:
+          type: string
+        scope:
+          type: string
+          enum:
+          - DOCUMENT_GROUP
+          - USER
+          default: USER
+          description: Search scope for note context retrieval. USER searches all indexed notes owned by user; DOCUMENT_GROUP
+            requires or defaults the document group boundary.
+        documentGroupId:
+          type: string
+          nullable: true
+          description: Document group boundary for DOCUMENT_GROUP scope. Must be omitted when scope is USER.
+        question:
+          type: string
+        limit:
+          type: integer
+          nullable: true
+          description: Maximum number of note contexts to retrieve.
+        modelId:
+          type: string
+          nullable: true
+          description: Optional AI model id. Omit to use the user's default model.
+      required:
+      - userId
+      - question
+      additionalProperties: false
+    RagAnswerData:
+      type: object
+      properties:
+        answer:
+          type: string
+        citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/RagAnswerCitationData'
+        modelId:
+          type: string
+          nullable: true
+        tokenEstimate:
+          type: integer
+        charged:
+          type: boolean
+        tokenUsage:
+          type: object
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/RagAnswerTokenUsage'
+      required:
+      - answer
+      - citations
+      - tokenEstimate
+      - charged
+      additionalProperties: false
+    RagAnswerCitationData:
+      type: object
+      properties:
+        noteId:
+          type: string
+        title:
+          type: string
+          nullable: true
+        excerpt:
+          type: string
+        score:
+          type: number
+        matchedType:
+          type: string
+          enum:
+          - SEMANTIC
+          - KEYWORD
+          - HYBRID
+      required:
+      - noteId
+      - excerpt
+      - score
+      - matchedType
+      additionalProperties: false
+    RagAnswerTokenUsage:
+      type: object
+      properties:
+        promptTokens:
+          type: integer
+          nullable: true
+        completionTokens:
+          type: integer
+          nullable: true
+        totalTokens:
+          type: integer
+          nullable: true
+        cachedPromptTokens:
+          type: integer
+          nullable: true
+        reasoningTokens:
+          type: integer
+          nullable: true
       additionalProperties: false
     SemanticSearchData:
       type: object

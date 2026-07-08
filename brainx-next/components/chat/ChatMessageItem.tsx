@@ -95,10 +95,10 @@ export function ChatMessageItem({
           ) : (
             <>
               {isWebSearching ? (
-                <div className="mb-2 flex min-w-0 items-center gap-2 rounded-xl border border-line/70 bg-surface2/70 px-2.5 py-1.5 text-[12px] leading-5 text-txt2">
+                <div className="mb-2 flex min-w-0 items-center gap-1.5 text-[12px] leading-5 text-txt3">
                   <Icon
                     name="refresh"
-                    size={13}
+                    size={12}
                     className="shrink-0 animate-spin text-primary"
                   />
                   <span className="min-w-0 truncate">
@@ -114,28 +114,36 @@ export function ChatMessageItem({
                 />
               ) : null}
               {hasWebSources ? (
-                <details className="mt-2 rounded-xl border border-line/60 bg-surface2/55 px-2.5 py-1.5 text-[12px] text-txt3">
-                  <summary className="flex cursor-pointer list-none items-center gap-1.5 font-semibold text-txt2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60">
-                    <Icon name="search" size={12} className="shrink-0 text-primary" />
+                <details className="group mt-2 text-[12px] leading-5 text-txt3">
+                  <summary className="flex cursor-pointer list-none items-center gap-1.5 font-semibold text-txt3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 [&::-webkit-details-marker]:hidden">
+                    <Icon
+                      name="chevR"
+                      size={12}
+                      className="shrink-0 transition-transform group-open:rotate-90"
+                    />
                     <span>웹 출처 {webSources.length}개</span>
                   </summary>
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  <ul className="mt-1.5 space-y-1 pl-4">
                     {webSources.map((source) => {
                       const host = webSourceHost(source.url);
                       return (
-                        <a
+                        <li
                           key={`${message.id}-${source.rank}-${source.url}`}
-                          href={source.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="max-w-full truncate rounded-full border border-line/70 bg-surface px-2 py-0.5 text-[11.5px] leading-5 text-txt3 transition-colors hover:border-primary/45 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                          title={host}
+                          className="min-w-0 list-disc marker:text-txt3/60"
                         >
-                          {host}
-                        </a>
+                          <a
+                            href={source.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-block max-w-full truncate align-bottom text-[11.5px] text-txt3 underline-offset-2 transition-colors hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                            title={host}
+                          >
+                            {host}
+                          </a>
+                        </li>
                       );
                     })}
-                  </div>
+                  </ul>
                 </details>
               ) : null}
             </>

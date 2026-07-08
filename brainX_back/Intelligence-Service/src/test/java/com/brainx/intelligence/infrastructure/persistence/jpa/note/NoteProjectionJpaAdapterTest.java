@@ -11,6 +11,10 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 
+import com.brainx.intelligence.exploration.application.port.outbound.NoteKeywordSearchPort.KeywordSearchQuery;
+import com.brainx.intelligence.exploration.domain.SearchMatchType;
+import com.brainx.intelligence.exploration.domain.SearchScope;
+import com.brainx.intelligence.exploration.domain.SemanticSearchResult;
 import com.brainx.intelligence.infrastructure.events.note.NoteProjection;
 import com.brainx.intelligence.infrastructure.events.note.NoteSearchIndexStatus;
 
@@ -113,6 +117,98 @@ class NoteProjectionJpaAdapterTest {
 
         assertThat(projections).extracting(NoteProjection::noteId).containsExactly("note-1");
         assertThat(projections.getFirst().markdown()).isEqualTo("indexed markdown");
+    }
+
+    @Test
+    void searchKeywordMatchesTitleMarkdownTagsAndRespectsScope() {
+        adapter.save(new NoteProjection(
+            "user-1",
+            "group-1",
+            "note-title",
+            "RAG Pipeline",
+            null,
+            List.of("architecture"),
+            1,
+            "hash-1",
+            "Semantic retrieval notes",
+            false,
+            false,
+            false,
+            false,
+            "evt-1",
+            Instant.parse("2026-06-19T00:00:00Z")
+        ).indexed(1, "hash-1", Instant.parse("2026-06-19T00:00:01Z")));
+        adapter.save(new NoteProjection(
+            "user-1",
+            "group-1",
+            "note-tag",
+            "Tooling",
+            null,
+            List.of("cli"),
+            1,
+            "hash-2",
+            "Agent workflow note",
+            false,
+            false,
+            false,
+            false,
+            "evt-2",
+            Instant.parse("2026-06-19T00:00:02Z")
+        ).indexed(1, "hash-2", Instant.parse("2026-06-19T00:00:03Z")));
+        adapter.save(new NoteProjection(
+            "user-1",
+            "group-2",
+            "note-other-group",
+            "RAG outside group",
+            null,
+            List.of(),
+            1,
+            "hash-3",
+            "Outside document group",
+            false,
+            false,
+            false,
+            false,
+            "evt-3",
+            Instant.parse("2026-06-19T00:00:04Z")
+        ).indexed(1, "hash-3", Instant.parse("2026-06-19T00:00:05Z")));
+        adapter.save(new NoteProjection(
+            "user-1",
+            "group-1",
+            "note-pending",
+            "RAG pending",
+            null,
+            List.of(),
+            1,
+            "hash-4",
+            "Pending content",
+            true,
+            false,
+            false,
+            false,
+            "evt-4",
+            Instant.parse("2026-06-19T00:00:06Z")
+        ));
+
+        var tagResults = adapter.searchKeyword(new KeywordSearchQuery(
+            "user-1",
+            SearchScope.DOCUMENT_GROUP,
+            "group-1",
+            "cli",
+            10
+        ));
+        var userResults = adapter.searchKeyword(new KeywordSearchQuery(
+            "user-1",
+            SearchScope.USER,
+            null,
+            "rag",
+            10
+        ));
+
+        assertThat(tagResults).extracting(SemanticSearchResult::noteId).containsExactly("note-tag");
+        assertThat(tagResults.getFirst().matchedType()).isEqualTo(SearchMatchType.KEYWORD);
+        assertThat(userResults).extracting(SemanticSearchResult::noteId)
+            .containsExactly("note-other-group", "note-title");
     }
 
     @Test

@@ -29,7 +29,7 @@ class BrainxNoteToolTest {
     void searchNotesRequiresReadAndSearchScopes() {
         authenticate("usr_1", List.of("notes:read"));
 
-        assertThatThrownBy(() -> tool.searchNotes("fastapi", null, null, null))
+        assertThatThrownBy(() -> tool.searchNotes("fastapi", null, null, null, null))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("ai:search");
     }
@@ -38,17 +38,61 @@ class BrainxNoteToolTest {
     void searchNotesUsesPrincipalUserAndDefaultsToUserScope() {
         authenticate("usr_1", List.of("notes:read", "ai:search"));
 
-        BrainxNoteTool.SearchNotesToolResult result = tool.searchNotes(" fastapi ", null, null, null);
+        BrainxNoteTool.SearchNotesToolResult result = tool.searchNotes(" fastapi ", null, null, null, null);
 
         assertThat(intelligenceGateway.userId).isEqualTo("usr_1");
         assertThat(intelligenceGateway.query).isEqualTo(new IntelligenceSearchGateway.SearchQuery(
             "fastapi",
             10,
             "USER",
-            null
+            null,
+            "SEMANTIC"
         ));
         assertThat(result.results()).hasSize(1);
         assertThat(result.results().getFirst().noteId()).isEqualTo("note-1");
+    }
+
+    @Test
+    void searchNotesForwardsSearchMode() {
+        authenticate("usr_1", List.of("notes:read", "ai:search"));
+
+        tool.searchNotes("fastapi", 3, "DOCUMENT_GROUP", "group-1", "keyword");
+
+        assertThat(intelligenceGateway.query).isEqualTo(new IntelligenceSearchGateway.SearchQuery(
+            "fastapi",
+            3,
+            "DOCUMENT_GROUP",
+            "group-1",
+            "KEYWORD"
+        ));
+    }
+
+    @Test
+    void askNotesRequiresReadAndSearchScopes() {
+        authenticate("usr_1", List.of("notes:read"));
+
+        assertThatThrownBy(() -> tool.askNotes("question", null, null, null, null))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("ai:search");
+    }
+
+    @Test
+    void askNotesUsesPrincipalUserAndDefaultsToUserScope() {
+        authenticate("usr_1", List.of("notes:read", "ai:search"));
+
+        BrainxNoteTool.AskNotesToolResult result = tool.askNotes(" how to search? ", null, null, null, " ");
+
+        assertThat(intelligenceGateway.askUserId).isEqualTo("usr_1");
+        assertThat(intelligenceGateway.askQuery).isEqualTo(new IntelligenceSearchGateway.AskNotesQuery(
+            "how to search?",
+            null,
+            "USER",
+            null,
+            null
+        ));
+        assertThat(result.answer()).isEqualTo("Use semantic search.");
+        assertThat(result.citations()).hasSize(1);
+        assertThat(result.modelId()).isEqualTo("model-default");
     }
 
     @Test
@@ -132,6 +176,8 @@ class BrainxNoteToolTest {
 
         private String userId;
         private SearchQuery query;
+        private String askUserId;
+        private AskNotesQuery askQuery;
 
         @Override
         public SearchResponse search(String userId, SearchQuery query) {
@@ -141,6 +187,20 @@ class BrainxNoteToolTest {
                 List.of(new SearchResult("note-1", "FastAPI", "excerpt", 0.9d, "SEMANTIC")),
                 12,
                 true
+            );
+        }
+
+        @Override
+        public AskNotesResponse askNotes(String userId, AskNotesQuery query) {
+            this.askUserId = userId;
+            this.askQuery = query;
+            return new AskNotesResponse(
+                "Use semantic search.",
+                List.of(new AskNotesCitation("note-1", "Search", "excerpt", 0.9d, "SEMANTIC")),
+                "model-default",
+                12,
+                true,
+                new AskNotesTokenUsage(8, 4, 12, 0, 0)
             );
         }
     }

@@ -24,6 +24,16 @@ class ExplorationDomainTest {
 
         assertThat(defaulted.limit()).isEqualTo(SemanticSearchQuery.DEFAULT_LIMIT);
         assertThat(capped.limit()).isEqualTo(SemanticSearchQuery.MAX_LIMIT);
+        assertThat(defaulted.searchMode()).isEqualTo(SearchMode.SEMANTIC);
+    }
+
+    @Test
+    void searchModeNormalizesCaseAndRejectsUnknownValues() {
+        assertThat(SearchMode.normalize("keyword")).isEqualTo(SearchMode.KEYWORD);
+
+        assertThatThrownBy(() -> SearchMode.normalize("unknown"))
+            .isInstanceOf(ExplorationDomainException.class)
+            .hasMessageContaining("Unsupported search mode");
     }
 
     @Test

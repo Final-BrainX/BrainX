@@ -68,6 +68,32 @@ interface NoteProjectionJpaRepository extends JpaRepository<NoteProjectionJpaEnt
         Pageable pageable
     );
 
+    @Query(value = """
+        select *
+        from intelligence_note_projections projection
+        where projection.user_id = :userId
+          and (:documentGroupId is null or projection.document_group_id = :documentGroupId)
+          and projection.archived = false
+          and projection.trashed = false
+          and projection.deleted = false
+          and projection.content_pending = false
+          and projection.markdown is not null
+          and projection.search_index_status = :status
+          and (
+            lower(projection.title) like :pattern
+            or lower(cast(projection.markdown as varchar)) like :pattern
+            or lower(cast(projection.tags as varchar)) like :pattern
+          )
+        order by projection.updated_at desc, projection.note_id asc
+        """, nativeQuery = true)
+    List<NoteProjectionJpaEntity> findKeywordSearchable(
+        @Param("userId") String userId,
+        @Param("documentGroupId") String documentGroupId,
+        @Param("status") String status,
+        @Param("pattern") String pattern,
+        Pageable pageable
+    );
+
     @Query("""
         select projection
         from NoteProjectionJpaEntity projection
