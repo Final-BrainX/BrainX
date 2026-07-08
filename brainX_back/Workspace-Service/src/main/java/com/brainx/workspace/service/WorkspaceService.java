@@ -40,6 +40,17 @@ public class WorkspaceService {
     private static final Pattern HTML_WIKI_LINK_PATTERN = Pattern.compile("<span\\b[^>]*data-wiki-link[^>]*>.*?</span>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final Pattern RAW_WIKI_LINK_PATTERN = Pattern.compile("\\[\\[([^\\[\\]]+)]]");
     private static final Pattern HTML_ATTRIBUTE_PATTERN = Pattern.compile("([\\w:-]+)\\s*=\\s*([\"'])(.*?)\\2", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    // 노트 제목 앞에 붙은 이모지 아이콘(📄, 🔲 등)을 위키링크 제목 매칭에서 무시하기 위한
+    // 패턴 — brainx-next/lib/wiki-links.ts의 normalizeTitleForMatch와 동일한 규칙을 따른다.
+    // DB의 exact-match 쿼리(findFirst...AndTitleAndDeletedFalse)는 제목에 이모지가 붙어 있으면
+    // 항상 실패해 "이미 있는 노트인데 새로 만들기"로 빠지므로, 후보를 폭넓게 조회한 뒤 이
+    // 패턴으로 정규화해서 애플리케이션 코드에서 비교한다.
+    private static final Pattern LEADING_EMOJI_PATTERN = Pattern.compile("^[\\p{IsExtended_Pictographic}\\x{FE0F}\\x{200D}]+\\s*");
+    // 제목에 & 같은 문자가 있으면 저장/직렬화 경로를 거치며 실수로 두 번 이스케이프되어
+    // "&amp;amp;"처럼 남는 경우가 있다 — 실제 제목은 "&"(1글자)인데 링크에 박제된 값은
+    // "&amp;"(문자 그대로 5글자)라 이모지를 떼어내도 매칭에 절대 실패한다.
+    // normalizeTitleForMatch에서 안정될 때까지 반복 디코딩해 흡수한다.
+    private static final Pattern HTML_ENTITY_PATTERN = Pattern.compile("&(amp|lt|gt|quot|#39|apos);");
     // Gateway-Service(JwtAuthenticationGlobalFilter)가 발급/검증하는 guest id 형식과 동일하다
     // (gst_[A-Za-z0-9_-]{16,80}). Guest는 Workspace를 가지면 안 되므로 이 prefix로 식별되는
     // userId에 대해서는 default Workspace 자동 생성을 절대 트리거하지 않는다.
@@ -613,7 +624,7 @@ public class WorkspaceService {
         }
         boolean[] createdTarget = {false};
         Note target = request.targetNoteId() == null
-                ? noteRepository.findFirstByUserIdAndDocumentGroupIdAndTitleAndDeletedFalse(
+                ? findNoteByNormalizedTitle(
                         userId,
                         source.getDocumentGroupId(),
                         request.targetTitle().trim()
@@ -1009,7 +1020,7 @@ public class WorkspaceService {
             // documentGroupId(null이면 null끼리만, Ticket8 findSiblingsBy...와 동일한 null-매치
             // 규칙) 안에서만 target을 찾는다 — 그래야 동일 제목 노트가 여러 Workspace에 있어도
             // 다른 Workspace의 노트가 잘못 연결되지 않는다.
-            Note target = noteRepository.findFirstByUserIdAndDocumentGroupIdAndTitleAndDeletedFalse(
+            Note target = findNoteByNormalizedTitle(
                             source.getUserId(), source.getDocumentGroupId(), parsed.title())
                     .orElse(null);
             if (target == null || Objects.equals(target.getNoteId(), source.getNoteId())) {
@@ -1150,11 +1161,57 @@ public class WorkspaceService {
         return Optional.of(new ParsedWikiLink(title, normalizeAnchorText(alias, title), headingAnchor));
     }
 
+    /** syncIncomingWikiLinksForTitle이 (새 노트가 막 생겼을 때 그 제목을 참조하던 기존 노트를
+        찾기 위해) 모든 노트를 다 재동기화하지 않도록 거르는 값싼 사전 필터 — 실제 매칭은
+        findNoteByNormalizedTitle이 한다. 제목 앞의 이모지 아이콘을 무시하지 않으면, 노트
+        제목은 "🍽️ 푸디스트 ..."인데 다른 노트가 이모지 없이 [[푸디스트 ...]]로만 참조한
+        경우(흔한 사용 패턴 — 이모지는 장식으로 여기고 안 타이핑함) 여기서 걸러져 버려서
+        해당 노트가 syncWikiLinksForNote까지 가지도 못하고 백링크가 영영 안 생긴다. 제목에 &
+        같은 문자가 있을 때 저장 경로에서 이중 이스케이프된("&amp;amp;") 흔적도 같은 이유로
+        걸러지지 않도록 디코딩한 형태도 같이 확인한다. */
     private boolean noteMayReferenceTitle(String markdown, String noteTitle) {
         if (markdown == null || markdown.isBlank()) {
             return false;
         }
-        return markdown.contains(noteTitle);
+        if (markdown.contains(noteTitle)) {
+            return true;
+        }
+        String withoutLeadingEmoji = LEADING_EMOJI_PATTERN.matcher(noteTitle.trim()).replaceFirst("");
+        if (!withoutLeadingEmoji.equals(noteTitle) && markdown.contains(withoutLeadingEmoji)) {
+            return true;
+        }
+        String decoded = decodeHtmlEntities(noteTitle);
+        return !decoded.equals(noteTitle) && markdown.contains(decoded);
+    }
+
+    /** 저장/직렬화 경로에서 실수로 두 번 이스케이프된 "&amp;amp;" 같은 값을 실제 문자("&")로
+        되돌린다. 더 이상 안 바뀔 때까지(최대 5회) 반복해 이중/삼중 이스케이프도 흡수한다 —
+        정상적으로 한 번만 이스케이프된 값은 한 번 돌고 더 이상 안 바뀌어 끝난다.
+        brainx-next/lib/wiki-links.ts의 decodeHtmlEntities와 규칙을 맞춘다. */
+    private String decodeHtmlEntities(String value) {
+        String current = value;
+        for (int i = 0; i < 5; i++) {
+            Matcher matcher = HTML_ENTITY_PATTERN.matcher(current);
+            StringBuilder next = new StringBuilder();
+            while (matcher.find()) {
+                String decoded = switch (matcher.group(1)) {
+                    case "amp" -> "&";
+                    case "lt" -> "<";
+                    case "gt" -> ">";
+                    case "quot" -> "\"";
+                    case "#39", "apos" -> "'";
+                    default -> matcher.group();
+                };
+                matcher.appendReplacement(next, Matcher.quoteReplacement(decoded));
+            }
+            matcher.appendTail(next);
+            String candidate = next.toString();
+            if (candidate.equals(current)) {
+                break;
+            }
+            current = candidate;
+        }
+        return current;
     }
 
     private String normalizeAnchorText(String candidate, String fallback) {
@@ -1168,6 +1225,31 @@ public class WorkspaceService {
         }
         String trimmed = value.trim();
         return trimmed.isBlank() ? null : trimmed;
+    }
+
+    /** 노트 제목 매칭(위키링크 대상 노트 조회)에 쓰는 정규화 — HTML 엔티티를 디코딩하고
+        선행 이모지 아이콘을 제거한 뒤 공백을 한 칸으로 접고 소문자로 비교한다.
+        brainx-next/lib/wiki-links.ts의 normalizeTitleForMatch와 규칙을 맞춘다. */
+    private String normalizeTitleForMatch(String title) {
+        if (title == null) {
+            return "";
+        }
+        String decoded = decodeHtmlEntities(title.trim());
+        String withoutLeadingEmoji = LEADING_EMOJI_PATTERN.matcher(decoded).replaceFirst("");
+        return withoutLeadingEmoji.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+    }
+
+    /** findFirstByUserIdAndDocumentGroupIdAndTitleAndDeletedFalse의 exact-match는 제목에
+        이모지가 붙어 있으면(Notion 가져오기 등) 항상 실패해 위키링크가 "새 노트 생성"으로
+        잘못 빠진다 — 같은 Workspace 후보를 폭넓게 조회한 뒤 정규화한 제목으로 비교한다. */
+    private Optional<Note> findNoteByNormalizedTitle(String userId, String documentGroupId, String title) {
+        String needle = normalizeTitleForMatch(title);
+        if (needle.isEmpty()) {
+            return Optional.empty();
+        }
+        return noteRepository.findByUserIdAndDocumentGroupIdAndDeletedFalse(userId, documentGroupId).stream()
+                .filter(n -> normalizeTitleForMatch(n.getTitle()).equals(needle))
+                .min(Comparator.comparing(Note::getCreatedAt));
     }
 
     private String displayLinkedText(NoteLink link) {

@@ -56,7 +56,7 @@ export function AiUsageLimitModal() {
           <button
             type="button"
             onClick={goPrimary}
-            className="h-11 w-full rounded-full bg-txt text-[14px] font-semibold text-bg2 transition-opacity hover:opacity-90"
+            className="h-11 w-full rounded-full bg-gradient-to-b from-primary to-primary text-[14px] font-semibold text-white shadow-glow transition-all hover:brightness-110"
           >
             {primaryLabel}
           </button>
