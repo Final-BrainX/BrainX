@@ -7,7 +7,7 @@ import { Icon } from "@/components/brainx-ui";
 import { MockFolder, MockNote } from "@/lib/notes/noteTypes";
 import { MOCK_CONTEXT_DATA } from "@/lib/notes/mockNotes";
 import { readAuthSession } from "@/lib/auth-api";
-import { contentHasWikiLinkTo, extractResolvedWikiLinkTargets, resolveWikiLinkByTitle } from "@/lib/wiki-links";
+import { extractResolvedWikiLinkTargets, resolveWikiLinkByTitle } from "@/lib/wiki-links";
 import {
   AiUsageLimitExceededError,
   createChatThread,
@@ -27,6 +27,7 @@ import {
   type LinkSuggestionEdge,
 } from "@/lib/link-suggestions";
 import { getNote, matchesWorkspaceScope, updateWorkspaceNoteContent, USE_MOCK_NOTES, WorkspaceApiError } from "@/lib/workspace-api";
+import { contentHasWikiLinkTo } from "@/lib/wiki-links";
 import { useBrainX } from "@/components/brainx-provider";
 import { useWorkspace } from "@/components/workspace-provider";
 import {
