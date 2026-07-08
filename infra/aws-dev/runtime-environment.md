@@ -221,6 +221,10 @@ aws configure --profile brainx-dev
 - `Admin-Service` resolves `User-Service`, `Commerce-Service`, and `Workspace-Service` through load-balanced `RestClient` beans instead of container IPs or hardcoded Docker DNS names.
 - `Intelligence-Service` still uses its direct Workspace base URL for now; that client can move to Eureka later without changing the deploy wiring again.
 
+## Desktop Installer Delivery
+
+Desktop installer artifacts are not stored in Git history or GitHub repository variables. In AWS dev, the `brainx-dev-deploy` workflow uploads the Windows installer to `s3://$AWS_DEV_ASSET_BUCKET/desktop-installers/latest/BrainX Setup 0.1.0.exe` and then downloads that object into `brainx-next/public/downloads/` before the frontend image build. Keep installer delivery in S3 object storage and reserve GitHub variables for small non-secret deploy settings only.
+
 ## AI Agent Guide
 
 AI agent가 환경변수 관련 repo 변경을 수행할 때는 아래 순서를 따른다.
