@@ -35,6 +35,7 @@ public class McpRagAnswerService implements AskNotesUseCase {
     static final String MCP_RAG_ANSWER_FEATURE_ID = "mcp-rag-answer";
     private static final String PROMPT_KEY = "mcp-rag-answer";
     private static final String PROMPT_VERSION = "v1";
+    private static final int PREFLIGHT_CONTEXT_CHARS_PER_CHUNK = 800;
 
     private final NoteChunkRetrievalPort noteChunkRetrievalPort;
     private final ChatEntitlementGuard entitlementGuard;
@@ -63,6 +64,8 @@ public class McpRagAnswerService implements AskNotesUseCase {
         SearchScope scope = command.scope() == null ? SearchScope.USER : command.scope();
         String documentGroupId = normalizeDocumentGroupId(scope, command.documentGroupId());
         int limit = NoteChunkSearchQuery.normalizeTopK(command.limit() == null ? 0 : command.limit());
+        String modelId = resolveModelId(userId, command.modelId());
+        entitlementGuard.checkRagChat(userId, preflightTokenEstimate(question, limit));
 
         List<NoteChunkSearchResult> chunks = noteChunkRetrievalPort.searchChunks(new NoteChunkSearchQuery(
             userId,
@@ -83,7 +86,6 @@ public class McpRagAnswerService implements AskNotesUseCase {
             );
         }
 
-        String modelId = resolveModelId(userId, command.modelId());
         String systemPrompt = systemPrompt();
         String userPrompt = userPrompt(question, chunks);
         int tokenEstimate = estimateTokens(systemPrompt + "\n" + userPrompt);
@@ -215,6 +217,15 @@ public class McpRagAnswerService implements AskNotesUseCase {
     private static int estimateTokens(String text) {
         String safeText = text == null ? "" : text;
         return Math.max(1, (safeText.length() + 3) / 4);
+    }
+
+    private static int preflightTokenEstimate(String question, int limit) {
+        int promptChars = systemPrompt().length()
+            + "Question:\n".length()
+            + (question == null ? 0 : question.length())
+            + "\n\nBrainX note excerpts:\n".length()
+            + (limit * PREFLIGHT_CONTEXT_CHARS_PER_CHUNK);
+        return Math.max(1, (promptChars + 3) / 4);
     }
 
     private static String requireText(String value, String name) {

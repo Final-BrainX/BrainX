@@ -19,6 +19,8 @@ import com.brainx.intelligence.exploration.domain.SemanticSearchResult;
 import com.brainx.intelligence.infrastructure.events.note.NoteProjection;
 import com.brainx.intelligence.infrastructure.events.note.NoteSearchIndexStatus;
 
+import jakarta.persistence.EntityManager;
+
 @DataJpaTest
 @ActiveProfiles("test")
 @Import(NoteProjectionJpaAdapter.class)
@@ -26,6 +28,9 @@ class NoteProjectionJpaAdapterTest {
 
     @Autowired
     private NoteProjectionJpaAdapter adapter;
+
+    @Autowired
+    private EntityManager entityManager;
 
     @Test
     void saveAndFindProjectionPreservesTagsAndState() {
@@ -124,6 +129,7 @@ class NoteProjectionJpaAdapterTest {
     void graphAiSourcesAllowActiveMarkdownWithoutIndexedStatusButSearchableStaysIndexedOnly() {
         adapter.save(sourceProjection("indexed", "Indexed", "indexed markdown", NoteSearchIndexStatus.INDEXED, false, false, false, false, "2026-06-19T00:00:01Z")
             .indexed(1, "hash-indexed", Instant.parse("2026-06-19T00:00:02Z")));
+        adapter.save(sourceProjection("legacy-null", "Legacy null", "legacy null markdown", NoteSearchIndexStatus.NOT_INDEXED, false, false, false, false, "2026-06-19T00:00:02Z"));
         adapter.save(sourceProjection("not-indexed", "Not indexed", "not indexed markdown", NoteSearchIndexStatus.NOT_INDEXED, false, false, false, false, "2026-06-19T00:00:03Z"));
         adapter.save(sourceProjection("stale", "Stale", "stale markdown", NoteSearchIndexStatus.STALE, false, false, false, false, "2026-06-19T00:00:04Z"));
         adapter.save(sourceProjection("failed", "Failed", "failed markdown", NoteSearchIndexStatus.FAILED, false, false, false, false, "2026-06-19T00:00:05Z"));
@@ -133,6 +139,15 @@ class NoteProjectionJpaAdapterTest {
         adapter.save(sourceProjection("trashed", "Trashed", "trashed markdown", NoteSearchIndexStatus.STALE, false, false, true, false, "2026-06-19T00:00:09Z"));
         adapter.save(sourceProjection("deleted", "Deleted", "deleted markdown", NoteSearchIndexStatus.STALE, false, false, false, true, "2026-06-19T00:00:10Z"));
         adapter.save(sourceProjection("removed", "Removed", "removed markdown", NoteSearchIndexStatus.REMOVED, false, false, false, false, "2026-06-19T00:00:11Z"));
+        entityManager.createNativeQuery("""
+                update intelligence_note_projections
+                set search_index_status = null
+                where note_id = :noteId
+                """)
+            .setParameter("noteId", "legacy-null")
+            .executeUpdate();
+        entityManager.flush();
+        entityManager.clear();
 
         var indexedOnly = adapter.findSearchableByUserIdAndDocumentGroupId("user-1", "group-1", 20);
         var linkSources = adapter.findGraphAiNoteSources("user-1", "group-1", 20);
@@ -140,16 +155,16 @@ class NoteProjectionJpaAdapterTest {
         var indexStatuses = adapter.findNoteIndexStatuses(
             "user-1",
             "group-1",
-            List.of("indexed", "not-indexed", "stale", "failed", "pending", "no-markdown", "archived", "trashed", "deleted", "removed")
+            List.of("indexed", "legacy-null", "not-indexed", "stale", "failed", "pending", "no-markdown", "archived", "trashed", "deleted", "removed")
         );
 
         assertThat(indexedOnly).extracting(NoteProjection::noteId).containsExactly("indexed");
-        assertThat(linkSources).extracting("noteId").containsExactly("failed", "stale", "not-indexed", "indexed");
-        assertThat(clusteringSources).extracting("noteId").containsExactly("failed", "stale", "not-indexed", "indexed");
+        assertThat(linkSources).extracting("noteId").containsExactly("failed", "stale", "not-indexed", "legacy-null", "indexed");
+        assertThat(clusteringSources).extracting("noteId").containsExactly("failed", "stale", "not-indexed", "legacy-null", "indexed");
         assertThat(indexStatuses).extracting("noteId")
-            .containsExactlyInAnyOrder("indexed", "not-indexed", "stale", "failed", "pending", "no-markdown", "archived", "trashed", "deleted", "removed");
+            .containsExactlyInAnyOrder("indexed", "legacy-null", "not-indexed", "stale", "failed", "pending", "no-markdown", "archived", "trashed", "deleted", "removed");
         assertThat(indexStatuses)
-            .filteredOn(status -> Set.of("indexed", "not-indexed", "stale", "failed").contains(status.noteId()))
+            .filteredOn(status -> Set.of("indexed", "legacy-null", "not-indexed", "stale", "failed").contains(status.noteId()))
             .extracting("availableForAiFeatures")
             .containsOnly(true);
         assertThat(indexStatuses)
