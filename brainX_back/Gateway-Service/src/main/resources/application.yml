@@ -78,6 +78,8 @@ spring:
               uri: lb://intelligence-service
               predicates:
                 - Path=/api/v1/notes/{noteId}/summary
+              metadata:
+                response-timeout: 120000
               filters:
                 - name: CircuitBreaker
                   args:
@@ -107,6 +109,8 @@ spring:
               uri: lb://intelligence-service
               predicates:
                 - Path=/api/v1/intelligence/**,/api/v1/ai/**
+              metadata:
+                response-timeout: 120000
               filters:
                 - name: CircuitBreaker
                   args:
@@ -335,10 +339,10 @@ resilience4j:
       # 이 값은 그 전까지의 임시 완화책이다.
       ingestionServiceCircuitBreaker:
         timeout-duration: 60s
-      # 채팅/에이전트 등 실제 LLM 호출(SSE 스트리밍 포함)은 1s 안에 끝나지 않는 게 정상이라,
-      # 기본 1s로는 정상 응답도 전부 503(fallback)으로 끊긴다. 위 두 케이스와 동일한 문제.
+      # 채팅/에이전트/클러스터링/요약 등 실제 LLM 호출은 수 초~수십 초가 정상 범위라,
+      # 기본 1s 또는 Gateway 전역 5s로는 정상 응답도 503(fallback)으로 끊긴다.
       intelligenceServiceCircuitBreaker:
-        timeout-duration: 30s
+        timeout-duration: 120s
 
 eureka:
   client:
