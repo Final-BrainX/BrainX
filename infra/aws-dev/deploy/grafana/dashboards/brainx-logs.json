@@ -31,7 +31,7 @@
         "refresh": 1,
         "includeAll": true,
         "multi": true,
-        "allValue": ".*",
+        "allValue": ".+",
         "current": {
           "selected": true,
           "text": [
@@ -47,11 +47,11 @@
         "label": "Stream",
         "type": "query",
         "datasource": "Loki",
-        "query": "label_values({service=~\"$service\"}, stream)",
+        "query": "label_values({job=\"docker\", service=~\"$service\"}, stream)",
         "refresh": 1,
         "includeAll": true,
         "multi": true,
-        "allValue": ".*",
+        "allValue": ".+",
         "current": {
           "selected": true,
           "text": [
