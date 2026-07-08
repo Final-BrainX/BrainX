@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clusterById, type BrainXNote } from "@/lib/brainx-data";
 import { useBrainX } from "@/components/brainx-provider";
@@ -31,6 +31,15 @@ import {
 import { getMyWorkspaceStats, getWorkspaceDisplayName, type WorkspaceUserStatsData } from "@/lib/workspace-api";
 import { summarizeWorkspaceNotes } from "@/lib/workspace-note-stats";
 import { cx } from "@/lib/utils";
+
+const HOME_LIGHT_CANVAS_STYLE = {
+  "--surface": "255 255 255",
+  "--surface2": "248 250 252",
+  "--txt": "15 23 42",
+  "--txt2": "71 85 105",
+  "--txt3": "100 116 139",
+  "--border": "226 232 240",
+} as CSSProperties;
 
 function userNameFromSession() {
   const session = readAuthSession();
@@ -546,8 +555,8 @@ function UserInsightDashboard({
         ))}
       </div>
 
-      <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1.03fr)_minmax(0,1fr)]">
-        <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-line/70 bg-surface shadow-[0_18px_50px_-36px_rgb(15_23_42_/_0.5)]">
+      <div className="grid min-w-0 gap-5 xl:auto-rows-[460px] xl:grid-cols-2 xl:items-stretch">
+        <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-line/70 bg-surface shadow-[0_18px_50px_-36px_rgb(15_23_42_/_0.5)] xl:h-full xl:min-h-0">
           <div className="flex items-center justify-between gap-3 border-b border-line/60 px-5 py-4">
             <div className="flex min-w-0 items-center gap-2.5">
               <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-accent/[0.12] text-accent">
@@ -570,7 +579,7 @@ function UserInsightDashboard({
               {insightStatus === "generating" ? "생성 중" : insightActionLabel}
             </button>
           </div>
-          <div className="flex-1 space-y-4 p-5">
+          <div className="scroll min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-5">
             <div className="rounded-xl border border-line/60 bg-surface p-4 text-[13px] leading-6 text-txt">
               현재 <strong>{totalNotes}개 노트</strong>와 <strong>{totalLinks}개 연결</strong>이 실제 Workspace 데이터와 동기화되어 있어요.
               {recentActivityTitle ? <> 최근에 업데이트된 노트는 <strong>&quot;{recentActivityTitle}&quot;</strong>입니다.</> : null}
@@ -625,7 +634,7 @@ function UserInsightDashboard({
           </div>
         </section>
 
-        <section className="flex max-h-[70vh] min-h-[min(320px,70vh)] min-w-0 flex-col overflow-hidden rounded-2xl border border-line/70 bg-surface shadow-[0_18px_50px_-36px_rgb(15_23_42_/_0.5)] lg:min-h-[420px] lg:max-h-[620px]">
+        <section className="flex max-h-[70vh] min-h-[min(320px,70vh)] min-w-0 flex-col overflow-hidden rounded-2xl border border-line/70 bg-surface shadow-[0_18px_50px_-36px_rgb(15_23_42_/_0.5)] lg:min-h-[420px] lg:max-h-[620px] xl:h-full xl:min-h-0 xl:max-h-none">
           <div className="flex items-center justify-between gap-3 border-b border-line/60 px-5 py-4">
             <div className="flex min-w-0 items-center gap-2.5">
               <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-orange-500/[0.12] text-orange-500">
@@ -655,7 +664,7 @@ function UserInsightDashboard({
           </div>
         </section>
 
-        <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-line/70 bg-surface shadow-[0_18px_50px_-36px_rgb(15_23_42_/_0.5)]">
+        <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-line/70 bg-surface shadow-[0_18px_50px_-36px_rgb(15_23_42_/_0.5)] xl:h-full xl:min-h-0">
           <div className="flex items-center justify-between gap-3 border-b border-line/60 px-5 py-4">
             <div className="flex min-w-0 items-center gap-2.5">
               <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-emerald-500/[0.12] text-emerald-500">
@@ -684,7 +693,7 @@ function UserInsightDashboard({
               </div>
             </div>
           </div>
-          <div className="flex flex-1 flex-col justify-center p-5">
+          <div className="scroll min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
             <div className="mb-3 rounded-xl border border-line/60 bg-surface px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-[12px] font-semibold text-txt">{clusterStateMessage.title}</div>
@@ -791,7 +800,7 @@ function UserInsightDashboard({
           </div>
         </section>
 
-        <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-line/70 bg-surface shadow-[0_18px_50px_-36px_rgb(15_23_42_/_0.5)]">
+        <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-line/70 bg-surface shadow-[0_18px_50px_-36px_rgb(15_23_42_/_0.5)] xl:h-full xl:min-h-0">
           <div className="flex items-center justify-between gap-3 border-b border-line/60 px-5 py-4">
             <div className="flex min-w-0 items-center gap-2.5">
               <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-accent/[0.12] text-accent">
@@ -803,7 +812,7 @@ function UserInsightDashboard({
               연결 추천 <Icon name="chevR" size={12} />
             </button>
           </div>
-          <div className="flex flex-1 flex-col justify-center p-5">
+          <div className="scroll flex min-h-0 flex-1 flex-col justify-center overflow-y-auto overscroll-contain p-5">
             <div className="relative overflow-hidden rounded-xl border border-line/60 bg-surface p-5">
               <div className="flex items-start gap-3">
                 <div className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent/[0.12] text-accent">
@@ -917,7 +926,10 @@ export function HomeScreen() {
 
   return (
     <div data-route className="flex min-h-full w-full items-start justify-center px-3 py-4 md:px-6 lg:px-8 lg:py-8">
-      <div className="w-full max-w-[1360px] overflow-hidden rounded-[28px] border border-line/70 bg-surface p-5 shadow-[0_28px_90px_-56px_rgb(15_23_42_/_0.5)] md:p-8 lg:p-10">
+      <div
+        className="w-full max-w-[1360px] overflow-hidden rounded-[28px] border border-line/70 bg-white p-5 shadow-[0_28px_90px_-56px_rgb(15_23_42_/_0.5)] md:p-8 lg:p-10"
+        style={HOME_LIGHT_CANVAS_STYLE}
+      >
         <div className="mb-7 grid gap-6 lg:grid-cols-[minmax(0,1fr)_370px] lg:items-start">
           <div className="min-w-0">
             <p className="mb-3 flex flex-wrap items-center gap-2 text-[12px] font-semibold text-txt3">

@@ -95,7 +95,7 @@ class MarkdownNoteChunkerTest {
             "user-1",
             "note-1",
             "Comparison",
-            "A &lt; B &amp; C &gt; D\n\nX < Y & Z > W",
+            "A &lt; B &amp; C &gt; D\n\nX < Y & Z > W\n\nx&lt;y&gt;z List&lt;T&gt;\n\nraw x<y>z List<T>",
             List.of(),
             "hash-1",
             1
@@ -104,7 +104,9 @@ class MarkdownNoteChunkerTest {
         assertThat(chunks).hasSize(1);
         assertThat(chunks.getFirst().chunkText())
             .contains("A < B & C > D")
-            .contains("X < Y & Z > W");
+            .contains("X < Y & Z > W")
+            .contains("x<y>z List<T>")
+            .contains("raw x<y>z List<T>");
     }
 
     @Test

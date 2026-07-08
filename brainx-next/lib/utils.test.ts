@@ -21,8 +21,16 @@ test("stripMarkdown keeps escaped angle-bracket text that is not an HTML tag", (
   assert.equal(stripMarkdown("A &lt; B &amp; C &gt; D"), "A < B & C > D");
 });
 
+test("stripMarkdown keeps escaped generic-looking angle-bracket text", () => {
+  assert.equal(stripMarkdown("x&lt;y&gt;z List&lt;T&gt;"), "x<y>z List<T>");
+});
+
 test("stripMarkdown keeps raw angle-bracket text that is not an HTML tag", () => {
   assert.equal(stripMarkdown("A < B & C > D"), "A < B & C > D");
+});
+
+test("stripMarkdown keeps raw generic-looking angle-bracket text", () => {
+  assert.equal(stripMarkdown("x<y>z List<T>"), "x<y>z List<T>");
 });
 
 test("stripMarkdown keeps markdown cleanup after HTML cleanup", () => {

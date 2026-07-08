@@ -22,7 +22,8 @@ public class MarkdownNoteChunker {
     private static final Pattern HTML_COMMENT = Pattern.compile("<!--.*?-->", Pattern.DOTALL);
     private static final Pattern HTML_BREAK_TAG = Pattern.compile("<br\\s*/?>", Pattern.CASE_INSENSITIVE);
     private static final Pattern HTML_BLOCK_END_TAG = Pattern.compile("</(?:address|article|aside|blockquote|dd|div|dl|dt|figcaption|figure|footer|h[1-6]|header|hr|li|main|nav|ol|p|pre|section|table|tbody|td|tfoot|th|thead|tr|ul)\\s*>", Pattern.CASE_INSENSITIVE);
-    private static final Pattern HTML_TAG = Pattern.compile("</?[A-Za-z][A-Za-z0-9:-]*(?:\\s+[^<>]*)?\\s*/?>");
+    private static final String HTML_TAG_NAME = "a|abbr|address|area|article|aside|audio|b|blockquote|body|br|button|canvas|caption|cite|code|col|colgroup|data|datalist|dd|del|details|dfn|dialog|div|dl|dt|em|embed|figcaption|figure|footer|form|h[1-6]|head|header|hr|html|i|iframe|img|input|ins|kbd|label|legend|li|link|main|map|mark|meta|meter|nav|noscript|object|ol|optgroup|option|output|p|picture|pre|progress|q|rp|rt|ruby|s|samp|script|section|select|small|source|span|strong|style|sub|summary|sup|svg|table|tbody|td|template|textarea|tfoot|th|thead|time|title|tr|track|u|ul|var|video|wbr";
+    private static final Pattern HTML_TAG = Pattern.compile("</?(?:" + HTML_TAG_NAME + ")(?:\\s+[^<>]*)?\\s*/?>", Pattern.CASE_INSENSITIVE);
     private static final Pattern HTML_ENTITY = Pattern.compile("&(#x[0-9a-fA-F]+|#\\d+|[A-Za-z][A-Za-z0-9]+);");
 
     private final int maxChunkLength;

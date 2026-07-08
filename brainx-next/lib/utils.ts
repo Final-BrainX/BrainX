@@ -49,7 +49,8 @@ function decodeHtmlEntities(value: string) {
 }
 
 function stripHtml(value: string) {
-  const htmlTagPattern = /<\/?[A-Za-z][A-Za-z0-9:-]*(?:\s+[^<>]*)?\s*\/?>/g;
+  const htmlTagNamePattern = "a|abbr|address|area|article|aside|audio|b|blockquote|body|br|button|canvas|caption|cite|code|col|colgroup|data|datalist|dd|del|details|dfn|dialog|div|dl|dt|em|embed|figcaption|figure|footer|form|h[1-6]|head|header|hr|html|i|iframe|img|input|ins|kbd|label|legend|li|link|main|map|mark|meta|meter|nav|noscript|object|ol|optgroup|option|output|p|picture|pre|progress|q|rp|rt|ruby|s|samp|script|section|select|small|source|span|strong|style|sub|summary|sup|svg|table|tbody|td|template|textarea|tfoot|th|thead|time|title|tr|track|u|ul|var|video|wbr";
+  const htmlTagPattern = new RegExp(`</?(?:${htmlTagNamePattern})(?:\\s+[^<>]*)?\\s*/?>`, "gi");
   const withoutTags = value
     .replace(/<!--[\s\S]*?-->/g, " ")
     .replace(/<br\s*\/?>/gi, " ")
