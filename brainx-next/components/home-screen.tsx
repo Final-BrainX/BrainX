@@ -536,8 +536,8 @@ function UserInsightDashboard({
         ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_1.1fr]">
-        <div className="flex flex-col rounded-2xl border border-line/60 bg-surface/40 overflow-hidden">
+      <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+        <div className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-line/60 bg-surface/40">
           <div className="flex items-center justify-between border-b border-line/60 bg-surface p-4">
             <div className="flex items-center gap-2">
               <div className="grid h-[26px] w-[26px] place-items-center rounded-[0.4rem] bg-accent/15 text-accent">
@@ -622,7 +622,7 @@ function UserInsightDashboard({
           </div>
         </div>
 
-        <div className="flex flex-col rounded-2xl border border-line/60 bg-surface/40 overflow-hidden">
+        <div className="flex max-h-[70vh] min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-line/60 bg-surface/40 lg:max-h-[620px]">
           <div className="flex items-center justify-between border-b border-line/60 bg-surface p-4">
             <div className="flex items-center gap-2">
               <div className="grid h-[26px] w-[26px] place-items-center rounded-[0.4rem] bg-orange-500/15 text-orange-500">
@@ -635,16 +635,16 @@ function UserInsightDashboard({
             </div>
           </div>
 
-          <div className="flex-1 flex flex-col justify-start">
+          <div className="flex min-h-0 flex-1 flex-col justify-start overflow-y-auto overscroll-contain">
             {visibleInsightItems.map((insight, index) => (
-              <div key={index} className="flex items-stretch gap-3 border-b border-line/40 bg-surface/60 p-4 transition-colors hover:bg-surface cursor-default last:border-b-0">
+              <div key={index} className="flex min-w-0 cursor-default items-stretch gap-3 border-b border-line/40 bg-surface/60 p-4 transition-colors hover:bg-surface last:border-b-0">
                 <div className="w-[3px] shrink-0 rounded-full" style={{ background: insight.color }} />
-                <div className="flex-1">
+                <div className="min-w-0 flex-1">
                   <div className="mb-1 text-[15px] font-semibold uppercase tracking-wider" style={{ color: insight.color }}>{insight.tag}</div>
                   {insight.html ? (
-                    <div className="text-[13px] leading-relaxed text-txt2" dangerouslySetInnerHTML={{ __html: insight.html }} />
+                    <div className="break-words text-[13px] leading-relaxed text-txt2 [overflow-wrap:anywhere]" dangerouslySetInnerHTML={{ __html: insight.html }} />
                   ) : (
-                    <div className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-txt2">{insight.text}</div>
+                    <div className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-txt2 [overflow-wrap:anywhere]">{insight.text}</div>
                   )}
                 </div>
               </div>
@@ -652,7 +652,7 @@ function UserInsightDashboard({
           </div>
         </div>
 
-        <div className="flex flex-col rounded-2xl border border-line/60 bg-surface/40 overflow-hidden">
+        <div className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-line/60 bg-surface/40">
           <div className="flex items-center justify-between border-b border-line/60 bg-surface p-4">
             <div className="flex items-center gap-2">
               <div className="grid h-[26px] w-[26px] place-items-center rounded-[0.4rem] bg-emerald-500/15 text-emerald-500">
@@ -789,7 +789,7 @@ function UserInsightDashboard({
           </div>
         </div>
 
-        <div className="flex flex-col rounded-2xl border border-line/60 bg-surface/40 overflow-hidden">
+        <div className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-line/60 bg-surface/40">
           <div className="flex items-center justify-between border-b border-line/60 bg-surface p-4">
             <div className="flex items-center gap-2">
               <div className="grid h-[26px] w-[26px] place-items-center rounded-[0.4rem] bg-accent/15 text-accent">
