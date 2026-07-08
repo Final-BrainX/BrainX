@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.springframework.stereotype.Component;
 
@@ -12,11 +14,16 @@ import com.brainx.intelligence.exploration.domain.NoteSearchDocument;
 @Component
 public class MarkdownNoteChunker {
 
-    public static final int CHUNKER_VERSION = 1;
+    public static final int CHUNKER_VERSION = 2;
     static final int DEFAULT_MAX_CHUNK_LENGTH = 1200;
     static final int DEFAULT_OVERLAP_LENGTH = 150;
     static final int DEFAULT_MAX_CHUNKS = 80;
     private static final int EXCERPT_LENGTH = 240;
+    private static final Pattern HTML_COMMENT = Pattern.compile("<!--.*?-->", Pattern.DOTALL);
+    private static final Pattern HTML_BREAK_TAG = Pattern.compile("<br\\s*/?>", Pattern.CASE_INSENSITIVE);
+    private static final Pattern HTML_BLOCK_END_TAG = Pattern.compile("</(?:address|article|aside|blockquote|dd|div|dl|dt|figcaption|figure|footer|h[1-6]|header|hr|li|main|nav|ol|p|pre|section|table|tbody|td|tfoot|th|thead|tr|ul)\\s*>", Pattern.CASE_INSENSITIVE);
+    private static final Pattern HTML_TAG = Pattern.compile("</?[A-Za-z][A-Za-z0-9:-]*(?:\\s+[^<>]*)?\\s*/?>");
+    private static final Pattern HTML_ENTITY = Pattern.compile("&(#x[0-9a-fA-F]+|#\\d+|[A-Za-z][A-Za-z0-9]+);");
 
     private final int maxChunkLength;
     private final int overlapLength;
@@ -241,10 +248,52 @@ public class MarkdownNoteChunker {
         if (value == null) {
             return "";
         }
-        return value
-            .replaceAll("[#>*_`\\[\\]()]", " ")
+        return stripHtml(value)
+            .replaceAll("(?m)^\\s*>\\s?", " ")
+            .replaceAll("[#*_`\\[\\]()]", " ")
             .replaceAll("\\s+", " ")
             .trim();
+    }
+
+    private static String stripHtml(String value) {
+        String text = HTML_COMMENT.matcher(value).replaceAll(" ");
+        text = HTML_BREAK_TAG.matcher(text).replaceAll(" ");
+        text = HTML_BLOCK_END_TAG.matcher(text).replaceAll(" ");
+        text = HTML_TAG.matcher(text).replaceAll(" ");
+        return HTML_TAG.matcher(decodeHtmlEntities(text)).replaceAll(" ");
+    }
+
+    private static String decodeHtmlEntities(String value) {
+        Matcher matcher = HTML_ENTITY.matcher(value);
+        StringBuffer result = new StringBuffer();
+        while (matcher.find()) {
+            matcher.appendReplacement(result, Matcher.quoteReplacement(htmlEntityValue(matcher.group(1), matcher.group(0))));
+        }
+        matcher.appendTail(result);
+        return result.toString();
+    }
+
+    private static String htmlEntityValue(String entity, String fallback) {
+        return switch (entity.toLowerCase()) {
+            case "amp" -> "&";
+            case "apos" -> "'";
+            case "gt" -> ">";
+            case "lt" -> "<";
+            case "nbsp" -> " ";
+            case "quot" -> "\"";
+            default -> numericHtmlEntityValue(entity, fallback);
+        };
+    }
+
+    private static String numericHtmlEntityValue(String entity, String fallback) {
+        try {
+            int codePoint = entity.startsWith("#x") || entity.startsWith("#X")
+                ? Integer.parseInt(entity.substring(2), 16)
+                : entity.startsWith("#") ? Integer.parseInt(entity.substring(1)) : -1;
+            return Character.isValidCodePoint(codePoint) ? new String(Character.toChars(codePoint)) : fallback;
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
     }
 
     private static String excerpt(String value) {
