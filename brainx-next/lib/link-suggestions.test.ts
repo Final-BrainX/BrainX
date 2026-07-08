@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   applyLinkSuggestionToMarkdown,
   filterLinkSuggestions,
+  linkSuggestionApplyContent,
   type LinkSuggestion,
 } from "./link-suggestions.ts";
 
@@ -299,4 +300,46 @@ test("applyLinkSuggestionToMarkdown reports when anchor cannot be found", () => 
 
   assert.equal(result.changed, false);
   assert.equal(result.errorCode, "ANCHOR_NOT_FOUND");
+});
+
+test("linkSuggestionApplyContent falls back from empty editor HTML to saved markdown", () => {
+  for (const emptyEditorContent of ["", "   ", "<p></p>", "<p><br></p>", "<p>&nbsp;</p>", "<div><span> </span></div>"]) {
+    assert.equal(
+      linkSuggestionApplyContent(emptyEditorContent, "saved markdown with 제주 여행", "fallback content"),
+      "saved markdown with 제주 여행"
+    );
+  }
+});
+
+test("linkSuggestionApplyContent keeps meaningful editor content before saved markdown", () => {
+  assert.equal(
+    linkSuggestionApplyContent("<p>unsaved 제주 여행 draft</p>", "saved 제주 여행", "fallback 제주 여행"),
+    "<p>unsaved 제주 여행 draft</p>"
+  );
+});
+
+test("applyLinkSuggestionToMarkdown links 제주 여행 anchor from saved markdown", () => {
+  const markdown = [
+    "[Cluster Test] 제주 3박 4일 여행 동선",
+    "",
+    "## 핵심 메모",
+    "제주 3박 4일 여행 동선은 공항 도착 시간, 숙소 위치, 렌터카 이동 거리, 동쪽과 서쪽 코스 분리를 기준으로 잡는다.",
+    "",
+    "## 관련 키워드",
+    "제주 여행, 3박 4일, 여행 동선, 렌터카, 애월, 서귀포",
+  ].join("\n");
+
+  const result = applyLinkSuggestionToMarkdown(
+    markdown,
+    suggestion({
+      targetTitle: "비 오는 날 제주 대체 코스",
+      anchorText: "제주 여행",
+      anchorStartOffset: 0,
+      anchorEndOffset: 5,
+    }),
+    "비 오는 날 제주 대체 코스"
+  );
+
+  assert.equal(result.changed, true);
+  assert.match(result.markdown, /\[\[비 오는 날 제주 대체 코스\|제주 여행\]\]/);
 });
