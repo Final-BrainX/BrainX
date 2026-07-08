@@ -34,7 +34,7 @@ import { PdfBlock } from "./PdfBlockNode";
 import { PptBlock } from "./PptBlockNode";
 import { HtmlBlock } from "./HtmlBlockNode";
 import { blockWidthPercent, type BlockWidthMode } from "./BlockControls";
-import { FontSize, FontFamily, FONT_SIZE_PRESETS, FONT_FAMILY_PRESETS } from "./fontExtensions";
+import { FontSize, FontFamily, InlineFontScale, FONT_SIZE_PRESETS, FONT_FAMILY_PRESETS } from "./fontExtensions";
 import { WikiLink, WikiLinkLiveEdit } from "./WikiLinkNode";
 import { DragHandle, startBlockDrag } from "./DragHandleExtension";
 import { WikiLinkSuggestion } from "./WikiLinkSuggestion";
@@ -2305,6 +2305,7 @@ const NOTE_EDITOR_EXTENSIONS = [
   Color,
   FontSize,
   FontFamily,
+  InlineFontScale,
   Highlight.configure({ multicolor: true }),
   CodeBlockLowlight.extend({
     addAttributes() {
@@ -2841,13 +2842,17 @@ interface NoteEditorProps {
       본문 위 플로팅이 아니라 그 자리에 우측 정렬로 꽂아 넣기 위해 InNoteSearch가 포털로 쓴다.
       없으면(예: editor-lab처럼 이 레이아웃이 없는 곳) InNoteSearch가 기존 플로팅 위치로 대체한다. */
   searchAnchorEl?: HTMLElement | null;
+  /** EditorPanel의 Ctrl+Wheel pane 줌 배율(%, 기본 100) — 문서 typography와 곱해져 본문
+      font-size(--note-fs-*)에만 반영된다. 레이아웃(width/padding/margin)에는 영향을 주지
+      않으며, 제목/서식 버튼/탭/사이드바처럼 이 컴포넌트 바깥에 있는 UI는 이 prop과 무관하다. */
+  fontScale?: number;
 }
 
 /** TipTap 에디터 코어 — Bubble Toolbar, 색상/형광펜, 코드블록을 포함한 노트 본문 편집 영역.
     읽기/편집 모드는 노트(탭) 단위로 부모(EditorPanel)가 관리하며, 이 컴포넌트는 mode prop을
     그대로 따르기만 한다(모드를 직접 설정하지 않음 — 그래야 탭별 모드가 서로 덮어쓰지 않는다). */
 const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEditor(
-  { note, mode, allTags, onActivate, onContentChange, onAiAction, searchAnchorEl },
+  { note, mode, allTags, onActivate, onContentChange, onAiAction, searchAnchorEl, fontScale = 100 },
   ref
 ) {
   const contentSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3466,6 +3471,20 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
     editor.setEditable(mode === "edit");
   }, [editor, mode]);
 
+  /* Ctrl+Wheel pane 줌(fontScale) → BubbleToolbar가 만든 inline font-size mark(<span
+     style="font-size: ...px">)에도 반영. InlineFontScale 확장(fontExtensions.ts)의
+     storage에 현재 배율만 적어두고, 문서를 바꾸지 않는 빈 트랜잭션을 dispatch해 그 확장의
+     decorations()가 최신 storage 값으로 다시 계산되게 한다 — editor.state.tr은 doc/selection을
+     그대로 유지하는 no-op 트랜잭션이라 Tiptap이 onUpdate(자동저장 트리거)를 발생시키지 않는다
+     (docChanged가 false면 onUpdate 자체가 호출되지 않음, @tiptap/core dispatchTransaction 참고).
+     이 storage는 editor.extensionStorage[name]으로 Editor 인스턴스마다(=pane마다) 독립적으로
+     생성되므로, 다른 pane의 fontScale과 서로 섞이지 않는다. */
+  useEffect(() => {
+    if (!editor) return;
+    editor.storage.inlineFontScale.scale = fontScale;
+    editor.view.dispatch(editor.state.tr);
+  }, [editor, fontScale]);
+
   /* 언마운트 시 보류 중인 디바운스 동기화 정리 */
   useEffect(() => {
     return () => {
@@ -3485,7 +3504,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
         // important를 줘서 강제로 숨긴다(실측: !important 없이는 읽기 모드에서도 display:flex로 보임).
         mode === "read" && "[&_.hf-btn]:!hidden [&_.md-heading-syntax]:hidden [&_.md-heading-syntax-hidden]:hidden [&_.split-drag-handle]:hidden"
       )}
-      style={typographyCssVars(note.typography)}
+      style={typographyCssVars(note.typography, fontScale)}
       onClick={(e) => {
         if (handleInternalLinkClick(e)) return;
         if (mode === "edit") { e.stopPropagation(); onActivate(); }
