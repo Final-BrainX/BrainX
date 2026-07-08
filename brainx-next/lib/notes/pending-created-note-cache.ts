@@ -95,6 +95,13 @@ export function updatePendingCreatedNoteId(localKey: string, realNoteId: string)
   writeAll(all);
 }
 
+/** draft id가 이미 발급된 뒤에도 생성 시점의 Workspace(documentGroup)를 다시 찾아야 하는 저장 경로가
+    있어(note.documentGroupId가 일시적으로 비어도 같은 draft의 Redis documentGroupId를 null로
+    덮어쓰지 않게 하기 위함) noteId/localKey 둘 다로 조회할 수 있게 한다. */
+export function findPendingCreatedNoteByNoteId(noteId: string): PendingCreatedNoteEntry | null {
+  return readAll().find((entry) => entry.noteId === noteId || entry.localKey === noteId) ?? null;
+}
+
 /** 노트 제목이 바뀔 때(handleTitleChange) 호출한다 — 이 노트 자신이 pending 항목의 대상이면
     title을, 이 노트가 다른 pending 항목(위키링크)의 소스 노트였으면 그 항목의 sourceTitle도
     함께 갱신한다. noteId는 호출 시점에 알려진 최신 id를 그대로 넘기면 된다 — localKey/noteId

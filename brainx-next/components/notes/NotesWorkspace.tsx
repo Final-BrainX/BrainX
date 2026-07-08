@@ -9,6 +9,7 @@ import {
   removePendingCreatedNoteByNoteId,
   updatePendingCreatedNoteId,
   updatePendingCreatedNoteTitle,
+  findPendingCreatedNoteByNoteId,
 } from "@/lib/notes/pending-created-note-cache";
 import { AlertCircle, Check, ChevronLeft, Download, Link2, LoaderCircle, MoreHorizontal, PanelRightClose, PanelRight, RotateCcw, Save, Upload } from "lucide-react";
 import { cx } from "@/lib/utils";
@@ -126,10 +127,20 @@ async function persistNoteBestEffort(note: MockNote): Promise<boolean> {
     return true;
   }
   if (note.id.startsWith("note_")) {
-    await saveWorkspaceNoteDraft(note);
+    await saveWorkspaceNoteDraft(resolveDraftWorkspaceNote(note));
     return true;
   }
   return false;
+}
+
+function resolveDraftWorkspaceNote(note: MockNote): MockNote {
+  if (note.documentGroupId !== undefined) return note;
+  const pendingCreated = findPendingCreatedNoteByNoteId(note.id);
+  if (!pendingCreated) return note;
+  return {
+    ...note,
+    documentGroupId: pendingCreated.documentGroupId ?? null,
+  };
 }
 
 const SAVE_BUTTON_TITLE: Record<SaveStatus, string> = {
@@ -996,7 +1007,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       const persistTitle = renamedNote.persisted
         ? updateWorkspaceNoteMetadata(renamedNote)
         : renamedNote.id.startsWith("note_")
-          ? saveWorkspaceNoteDraft(renamedNote)
+          ? saveWorkspaceNoteDraft(resolveDraftWorkspaceNote(renamedNote))
           : null;
       if (persistTitle) {
         try {
@@ -1016,7 +1027,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         relinked.map(({ note: target, result }) => {
           const updated = { ...target, content: result.content };
           if (!target.persisted && target.id.startsWith("note_")) {
-            return saveWorkspaceNoteDraft(updated).then(() => {
+            return saveWorkspaceNoteDraft(resolveDraftWorkspaceNote(updated)).then(() => {
               draftDirtyNoteIdsRef.current.delete(target.id);
             });
           }
@@ -1844,7 +1855,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     const persistMove = movedNote.persisted
       ? updateWorkspaceNoteMetadata(movedNote)
       : movedNote.id.startsWith("note_")
-        ? saveWorkspaceNoteDraft(movedNote)
+        ? saveWorkspaceNoteDraft(resolveDraftWorkspaceNote(movedNote))
         : null;
     if (persistMove) {
       void persistMove.catch((error) => {
@@ -2368,7 +2379,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     draftAutosaveTimerRef.current = window.setTimeout(() => {
       const noteSnapshot = latestSessionRef.current.notes.find((item) => item.id === activeNote.id);
       if (!noteSnapshot) return;
-      void saveWorkspaceNoteDraft(noteSnapshot)
+      void saveWorkspaceNoteDraft(resolveDraftWorkspaceNote(noteSnapshot))
         .then(() => {
           draftDirtyNoteIdsRef.current.delete(noteSnapshot.id);
           setDraftSaveStatus("saved");
@@ -2407,7 +2418,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }
 
     if (!note.persisted && note.id.startsWith("note_")) {
-      await saveWorkspaceNoteDraft(note);
+      await saveWorkspaceNoteDraft(resolveDraftWorkspaceNote(note));
       draftDirtyNoteIdsRef.current.delete(note.id);
       return;
     }

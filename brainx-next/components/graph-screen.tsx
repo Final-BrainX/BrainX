@@ -471,7 +471,7 @@ function linkSuggestionKey(sourceNoteId: string, suggestion: LinkSuggestion) {
 }
 
 function hasExistingEdge(
-  edges: Array<{ source: string; target: string; bridge?: boolean }>,
+  edges: GraphScreenEdge[],
   sourceNoteId: string,
   targetNoteId: string
 ) {
@@ -485,7 +485,7 @@ function filterLinkSuggestions(
   sourceNoteId: string,
   suggestions: LinkSuggestion[],
   notes: BrainXNote[],
-  edges: Array<{ source: string; target: string; bridge?: boolean }>
+  edges: GraphScreenEdge[]
 ) {
   const noteIds = new Set(notes.map((note) => note.id));
   const seenTargets = new Set<string>();
@@ -1490,11 +1490,26 @@ function edgePairKey(a: string, b: string) {
   return [a, b].sort().join("::");
 }
 
+type GraphScreenEdge = {
+  source: string;
+  target: string;
+  bridge?: boolean;
+  type?: string;
+};
+
+function normalizeReferenceEdge(edge: GraphScreenEdge): GraphScreenEdge {
+  if (edge.type !== "REFERENCE") return edge;
+  return {
+    ...edge,
+    bridge: true,
+  };
+}
+
 function GraphScreenInner() {
   const router = useRouter();
   const { notes: mockNotes, pushToast } = useBrainX();
   const [liveNotes, setLiveNotes] = useState<BrainXNote[] | null>(null);
-  const [liveEdges, setLiveEdges] = useState<Array<{ source: string; target: string; bridge?: boolean }> | null>(null);
+  const [liveEdges, setLiveEdges] = useState<GraphScreenEdge[] | null>(null);
   const [graphDataVersion, setGraphDataVersion] = useState(0);
   const [clusterLatest, setClusterLatest] = useState<ClusterJobLatestData | null>(null);
   const [clusterStatus, setClusterStatus] = useState<AiClusterStatus>("idle");
@@ -1557,24 +1572,37 @@ function GraphScreenInner() {
   // 직접 만들어, 실제 edge(서버 또는 markdown 파생)가 없을 때만 보충한다.
   const edges = useMemo(() => {
     const base = (() => {
-      if (!liveEdges) return deriveGraphEdges(notes);
-      const existingPairs = new Set(liveEdges.map((e) => edgePairKey(e.source, e.target)));
-      const missingWikiLinkEdges = deriveGraphEdges(notes).filter(
-        (e) => e.type === "REFERENCE" && !existingPairs.has(edgePairKey(e.source, e.target))
+      const derivedEdges = deriveGraphEdges(notes).map((edge) => normalizeReferenceEdge(edge));
+      if (!liveEdges) return derivedEdges;
+      const derivedReferencePairs = new Set(
+        derivedEdges
+          .filter((edge) => edge.type === "REFERENCE")
+          .map((edge) => edgePairKey(edge.source, edge.target))
       );
-      return missingWikiLinkEdges.length > 0 ? [...liveEdges, ...missingWikiLinkEdges] : liveEdges;
+      const filteredLiveEdges = liveEdges
+        .map((edge) => normalizeReferenceEdge(edge))
+        .filter((edge) => edge.type !== "REFERENCE" || derivedReferencePairs.has(edgePairKey(edge.source, edge.target)));
+      const existingPairs = new Set(filteredLiveEdges.map((edge) => edgePairKey(edge.source, edge.target)));
+      const missingWikiLinkEdges = derivedEdges.filter(
+        (edge) => edge.type === "REFERENCE" && !existingPairs.has(edgePairKey(edge.source, edge.target))
+      );
+      return missingWikiLinkEdges.length > 0 ? [...filteredLiveEdges, ...missingWikiLinkEdges] : filteredLiveEdges;
     })();
 
     const noteIds = new Set(notes.map((n) => n.id));
     const basePairs = new Set(base.map((e) => edgePairKey(e.source, e.target)));
     // 위키링크로 만든 항목(sourceNoteId가 있는 것)만 edge 대상이다 — 일반 새 노트 생성은
     // 연결할 대상이 없으므로 node만 optimistic 처리되고 여기서는 자연히 걸러진다.
-    const optimisticEdges: ReturnType<typeof pendingWikiLinkEntryToEdge>[] = [];
+    const optimisticEdges: GraphScreenEdge[] = [];
     for (const entry of readPendingCreatedNotes()) {
       if (!entry.sourceNoteId) continue;
       if (!noteIds.has(entry.sourceNoteId) || !noteIds.has(entry.noteId)) continue;
       if (basePairs.has(edgePairKey(entry.sourceNoteId, entry.noteId))) continue;
-      optimisticEdges.push(pendingWikiLinkEntryToEdge({ sourceNoteId: entry.sourceNoteId, noteId: entry.noteId, title: entry.title }));
+      optimisticEdges.push(
+        normalizeReferenceEdge(
+          pendingWikiLinkEntryToEdge({ sourceNoteId: entry.sourceNoteId, noteId: entry.noteId, title: entry.title })
+        )
+      );
     }
 
     return optimisticEdges.length > 0 ? [...base, ...optimisticEdges] : base;
@@ -2135,7 +2163,7 @@ function GraphScreenInner() {
       if (hasExistingEdge(baseEdges, sourceNoteId, targetNoteId)) {
         return baseEdges;
       }
-      return [{ source: sourceNoteId, target: targetNoteId }, ...baseEdges];
+      return [normalizeReferenceEdge({ source: sourceNoteId, target: targetNoteId, type: "REFERENCE" }), ...baseEdges];
     });
     setLiveNotes((current) => {
       const baseNotes = current ?? notes;
