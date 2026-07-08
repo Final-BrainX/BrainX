@@ -62,6 +62,7 @@ services:
     restart: unless-stopped
     depends_on:
       - prometheus
+      - loki
     environment:
       GF_SERVER_ROOT_URL: ${ADMIN_PUBLIC_BASE_URL:-http://localhost}/grafana/
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
@@ -87,6 +88,18 @@ services:
       - "9090"
     mem_limit: 768m
 
+  loki:
+    image: grafana/loki:3.5.1
+    container_name: brainx-loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/config.yml"]
+    volumes:
+      - ./loki/config.yml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+    expose:
+      - "3100"
+    mem_limit: 768m
+
   node-exporter:
     image: prom/node-exporter:v1.9.1
     container_name: brainx-node-exporter
@@ -103,6 +116,21 @@ services:
     expose:
       - "9100"
     mem_limit: 128m
+
+  promtail:
+    image: grafana/promtail:3.5.1
+    container_name: brainx-promtail
+    restart: unless-stopped
+    command: ["-config.file=/etc/promtail/config.yml"]
+    volumes:
+      - ./promtail/config.yml:/etc/promtail/config.yml:ro
+      - promtail_positions:/var/lib/promtail
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    depends_on:
+      - loki
+    mem_limit: 256m
 
   discovery-service:
     image: ${ECR_REGISTRY}/brainx-dev-discovery-service:${DISCOVERY_SERVICE_TAG:-dev-latest}
@@ -483,6 +511,8 @@ volumes:
   caddy_config:
   grafana_data:
   prometheus_data:
+  loki_data:
+  promtail_positions:
   neo4j_data:
   neo4j_logs:
   qdrant_data:
