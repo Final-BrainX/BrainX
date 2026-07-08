@@ -5,7 +5,7 @@
 ## Architecture
 
 - Region: `ap-northeast-2`
-- Compute: single EC2 `r7i.xlarge` with Docker, 32 GiB RAM, 8 GiB swap
+- Compute: single EC2 `m8i.xlarge` with Docker, 16 GiB RAM, 8 GiB swap
 - Database: one RDS PostgreSQL instance, service-specific logical databases
 - Object storage: private S3 bucket for future user assets, note images, and attachments
 - Container runtime on EC2:

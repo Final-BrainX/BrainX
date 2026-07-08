@@ -7,7 +7,7 @@ github_branch     = "main"
 # Use an existing account-wide GitHub OIDC provider if one already exists.
 # github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
 
-instance_type           = "r7i.xlarge"
+instance_type           = "m8i.xlarge"
 ec2_root_volume_gb      = 200
 ec2_runtime_state       = "running"
 rds_instance_class      = "db.t4g.medium"
