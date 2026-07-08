@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect, useLayoutEffect } from "react";
 import { WikiLinkContext, resolveWikiLinkTitle, type WikiLinkContextValue } from "./WikiLinkContext";
 import { renameWikiLinkReferencesInContent, contentHasWikiLinkTo, ensureWikiLinkPresent, wikiLinkTargetSetChanged } from "@/lib/wiki-links";
 import {
@@ -722,11 +722,17 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     [state.root, paneTabs]
   );
 
-  /* 활성 패널의 활성 탭 → 현재 노트 (우측 컨텍스트 패널 기준). start 탭이면 null. */
+  /* 활성 패널의 활성 탭 → 현재 노트 (우측 컨텍스트 패널/Inline AI 기준). start 탭이면 null.
+     notes(전체) 대신 visibleNotes(현재 Workspace 기준으로 이미 걸러진 목록)에서 찾는다 —
+     Workspace 전환 직후 탭 정리 effect(아래 Ticket14)가 아직 반영되기 전의 activeTab이
+     다른 Workspace 노트를 계속 가리키고 있어도, 이 시점에 즉시 null로 떨어져 RightSidebar/
+     Inline AI/제목 표시줄이 이전 Workspace 노트 내용을 보여주지 않는다(activeTabId가
+     가리키는 탭 자체를 지우는 건 아래 Ticket14 effect의 몫 — 여기서는 "그 탭을 아직 못
+     지웠어도 내용만은 절대 새지 않게" 하는 마지막 방어선). */
   const activeTabsState = paneTabs[state.activeId];
   const activeTab = activeTabsState?.tabs.find((t) => t.id === activeTabsState.activeTabId) ?? null;
   const activeNoteId = activeTab?.kind === "note" ? activeTab.noteId : null;
-  const activeNote = activeNoteId ? notes.find((n) => n.id === activeNoteId) ?? null : null;
+  const activeNote = activeNoteId ? visibleNotes.find((n) => n.id === activeNoteId) ?? null : null;
   const activeEditorKey = activeTabsState?.activeTabId ? `${state.activeId}:${activeTabsState.activeTabId}` : "";
   const activeEditorHandle = useMemo(
     () => (activeEditorKey ? editorHandlesRef.current[activeEditorKey] ?? null : null),
@@ -2329,9 +2335,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
      통과시켜, non-default Workspace에서 탭을 열어둔 채 새로고침한 사용자의 탭이 로딩 도중
      stale로 오판되어 닫히는 회귀가 있었다 — previousWorkspaceId 자체가 null이거나
      currentWorkspaceId가 null이면 항상 정리를 건너뛰고, 두 값이 모두 non-null이면서 서로 다를
-     때만 실제 전환으로 취급한다. */
+     때만 실제 전환으로 취급한다.
+
+     useEffect가 아니라 useLayoutEffect를 쓴다 — useEffect는 브라우저가 이미 화면을 그린
+     "뒤"에 비동기로 실행되므로, Workspace를 전환한 프레임에는 이전 Workspace 노트가 탭/본문/
+     RightSidebar에 잠깐이라도 그대로 보였다가 그다음 틱에야 지워진다(빠르게 여러 번 전환할수록
+     이 "잠깐"이 자꾸 겹쳐서 쌓여, 완전히 정리되지 않은 것처럼 보이는 원인이었다). useLayoutEffect는
+     커밋 직후·페인트 전에 동기적으로 실행되고 그 안에서 호출한 setState도 같은 페인트 전에
+     한 번 더 처리되므로, 사용자는 이전 Workspace 노트가 섞인 프레임을 전혀 보지 못한다. */
   const previousWorkspaceIdRef = useRef<string | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const previousWorkspaceId = previousWorkspaceIdRef.current;
     previousWorkspaceIdRef.current = currentWorkspaceId;
     if (!previousWorkspaceId || !currentWorkspaceId) return;
