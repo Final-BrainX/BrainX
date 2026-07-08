@@ -19,6 +19,7 @@ import {
 import {
   applyLinkSuggestionToMarkdown,
   filterLinkSuggestions,
+  linkSuggestionApplyContent,
   linkAcceptErrorMessage,
   linkSuggestionErrorMessage,
   linkSuggestionKey,
@@ -816,9 +817,13 @@ export default function RightSidebar({
       const targetNote = allNotes.find((note) => note.id === suggestion.targetNoteId);
       const targetTitle = normalizeMarkdownText(suggestion.targetTitle || targetNote?.title || "연결 노트");
       activeEditor?.flushPendingSave();
-      const currentContent = activeEditor ? activeEditor.getHTML() : activeNote.content;
       const latestSource = await getNote(activeNote.id);
-      const applied = applyLinkSuggestionToMarkdown(currentContent ?? latestSource.markdown ?? "", suggestion, targetTitle);
+      const currentContent = linkSuggestionApplyContent(
+        activeEditor?.getHTML(),
+        latestSource.markdown,
+        activeNote.content
+      );
+      const applied = applyLinkSuggestionToMarkdown(currentContent, suggestion, targetTitle);
       if (applied.error) {
         throw new Error(applied.error);
       }
@@ -834,7 +839,7 @@ export default function RightSidebar({
           documentGroupId: latestSource.documentGroupId ?? activeNote.documentGroupId,
           createdAt: Date.parse(latestSource.createdAt) || activeNote.createdAt || Date.now(),
           updatedAt: Date.now(),
-          version: activeNote.version ?? latestSource.version,
+          version: latestSource.version ?? activeNote.version,
           persisted: true,
           typography: latestSource.typography ?? activeNote.typography,
         });

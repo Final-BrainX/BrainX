@@ -80,6 +80,32 @@ export function normalizeMarkdownText(value: string) {
   return value.replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
 }
 
+export function isMeaningfulEditorContent(value?: string | null) {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return false;
+  const withoutComments = trimmed.replace(/<!--[\s\S]*?-->/g, "");
+  if (/<(?:img|video|audio|iframe|object|embed|canvas|svg|table|hr|input|textarea|select|button)\b/i.test(withoutComments)) {
+    return true;
+  }
+  const textOnly = withoutComments
+    .replace(/<br\s*\/?>/gi, "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;|&#160;|&#x[aA]0;/g, " ")
+    .replace(/\s+/g, "");
+  return textOnly.length > 0;
+}
+
+export function linkSuggestionApplyContent(
+  editorContent?: string | null,
+  latestMarkdown?: string | null,
+  fallbackContent?: string | null
+) {
+  if (isMeaningfulEditorContent(editorContent)) return editorContent ?? "";
+  if (latestMarkdown?.trim()) return latestMarkdown;
+  if (fallbackContent?.trim()) return fallbackContent;
+  return "";
+}
+
 function wikiLinkPart(value: string) {
   return normalizeMarkdownText(value).replace(/[\[\]|]/g, "").trim();
 }
