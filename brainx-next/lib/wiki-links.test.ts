@@ -1,10 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  decodeHtmlEntities,
   normalizeTitleForMatch,
   normalizeWikiLinkTarget,
   resolveWikiLinkByTitle,
 } from "./wiki-links.ts";
+
+test("decodeHtmlEntities unwraps a double-escaped ampersand down to the real character", () => {
+  assert.equal(decodeHtmlEntities("리뷰 &amp;amp; 평가"), "리뷰 & 평가");
+});
+
+test("decodeHtmlEntities leaves an already-plain ampersand untouched", () => {
+  assert.equal(decodeHtmlEntities("리뷰 & 평가"), "리뷰 & 평가");
+});
 
 test("normalizeTitleForMatch strips a leading emoji icon before comparing", () => {
   assert.equal(normalizeTitleForMatch("📄 프로젝트 기획"), "프로젝트 기획");
@@ -48,4 +57,19 @@ test("resolveWikiLinkByTitle returns null when an emoji-prefixed title has no ma
 
 test("normalizeWikiLinkTarget strips a leading emoji from the typed link text itself", () => {
   assert.equal(normalizeWikiLinkTarget("📄 프로젝트 기획|별칭"), "프로젝트 기획");
+});
+
+test("normalizeTitleForMatch decodes a double-escaped ampersand back to the real title", () => {
+  const realTitle = "🍽️ 푸디스트 (Foodiest) — 음식점 리뷰 & 평가 플랫폼";
+  const doubleEscapedLinkTitle = "🍽️ 푸디스트 (Foodiest) — 음식점 리뷰 &amp;amp; 평가 플랫폼";
+
+  assert.equal(normalizeTitleForMatch(doubleEscapedLinkTitle), normalizeTitleForMatch(realTitle));
+});
+
+test("resolveWikiLinkByTitle matches a note despite a double-escaped ampersand in the link text", () => {
+  const notes = [{ id: "1", title: "🍽️ 푸디스트 (Foodiest) — 음식점 리뷰 & 평가 플랫폼" }];
+
+  const resolved = resolveWikiLinkByTitle(notes, "🍽️ 푸디스트 (Foodiest) — 음식점 리뷰 &amp;amp; 평가 플랫폼");
+
+  assert.equal(resolved?.id, "1");
 });

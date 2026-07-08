@@ -102,4 +102,82 @@ class WorkspaceServiceWikiLinkWorkspaceScopeTest {
         assertThat(backlinks.backlinks()).hasSize(1);
         assertThat(backlinks.backlinks().getFirst().sourceNoteId()).isEqualTo(legacySource.getNoteId());
     }
+
+    @Test
+    void wikiLinkConnectsToNoteWhoseTitleHasLeadingEmoji() {
+        // Given: Notion 가져오기 등으로 제목 앞에 이모지 아이콘이 붙은 노트가 있다.
+        WorkspaceDetailData workspace = workspaceService.createWorkspace(USER_ID, new WorkspaceCreateRequest("Workspace"));
+        NoteCreatedData target = workspaceService.createNote(USER_ID,
+                new NoteCreateRequest(workspace.documentGroupId(), "📄 프로젝트 기획", "", null, List.of()));
+
+        // When: 다른 노트가 이모지 없이 그 제목을 [[프로젝트 기획]]으로 참조한다.
+        NoteCreatedData source = workspaceService.createNote(USER_ID,
+                new NoteCreateRequest(workspace.documentGroupId(), "주간 정리", "<p>[[프로젝트 기획]] 진행 상황</p>", null, List.of()));
+
+        // Then: exact-match였다면 실패했을 매칭이 정규화 덕분에 성공해 backlink가 생긴다.
+        BacklinksData backlinks = workspaceService.backlinks(USER_ID, target.noteId());
+        assertThat(backlinks.backlinks()).hasSize(1);
+        assertThat(backlinks.backlinks().getFirst().sourceNoteId()).isEqualTo(source.noteId());
+    }
+
+    @Test
+    void wikiLinkConnectsDespiteDoubleEscapedAmpersandInLinkTitle() {
+        // Given: 제목에 &가 들어간 노트가 있다.
+        WorkspaceDetailData workspace = workspaceService.createWorkspace(USER_ID, new WorkspaceCreateRequest("Workspace"));
+        NoteCreatedData target = workspaceService.createNote(USER_ID,
+                new NoteCreateRequest(workspace.documentGroupId(), "🍽️ 푸디스트 (Foodiest) — 음식점 리뷰 & 평가 플랫폼", "", null, List.of()));
+
+        // When: 링크에 박제된 data-title이 저장 경로에서 실수로 두 번 이스케이프된 채로
+        // (& -> &amp; -> &amp;amp;) 저장돼 있다 — 실제로 관찰된 데이터 손상 패턴이다.
+        NoteCreatedData source = workspaceService.createNote(USER_ID,
+                new NoteCreateRequest(workspace.documentGroupId(), "포트폴리오",
+                        "<p><span data-wiki-link=\"true\" data-title=\"🍽️ 푸디스트 (Foodiest) — 음식점 리뷰 &amp;amp; 평가 플랫폼\">"
+                                + "[[🍽️ 푸디스트 (Foodiest) — 음식점 리뷰 &amp;amp; 평가 플랫폼]]</span></p>", null, List.of()));
+
+        // Then: 디코딩 덕분에 실제 제목과 매칭돼 backlink가 생긴다.
+        BacklinksData backlinks = workspaceService.backlinks(USER_ID, target.noteId());
+        assertThat(backlinks.backlinks()).hasSize(1);
+        assertThat(backlinks.backlinks().getFirst().sourceNoteId()).isEqualTo(source.noteId());
+    }
+
+    @Test
+    void importingEmojiTitledNoteRetroactivelyConnectsExistingDanglingReference() {
+        // Given: 다른 노트가 먼저 존재하고, 아직 만들어지지 않은(예: 아직 Notion에서 가져오기
+        // 전인) 노트를 이모지 없이 [[...]]로 미리 참조하고 있다 — 이모지는 장식으로 여기고
+        // 안 타이핑하는 흔한 패턴.
+        WorkspaceDetailData workspace = workspaceService.createWorkspace(USER_ID, new WorkspaceCreateRequest("Workspace"));
+        NoteCreatedData source = workspaceService.createNote(USER_ID,
+                new NoteCreateRequest(workspace.documentGroupId(), "주간 정리",
+                        "<p>[[푸디스트 (Foodiest) — 음식점 리뷰 & 평가 플랫폼]] 참고</p>", null, List.of()));
+
+        // When: 그 제목의 노트를 나중에 가져온다(Notion import 등) — 제목 앞에 이모지가 붙는다.
+        NoteCreatedData target = workspaceService.createNote(USER_ID,
+                new NoteCreateRequest(workspace.documentGroupId(), "🍽️ 푸디스트 (Foodiest) — 음식점 리뷰 & 평가 플랫폼", "", null, List.of()));
+
+        // Then: noteMayReferenceTitle의 사전 필터가 이모지 때문에 걸러버리지 않고, 먼저 있던
+        // 노트의 dangling 참조가 새로 만들어진 노트로 소급 연결된다.
+        BacklinksData backlinks = workspaceService.backlinks(USER_ID, target.noteId());
+        assertThat(backlinks.backlinks()).hasSize(1);
+        assertThat(backlinks.backlinks().getFirst().sourceNoteId()).isEqualTo(source.noteId());
+    }
+
+    @Test
+    void createLinkByTitleResolvesExistingEmojiTitledNoteInsteadOfCreatingDuplicate() {
+        // Given: 이모지 아이콘이 붙은 노트가 이미 있다.
+        WorkspaceDetailData workspace = workspaceService.createWorkspace(USER_ID, new WorkspaceCreateRequest("Workspace"));
+        NoteCreatedData target = workspaceService.createNote(USER_ID,
+                new NoteCreateRequest(workspace.documentGroupId(), "📄 프로젝트 기획", "", null, List.of()));
+        NoteCreatedData source = workspaceService.createNote(USER_ID,
+                new NoteCreateRequest(workspace.documentGroupId(), "주간 정리", "", null, List.of()));
+        long noteCountBefore = noteRepository.count();
+
+        // When: createIfMissing=true로 이모지 없는 제목으로 링크를 만든다 — exact-match였다면
+        // 기존 노트를 못 찾고 제목이 "프로젝트 기획"인 중복 노트를 새로 만들었을 상황이다.
+        NoteLinkData link = workspaceService.createLink(USER_ID, source.noteId(),
+                new NoteLinkCreateRequest(null, "프로젝트 기획", true, null, null));
+
+        // Then: 새 노트를 만들지 않고 기존 노트에 연결된다.
+        assertThat(link.targetNoteId()).isEqualTo(target.noteId());
+        assertThat(noteRepository.count()).isEqualTo(noteCountBefore);
+    }
 }
