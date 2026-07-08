@@ -10051,7 +10051,7 @@ paths:
       x-produces-events: []
       x-internal-sync-calls: []
       x-async-boundary: false
-      x-implementation-note: The landing download tracker records installer requests, but the installer binary itself is a deployment artifact outside this SSOT contract. Frontend builds must stay deployable even when the local repository checkout does not contain `brainx-electron/release/BrainX Setup 0.1.0.exe`; in that case the public `/download/windows` route may legitimately return 404 until `public/downloads/BrainX Setup 0.1.0.exe` is provisioned into the deployed frontend artifact.
+      x-implementation-note: The landing download tracker records installer requests, but the installer binary itself is a deployment artifact outside this SSOT contract. Frontend builds must stay deployable even when the local repository checkout does not contain `brainx-electron/release/BrainX Setup 0.1.0.exe`; in that case the public `/download/windows` route may legitimately return 404 until `public/downloads/BrainX Setup 0.1.0.exe` is provisioned into the deployed frontend artifact. Gateway-Service must expose `/api/v1/landing/**` as a public route to Admin-Service so `brainx-next` can record download ledgers without an admin token.
       requestBody:
         required: true
         content:
