@@ -46,6 +46,9 @@ dist/
 brainx-electron/release/
 brainx-electron/.app-bundle/
 brainx-next/public/downloads/
+!brainx-electron/build/
+!brainx-electron/build/icon.ico
+!brainx-electron/build/icon.png
 
 # Environment variables
 .env
