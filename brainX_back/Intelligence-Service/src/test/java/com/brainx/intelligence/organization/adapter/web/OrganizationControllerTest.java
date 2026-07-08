@@ -54,6 +54,7 @@ class OrganizationControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
+                      "documentGroupId": "group-1",
                       "scope": "folder",
                       "folderId": "folder-1"
                     }
@@ -68,6 +69,7 @@ class OrganizationControllerTest {
 
         verify(createFolderOrganizationProposalUseCase).createFolderOrganizationProposal(argThat(command ->
             command.userId().equals("user-1")
+                && command.documentGroupId().equals("group-1")
                 && command.scope().equals("folder")
                 && command.folderId().equals("folder-1")
         ));
@@ -93,6 +95,7 @@ class OrganizationControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
+                      "documentGroupId": "group-1",
                       "scope": ""
                     }
                     """))
@@ -110,6 +113,7 @@ class OrganizationControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
+                      "documentGroupId": "group-1",
                       "scope": "workspace"
                     }
                     """))
@@ -127,6 +131,7 @@ class OrganizationControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
+                      "documentGroupId": "group-1",
                       "scope": "folder",
                       "folderId": "missing"
                     }
@@ -142,6 +147,7 @@ class OrganizationControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
+                      "documentGroupId": "group-1",
                       "scope": "all"
                     }
                     """))
@@ -156,6 +162,7 @@ class OrganizationControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
+                      "documentGroupId": "group-1",
                       "scope": "all"
                     }
                     """))
@@ -170,6 +177,7 @@ class OrganizationControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
+                      "documentGroupId": "group-1",
                       "scope": "all"
                     }
                     """))

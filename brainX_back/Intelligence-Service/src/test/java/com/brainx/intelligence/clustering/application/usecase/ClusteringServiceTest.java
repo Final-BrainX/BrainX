@@ -20,6 +20,7 @@ import com.brainx.intelligence.clustering.application.port.outbound.ClusterJobSt
 import com.brainx.intelligence.clustering.application.port.outbound.ClusteringEventPort;
 import com.brainx.intelligence.clustering.application.port.outbound.ClusteringEventPort.ClusterJobCompletedEvent;
 import com.brainx.intelligence.clustering.application.port.outbound.ClusteringEventPort.ClusterJobRequestedEvent;
+import com.brainx.intelligence.clustering.application.port.outbound.ClusteringNoteSourcePort;
 import com.brainx.intelligence.clustering.domain.ClusterJob;
 import com.brainx.intelligence.clustering.domain.ClusterJobLatestState;
 import com.brainx.intelligence.clustering.domain.ClusterJobStatus;
@@ -39,7 +40,6 @@ import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTok
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort.EntitlementDecision;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort.EntitlementRequest;
-import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysisNoteSourcePort;
 import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysisNoteSourcePort.KnowledgeAnalysisNote;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
@@ -76,7 +76,7 @@ class ClusteringServiceTest {
     );
 
     @Test
-    void requestClusterJobDefaultsDocumentGroupAndStoresCompletedJob() {
+    void requestClusterJobUsesDocumentGroupAndStoresCompletedJob() {
         settingsPort.settings = Optional.of(new AiModelSettings("user-1", "gpt-user", Map.of()));
         noteSource.notes = List.of(
             note("note-1", "Java", List.of("backend"), List.of("Spring"), "Spring Boot service"),
@@ -93,14 +93,14 @@ class ClusteringServiceTest {
 
         ClusterJob job = service.requestClusterJob(new ClusterJobCommand(
             "user-1",
-            Map.of("maxNotes", 10),
+            Map.of("documentGroupId", "group-1", "maxNotes", 10),
             Map.of("maxClusters", 3),
             "idem-1"
         ));
 
         assertThat(job.status()).isEqualTo(ClusterJobStatus.COMPLETED);
-        assertThat(job.documentGroupId()).isEqualTo("default");
-        assertThat(job.scope()).containsEntry("documentGroupId", "default").containsEntry("maxNotes", 10);
+        assertThat(job.documentGroupId()).isEqualTo("group-1");
+        assertThat(job.scope()).containsEntry("documentGroupId", "group-1").containsEntry("maxNotes", 10);
         assertThat(job.algorithmOptions()).containsEntry("maxClusters", 3);
         assertThat(job.clusters()).hasSize(1);
         assertThat(job.clusters().getFirst().noteIds()).containsExactly("note-1", "note-2");
@@ -135,8 +135,8 @@ class ClusteringServiceTest {
             null
         );
 
-        ClusterJob first = service.requestClusterJob(new ClusterJobCommand("user-1", Map.of(), Map.of(), "same-key"));
-        ClusterJob second = service.requestClusterJob(new ClusterJobCommand("user-1", Map.of(), Map.of(), "same-key"));
+        ClusterJob first = service.requestClusterJob(new ClusterJobCommand("user-1", workspaceScope(), Map.of(), "same-key"));
+        ClusterJob second = service.requestClusterJob(new ClusterJobCommand("user-1", workspaceScope(), Map.of(), "same-key"));
 
         assertThat(second.clusterJobId()).isEqualTo(first.clusterJobId());
         assertThat(chatPort.generateCalls).isEqualTo(1);
@@ -149,7 +149,7 @@ class ClusteringServiceTest {
         entitlementPort.allowed = false;
         entitlementPort.reasonCode = "QUOTA_EXHAUSTED";
 
-        assertThatThrownBy(() -> service.requestClusterJob(new ClusterJobCommand("user-1", Map.of(), Map.of(), null)))
+        assertThatThrownBy(() -> service.requestClusterJob(new ClusterJobCommand("user-1", workspaceScope(), Map.of(), null)))
             .isInstanceOf(ClusteringForbiddenException.class)
             .hasMessageContaining("QUOTA_EXHAUSTED");
 
@@ -165,7 +165,7 @@ class ClusteringServiceTest {
 
         assertThatThrownBy(() -> service.requestClusterJob(new ClusterJobCommand(
             "user-1",
-            Map.of("noteIds", List.of("note-1", "missing")),
+            Map.of("documentGroupId", "group-1", "noteIds", List.of("note-1", "missing")),
             Map.of(),
             null
         )))
@@ -201,7 +201,7 @@ class ClusteringServiceTest {
 
         ClusterJob job = service.requestClusterJob(new ClusterJobCommand(
             "user-1",
-            Map.of(),
+            workspaceScope(),
             Map.of("maxClusters", 1),
             null
         ));
@@ -242,7 +242,7 @@ class ClusteringServiceTest {
             new AiTokenUsage(30, 8, 38)
         ));
 
-        ClusterJob job = service.requestClusterJob(new ClusterJobCommand("user-1", Map.of(), Map.of(), null));
+        ClusterJob job = service.requestClusterJob(new ClusterJobCommand("user-1", workspaceScope(), Map.of(), null));
 
         assertThat(job.status()).isEqualTo(ClusterJobStatus.FAILED);
         assertThat(job.failureMessage()).contains("Cluster response failed validation");
@@ -257,7 +257,7 @@ class ClusteringServiceTest {
         noteSource.notes = List.of(note("note-1", "Java", List.of(), List.of(), "Spring"));
         chatPort.response = new AiChatResponse("not json", null);
 
-        ClusterJob job = service.requestClusterJob(new ClusterJobCommand("user-1", Map.of(), Map.of(), null));
+        ClusterJob job = service.requestClusterJob(new ClusterJobCommand("user-1", workspaceScope(), Map.of(), null));
 
         assertThat(job.status()).isEqualTo(ClusterJobStatus.FAILED);
         assertThat(job.failureMessage()).contains("not valid JSON");
@@ -271,7 +271,7 @@ class ClusteringServiceTest {
     void latestReturnsNotAnalyzedWhenNoWorkspaceJobExists() {
         noteSource.notes = List.of(note("note-1", "Java", List.of(), List.of(), "Spring"));
 
-        var latest = service.getLatestClusterJob(new GetLatestClusterJobQuery("user-1", "default"));
+        var latest = service.getLatestClusterJob(new GetLatestClusterJobQuery("user-1", "group-1"));
 
         assertThat(latest.state()).isEqualTo(ClusterJobLatestState.NOT_ANALYZED);
         assertThat(latest.searchableNoteCount()).isEqualTo(1);
@@ -288,9 +288,9 @@ class ClusteringServiceTest {
                 """,
             null
         );
-        ClusterJob job = service.requestClusterJob(new ClusterJobCommand("user-1", Map.of(), Map.of(), null));
+        ClusterJob job = service.requestClusterJob(new ClusterJobCommand("user-1", workspaceScope(), Map.of(), null));
 
-        var latest = service.getLatestClusterJob(new GetLatestClusterJobQuery("user-1", "default"));
+        var latest = service.getLatestClusterJob(new GetLatestClusterJobQuery("user-1", "group-1"));
 
         assertThat(latest.state()).isEqualTo(ClusterJobLatestState.FRESH);
         assertThat(latest.job().clusterJobId()).isEqualTo(job.clusterJobId());
@@ -305,7 +305,7 @@ class ClusteringServiceTest {
                 """,
             null
         );
-        service.requestClusterJob(new ClusterJobCommand("user-1", Map.of(), Map.of(), null));
+        service.requestClusterJob(new ClusterJobCommand("user-1", workspaceScope(), Map.of(), null));
         noteSource.notes = List.of(note(
             "note-1",
             "Java",
@@ -315,7 +315,7 @@ class ClusteringServiceTest {
             Instant.parse("2026-06-27T00:00:00Z")
         ));
 
-        var latest = service.getLatestClusterJob(new GetLatestClusterJobQuery("user-1", "default"));
+        var latest = service.getLatestClusterJob(new GetLatestClusterJobQuery("user-1", "group-1"));
 
         assertThat(latest.state()).isEqualTo(ClusterJobLatestState.STALE);
         assertThat(latest.latestNoteUpdatedAt()).isEqualTo(Instant.parse("2026-06-27T00:00:00Z"));
@@ -335,12 +335,12 @@ class ClusteringServiceTest {
         );
         service.requestClusterJob(new ClusterJobCommand(
             "user-1",
-            Map.of("noteIds", List.of("note-1")),
+            Map.of("documentGroupId", "group-1", "noteIds", List.of("note-1")),
             Map.of(),
             null
         ));
 
-        var latest = service.getLatestClusterJob(new GetLatestClusterJobQuery("user-1", "default"));
+        var latest = service.getLatestClusterJob(new GetLatestClusterJobQuery("user-1", "group-1"));
 
         assertThat(latest.state()).isEqualTo(ClusterJobLatestState.NOT_ANALYZED);
         assertThat(latest.job()).isNull();
@@ -350,9 +350,9 @@ class ClusteringServiceTest {
     void latestReturnsFailedForLatestWorkspaceJobFailure() {
         noteSource.notes = List.of(note("note-1", "Java", List.of(), List.of(), "Spring"));
         chatPort.response = new AiChatResponse("not json", null);
-        ClusterJob failed = service.requestClusterJob(new ClusterJobCommand("user-1", Map.of(), Map.of(), null));
+        ClusterJob failed = service.requestClusterJob(new ClusterJobCommand("user-1", workspaceScope(), Map.of(), null));
 
-        var latest = service.getLatestClusterJob(new GetLatestClusterJobQuery("user-1", "default"));
+        var latest = service.getLatestClusterJob(new GetLatestClusterJobQuery("user-1", "group-1"));
 
         assertThat(failed.status()).isEqualTo(ClusterJobStatus.FAILED);
         assertThat(latest.state()).isEqualTo(ClusterJobLatestState.FAILED);
@@ -367,6 +367,10 @@ class ClusteringServiceTest {
         String excerpt
     ) {
         return note(noteId, title, tags, headings, excerpt, Instant.parse("2026-06-26T00:00:00Z"));
+    }
+
+    private static Map<String, Object> workspaceScope() {
+        return Map.of("documentGroupId", "group-1");
     }
 
     private static KnowledgeAnalysisNote note(
@@ -426,16 +430,16 @@ class ClusteringServiceTest {
         }
     }
 
-    private static class FakeNoteSource implements KnowledgeAnalysisNoteSourcePort {
+    private static class FakeNoteSource implements ClusteringNoteSourcePort {
         private List<KnowledgeAnalysisNote> notes = List.of();
 
         @Override
-        public List<KnowledgeAnalysisNote> findAnalysisNotes(String userId, String documentGroupId, int limit) {
+        public List<KnowledgeAnalysisNote> findClusteringSourceNotes(String userId, String documentGroupId, int limit) {
             return notes.stream().limit(limit).toList();
         }
 
         @Override
-        public List<KnowledgeAnalysisNote> findAnalysisNotesByIds(String userId, String documentGroupId, List<String> noteIds) {
+        public List<KnowledgeAnalysisNote> findClusteringSourceNotesByIds(String userId, String documentGroupId, List<String> noteIds) {
             return noteIds.stream()
                 .flatMap(noteId -> notes.stream().filter(note -> note.noteId().equals(noteId)))
                 .toList();

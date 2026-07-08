@@ -444,7 +444,7 @@ function linkSuggestionErrorMessage(error: unknown) {
     return "로그인 또는 AI 연결 추천 권한을 확인하고 다시 시도하세요.";
   }
   if (message.includes("찾을 수") || message.includes("not found") || message.includes("404")) {
-    return "선택한 노트를 아직 AI가 분석할 수 없습니다. 그래프를 새로고침하거나 색인 후 다시 시도하세요.";
+    return "선택한 노트를 아직 AI 추천에 사용할 수 없습니다. 그래프를 새로고침하거나 노트 동기화 후 다시 시도하세요.";
   }
   if (message.includes("conflict") || message.includes("409") || message.includes("unavailable") || message.includes("실패")) {
     return "AI 추천 생성이 잠시 불안정합니다. 잠시 후 다시 시도하세요.";
@@ -1389,8 +1389,8 @@ function TooltipOverlay({
   const unavailableForAiSelection = (bridgeMode || linkMode) && hovered.availableForAiFeatures !== true;
   const tooltipBody = unavailableForAiSelection
     ? bridgeMode
-      ? "아직 AI 색인이 준비되지 않은 노트입니다. 색인이 완료되면 징검다리 추천에 사용할 수 있어요."
-      : "아직 AI 색인이 준비되지 않은 노트입니다. 색인이 완료되면 연결 추천에 사용할 수 있어요."
+      ? "아직 AI 추천에 사용할 수 없는 노트입니다. 노트 동기화가 완료되면 징검다리 추천에 사용할 수 있어요."
+      : "아직 AI 추천에 사용할 수 없는 노트입니다. 노트 동기화가 완료되면 연결 추천에 사용할 수 있어요."
     : summaryText;
   if (!tooltipBody) return null;
 
@@ -1624,7 +1624,7 @@ function GraphScreenInner() {
   const hasGraphData = notes.length > 0;
   const hasActionableNotes = rawNotes.length > 0;
   const noteIndexStatusUnavailable = rawNotes.some((note) => note.indexStatusUnavailable);
-  const aiReadyNoteLabel = noteIndexStatusUnavailable ? "선택 가능한 노트" : "색인된 노트";
+  const aiReadyNoteLabel = noteIndexStatusUnavailable ? "선택 가능한 노트" : "AI 추천 가능한 노트";
   const aiClusterUsableNoteCount = useMemo(
     () => rawNotes.filter(isAiFeatureReadyNote).length,
     [rawNotes]
@@ -1658,6 +1658,7 @@ function GraphScreenInner() {
     bridgeSelectedIds.length === bridgeSelectAllIds.length &&
     bridgeSelectAllIds.every((id) => bridgeSelectedIds.includes(id));
   const canCreateBridgeConcepts =
+    !!currentWorkspaceId &&
     bridgeSelectedIds.length >= BRIDGE_MIN_NOTE_COUNT &&
     bridgeSelectedIds.length <= BRIDGE_MAX_NOTE_COUNT &&
     bridgeSelectedReady &&
@@ -1682,6 +1683,7 @@ function GraphScreenInner() {
     linkSelectedIds.length === linkSelectAllIds.length &&
     linkSelectAllIds.every((id) => linkSelectedIds.includes(id));
   const canCreateLinkSuggestions =
+    !!currentWorkspaceId &&
     linkSelectedIds.length >= LINK_MIN_NOTE_COUNT &&
     linkSelectedIds.length <= LINK_MAX_NOTE_COUNT &&
     linkSelectedReady &&
@@ -1807,7 +1809,7 @@ function GraphScreenInner() {
       try {
         const graph = await getGraph();
         if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
-        const graphNotes = await mergeNoteIndexStatuses(graphToBrainXNotes(graph));
+        const graphNotes = await mergeNoteIndexStatuses(graphToBrainXNotes(graph), currentWorkspaceId);
         if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
         const serverNoteIds = new Set(graphNotes.map((note) => note.id));
         const optimisticNotes = Object.values(optimisticGraphNotesRef.current).filter((note) => {
@@ -1818,9 +1820,9 @@ function GraphScreenInner() {
           }
           return true;
         });
-        // GraphNodeData(=/api/v1/graph 응답)에는 documentGroupId가 없어 그래프 자체로는 Workspace를
-        // 판정할 수 없다 — mockNotes(useBrainX(), 실제로는 Notes API로 이미 documentGroupId까지
-        // 불러온 전역 노트 목록)와 noteId로 대조해 현재 Workspace 소속만 남긴다. optimisticNotes는
+        // GraphNodeData(=/api/v1/graph 응답)는 documentGroupId를 포함한다. 예전 응답/캐시처럼
+        // 값이 비어 있을 수 있는 경우만 mockNotes(useBrainX(), 실제로는 Notes API로 이미
+        // documentGroupId까지 불러온 전역 노트 목록)와 noteId로 보정한다. optimisticNotes는
         // sessionStorage에 생성 당시 documentGroupId를 함께 보존해 두고, 같은 기준으로 현재
         // Workspace와 일치하는 것만 merge한다. 그래야 Workspace A에서 막 만든 노트가 projection
         // 반영 전에 Workspace B graph로 잠깐 섞이는 회귀를 막을 수 있다.
@@ -1829,7 +1831,7 @@ function GraphScreenInner() {
           matchesWorkspaceScope(note.documentGroupId ?? null, currentWorkspaceId, workspaces)
         );
         const scopedGraphNotes = graphNotes.filter((note) => {
-          const knownDocGroupId = docGroupByNoteId.get(note.id);
+          const knownDocGroupId = note.documentGroupId ?? docGroupByNoteId.get(note.id);
           // mockNotes(useBrainX(), 별도로 비동기 로드되는 전역 노트 목록)가 이 그래프 응답의
           // 노트를 아직 못 따라온 순간에는 documentGroupId를 모른다 — null(레거시/미배정)로
           // 단정해 배제하면, 실제로는 현재 Workspace 소속인 노트가 두 소스의 로딩 타이밍 차이
@@ -2009,7 +2011,7 @@ function GraphScreenInner() {
         clearBridgeGeneratedState();
         setBridgeSelectedIds([]);
       }
-      if (noteIds.length > 0) pushToast("색인된 노트만 AI 추천에 사용할 수 있어요.", "info");
+      if (noteIds.length > 0) pushToast("AI 추천 가능한 노트만 사용할 수 있어요.", "info");
       return;
     }
     clearBridgeGeneratedState();
@@ -2038,7 +2040,7 @@ function GraphScreenInner() {
   const toggleBridgeNote = (noteId: string) => {
     if (bridgeSelectionLocked) return;
     if (!bridgeSelectedIds.includes(noteId) && !bridgeSelectableIdSet.has(noteId)) {
-      pushToast("색인된 노트만 AI 추천에 사용할 수 있어요.", "info");
+      pushToast("AI 추천 가능한 노트만 사용할 수 있어요.", "info");
       return;
     }
     clearBridgeGeneratedState();
@@ -2061,7 +2063,7 @@ function GraphScreenInner() {
         clearLinkGeneratedState();
         setLinkSelectedIds([]);
       }
-      if (noteIds.length > 0) pushToast("색인된 노트만 AI 추천에 사용할 수 있어요.", "info");
+      if (noteIds.length > 0) pushToast("AI 추천 가능한 노트만 사용할 수 있어요.", "info");
       return;
     }
     clearLinkGeneratedState();
@@ -2090,7 +2092,7 @@ function GraphScreenInner() {
   const toggleLinkNote = (noteId: string) => {
     if (linkSelectionLocked) return;
     if (!linkSelectedIds.includes(noteId) && !linkSelectableIdSet.has(noteId)) {
-      pushToast("색인된 노트만 AI 추천에 사용할 수 있어요.", "info");
+      pushToast("AI 추천 가능한 노트만 사용할 수 있어요.", "info");
       return;
     }
     clearLinkGeneratedState();
@@ -2106,7 +2108,7 @@ function GraphScreenInner() {
   };
 
   const handleCreateBridgeConcepts = async () => {
-    if (!canCreateBridgeConcepts) return;
+    if (!canCreateBridgeConcepts || !currentWorkspaceId) return;
     const session = readAuthSession();
     const hasRealLogin = !!session?.accessToken && !isDevAuthSession(session);
     if (!hasRealLogin) {
@@ -2118,7 +2120,10 @@ function GraphScreenInner() {
     setBridgeError(null);
     setBridgeSaveStates({});
     try {
-      const result = await createBridgeConcepts({ noteIds: bridgeSelectedIds.map(resolveAiRequestNoteId) });
+      const result = await createBridgeConcepts({
+        documentGroupId: currentWorkspaceId,
+        noteIds: bridgeSelectedIds.map(resolveAiRequestNoteId)
+      });
       setBridgeRecommendations(result.recommendations);
       setBridgeStatus("success");
       if (result.recommendations.length > 0) {
@@ -2132,7 +2137,7 @@ function GraphScreenInner() {
   };
 
   const handleCreateLinkSuggestions = async () => {
-    if (!canCreateLinkSuggestions) return;
+    if (!canCreateLinkSuggestions || !currentWorkspaceId) return;
     const session = readAuthSession();
     if (!session?.accessToken) {
       pushToast("회원가입/로그인 하고 이어서 작업할 수 있어요.", "info");
@@ -2154,7 +2159,10 @@ function GraphScreenInner() {
         const sourceNote = notes.find((note) => note.id === sourceNoteId);
         if (!sourceNote) continue;
         setLinkProgress({ current: index + 1, total: linkSelectedIds.length });
-        const result = await createLinkSuggestions({ noteId: resolveAiRequestNoteId(sourceNoteId) });
+        const result = await createLinkSuggestions({
+          documentGroupId: currentWorkspaceId,
+          noteId: resolveAiRequestNoteId(sourceNoteId)
+        });
         const suggestions = filterLinkSuggestions(sourceNoteId, result.suggestions, notes, edges);
         if (suggestions.length > 0) {
           groups.push({
@@ -2454,7 +2462,7 @@ function GraphScreenInner() {
       return { title: "AI 분석 중", body: "현재 노트 스냅샷을 주제별로 묶고 있습니다." };
     }
     if (clusterLatest?.state === "NO_SOURCE_NOTES") {
-      return { title: "분석 대상 없음", body: "색인된 노트가 생기면 AI 클러스터를 만들 수 있습니다." };
+      return { title: "분석 대상 없음", body: "AI 추천 가능한 노트가 생기면 AI 클러스터를 만들 수 있습니다." };
     }
     if (aiClusterUsableNoteCount < AI_CLUSTER_MIN_NOTES) {
       return { title: "노트 부족", body: `분석 가능한 노트가 ${AI_CLUSTER_MIN_NOTES}개 이상 필요합니다.` };
@@ -2469,7 +2477,7 @@ function GraphScreenInner() {
       return { title: "최근 분석 실패", body: clusterLatest.job?.failureMessage ?? "다시 분석을 실행해 주세요." };
     }
     if (clusterLatest?.state === "FRESH") {
-      return { title: "분석 완료", body: "현재 색인된 노트 스냅샷과 일치합니다." };
+      return { title: "분석 완료", body: "현재 AI 추천 가능한 노트 스냅샷과 일치합니다." };
     }
     if (clusterError) {
       return { title: "상태 확인 실패", body: clusterError };
@@ -2563,7 +2571,7 @@ function GraphScreenInner() {
               </div>
               {noteIndexStatusUnavailable ? (
                 <div className={cx("mt-2 rounded-lg px-2.5 py-2 text-[11px] font-medium", GRAPH_NOTICE_TONE.info)}>
-                  색인 상태를 확인하지 못해 기존 방식으로 선택합니다.
+                  AI 추천 가능 여부를 확인하지 못해 기존 방식으로 선택합니다.
                 </div>
               ) : null}
               {clusterLatest?.state === "STALE" ? (
@@ -2901,7 +2909,7 @@ function GraphScreenInner() {
               ) : (
                 <div className="mb-4 rounded-xl border border-dashed border-line/70 bg-surface2/40 px-3 py-4 text-center text-[12px] text-txt3">
                   {bridgeSelectableIds.length === 0
-                    ? "색인된 노트가 필요합니다. 색인 완료 후 다시 시도하세요."
+                    ? "AI 추천 가능한 노트가 필요합니다. 노트 동기화 후 다시 시도하세요."
                     : "추천에 사용할 노트를 먼저 선택하세요."}
                 </div>
               )}
@@ -3067,7 +3075,7 @@ function GraphScreenInner() {
               ) : (
                 <div className="mb-4 rounded-xl border border-dashed border-line/70 bg-surface2/40 px-3 py-4 text-center text-[12px] text-txt3">
                   {linkSelectableIds.length === 0
-                    ? "색인된 노트가 필요합니다. 색인 완료 후 다시 시도하세요."
+                    ? "AI 추천 가능한 노트가 필요합니다. 노트 동기화 후 다시 시도하세요."
                     : "연결 추천을 만들 원본 노트를 먼저 선택하세요."}
                 </div>
               )}
@@ -3102,7 +3110,7 @@ function GraphScreenInner() {
                   </div>
                   <p className="text-[13px] font-semibold text-txt">새로 연결할 후보가 없습니다</p>
                   <p className="mt-1 text-[12px] leading-5 text-txt3">
-                    다른 노트를 선택하거나 색인 후 다시 시도하세요.
+                    다른 노트를 선택하거나 노트 동기화 후 다시 시도하세요.
                   </p>
                 </div>
               ) : null}

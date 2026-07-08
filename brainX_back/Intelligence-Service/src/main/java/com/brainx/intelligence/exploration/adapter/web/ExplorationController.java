@@ -20,6 +20,7 @@ import com.brainx.intelligence.exploration.application.port.inbound.GetNoteIndex
 import com.brainx.intelligence.exploration.application.port.inbound.SemanticSearchUseCase;
 import com.brainx.intelligence.exploration.application.port.inbound.SemanticSearchUseCase.SemanticSearchCommand;
 import com.brainx.intelligence.exploration.domain.SearchMatchType;
+import com.brainx.intelligence.exploration.domain.SearchMode;
 import com.brainx.intelligence.exploration.domain.SearchScope;
 import com.brainx.intelligence.exploration.domain.SummarySource;
 import com.brainx.intelligence.infrastructure.web.ApiSuccessResponse;
@@ -70,7 +71,8 @@ public class ExplorationController {
             request.query(),
             nullToEmpty(request.filters()),
             request.limit(),
-            nullToEmptyList(request.hybridWithClientKeywordIds())
+            nullToEmptyList(request.hybridWithClientKeywordIds()),
+            SearchMode.normalize(request.searchMode())
         ));
 
         return ApiSuccessResponse.ok(new SemanticSearchData(
@@ -150,7 +152,8 @@ public class ExplorationController {
         @NotBlank String query,
         Map<String, Object> filters,
         Integer limit,
-        List<String> hybridWithClientKeywordIds
+        List<String> hybridWithClientKeywordIds,
+        String searchMode
     ) {
     }
 
@@ -161,11 +164,12 @@ public class ExplorationController {
         @NotBlank String query,
         Map<String, Object> filters,
         Integer limit,
-        List<String> hybridWithClientKeywordIds
+        List<String> hybridWithClientKeywordIds,
+        String searchMode
     ) {
 
         SemanticSearchRequest toPublicRequest() {
-            return new SemanticSearchRequest(scope, documentGroupId, query, filters, limit, hybridWithClientKeywordIds);
+            return new SemanticSearchRequest(scope, documentGroupId, query, filters, limit, hybridWithClientKeywordIds, searchMode);
         }
     }
 
@@ -186,7 +190,7 @@ public class ExplorationController {
     }
 
     record NoteIndexStatusesRequest(
-        String documentGroupId,
+        @NotBlank String documentGroupId,
         @NotEmpty @Size(max = 200) List<@NotBlank String> noteIds
     ) {
     }

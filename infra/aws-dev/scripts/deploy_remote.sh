@@ -12,6 +12,7 @@ PARAMETER_CACHE="$STATE_DIR/ssm-parameters.json"
 RDS_RUNTIME_STATE="$STATE_DIR/rds-runtime.env"
 COMPOSE_FILE="$CURRENT_DIR/docker-compose.yml"
 RDS_RUNTIME_SERVICES="user-service workspace-service ingestion-service commerce-service admin-service intelligence-service mcp-service"
+DOCKER_IMAGE_PRUNE_UNTIL="${DOCKER_IMAGE_PRUNE_UNTIL:-36h}"
 
 required_env() {
   name="$1"
@@ -205,6 +206,40 @@ write_env() {
   printf '%s=%s\n' "$key" "$(quote_env_value "$value")"
 }
 
+run_docker_cleanup_step() {
+  description="$1"
+  shift
+  echo "$description"
+  if "$@"; then
+    return 0
+  fi
+  status=$?
+  echo "Warning: $description failed with status $status; continuing deployment." >&2
+}
+
+cleanup_docker_storage() {
+  echo "Docker cleanup: pruning unused local Docker resources older than $DOCKER_IMAGE_PRUNE_UNTIL."
+  echo "Disk usage before Docker cleanup:"
+  df -h / /var/lib/docker 2>/dev/null || df -h /
+  echo "Docker usage before cleanup:"
+  docker system df || true
+
+  run_docker_cleanup_step \
+    "Prune unused Docker images older than $DOCKER_IMAGE_PRUNE_UNTIL" \
+    docker image prune -af --filter "until=$DOCKER_IMAGE_PRUNE_UNTIL"
+  run_docker_cleanup_step \
+    "Prune stopped Docker containers older than $DOCKER_IMAGE_PRUNE_UNTIL" \
+    docker container prune -f --filter "until=$DOCKER_IMAGE_PRUNE_UNTIL"
+  run_docker_cleanup_step \
+    "Prune Docker builder cache older than $DOCKER_IMAGE_PRUNE_UNTIL" \
+    docker builder prune -af --filter "until=$DOCKER_IMAGE_PRUNE_UNTIL"
+
+  echo "Disk usage after Docker cleanup:"
+  df -h / /var/lib/docker 2>/dev/null || df -h /
+  echo "Docker usage after cleanup:"
+  docker system df || true
+}
+
 for key in \
   DISCOVERY_SERVICE_TAG GATEWAY_SERVICE_TAG USER_SERVICE_TAG WORKSPACE_SERVICE_TAG INGESTION_SERVICE_TAG \
   COMMERCE_SERVICE_TAG ADMIN_SERVICE_TAG INTELLIGENCE_SERVICE_TAG MCP_SERVICE_TAG \
@@ -382,6 +417,8 @@ aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS 
 
 cd "$CURRENT_DIR"
 
+cleanup_docker_storage
+
 if [ "${DEPLOY_CONFIG_CHANGED:-false}" = "true" ]; then
   if [ -n "$services" ]; then
     docker compose --env-file "$RUNTIME_ENV" -f "$COMPOSE_FILE" pull $services
@@ -433,3 +470,5 @@ echo "Gateway health:"
 curl -fsS --max-time 10 -H "Host: $PUBLIC_SITE_ADDRESS" http://127.0.0.1:80/api/v1/plans >/dev/null || true
 curl -fsS --max-time 10 -H "Host: $PUBLIC_SITE_ADDRESS" http://127.0.0.1:80/ >/dev/null || true
 curl -fsS --max-time 10 -H "Host: $ADMIN_SITE_ADDRESS" http://127.0.0.1:80/ >/dev/null || true
+
+cleanup_docker_storage

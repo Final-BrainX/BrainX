@@ -6,6 +6,7 @@ import com.brainx.mcp.downstream.WorkspaceNoteGateway.CreateNoteCommand;
 import com.brainx.mcp.security.McpPrincipal;
 import com.brainx.mcp.security.McpSecurity;
 import java.util.List;
+import java.util.Locale;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -17,6 +18,7 @@ public class BrainxNoteTool {
     private static final String NOTES_WRITE = "notes:write";
     private static final String AI_SEARCH = "ai:search";
     private static final String DEFAULT_SEARCH_SCOPE = "USER";
+    private static final String DEFAULT_SEARCH_MODE = "SEMANTIC";
     private static final int DEFAULT_SEARCH_LIMIT = 10;
 
     private final WorkspaceNoteGateway workspaceNoteGateway;
@@ -30,12 +32,13 @@ public class BrainxNoteTool {
         this.intelligenceSearchGateway = intelligenceSearchGateway;
     }
 
-    @Tool(name = "brainx_search_notes", description = "Search the authenticated user's BrainX notes with semantic search.")
+    @Tool(name = "brainx_search_notes", description = "Search the authenticated user's BrainX notes with semantic, keyword, or hybrid search.")
     public SearchNotesToolResult searchNotes(
         @ToolParam(description = "Natural-language query to search for.") String query,
         @ToolParam(description = "Maximum number of results. Defaults to 10.", required = false) Integer limit,
         @ToolParam(description = "Search scope: USER or DOCUMENT_GROUP. Defaults to USER.", required = false) String scope,
-        @ToolParam(description = "Document group id. Omit when scope is USER.", required = false) String documentGroupId
+        @ToolParam(description = "Document group id. Omit when scope is USER.", required = false) String documentGroupId,
+        @ToolParam(description = "Search mode: SEMANTIC, KEYWORD, or HYBRID. Defaults to SEMANTIC.", required = false) String mode
     ) {
         McpPrincipal principal = McpSecurity.currentApiClient(NOTES_READ, AI_SEARCH);
         String normalizedQuery = requireText(query, "query");
@@ -43,12 +46,39 @@ public class BrainxNoteTool {
             normalizedQuery,
             limit == null ? DEFAULT_SEARCH_LIMIT : limit,
             hasText(scope) ? scope.trim() : DEFAULT_SEARCH_SCOPE,
-            blankToNull(documentGroupId)
+            blankToNull(documentGroupId),
+            normalizeMode(mode)
         ));
         return new SearchNotesToolResult(
             response.results() == null ? List.of() : response.results(),
             response.tokenEstimate(),
             response.charged()
+        );
+    }
+
+    @Tool(name = "brainx_ask_notes", description = "Answer a question using the authenticated user's BrainX notes and return supporting citations.")
+    public AskNotesToolResult askNotes(
+        @ToolParam(description = "Question to answer from BrainX notes.") String question,
+        @ToolParam(description = "Maximum number of note contexts. Defaults to 8.", required = false) Integer limit,
+        @ToolParam(description = "Search scope: USER or DOCUMENT_GROUP. Defaults to USER.", required = false) String scope,
+        @ToolParam(description = "Document group id. Omit when scope is USER.", required = false) String documentGroupId,
+        @ToolParam(description = "Optional AI model id. Omit to use the user's default model.", required = false) String modelId
+    ) {
+        McpPrincipal principal = McpSecurity.currentApiClient(NOTES_READ, AI_SEARCH);
+        var response = intelligenceSearchGateway.askNotes(principal.userId(), new IntelligenceSearchGateway.AskNotesQuery(
+            requireText(question, "question"),
+            limit,
+            hasText(scope) ? scope.trim() : DEFAULT_SEARCH_SCOPE,
+            blankToNull(documentGroupId),
+            blankToNull(modelId)
+        ));
+        return new AskNotesToolResult(
+            response.answer(),
+            response.citations() == null ? List.of() : response.citations(),
+            response.modelId(),
+            response.tokenEstimate(),
+            response.charged(),
+            response.tokenUsage()
         );
     }
 
@@ -101,6 +131,10 @@ public class BrainxNoteTool {
             .toList();
     }
 
+    private static String normalizeMode(String mode) {
+        return hasText(mode) ? mode.trim().toUpperCase(Locale.ROOT) : DEFAULT_SEARCH_MODE;
+    }
+
     private static boolean hasText(String value) {
         return value != null && !value.isBlank();
     }
@@ -109,6 +143,16 @@ public class BrainxNoteTool {
         List<IntelligenceSearchGateway.SearchResult> results,
         Integer tokenEstimate,
         boolean charged
+    ) {
+    }
+
+    public record AskNotesToolResult(
+        String answer,
+        List<IntelligenceSearchGateway.AskNotesCitation> citations,
+        String modelId,
+        Integer tokenEstimate,
+        boolean charged,
+        IntelligenceSearchGateway.AskNotesTokenUsage tokenUsage
     ) {
     }
 }

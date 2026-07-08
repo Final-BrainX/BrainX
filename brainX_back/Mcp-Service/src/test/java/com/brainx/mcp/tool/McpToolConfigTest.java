@@ -25,6 +25,7 @@ class McpToolConfigTest {
             .contains(
                 "brainx_whoami",
                 "brainx_search_notes",
+                "brainx_ask_notes",
                 "brainx_get_note",
                 "brainx_create_note"
             );

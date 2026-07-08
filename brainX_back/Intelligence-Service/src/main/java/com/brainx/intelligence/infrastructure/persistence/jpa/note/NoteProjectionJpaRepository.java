@@ -26,6 +26,8 @@ interface NoteProjectionJpaRepository extends JpaRepository<NoteProjectionJpaEnt
         Collection<String> noteIds
     );
 
+    void deleteByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId);
+
     @Query("""
         select projection
         from NoteProjectionJpaEntity projection
@@ -51,6 +53,29 @@ interface NoteProjectionJpaRepository extends JpaRepository<NoteProjectionJpaEnt
         from NoteProjectionJpaEntity projection
         where projection.userId = :userId
           and projection.documentGroupId = :documentGroupId
+          and projection.archived = false
+          and projection.trashed = false
+          and projection.deleted = false
+          and projection.contentPending = false
+          and projection.markdown is not null
+          and (
+            projection.searchIndexStatus is null
+            or projection.searchIndexStatus <> :removedStatus
+          )
+        order by projection.updatedAt desc, projection.noteId asc
+        """)
+    List<NoteProjectionJpaEntity> findGraphAiSources(
+        @Param("userId") String userId,
+        @Param("documentGroupId") String documentGroupId,
+        @Param("removedStatus") NoteSearchIndexStatus removedStatus,
+        Pageable pageable
+    );
+
+    @Query("""
+        select projection
+        from NoteProjectionJpaEntity projection
+        where projection.userId = :userId
+          and projection.documentGroupId = :documentGroupId
           and projection.folderId = :folderId
           and projection.archived = false
           and projection.trashed = false
@@ -65,6 +90,32 @@ interface NoteProjectionJpaRepository extends JpaRepository<NoteProjectionJpaEnt
         @Param("documentGroupId") String documentGroupId,
         @Param("folderId") String folderId,
         @Param("status") NoteSearchIndexStatus status,
+        Pageable pageable
+    );
+
+    @Query(value = """
+        select *
+        from intelligence_note_projections projection
+        where projection.user_id = :userId
+          and (:documentGroupId is null or projection.document_group_id = :documentGroupId)
+          and projection.archived = false
+          and projection.trashed = false
+          and projection.deleted = false
+          and projection.content_pending = false
+          and projection.markdown is not null
+          and projection.search_index_status = :status
+          and (
+            lower(projection.title) like :pattern
+            or lower(cast(projection.markdown as varchar)) like :pattern
+            or lower(cast(projection.tags as varchar)) like :pattern
+          )
+        order by projection.updated_at desc, projection.note_id asc
+        """, nativeQuery = true)
+    List<NoteProjectionJpaEntity> findKeywordSearchable(
+        @Param("userId") String userId,
+        @Param("documentGroupId") String documentGroupId,
+        @Param("status") String status,
+        @Param("pattern") String pattern,
         Pageable pageable
     );
 

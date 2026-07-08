@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
@@ -41,6 +42,9 @@ import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseC
 import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ChatThreadListPagination;
 import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ChatThreadListResult;
 import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ListChatThreadsQuery;
+import com.brainx.intelligence.chat.application.port.inbound.RecordChatDraftNoteUseCase;
+import com.brainx.intelligence.chat.application.port.inbound.RecordChatDraftNoteUseCase.ChatDraftNoteResult;
+import com.brainx.intelligence.chat.application.port.inbound.RecordChatDraftNoteUseCase.RecordChatDraftNoteCommand;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.ChatStreamEvent;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.SendChatMessageCommand;
@@ -49,6 +53,7 @@ import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUse
 import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase.ChatThreadUpdateResult;
 import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase.DeleteChatThreadCommand;
 import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase.UpdateChatThreadCommand;
+import com.brainx.intelligence.chat.domain.ChatConflictException;
 import com.brainx.intelligence.chat.domain.ChatDomainException;
 import com.brainx.intelligence.infrastructure.security.SecurityConfig;
 import com.brainx.intelligence.infrastructure.web.GlobalApiExceptionHandler;
@@ -76,6 +81,9 @@ class ChatControllerTest {
 
     @MockitoBean
     private UpdateChatThreadUseCase updateChatThreadUseCase;
+
+    @MockitoBean
+    private RecordChatDraftNoteUseCase recordChatDraftNoteUseCase;
 
     @Test
     void createChatThreadReturnsCreatedWrappedData() throws Exception {
@@ -240,6 +248,51 @@ class ChatControllerTest {
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.success").value(false))
             .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void recordChatDraftNoteReturnsWrappedMapping() throws Exception {
+        when(recordChatDraftNoteUseCase.recordChatDraftNote(any(RecordChatDraftNoteCommand.class)))
+            .thenReturn(new ChatDraftNoteResult("thread-1", "message-2", "note-1"));
+
+        mockMvc.perform(put("/api/v1/ai/chat-threads/thread-1/messages/message-2/draft-note")
+                .with(user("user-1"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "noteId": "note-1"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true))
+            .andExpect(jsonPath("$.data.threadId").value("thread-1"))
+            .andExpect(jsonPath("$.data.messageId").value("message-2"))
+            .andExpect(jsonPath("$.data.noteId").value("note-1"));
+
+        verify(recordChatDraftNoteUseCase).recordChatDraftNote(argThat(command ->
+            command.userId().equals("user-1")
+                && command.threadId().equals("thread-1")
+                && command.messageId().equals("message-2")
+                && command.noteId().equals("note-1")
+        ));
+    }
+
+    @Test
+    void recordChatDraftNoteConflictReturnsConflictWrapper() throws Exception {
+        when(recordChatDraftNoteUseCase.recordChatDraftNote(any(RecordChatDraftNoteCommand.class)))
+            .thenThrow(new ChatConflictException("Chat message cannot be saved as a draft note."));
+
+        mockMvc.perform(put("/api/v1/ai/chat-threads/thread-1/messages/message-2/draft-note")
+                .with(user("user-1"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "noteId": "note-1"
+                    }
+                    """))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.success").value(false))
+            .andExpect(jsonPath("$.error.code").value("CONFLICT"));
     }
 
     @Test

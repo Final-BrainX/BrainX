@@ -76,7 +76,7 @@ class OrganizationServiceTest {
     );
 
     @Test
-    void createProposalUsesDefaultDocumentGroupAndUserModel() {
+    void createProposalUsesCommandDocumentGroupAndUserModel() {
         settingsPort.settings = Optional.of(new AiModelSettings("user-1", "gpt-user", Map.of()));
         styleProfilePort.profile = new StyleProfile(
             "user-1",
@@ -103,7 +103,7 @@ class OrganizationServiceTest {
         );
 
         FolderOrganizationProposalResult result = service.createFolderOrganizationProposal(
-            new FolderOrganizationProposalCommand("user-1", "all", null)
+            new FolderOrganizationProposalCommand("user-1", "group-1", "all", null)
         );
 
         assertThat(result.proposalId()).isNotBlank();
@@ -112,7 +112,7 @@ class OrganizationServiceTest {
         assertThat(result.proposedFolders().getFirst().get("noteIds")).isEqualTo(List.of("note-1"));
         assertThat(result.proposedMoves()).hasSize(1);
         assertThat(result.proposedMoves().getFirst()).containsEntry("noteId", "note-2");
-        assertThat(noteSource.lastDocumentGroupId).isEqualTo("default");
+        assertThat(noteSource.lastDocumentGroupId).isEqualTo("group-1");
         assertThat(noteSource.lastAllLimit).isEqualTo(50);
         assertThat(chatPort.lastRequest.modelId()).isEqualTo("gpt-user");
         assertThat(chatPort.lastRequest.messages().getFirst().content())
@@ -139,7 +139,7 @@ class OrganizationServiceTest {
     @Test
     void folderScopeRequiresFolderId() {
         assertThatThrownBy(() -> service.createFolderOrganizationProposal(
-            new FolderOrganizationProposalCommand("user-1", "folder", " ")
+            new FolderOrganizationProposalCommand("user-1", "group-1", "folder", " ")
         ))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("folderId");
@@ -150,12 +150,12 @@ class OrganizationServiceTest {
     @Test
     void noNotesMapsToConflictForAllScopeAndNotFoundForFolderScope() {
         assertThatThrownBy(() -> service.createFolderOrganizationProposal(
-            new FolderOrganizationProposalCommand("user-1", "all", null)
+            new FolderOrganizationProposalCommand("user-1", "group-1", "all", null)
         ))
             .isInstanceOf(OrganizationConflictException.class);
 
         assertThatThrownBy(() -> service.createFolderOrganizationProposal(
-            new FolderOrganizationProposalCommand("user-1", "folder", "folder-a")
+            new FolderOrganizationProposalCommand("user-1", "group-1", "folder", "folder-a")
         ))
             .isInstanceOf(OrganizationNotFoundException.class);
     }
@@ -167,7 +167,7 @@ class OrganizationServiceTest {
         entitlementPort.reasonCode = "QUOTA_EXHAUSTED";
 
         assertThatThrownBy(() -> service.createFolderOrganizationProposal(
-            new FolderOrganizationProposalCommand("user-1", "all", null)
+            new FolderOrganizationProposalCommand("user-1", "group-1", "all", null)
         ))
             .isInstanceOf(OrganizationForbiddenException.class)
             .hasMessageContaining("QUOTA_EXHAUSTED");
@@ -184,13 +184,13 @@ class OrganizationServiceTest {
         chatPort.response = new AiChatResponse("not json", null);
 
         FolderOrganizationProposalResult result = service.createFolderOrganizationProposal(
-            new FolderOrganizationProposalCommand("user-1", "folder", "folder-a")
+            new FolderOrganizationProposalCommand("user-1", "group-1", "folder", "folder-a")
         );
 
         assertThat(result.proposedFolders()).isEmpty();
         assertThat(result.proposedMoves()).isEmpty();
         assertThat(noteSource.lastFolderId).isEqualTo("folder-a");
-        assertThat(noteSource.lastDocumentGroupId).isEqualTo("default");
+        assertThat(noteSource.lastDocumentGroupId).isEqualTo("group-1");
         assertThat(chatPort.lastRequest.modelId()).isEqualTo("gpt-organization");
         assertThat(tokenUsagePort.records).isEmpty();
         assertThat(eventPort.createdEvents).hasSize(1);
@@ -217,7 +217,7 @@ class OrganizationServiceTest {
         );
 
         FolderOrganizationProposalResult result = service.createFolderOrganizationProposal(
-            new FolderOrganizationProposalCommand("user-1", "all", null)
+            new FolderOrganizationProposalCommand("user-1", "group-1", "all", null)
         );
 
         assertThat(result.proposedFolders()).extracting(item -> item.get("name")).containsExactly("Valid");
@@ -230,7 +230,7 @@ class OrganizationServiceTest {
         chatPort.failure = new RuntimeException("provider down");
 
         assertThatThrownBy(() -> service.createFolderOrganizationProposal(
-            new FolderOrganizationProposalCommand("user-1", "all", null)
+            new FolderOrganizationProposalCommand("user-1", "group-1", "all", null)
         ))
             .isInstanceOf(OrganizationProviderUnavailableException.class);
     }

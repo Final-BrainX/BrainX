@@ -5,8 +5,8 @@ import java.util.Map;
 
 import com.brainx.intelligence.exploration.domain.ExplorationDomainException;
 import com.brainx.intelligence.exploration.domain.SearchMatchType;
+import com.brainx.intelligence.exploration.domain.SearchMode;
 import com.brainx.intelligence.exploration.domain.SearchScope;
-import com.brainx.intelligence.shared.domain.DocumentGroups;
 
 public interface SemanticSearchUseCase {
 
@@ -19,8 +19,21 @@ public interface SemanticSearchUseCase {
         String query,
         Map<String, Object> filters,
         Integer limit,
-        List<String> hybridWithClientKeywordIds
+        List<String> hybridWithClientKeywordIds,
+        SearchMode searchMode
     ) {
+        public SemanticSearchCommand(
+            String userId,
+            SearchScope scope,
+            String documentGroupId,
+            String query,
+            Map<String, Object> filters,
+            Integer limit,
+            List<String> hybridWithClientKeywordIds
+        ) {
+            this(userId, scope, documentGroupId, query, filters, limit, hybridWithClientKeywordIds, SearchMode.SEMANTIC);
+        }
+
         public SemanticSearchCommand(
             String userId,
             String documentGroupId,
@@ -29,7 +42,7 @@ public interface SemanticSearchUseCase {
             Integer limit,
             List<String> hybridWithClientKeywordIds
         ) {
-            this(userId, SearchScope.DOCUMENT_GROUP, documentGroupId, query, filters, limit, hybridWithClientKeywordIds);
+            this(userId, SearchScope.DOCUMENT_GROUP, documentGroupId, query, filters, limit, hybridWithClientKeywordIds, SearchMode.SEMANTIC);
         }
 
         public SemanticSearchCommand(
@@ -39,19 +52,27 @@ public interface SemanticSearchUseCase {
             Integer limit,
             List<String> hybridWithClientKeywordIds
         ) {
-            this(userId, SearchScope.DOCUMENT_GROUP, null, query, filters, limit, hybridWithClientKeywordIds);
+            this(userId, SearchScope.DOCUMENT_GROUP, null, query, filters, limit, hybridWithClientKeywordIds, SearchMode.SEMANTIC);
         }
 
         public SemanticSearchCommand {
             scope = scope == null ? SearchScope.DOCUMENT_GROUP : scope;
+            searchMode = searchMode == null ? SearchMode.SEMANTIC : searchMode;
             if (scope == SearchScope.USER) {
                 if (documentGroupId != null && !documentGroupId.isBlank()) {
                     throw new ExplorationDomainException("documentGroupId must be omitted when scope is USER.");
                 }
                 documentGroupId = null;
             } else {
-                documentGroupId = DocumentGroups.normalize(documentGroupId);
+                documentGroupId = requireText(documentGroupId, "documentGroupId");
             }
+        }
+
+        private static String requireText(String value, String name) {
+            if (value == null || value.isBlank()) {
+                throw new ExplorationDomainException(name + " must not be blank.");
+            }
+            return value.trim();
         }
     }
 

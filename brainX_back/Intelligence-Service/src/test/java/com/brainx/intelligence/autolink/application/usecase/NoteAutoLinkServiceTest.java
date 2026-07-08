@@ -131,6 +131,9 @@ class NoteAutoLinkServiceTest {
         assertThat(strategy.suggestions().getFirst().sourceNoteId()).isEqualTo("source");
         assertThat(strategy.suggestions().getFirst().targetNoteId()).isEqualTo("target");
         assertThat(chunkRetrieval.queries).isEmpty();
+        assertThat(projectionStore.searchableSourceCalls).isZero();
+        assertThat(projectionStore.graphSourceCalls).isEqualTo(1);
+        assertThat(projectionStore.graphSourceListCalls).isEqualTo(1);
         assertThat(aiChatPort.requests).hasSize(1);
         assertThat(aiChatPort.requests.getFirst().messages().get(1).content())
             .contains("noteId: target")
@@ -570,6 +573,9 @@ class NoteAutoLinkServiceTest {
     private static final class FakeNoteSourcePort implements AutoLinkNoteSourcePort {
 
         private final List<AutoLinkNoteSource> notes = new ArrayList<>();
+        private int searchableSourceCalls;
+        private int graphSourceCalls;
+        private int graphSourceListCalls;
 
         @Override
         public List<AutoLinkNoteSource> findSearchableNoteSources(
@@ -591,6 +597,32 @@ class NoteAutoLinkServiceTest {
             String documentGroupId,
             String noteId
         ) {
+            searchableSourceCalls++;
+            return notes.stream()
+                .filter(note -> note.userId().equals(userId)
+                    && note.documentGroupId().equals(documentGroupId)
+                    && note.noteId().equals(noteId)
+                    && note.markdown() != null)
+                .findFirst();
+        }
+
+        @Override
+        public List<AutoLinkNoteSource> findGraphAiNoteSources(
+            String userId,
+            String documentGroupId,
+            int limit
+        ) {
+            graphSourceListCalls++;
+            return findSearchableNoteSources(userId, documentGroupId, limit);
+        }
+
+        @Override
+        public Optional<AutoLinkNoteSource> findGraphAiNoteSource(
+            String userId,
+            String documentGroupId,
+            String noteId
+        ) {
+            graphSourceCalls++;
             return notes.stream()
                 .filter(note -> note.userId().equals(userId)
                     && note.documentGroupId().equals(documentGroupId)

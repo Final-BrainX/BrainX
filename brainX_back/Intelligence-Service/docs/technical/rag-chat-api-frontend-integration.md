@@ -22,6 +22,7 @@
 | `POST` | `/api/v1/ai/chat-threads` | 첫 질문 전 새 thread 생성 및 선택적 AI 제목 생성 |
 | `GET` | `/api/v1/ai/chat-threads/{threadId}` | 저장된 thread와 messages 재조회 |
 | `POST` | `/api/v1/ai/chat-threads/{threadId}/messages` | RAG 답변 SSE stream |
+| `PUT` | `/api/v1/ai/chat-threads/{threadId}/messages/{messageId}/draft-note` | AI assistant message와 저장된 Workspace note 매핑 기록 |
 | `GET` | `/api/v1/ai/models` | 사용 가능한 model 목록 |
 
 프론트는 browser에서 8086을 직접 호출하지 않는다. `brainx-next`는 same-origin `/api/intelligence/...`를 호출하고, Next route handler가 `/api/v1/...` backend path로 proxy한다.
@@ -75,7 +76,8 @@ Thread list item은 다음 값을 포함한다.
 3. `clientContext.items[].text`가 있으면 프론트 선택 context를 prompt에 우선 반영한다.
 4. context가 없으면 `NoteChunkRetrievalPort`로 note chunk RAG 검색을 수행한다.
 5. `AiChatPort.stream(...)`의 `delta`를 SSE로 즉시 흘린다.
-6. 완료 후 assistant message를 저장하고 `done.messageId`를 내려준다.
+6. 완료 후 assistant message를 저장하고 `done.messageId`를 내려준다. 이때 결정된 `ChatRoute`를 message의 `route`에 함께 저장한다.
+7. `/chat`이 Workspace note 생성에 성공한 뒤 `PUT /api/v1/ai/chat-threads/{threadId}/messages/{messageId}/draft-note`를 호출하면, 서버는 현재 사용자 소유 thread/message인지 확인하고 `COMPOSE` 또는 `NOTE_ACTION` assistant message에만 `savedDraftNoteId`를 기록한다. 이미 저장된 message는 기존 noteId를 반환하고 덮어쓰지 않는다.
 
 ## Frontend Flow
 
@@ -89,6 +91,8 @@ Thread list item은 다음 값을 포함한다.
 6. SSE `delta`는 assistant placeholder message에 즉시 누적한다.
 7. `done` 이후 `getChatThread(threadId)`로 저장 상태를 재조회해 message id, citations, token usage 기반 데이터를 맞춘다.
 8. streaming 중에는 새 대화, thread 전환, 추가 전송을 잠가 상태 꼬임을 막는다.
+9. thread 재조회 시 `ChatMessageData.route`로 초안 저장 가능 여부를 복원하고, `savedDraftNoteId`가 있으면 해당 메시지를 "노트로 이동" 상태로 렌더링한다.
+10. "초안을 노트로 저장" 클릭 시 Workspace note를 먼저 생성하고, 성공 후 Intelligence-Service에 draft-note mapping을 기록한다. mapping 기록만 실패하면 현재 세션에서는 생성된 noteId를 local saved state로 유지하고 동기화 실패 toast를 보여준다.
 
 Composer textarea는 `scrollHeight` 기준으로 자동 확장된다. 최소 1줄에서 시작하고, 최대 `min(240px, 32svh)`를 넘으면 textarea 내부 스크롤을 사용한다. `Enter` 전송과 `Shift+Enter` 줄바꿈 동작은 유지한다.
 
@@ -104,7 +108,7 @@ Workspace-level `/chat`는 명시 source context가 없으므로 message payload
 
 ## Persistence Notes
 
-`intelligence_chat_threads`와 `intelligence_chat_messages` schema는 새 목록 API 때문에 바뀌지 않았다. 목록의 `lastMessageAt`, `lastMessagePreview`, `messageCount`는 query-time read model이다.
+`intelligence_chat_threads`와 `intelligence_chat_messages` schema는 목록 API 때문에 별도 read model을 두지 않는다. 목록의 `lastMessageAt`, `lastMessagePreview`, `messageCount`는 query-time read model이다. AI assistant message의 `route`와 채팅 초안 저장 mapping인 `saved_draft_note_id`는 `intelligence_chat_messages`에 nullable column으로 저장한다.
 
 PostgreSQL 개발 DB가 Hibernate `@Lob`를 `oid`로 만든 경우가 있다. 이때 native SQL에서 `content`를 직접 select하면 실제 본문이 아니라 OID 숫자가 나온다. 그래서 thread summary native query는 aggregate와 ordering만 담당하고, preview text는 최신 `ChatMessageJpaEntity`를 JPA로 읽는다.
 

@@ -748,6 +748,92 @@ paths:
       - bearerAuth: []
       - guestSessionAuth: []
       x-streaming: sse
+  /api/v1/ai/chat-threads/{threadId}/messages/{messageId}/draft-note:
+    put:
+      operationId: recordChatMessageDraftNote
+      summary: AI 채팅 메시지 초안 노트 저장 매핑 기록
+      description: Workspace 공개 노트 생성이 성공한 뒤, 해당 AI assistant 메시지가 어떤 노트로 저장됐는지 기록한다. 이미 저장된 메시지는 기존 noteId를 반환하고 덮어쓰지 않는다.
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.chat
+        type: frontend
+        description: RAG 챗봇 UI
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: threadId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: messageId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatDraftNoteRequest'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ChatDraftNoteData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: 초안 노트로 저장할 수 없는 메시지
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/chat-threads/{threadId}:
     get:
       operationId: getChatThread
@@ -1897,10 +1983,9 @@ paths:
       parameters:
       - name: documentGroupId
         in: query
-        required: false
+        required: true
         schema:
           type: string
-          default: default
       responses:
         '200':
           description: 성공
@@ -2193,10 +2278,9 @@ paths:
       parameters:
       - name: documentGroupId
         in: query
-        required: false
+        required: true
         schema:
           type: string
-          default: default
       responses:
         '200':
           description: success
@@ -2498,6 +2582,73 @@ paths:
                   properties:
                     data:
                       $ref: '#/components/schemas/SemanticSearchData'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - serviceTokenAuth: []
+  /internal/v1/intelligence/rag-answer:
+    post:
+      operationId: ragAnswerInternal
+      summary: '[Internal] RAG answer for MCP note tools'
+      tags:
+      - Internal Service APIs
+      x-producer-service: knowledge-intelligence
+      x-visibility: internal
+      x-consumers:
+      - id: internal.mcp-service
+        type: internal-service
+        description: Mcp-Service ask-notes tool generates a cited answer using the API client's user context.
+      x-produces-events:
+      - TokenUsageRecordedRequested
+      x-internal-sync-calls:
+      - targetService: commerce-operations
+        operationId: checkEntitlementsInternal
+        reason: capability/quota must be decided synchronously before RAG answer generation.
+        required: true
+      x-async-boundary: false
+      description: Service-token protected RAG answer endpoint for internal callers that must provide the target userId explicitly.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InternalRagAnswerRequest'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/RagAnswerData'
         '400':
           description: Bad request
           content:
@@ -3134,11 +3285,11 @@ components:
           - DOCUMENT_GROUP
           - USER
           default: DOCUMENT_GROUP
-          description: Search scope. DOCUMENT_GROUP searches within documentGroupId (default group if omitted). USER searches
-            all note chunks owned by the user and must not include documentGroupId.
+          description: Search scope. DOCUMENT_GROUP searches within the required documentGroupId. USER searches all note chunks
+            owned by the user and must not include documentGroupId.
         documentGroupId:
           type: string
-          description: RAG/검색 격리를 위한 논리적 문서 그룹 경계. 생략하면 Knowledge Intelligence는 default로 처리한다.
+          description: RAG/검색 격리를 위한 논리적 문서 그룹 경계. scope=DOCUMENT_GROUP이면 필수이고, scope=USER이면 생략해야 한다.
         query:
           type: string
         filters:
@@ -3150,6 +3301,15 @@ components:
           type: array
           items:
             type: string
+        searchMode:
+          type: string
+          enum:
+          - SEMANTIC
+          - KEYWORD
+          - HYBRID
+          default: SEMANTIC
+          description: Search execution mode. SEMANTIC uses vector search, KEYWORD uses indexed note text/tags/title, HYBRID
+            combines both.
       required:
       - query
       additionalProperties: false
@@ -3164,11 +3324,11 @@ components:
           - DOCUMENT_GROUP
           - USER
           default: DOCUMENT_GROUP
-          description: Search scope. DOCUMENT_GROUP searches within documentGroupId (default group if omitted). USER searches
-            all note chunks owned by the user and must not include documentGroupId.
+          description: Search scope. DOCUMENT_GROUP searches within the required documentGroupId. USER searches all note chunks
+            owned by the user and must not include documentGroupId.
         documentGroupId:
           type: string
-          description: RAG/검색 격리를 위한 논리 문서 그룹 경계. 생략하면 Knowledge Intelligence가 default로 처리한다.
+          description: RAG/검색 격리를 위한 논리 문서 그룹 경계. scope=DOCUMENT_GROUP이면 필수이고, scope=USER이면 생략해야 한다.
         query:
           type: string
         filters:
@@ -3180,9 +3340,119 @@ components:
           type: array
           items:
             type: string
+        searchMode:
+          type: string
+          enum:
+          - SEMANTIC
+          - KEYWORD
+          - HYBRID
+          default: SEMANTIC
+          description: Search execution mode. SEMANTIC uses vector search, KEYWORD uses indexed note text/tags/title, HYBRID
+            combines both.
       required:
       - userId
       - query
+      additionalProperties: false
+    InternalRagAnswerRequest:
+      type: object
+      properties:
+        userId:
+          type: string
+        scope:
+          type: string
+          enum:
+          - DOCUMENT_GROUP
+          - USER
+          default: USER
+          description: Search scope for note context retrieval. USER searches all indexed notes owned by user; DOCUMENT_GROUP
+            requires or defaults the document group boundary.
+        documentGroupId:
+          type: string
+          nullable: true
+          description: Document group boundary for DOCUMENT_GROUP scope. Must be omitted when scope is USER.
+        question:
+          type: string
+        limit:
+          type: integer
+          nullable: true
+          description: Maximum number of note contexts to retrieve.
+        modelId:
+          type: string
+          nullable: true
+          description: Optional AI model id. Omit to use the user's default model.
+      required:
+      - userId
+      - question
+      additionalProperties: false
+    RagAnswerData:
+      type: object
+      properties:
+        answer:
+          type: string
+        citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/RagAnswerCitationData'
+        modelId:
+          type: string
+          nullable: true
+        tokenEstimate:
+          type: integer
+        charged:
+          type: boolean
+        tokenUsage:
+          type: object
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/RagAnswerTokenUsage'
+      required:
+      - answer
+      - citations
+      - tokenEstimate
+      - charged
+      additionalProperties: false
+    RagAnswerCitationData:
+      type: object
+      properties:
+        noteId:
+          type: string
+        title:
+          type: string
+          nullable: true
+        excerpt:
+          type: string
+        score:
+          type: number
+        matchedType:
+          type: string
+          enum:
+          - SEMANTIC
+          - KEYWORD
+          - HYBRID
+      required:
+      - noteId
+      - excerpt
+      - score
+      - matchedType
+      additionalProperties: false
+    RagAnswerTokenUsage:
+      type: object
+      properties:
+        promptTokens:
+          type: integer
+          nullable: true
+        completionTokens:
+          type: integer
+          nullable: true
+        totalTokens:
+          type: integer
+          nullable: true
+        cachedPromptTokens:
+          type: integer
+          nullable: true
+        reasoningTokens:
+          type: integer
+          nullable: true
       additionalProperties: false
     SemanticSearchData:
       type: object
@@ -3234,7 +3504,8 @@ components:
       properties:
         documentGroupId:
           type: string
-          description: 검색 인덱스 격리를 위한 논리적 문서 그룹 경계. 생략하면 default로 처리한다.
+          minLength: 1
+          description: 검색 인덱스 격리를 위한 Workspace document group 경계.
         noteIds:
           type: array
           minItems: 1
@@ -3243,6 +3514,7 @@ components:
             type: string
             minLength: 1
       required:
+      - documentGroupId
       - noteIds
       additionalProperties: false
     NoteIndexStatusesData:
@@ -3259,6 +3531,9 @@ components:
                 $ref: '#/components/schemas/NoteSearchIndexStatus'
               availableForAiFeatures:
                 type: boolean
+                description: true when the Intelligence note projection has active, non-pending markdown that graph AI features
+                  such as clustering and source-only link suggestions can use. This is independent from embedding/vector index
+                  readiness; see searchIndexStatus for that state.
               indexedAt:
                 type: string
                 format: date-time
@@ -3965,6 +4240,14 @@ components:
       - message
       - modelId
       additionalProperties: false
+    ChatDraftNoteRequest:
+      type: object
+      properties:
+        noteId:
+          type: string
+      required:
+      - noteId
+      additionalProperties: false
     AiClientContext:
       type: object
       description: Frontend-selected AI context for the current task. The user message and client context are separate so
@@ -4039,6 +4322,14 @@ components:
       - snippet
       - rank
       additionalProperties: false
+    ChatRoute:
+      type: string
+      enum:
+      - NOTE_QA
+      - WORKSPACE_SEARCH
+      - COMPOSE
+      - NOTE_ACTION
+      - OUT_OF_SCOPE
     ChatMessageData:
       type: object
       properties:
@@ -4080,6 +4371,14 @@ components:
         llmRunId:
           type: string
           nullable: true
+        route:
+          type: string
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/ChatRoute'
+        savedDraftNoteId:
+          type: string
+          nullable: true
         feedbackRating:
           type: string
           nullable: true
@@ -4096,6 +4395,20 @@ components:
       - citations
       - webSources
       - createdAt
+      additionalProperties: false
+    ChatDraftNoteData:
+      type: object
+      properties:
+        threadId:
+          type: string
+        messageId:
+          type: string
+        noteId:
+          type: string
+      required:
+      - threadId
+      - messageId
+      - noteId
       additionalProperties: false
     ChatThreadDetailData:
       type: object
@@ -4412,6 +4725,10 @@ components:
     FolderOrganizationProposalRequest:
       type: object
       properties:
+        documentGroupId:
+          type: string
+          minLength: 1
+          description: 폴더 정리 제안을 실행할 Workspace document group.
         scope:
           type: string
           enum:
@@ -4421,6 +4738,7 @@ components:
           type: string
           nullable: true
       required:
+      - documentGroupId
       - scope
       additionalProperties: false
     FolderOrganizationProposalData:
@@ -4447,9 +4765,14 @@ components:
     LinkSuggestionsRequest:
       type: object
       properties:
+        documentGroupId:
+          type: string
+          minLength: 1
+          description: AI 연결 추천을 실행할 Workspace document group.
         noteId:
           type: string
       required:
+      - documentGroupId
       - noteId
       additionalProperties: false
     LinkSuggestionsData:
@@ -4576,6 +4899,10 @@ components:
     BridgeConceptsRequest:
       type: object
       properties:
+        documentGroupId:
+          type: string
+          minLength: 1
+          description: 징검다리 개념 추천을 실행할 Workspace document group.
         noteIds:
           type: array
           minItems: 2
@@ -4584,6 +4911,7 @@ components:
             type: string
             minLength: 1
       required:
+      - documentGroupId
       - noteIds
       additionalProperties: false
     BridgeConceptsData:

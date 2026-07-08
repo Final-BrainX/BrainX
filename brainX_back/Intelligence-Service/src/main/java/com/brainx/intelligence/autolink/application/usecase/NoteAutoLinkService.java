@@ -245,7 +245,7 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
         int maxNotes = normalizeMaxNotes(command.maxNotes());
         String modelId = StringUtils.hasText(command.modelId()) ? command.modelId().trim() : properties.getModel();
 
-        Optional<AutoLinkNoteSource> source = noteSourcePort.findSearchableNoteSource(
+        Optional<AutoLinkNoteSource> source = noteSourcePort.findGraphAiNoteSource(
             userId,
             documentGroupId,
             sourceNoteId
@@ -265,7 +265,7 @@ public class NoteAutoLinkService implements NoteAutoLinkUseCase {
             );
         }
 
-        List<AutoLinkNoteSource> loaded = noteSourcePort.findSearchableNoteSources(
+        List<AutoLinkNoteSource> loaded = noteSourcePort.findGraphAiNoteSources(
             userId,
             documentGroupId,
             maxNotes + 1

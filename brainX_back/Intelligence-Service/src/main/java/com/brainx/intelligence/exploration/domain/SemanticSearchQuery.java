@@ -6,8 +6,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.brainx.intelligence.shared.domain.DocumentGroups;
-
 public record SemanticSearchQuery(
     String userId,
     SearchScope scope,
@@ -15,11 +13,24 @@ public record SemanticSearchQuery(
     String query,
     Map<String, Object> filters,
     int limit,
-    List<String> hybridWithClientKeywordIds
+    List<String> hybridWithClientKeywordIds,
+    SearchMode searchMode
 ) {
 
     public static final int DEFAULT_LIMIT = 10;
     public static final int MAX_LIMIT = 50;
+
+    public SemanticSearchQuery(
+        String userId,
+        SearchScope scope,
+        String documentGroupId,
+        String query,
+        Map<String, Object> filters,
+        int limit,
+        List<String> hybridWithClientKeywordIds
+    ) {
+        this(userId, scope, documentGroupId, query, filters, limit, hybridWithClientKeywordIds, SearchMode.SEMANTIC);
+    }
 
     public SemanticSearchQuery(
         String userId,
@@ -29,7 +40,7 @@ public record SemanticSearchQuery(
         int limit,
         List<String> hybridWithClientKeywordIds
     ) {
-        this(userId, SearchScope.DOCUMENT_GROUP, documentGroupId, query, filters, limit, hybridWithClientKeywordIds);
+        this(userId, SearchScope.DOCUMENT_GROUP, documentGroupId, query, filters, limit, hybridWithClientKeywordIds, SearchMode.SEMANTIC);
     }
 
     public SemanticSearchQuery(
@@ -39,7 +50,7 @@ public record SemanticSearchQuery(
         int limit,
         List<String> hybridWithClientKeywordIds
     ) {
-        this(userId, SearchScope.DOCUMENT_GROUP, DocumentGroups.DEFAULT_DOCUMENT_GROUP_ID, query, filters, limit, hybridWithClientKeywordIds);
+        this(userId, SearchScope.DOCUMENT_GROUP, null, query, filters, limit, hybridWithClientKeywordIds, SearchMode.SEMANTIC);
     }
 
     public SemanticSearchQuery {
@@ -50,6 +61,7 @@ public record SemanticSearchQuery(
         filters = immutableMap(filters);
         limit = normalizeLimit(limit);
         hybridWithClientKeywordIds = immutableTextList(hybridWithClientKeywordIds);
+        searchMode = searchMode == null ? SearchMode.SEMANTIC : searchMode;
     }
 
     public static int normalizeLimit(Integer value) {
@@ -66,7 +78,7 @@ public record SemanticSearchQuery(
             }
             return null;
         }
-        return DocumentGroups.normalize(documentGroupId);
+        return ExplorationValidation.requireText(documentGroupId, "documentGroupId");
     }
 
     private static int normalizeLimit(int value) {

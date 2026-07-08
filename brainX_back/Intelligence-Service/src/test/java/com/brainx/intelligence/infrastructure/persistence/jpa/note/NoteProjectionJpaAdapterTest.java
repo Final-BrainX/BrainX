@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,8 +12,14 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 
+import com.brainx.intelligence.exploration.application.port.outbound.NoteKeywordSearchPort.KeywordSearchQuery;
+import com.brainx.intelligence.exploration.domain.SearchMatchType;
+import com.brainx.intelligence.exploration.domain.SearchScope;
+import com.brainx.intelligence.exploration.domain.SemanticSearchResult;
 import com.brainx.intelligence.infrastructure.events.note.NoteProjection;
 import com.brainx.intelligence.infrastructure.events.note.NoteSearchIndexStatus;
+
+import jakarta.persistence.EntityManager;
 
 @DataJpaTest
 @ActiveProfiles("test")
@@ -21,6 +28,9 @@ class NoteProjectionJpaAdapterTest {
 
     @Autowired
     private NoteProjectionJpaAdapter adapter;
+
+    @Autowired
+    private EntityManager entityManager;
 
     @Test
     void saveAndFindProjectionPreservesTagsAndState() {
@@ -113,6 +123,146 @@ class NoteProjectionJpaAdapterTest {
 
         assertThat(projections).extracting(NoteProjection::noteId).containsExactly("note-1");
         assertThat(projections.getFirst().markdown()).isEqualTo("indexed markdown");
+    }
+
+    @Test
+    void graphAiSourcesAllowActiveMarkdownWithoutIndexedStatusButSearchableStaysIndexedOnly() {
+        adapter.save(sourceProjection("indexed", "Indexed", "indexed markdown", NoteSearchIndexStatus.INDEXED, false, false, false, false, "2026-06-19T00:00:01Z")
+            .indexed(1, "hash-indexed", Instant.parse("2026-06-19T00:00:02Z")));
+        adapter.save(sourceProjection("legacy-null", "Legacy null", "legacy null markdown", NoteSearchIndexStatus.NOT_INDEXED, false, false, false, false, "2026-06-19T00:00:02Z"));
+        adapter.save(sourceProjection("not-indexed", "Not indexed", "not indexed markdown", NoteSearchIndexStatus.NOT_INDEXED, false, false, false, false, "2026-06-19T00:00:03Z"));
+        adapter.save(sourceProjection("stale", "Stale", "stale markdown", NoteSearchIndexStatus.STALE, false, false, false, false, "2026-06-19T00:00:04Z"));
+        adapter.save(sourceProjection("failed", "Failed", "failed markdown", NoteSearchIndexStatus.FAILED, false, false, false, false, "2026-06-19T00:00:05Z"));
+        adapter.save(sourceProjection("pending", "Pending", "pending markdown", NoteSearchIndexStatus.STALE, true, false, false, false, "2026-06-19T00:00:06Z"));
+        adapter.save(sourceProjection("no-markdown", "No markdown", null, NoteSearchIndexStatus.STALE, false, false, false, false, "2026-06-19T00:00:07Z"));
+        adapter.save(sourceProjection("archived", "Archived", "archived markdown", NoteSearchIndexStatus.STALE, false, true, false, false, "2026-06-19T00:00:08Z"));
+        adapter.save(sourceProjection("trashed", "Trashed", "trashed markdown", NoteSearchIndexStatus.STALE, false, false, true, false, "2026-06-19T00:00:09Z"));
+        adapter.save(sourceProjection("deleted", "Deleted", "deleted markdown", NoteSearchIndexStatus.STALE, false, false, false, true, "2026-06-19T00:00:10Z"));
+        adapter.save(sourceProjection("removed", "Removed", "removed markdown", NoteSearchIndexStatus.REMOVED, false, false, false, false, "2026-06-19T00:00:11Z"));
+        entityManager.createNativeQuery("""
+                update intelligence_note_projections
+                set search_index_status = null
+                where note_id = :noteId
+                """)
+            .setParameter("noteId", "legacy-null")
+            .executeUpdate();
+        entityManager.flush();
+        entityManager.clear();
+
+        var indexedOnly = adapter.findSearchableByUserIdAndDocumentGroupId("user-1", "group-1", 20);
+        var linkSources = adapter.findGraphAiNoteSources("user-1", "group-1", 20);
+        var clusteringSources = adapter.findClusteringSourceNotes("user-1", "group-1", 20);
+        var indexStatuses = adapter.findNoteIndexStatuses(
+            "user-1",
+            "group-1",
+            List.of("indexed", "legacy-null", "not-indexed", "stale", "failed", "pending", "no-markdown", "archived", "trashed", "deleted", "removed")
+        );
+
+        assertThat(indexedOnly).extracting(NoteProjection::noteId).containsExactly("indexed");
+        assertThat(linkSources).extracting("noteId").containsExactly("failed", "stale", "not-indexed", "legacy-null", "indexed");
+        assertThat(clusteringSources).extracting("noteId").containsExactly("failed", "stale", "not-indexed", "legacy-null", "indexed");
+        assertThat(indexStatuses).extracting("noteId")
+            .containsExactlyInAnyOrder("indexed", "legacy-null", "not-indexed", "stale", "failed", "pending", "no-markdown", "archived", "trashed", "deleted", "removed");
+        assertThat(indexStatuses)
+            .filteredOn(status -> Set.of("indexed", "legacy-null", "not-indexed", "stale", "failed").contains(status.noteId()))
+            .extracting("availableForAiFeatures")
+            .containsOnly(true);
+        assertThat(indexStatuses)
+            .filteredOn(status -> Set.of("pending", "no-markdown", "archived", "trashed", "deleted", "removed").contains(status.noteId()))
+            .extracting("availableForAiFeatures")
+            .containsOnly(false);
+    }
+
+    @Test
+    void searchKeywordMatchesTitleMarkdownTagsAndRespectsScope() {
+        adapter.save(new NoteProjection(
+            "user-1",
+            "group-1",
+            "note-title",
+            "RAG Pipeline",
+            null,
+            List.of("architecture"),
+            1,
+            "hash-1",
+            "Semantic retrieval notes",
+            false,
+            false,
+            false,
+            false,
+            "evt-1",
+            Instant.parse("2026-06-19T00:00:00Z")
+        ).indexed(1, "hash-1", Instant.parse("2026-06-19T00:00:01Z")));
+        adapter.save(new NoteProjection(
+            "user-1",
+            "group-1",
+            "note-tag",
+            "Tooling",
+            null,
+            List.of("cli"),
+            1,
+            "hash-2",
+            "Agent workflow note",
+            false,
+            false,
+            false,
+            false,
+            "evt-2",
+            Instant.parse("2026-06-19T00:00:02Z")
+        ).indexed(1, "hash-2", Instant.parse("2026-06-19T00:00:03Z")));
+        adapter.save(new NoteProjection(
+            "user-1",
+            "group-2",
+            "note-other-group",
+            "RAG outside group",
+            null,
+            List.of(),
+            1,
+            "hash-3",
+            "Outside document group",
+            false,
+            false,
+            false,
+            false,
+            "evt-3",
+            Instant.parse("2026-06-19T00:00:04Z")
+        ).indexed(1, "hash-3", Instant.parse("2026-06-19T00:00:05Z")));
+        adapter.save(new NoteProjection(
+            "user-1",
+            "group-1",
+            "note-pending",
+            "RAG pending",
+            null,
+            List.of(),
+            1,
+            "hash-4",
+            "Pending content",
+            true,
+            false,
+            false,
+            false,
+            "evt-4",
+            Instant.parse("2026-06-19T00:00:06Z")
+        ));
+
+        var tagResults = adapter.searchKeyword(new KeywordSearchQuery(
+            "user-1",
+            SearchScope.DOCUMENT_GROUP,
+            "group-1",
+            "cli",
+            10
+        ));
+        var userResults = adapter.searchKeyword(new KeywordSearchQuery(
+            "user-1",
+            SearchScope.USER,
+            null,
+            "rag",
+            10
+        ));
+
+        assertThat(tagResults).extracting(SemanticSearchResult::noteId).containsExactly("note-tag");
+        assertThat(tagResults.getFirst().matchedType()).isEqualTo(SearchMatchType.KEYWORD);
+        assertThat(userResults).extracting(SemanticSearchResult::noteId)
+            .containsExactly("note-other-group", "note-title");
     }
 
     @Test
@@ -625,5 +775,39 @@ class NoteProjectionJpaAdapterTest {
         assertThat(folderNotes.getFirst().folderId()).isEqualTo("folder-a");
         assertThat(folderNotes.getFirst().headings()).containsExactly("Architecture");
         assertThat(folderNotes.getFirst().excerpt()).contains("BrainX folder organization note");
+    }
+
+    private static NoteProjection sourceProjection(
+        String noteId,
+        String title,
+        String markdown,
+        NoteSearchIndexStatus searchIndexStatus,
+        boolean contentPending,
+        boolean archived,
+        boolean trashed,
+        boolean deleted,
+        String updatedAt
+    ) {
+        return new NoteProjection(
+            "user-1",
+            "group-1",
+            noteId,
+            title,
+            null,
+            List.of(),
+            1,
+            "hash-" + noteId,
+            markdown,
+            contentPending,
+            archived,
+            trashed,
+            deleted,
+            "evt-" + noteId,
+            Instant.parse(updatedAt),
+            searchIndexStatus,
+            null,
+            null,
+            null
+        );
     }
 }

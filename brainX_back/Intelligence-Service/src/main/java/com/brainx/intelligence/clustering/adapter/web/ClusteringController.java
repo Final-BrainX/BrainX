@@ -73,7 +73,7 @@ public class ClusteringController {
     @GetMapping("/api/v1/ai/clusters/latest")
     public ApiSuccessResponse<ClusterJobLatestData> getLatestClusterJob(
         Principal principal,
-        @RequestParam(name = "documentGroupId", required = false, defaultValue = "default") String documentGroupId
+        @RequestParam(name = "documentGroupId") @NotBlank String documentGroupId
     ) {
         LatestClusterJob latest = getLatestClusterJobUseCase.getLatestClusterJob(new GetLatestClusterJobQuery(
             userId(principal),

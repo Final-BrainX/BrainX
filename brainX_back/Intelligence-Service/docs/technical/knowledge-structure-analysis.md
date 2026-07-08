@@ -8,7 +8,7 @@
 - 성공하면 `COMPLETED`, provider 오류나 JSON parse/validation 실패는 `FAILED` job으로 저장하고 `202`로 반환한다.
 - `Idempotency-Key`가 같은 user/job type에 이미 있으면 저장된 job을 반환하고 AI를 다시 호출하지 않는다.
 - 분석 범위는 `documentGroupId` 안으로 격리된다. `scope.documentGroupId`가 없으면 `default`로 normalize한다.
-- `/latest`는 AI를 호출하지 않는다. 현재 searchable note card와 최근 document-group 전체 분석 job을 비교해 화면용 상태만 반환한다.
+- `/latest`는 AI를 호출하지 않는다. 현재 graph AI source-ready note card와 최근 document-group 전체 분석 job을 비교해 화면용 상태만 반환한다.
 
 ## Latest / stale 정책
 
@@ -16,17 +16,17 @@
 - `state`는 `NO_SOURCE_NOTES`, `NOT_ANALYZED`, `FRESH`, `STALE`, `FAILED` 중 하나다.
 - latest 후보는 `scope.noteIds`가 없는 document-group 전체 분석 job만 사용한다. 부분 note 분석 job은 최신 workspace 구조로 보지 않는다.
 - POST 시 `scope_json` 내부 전용 키 `_sourceSnapshot`에 분석 대상 noteId와 updatedAt을 저장한다. public response와 `ClusterJobRequested` event scope에는 이 내부 키를 노출하지 않는다.
-- 현재 searchable note set과 `_sourceSnapshot`이 다르면 `STALE`이다. UI는 마지막 결과를 보여주되 사용자가 직접 다시 분석하도록 안내한다.
+- 현재 graph AI source-ready note set과 `_sourceSnapshot`이 다르면 `STALE`이다. UI는 마지막 결과를 보여주되 사용자가 직접 다시 분석하도록 안내한다.
 - 노트 삭제/휴지통/보관 등으로 현재 그래프에 없는 noteId는 프론트에서 렌더링하지 않는다. 이 차수에는 public delete API나 retention scheduler를 두지 않는다.
 
 ## 입력 정책
 
 - `scope.documentGroupId`: optional, 기본 `default`
-- `scope.noteIds`: optional. 있으면 해당 note만 분석하고, 하나라도 searchable하지 않으면 `404`
+- `scope.noteIds`: optional. 있으면 해당 note만 분석하고, 하나라도 graph AI source-ready가 아니면 `404`
 - `scope.maxNotes`: optional. 기본/상한 `50`
 - `algorithmOptions.maxClusters`: optional. 기본 `6`, 상한 `12`
 
-분석 가능한 note는 `NoteProjection` read model 기준으로 `searchIndexStatus=INDEXED`, `markdown != null`, `contentPending=false`, archived/trashed/deleted false인 항목이다.
+분석 가능한 note는 `NoteProjection` read model 기준으로 active projection, `markdown != null`, `contentPending=false`, archived/trashed/deleted false, `searchIndexStatus != REMOVED`인 항목이다. clustering은 note card 기반 LLM 분석이므로 embedding/Qdrant index 완료를 기다리지 않는다. RAG, semantic search, keyword/vector search 같은 검색 경로는 별도로 `INDEXED` 상태를 요구한다.
 
 ## LLM 입력과 결과
 

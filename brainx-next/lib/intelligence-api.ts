@@ -22,6 +22,8 @@ export type ChatThreadData = Schemas["ChatThreadData"];
 export type ChatThreadDeleteData = Schemas["ChatThreadDeleteData"];
 export type ChatThreadListData = Schemas["ChatThreadListData"];
 export type ChatMessageCreateRequest = Schemas["ChatMessageCreateRequest"];
+export type ChatDraftNoteRequest = Schemas["ChatDraftNoteRequest"];
+export type ChatDraftNoteData = Schemas["ChatDraftNoteData"];
 export type ChatThreadDetailData = Schemas["ChatThreadDetailData"];
 export type ChatMessageData = Schemas["ChatMessageData"];
 export type ChatWebSourceData = Schemas["ChatWebSource"];
@@ -559,6 +561,22 @@ export function getChatThread(threadId: string, options?: IntelligenceRequestOpt
   );
 }
 
+export function recordChatMessageDraftNote(
+  threadId: string,
+  messageId: string,
+  payload: ChatDraftNoteRequest,
+  options?: IntelligenceRequestOptions
+) {
+  return authedRequest<ChatDraftNoteData>(
+    `/api/v1/ai/chat-threads/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}/draft-note`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    },
+    options
+  );
+}
+
 export function updateChatThread(
   threadId: string,
   payload: ChatThreadUpdateRequest,
@@ -708,13 +726,11 @@ export function requestClusterJob(payload: ClusterJobCreateRequest, options?: In
 }
 
 export function getLatestClusterJob(
-  params: { documentGroupId?: string } = {},
+  params: { documentGroupId: string },
   options?: IntelligenceRequestOptions
 ) {
   const searchParams = new URLSearchParams();
-  if (params.documentGroupId) {
-    searchParams.set("documentGroupId", params.documentGroupId);
-  }
+  searchParams.set("documentGroupId", params.documentGroupId);
   const query = searchParams.toString();
   return authedRequest<ClusterJobLatestData>(
     `/api/v1/ai/clusters/latest${query ? `?${query}` : ""}`,
@@ -746,13 +762,11 @@ export function getInsightReport(reportId: string, options?: IntelligenceRequest
 }
 
 export function getLatestInsightReport(
-  params: { documentGroupId?: string } = {},
+  params: { documentGroupId: string },
   options?: IntelligenceRequestOptions
 ) {
   const searchParams = new URLSearchParams();
-  if (params.documentGroupId) {
-    searchParams.set("documentGroupId", params.documentGroupId);
-  }
+  searchParams.set("documentGroupId", params.documentGroupId);
   const query = searchParams.toString();
   return authedRequest<InsightReportLatestData>(
     `/api/v1/ai/insight-reports/latest${query ? `?${query}` : ""}`,

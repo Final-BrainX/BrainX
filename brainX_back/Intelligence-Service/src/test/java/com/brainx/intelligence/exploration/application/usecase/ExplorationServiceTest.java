@@ -13,14 +13,17 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase.GetNoteSummaryQuery;
+import com.brainx.intelligence.exploration.application.port.inbound.SemanticSearchUseCase.SearchResultView;
 import com.brainx.intelligence.exploration.application.port.inbound.SemanticSearchUseCase.SemanticSearchCommand;
 import com.brainx.intelligence.exploration.application.port.outbound.ExplorationEventPort;
+import com.brainx.intelligence.exploration.application.port.outbound.NoteKeywordSearchPort;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteSearchIndexPort;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteSummaryPort;
 import com.brainx.intelligence.exploration.domain.ExplorationDomainException;
 import com.brainx.intelligence.exploration.domain.NoteSearchDocument;
 import com.brainx.intelligence.exploration.domain.NoteSummary;
 import com.brainx.intelligence.exploration.domain.SearchMatchType;
+import com.brainx.intelligence.exploration.domain.SearchMode;
 import com.brainx.intelligence.exploration.domain.SearchScope;
 import com.brainx.intelligence.exploration.domain.SemanticSearchResult;
 import com.brainx.intelligence.exploration.domain.SummarySource;
@@ -32,7 +35,7 @@ class ExplorationServiceTest {
 
     private final FakePorts ports = new FakePorts();
     private final FakeSummaryPort summaryPort = new FakeSummaryPort();
-    private final ExplorationService service = new ExplorationService(ports, ports, ports, summaryPort, ports);
+    private final ExplorationService service = new ExplorationService(ports, ports, ports, ports, summaryPort, ports);
 
     @Test
     void semanticSearchStopsBeforeVectorSearchWhenEntitlementDenied() {
@@ -40,6 +43,7 @@ class ExplorationServiceTest {
 
         assertThatThrownBy(() -> service.semanticSearch(new SemanticSearchCommand(
             "user-1",
+            "group-1",
             "rag search",
             Map.of(),
             5,
@@ -92,19 +96,19 @@ class ExplorationServiceTest {
     }
 
     @Test
-    void semanticSearchDefaultsToDocumentGroupDefaultScope() {
-        service.semanticSearch(new SemanticSearchCommand(
+    void semanticSearchRequiresDocumentGroupForDocumentScope() {
+        assertThatThrownBy(() -> service.semanticSearch(new SemanticSearchCommand(
             "user-1",
             "rag search",
             Map.of(),
             null,
             List.of()
-        ));
+        )))
+            .isInstanceOf(ExplorationDomainException.class)
+            .hasMessageContaining("documentGroupId");
 
-        assertThat(ports.lastSearchQuery.scope()).isEqualTo(SearchScope.DOCUMENT_GROUP);
-        assertThat(ports.lastSearchQuery.documentGroupId()).isEqualTo("default");
-        assertThat(ports.semanticSearchEvents.getFirst().scope()).isEqualTo(SearchScope.DOCUMENT_GROUP);
-        assertThat(ports.semanticSearchEvents.getFirst().documentGroupId()).isEqualTo("default");
+        assertThat(ports.searchRequests).isZero();
+        assertThat(ports.semanticSearchEvents).isEmpty();
     }
 
     @Test
@@ -141,6 +145,70 @@ class ExplorationServiceTest {
     }
 
     @Test
+    void keywordSearchBypassesEntitlementAndVectorSearch() {
+        ports.allowed = false;
+        ports.keywordResults = List.of(new SemanticSearchResult(
+            "note-keyword",
+            "Keyword note",
+            "matched keyword",
+            0.8d,
+            SearchMatchType.KEYWORD
+        ));
+
+        var result = service.semanticSearch(new SemanticSearchCommand(
+            "user-1",
+            SearchScope.USER,
+            null,
+            "keyword",
+            Map.of(),
+            5,
+            List.of(),
+            SearchMode.KEYWORD
+        ));
+
+        assertThat(result.results()).extracting(SearchResultView::noteId).containsExactly("note-keyword");
+        assertThat(result.tokenEstimate()).isZero();
+        assertThat(result.charged()).isFalse();
+        assertThat(ports.searchRequests).isZero();
+        assertThat(ports.keywordRequests).isEqualTo(1);
+        assertThat(ports.lastKeywordQuery.scope()).isEqualTo(SearchScope.USER);
+        assertThat(ports.semanticSearchEvents.getFirst().charged()).isFalse();
+    }
+
+    @Test
+    void hybridSearchMergesSemanticAndKeywordMatches() {
+        ports.searchResults = List.of(new SemanticSearchResult(
+            "note-1",
+            "Semantic",
+            "semantic excerpt",
+            0.70d,
+            SearchMatchType.SEMANTIC
+        ));
+        ports.keywordResults = List.of(
+            new SemanticSearchResult("note-1", "Semantic", "keyword excerpt", 0.80d, SearchMatchType.KEYWORD),
+            new SemanticSearchResult("note-2", "Keyword", "keyword only", 0.60d, SearchMatchType.KEYWORD)
+        );
+
+        var result = service.semanticSearch(new SemanticSearchCommand(
+            "user-1",
+            SearchScope.USER,
+            null,
+            "hybrid query",
+            Map.of(),
+            5,
+            List.of(),
+            SearchMode.HYBRID
+        ));
+
+        assertThat(result.results()).extracting(SearchResultView::noteId).containsExactly("note-1", "note-2");
+        assertThat(result.results().getFirst().matchedType()).isEqualTo(SearchMatchType.HYBRID);
+        assertThat(result.results().getFirst().excerpt()).isEqualTo("keyword excerpt");
+        assertThat(result.charged()).isTrue();
+        assertThat(ports.searchRequests).isEqualTo(1);
+        assertThat(ports.keywordRequests).isEqualTo(1);
+    }
+
+    @Test
     void getNoteSummaryReturnsCachedAiSummary() {
         summaryPort.summaries.put("user-1::note-1", NoteSummary.ai("user-1", "note-1", "Cached AI summary"));
 
@@ -171,13 +239,16 @@ class ExplorationServiceTest {
 
     private static final class FakePorts
         implements EntitlementPort, TokenUsagePort, WorkspaceNotePort, NoteSearchIndexPort,
-        ExplorationEventPort {
+        NoteKeywordSearchPort, ExplorationEventPort {
 
         private boolean allowed = true;
         private int searchRequests;
+        private int keywordRequests;
         private int workspaceSnapshotRequests;
         private NoteSearchQuery lastSearchQuery;
+        private KeywordSearchQuery lastKeywordQuery;
         private List<SemanticSearchResult> searchResults = List.of();
+        private List<SemanticSearchResult> keywordResults = List.of();
         private WorkspaceNotePort.NoteSnapshot workspaceSnapshot = new WorkspaceNotePort.NoteSnapshot(
             "note-1",
             "",
@@ -212,6 +283,13 @@ class ExplorationServiceTest {
             searchRequests++;
             lastSearchQuery = query;
             return searchResults;
+        }
+
+        @Override
+        public List<SemanticSearchResult> searchKeyword(KeywordSearchQuery query) {
+            keywordRequests++;
+            lastKeywordQuery = query;
+            return keywordResults;
         }
 
         @Override

@@ -227,6 +227,11 @@ class ScheduledNoteReindexWorkerTest {
             return projection;
         }
 
+        @Override
+        public void deleteByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId) {
+            projections.remove(key(userId, documentGroupId, noteId));
+        }
+
         private static String key(String userId, String documentGroupId, String noteId) {
             return userId + "::" + documentGroupId + "::" + noteId;
         }

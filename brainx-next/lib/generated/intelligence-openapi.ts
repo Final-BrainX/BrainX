@@ -136,6 +136,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai/chat-threads/{threadId}/messages/{messageId}/draft-note": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * AI 채팅 메시지 초안 노트 저장 매핑 기록
+         * @description Workspace 공개 노트 생성이 성공한 뒤, 해당 AI assistant 메시지가 어떤 노트로 저장됐는지 기록한다. 이미 저장된 메시지는 기존 noteId를 반환하고 덮어쓰지 않는다.
+         */
+        put: operations["recordChatMessageDraftNote"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ai/chat-threads/{threadId}": {
         parameters: {
             query?: never;
@@ -492,6 +512,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/internal/v1/intelligence/rag-answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * [Internal] RAG answer for MCP note tools
+         * @description Service-token protected RAG answer endpoint for internal callers that must provide the target userId explicitly.
+         */
+        post: operations["ragAnswerInternal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/internal/v1/intelligence/llmops/runs": {
         parameters: {
             query?: never;
@@ -726,12 +766,12 @@ export interface components {
         JobStatus: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
         SemanticSearchRequest: {
             /**
-             * @description Search scope. DOCUMENT_GROUP searches within documentGroupId (default group if omitted). USER searches all note chunks owned by the user and must not include documentGroupId.
+             * @description Search scope. DOCUMENT_GROUP searches within the required documentGroupId. USER searches all note chunks owned by the user and must not include documentGroupId.
              * @default DOCUMENT_GROUP
              * @enum {string}
              */
             scope?: "DOCUMENT_GROUP" | "USER";
-            /** @description RAG/검색 격리를 위한 논리적 문서 그룹 경계. 생략하면 Knowledge Intelligence는 default로 처리한다. */
+            /** @description RAG/검색 격리를 위한 논리적 문서 그룹 경계. scope=DOCUMENT_GROUP이면 필수이고, scope=USER이면 생략해야 한다. */
             documentGroupId?: string;
             query: string;
             filters?: {
@@ -739,16 +779,22 @@ export interface components {
             };
             limit?: number;
             hybridWithClientKeywordIds?: string[];
+            /**
+             * @description Search execution mode. SEMANTIC uses vector search, KEYWORD uses indexed note text/tags/title, HYBRID combines both.
+             * @default SEMANTIC
+             * @enum {string}
+             */
+            searchMode?: "SEMANTIC" | "KEYWORD" | "HYBRID";
         };
         InternalSemanticSearchRequest: {
             userId: string;
             /**
-             * @description Search scope. DOCUMENT_GROUP searches within documentGroupId (default group if omitted). USER searches all note chunks owned by the user and must not include documentGroupId.
+             * @description Search scope. DOCUMENT_GROUP searches within the required documentGroupId. USER searches all note chunks owned by the user and must not include documentGroupId.
              * @default DOCUMENT_GROUP
              * @enum {string}
              */
             scope?: "DOCUMENT_GROUP" | "USER";
-            /** @description RAG/검색 격리를 위한 논리 문서 그룹 경계. 생략하면 Knowledge Intelligence가 default로 처리한다. */
+            /** @description RAG/검색 격리를 위한 논리 문서 그룹 경계. scope=DOCUMENT_GROUP이면 필수이고, scope=USER이면 생략해야 한다. */
             documentGroupId?: string;
             query: string;
             filters?: {
@@ -756,6 +802,51 @@ export interface components {
             };
             limit?: number;
             hybridWithClientKeywordIds?: string[];
+            /**
+             * @description Search execution mode. SEMANTIC uses vector search, KEYWORD uses indexed note text/tags/title, HYBRID combines both.
+             * @default SEMANTIC
+             * @enum {string}
+             */
+            searchMode?: "SEMANTIC" | "KEYWORD" | "HYBRID";
+        };
+        InternalRagAnswerRequest: {
+            userId: string;
+            /**
+             * @description Search scope for note context retrieval. USER searches all indexed notes owned by user; DOCUMENT_GROUP requires or defaults the document group boundary.
+             * @default USER
+             * @enum {string}
+             */
+            scope?: "DOCUMENT_GROUP" | "USER";
+            /** @description Document group boundary for DOCUMENT_GROUP scope. Must be omitted when scope is USER. */
+            documentGroupId?: string | null;
+            question: string;
+            /** @description Maximum number of note contexts to retrieve. */
+            limit?: number | null;
+            /** @description Optional AI model id. Omit to use the user's default model. */
+            modelId?: string | null;
+        };
+        RagAnswerData: {
+            answer: string;
+            citations: components["schemas"]["RagAnswerCitationData"][];
+            modelId?: string | null;
+            tokenEstimate: number;
+            charged: boolean;
+            tokenUsage?: components["schemas"]["RagAnswerTokenUsage"] | null;
+        };
+        RagAnswerCitationData: {
+            noteId: string;
+            title?: string | null;
+            excerpt: string;
+            score: number;
+            /** @enum {string} */
+            matchedType: "SEMANTIC" | "KEYWORD" | "HYBRID";
+        };
+        RagAnswerTokenUsage: {
+            promptTokens?: number | null;
+            completionTokens?: number | null;
+            totalTokens?: number | null;
+            cachedPromptTokens?: number | null;
+            reasoningTokens?: number | null;
         };
         SemanticSearchData: {
             results: {
@@ -772,14 +863,15 @@ export interface components {
         /** @enum {string} */
         NoteSearchIndexStatus: "NOT_INDEXED" | "PROVISIONAL" | "STALE" | "INDEXED" | "FAILED" | "REMOVED";
         NoteIndexStatusesRequest: {
-            /** @description 검색 인덱스 격리를 위한 논리적 문서 그룹 경계. 생략하면 default로 처리한다. */
-            documentGroupId?: string;
+            /** @description 검색 인덱스 격리를 위한 Workspace document group 경계. */
+            documentGroupId: string;
             noteIds: string[];
         };
         NoteIndexStatusesData: {
             notes: {
                 noteId: string;
                 searchIndexStatus: components["schemas"]["NoteSearchIndexStatus"];
+                /** @description true when the Intelligence note projection has active, non-pending markdown that graph AI features such as clustering and source-only link suggestions can use. This is independent from embedding/vector index readiness; see searchIndexStatus for that state. */
                 availableForAiFeatures: boolean;
                 /** Format: date-time */
                 indexedAt?: string | null;
@@ -1072,6 +1164,9 @@ export interface components {
             clientContext?: components["schemas"]["AiClientContext"];
             modelId: string;
         };
+        ChatDraftNoteRequest: {
+            noteId: string;
+        };
         /** @description Frontend-selected AI context for the current task. The user message and client context are separate so the model can distinguish instructions from source material. */
         AiClientContext: {
             /** @enum {string} */
@@ -1099,6 +1194,8 @@ export interface components {
             /** Format: int32 */
             rank: number;
         };
+        /** @enum {string} */
+        ChatRoute: "NOTE_QA" | "WORKSPACE_SEARCH" | "COMPOSE" | "NOTE_ACTION" | "OUT_OF_SCOPE";
         ChatMessageData: {
             messageId: string;
             threadId: string;
@@ -1120,9 +1217,16 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             llmRunId?: string | null;
+            route?: (string & components["schemas"]["ChatRoute"]) | null;
+            savedDraftNoteId?: string | null;
             feedbackRating?: (string & components["schemas"]["LlmFeedbackRating"]) | null;
             /** Format: date-time */
             createdAt: string;
+        };
+        ChatDraftNoteData: {
+            threadId: string;
+            messageId: string;
+            noteId: string;
         };
         ChatThreadDetailData: {
             thread: components["schemas"]["ChatThreadData"];
@@ -1250,6 +1354,8 @@ export interface components {
             source: "AI" | "EXCERPT";
         };
         FolderOrganizationProposalRequest: {
+            /** @description 폴더 정리 제안을 실행할 Workspace document group. */
+            documentGroupId: string;
             /** @enum {string} */
             scope: "all" | "folder";
             folderId?: string | null;
@@ -1265,6 +1371,8 @@ export interface components {
             llmRunId?: string | null;
         };
         LinkSuggestionsRequest: {
+            /** @description AI 연결 추천을 실행할 Workspace document group. */
+            documentGroupId: string;
             noteId: string;
         };
         LinkSuggestionsData: {
@@ -1323,6 +1431,8 @@ export interface components {
             job?: components["schemas"]["ClusterJobData"] | null;
         };
         BridgeConceptsRequest: {
+            /** @description 징검다리 개념 추천을 실행할 Workspace document group. */
+            documentGroupId: string;
             noteIds: string[];
         };
         BridgeConceptsData: {
@@ -1952,6 +2062,89 @@ export interface operations {
             };
             /** @description 권한 없음 */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 서버 내부 오류 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    recordChatMessageDraftNote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: string;
+                messageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatDraftNoteRequest"];
+            };
+        };
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["ChatDraftNoteData"];
+                    };
+                };
+            };
+            /** @description 잘못된 요청 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 인증 필요 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 권한 없음 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 찾을 수 없음 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 초안 노트로 저장할 수 없는 메시지 */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3096,8 +3289,8 @@ export interface operations {
     };
     getLatestAiClusterJob: {
         parameters: {
-            query?: {
-                documentGroupId?: string;
+            query: {
+                documentGroupId: string;
             };
             header?: never;
             path?: never;
@@ -3388,8 +3581,8 @@ export interface operations {
     };
     getLatestInsightReport: {
         parameters: {
-            query?: {
-                documentGroupId?: string;
+            query: {
+                documentGroupId: string;
             };
             header?: never;
             path?: never;
@@ -3701,6 +3894,68 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ApiSuccessBase"] & {
                         data: components["schemas"]["SemanticSearchData"];
+                    };
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    ragAnswerInternal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InternalRagAnswerRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["RagAnswerData"];
                     };
                 };
             };

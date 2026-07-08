@@ -17,7 +17,6 @@ import com.brainx.intelligence.infrastructure.events.consumer.EventProcessingExc
 import com.brainx.intelligence.infrastructure.events.note.NoteChunkManifestStore;
 import com.brainx.intelligence.infrastructure.events.note.NoteProjection;
 import com.brainx.intelligence.infrastructure.events.note.NoteProjectionStore;
-import com.brainx.intelligence.shared.domain.DocumentGroups;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -70,6 +69,7 @@ public class FolderEventHandler implements BrainxEventHandler {
         FolderCreatedPayload payload = readPayload(context, FolderCreatedPayload.class);
         String folderId = requireText(payload.folderId(), "folderId");
         String userId = requireText(payload.userId(), "userId");
+        requireText(payload.documentGroupId(), "documentGroupId");
         String name = requireText(payload.name(), "name");
         String parentFolderId = normalizeOptionalText(payload.parentFolderId());
 
@@ -108,6 +108,7 @@ public class FolderEventHandler implements BrainxEventHandler {
         FolderChangedPayload payload = readPayload(context, FolderChangedPayload.class);
         String folderId = requireText(payload.folderId(), "folderId");
         String userId = requireText(payload.userId(), "userId");
+        requireText(payload.documentGroupId(), "documentGroupId");
         String name = normalizeOptionalText(payload.name());
         String parentFolderId = normalizeOptionalText(payload.parentFolderId());
         Integer order = payload.order();
@@ -124,6 +125,7 @@ public class FolderEventHandler implements BrainxEventHandler {
     private void handleDeleted(EventProcessingContext context) {
         FolderDeletedPayload payload = readPayload(context, FolderDeletedPayload.class);
         String userId = requireText(payload.userId(), "userId");
+        String documentGroupId = requireText(payload.documentGroupId(), "documentGroupId");
         List<String> folderIds = requireTextList(payload.folderIds(), "folderIds");
         List<String> noteIds = requireTextList(payload.noteIds(), "noteIds");
         String mode = requireDeleteMode(payload.mode());
@@ -154,13 +156,18 @@ public class FolderEventHandler implements BrainxEventHandler {
         }
 
         for (String noteId : noteIds) {
-            cleanupNoteDeletedByFolder(userId, noteId, mode, context);
+            cleanupNoteDeletedByFolder(userId, documentGroupId, noteId, mode, context);
         }
         LOGGER.info("Folders deleted: folderIds={}, noteIds={}, userId={}, mode={}", folderIds.size(), noteIds.size(), userId, mode);
     }
 
-    private void cleanupNoteDeletedByFolder(String userId, String noteId, String mode, EventProcessingContext context) {
-        String documentGroupId = DocumentGroups.DEFAULT_DOCUMENT_GROUP_ID;
+    private void cleanupNoteDeletedByFolder(
+        String userId,
+        String documentGroupId,
+        String noteId,
+        String mode,
+        EventProcessingContext context
+    ) {
         NoteProjection base = noteProjectionStore.findByUserIdAndDocumentGroupIdAndNoteId(
                 userId,
                 documentGroupId,
@@ -247,6 +254,7 @@ public class FolderEventHandler implements BrainxEventHandler {
     record FolderCreatedPayload(
         String folderId,
         String userId,
+        String documentGroupId,
         String name,
         String parentFolderId
     ) {
@@ -256,6 +264,7 @@ public class FolderEventHandler implements BrainxEventHandler {
     record FolderChangedPayload(
         String folderId,
         String userId,
+        String documentGroupId,
         String name,
         String parentFolderId,
         Integer order
@@ -265,6 +274,7 @@ public class FolderEventHandler implements BrainxEventHandler {
     @JsonIgnoreProperties(ignoreUnknown = true)
     record FolderDeletedPayload(
         String userId,
+        String documentGroupId,
         List<String> folderIds,
         String mode,
         List<String> noteIds
