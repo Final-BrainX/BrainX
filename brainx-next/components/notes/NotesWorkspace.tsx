@@ -1071,12 +1071,14 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         .then((persisted) => {
           if (persisted) {
             draftDirtyNoteIdsRef.current.delete(noteToSync.id);
-            // detail.noteId를 싣지 않는다 — handleExternalRefresh(loadFromServer)는 noteId가
-            // 있으면 "그 노트를 활성 탭으로 열라"는 신호로 해석한다. 여기서는 이미 편집된
-            // 노트(위키링크 source)의 백그라운드 저장을 /graph 등에 알리려는 목적일 뿐인데,
-            // noteId를 실으면 방금 위키링크로 새로 만든 노트 탭으로 옮겨간 직후 이 저장이 끝나는
-            // 순간 활성 탭이 다시 source 노트로 튕겨 돌아가는 롤백 버그가 있었다.
-            window.dispatchEvent(new CustomEvent("brainx:notes-refresh"));
+            // brainx:notes-refresh가 아니라 전용 brainx:graph-refresh를 쏜다 — notes-refresh는
+            // 이 컴포넌트 자신의 handleExternalRefresh(loadFromServer)도 듣고 있어서, noteId를
+            // 실어 보내면 "그 노트를 활성 탭으로 열라"로 해석돼 방금 위키링크로 새로 만든 노트
+            // 탭으로 옮겨간 직후 활성 탭이 source 노트로 튕겨 돌아가는 롤백 버그가 있었다(noteId를
+            // 빼도 이 컴포넌트가 notes-refresh 자체를 계속 듣는 한 다른 dispatch와 겹치면 같은
+            // 위험이 남는다). notes[] state는 이미 위 setNotes로 최신이라 이 컴포넌트가 서버에서
+            // 다시 불러올 필요도 없다 — /graph만 이 신호를 듣고 자기 데이터를 재조회한다.
+            window.dispatchEvent(new CustomEvent("brainx:graph-refresh"));
           }
         })
         .catch((error) => warnWikiLinkFailure("wikilink target 변경 즉시 저장 실패", error));

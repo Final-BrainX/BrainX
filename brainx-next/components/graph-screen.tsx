@@ -2340,12 +2340,18 @@ function GraphScreenInner() {
     };
 
     window.addEventListener("brainx:notes-refresh", handleNotesRefresh);
+    // brainx:graph-refresh — NotesWorkspace가 노트 본문의 위키링크 target 변경을 감지하고 그
+    // 노트를 즉시 저장한 뒤 쏘는 전용 신호(NotesWorkspace.tsx의 handleContentChange 참고).
+    // notes-refresh와 같은 핸들러를 그대로 재사용해 동작은 동일하고, NotesWorkspace 자신의
+    // loadFromServer(활성 탭 복원 로직)에는 영향을 주지 않는 별도 이벤트라는 점만 다르다.
+    window.addEventListener("brainx:graph-refresh", handleNotesRefresh);
     window.addEventListener("brainx-auth-session-changed", handleAuthSessionChanged);
     return () => {
       graphMountedRef.current = false;
       graphRequestIdRef.current += 1;
       clusterRequestIdRef.current += 1;
       window.removeEventListener("brainx:notes-refresh", handleNotesRefresh);
+      window.removeEventListener("brainx:graph-refresh", handleNotesRefresh);
       window.removeEventListener("brainx-auth-session-changed", handleAuthSessionChanged);
     };
   }, [refreshGraph]);
