@@ -20,6 +20,7 @@ import com.brainx.intelligence.agent.application.port.outbound.AgentNoteSourcePo
 import com.brainx.intelligence.agent.application.port.outbound.AgentNoteSourcePort.AgentNoteSource;
 import com.brainx.intelligence.autolink.application.port.outbound.AutoLinkNoteSourcePort;
 import com.brainx.intelligence.autolink.application.port.outbound.AutoLinkNoteSourcePort.AutoLinkNoteSource;
+import com.brainx.intelligence.clustering.application.port.outbound.ClusteringNoteSourcePort;
 import com.brainx.intelligence.connection.application.port.outbound.ConnectionNoteSourcePort;
 import com.brainx.intelligence.connection.application.port.outbound.ConnectionNoteSourcePort.ConnectionBridgeSourceNote;
 import com.brainx.intelligence.connection.application.port.outbound.ConnectionNoteSourcePort.ConnectionNoteSource;
@@ -39,7 +40,7 @@ import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysi
 import com.brainx.intelligence.shared.domain.DocumentGroups;
 
 @Repository
-public class NoteProjectionJpaAdapter implements NoteProjectionStore, AgentNoteSourcePort, AutoLinkNoteSourcePort, ConnectionNoteSourcePort, KnowledgeAnalysisNoteSourcePort, OrganizationNoteSourcePort, NoteIndexStatusPort, NoteKeywordSearchPort {
+public class NoteProjectionJpaAdapter implements NoteProjectionStore, AgentNoteSourcePort, AutoLinkNoteSourcePort, ClusteringNoteSourcePort, ConnectionNoteSourcePort, KnowledgeAnalysisNoteSourcePort, OrganizationNoteSourcePort, NoteIndexStatusPort, NoteKeywordSearchPort {
 
     private static final int KEYWORD_CANDIDATE_OVERFETCH_FACTOR = 12;
     private static final int KEYWORD_CANDIDATE_MIN_LIMIT = 50;
@@ -105,6 +106,20 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AgentNoteS
             .toList();
     }
 
+    private List<NoteProjection> findGraphAiSources(String userId, String documentGroupId, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        return repository.findGraphAiSources(
+                userId,
+                DocumentGroups.normalize(documentGroupId),
+                NoteSearchIndexStatus.REMOVED,
+                PageRequest.of(0, limit)
+            ).stream()
+            .map(NoteProjectionJpaEntity::toDomain)
+            .toList();
+    }
+
     @Override
     @Transactional(readOnly = true)
     public List<NoteProjection> findIndexRetryCandidates(Instant now, int limit) {
@@ -136,9 +151,25 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AgentNoteS
 
     @Override
     @Transactional(readOnly = true)
+    public List<AutoLinkNoteSource> findGraphAiNoteSources(String userId, String documentGroupId, int limit) {
+        return findGraphAiSources(userId, documentGroupId, limit).stream()
+            .map(NoteProjectionJpaAdapter::toAutoLinkNoteSource)
+            .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Optional<AutoLinkNoteSource> findSearchableNoteSource(String userId, String documentGroupId, String noteId) {
         return findByUserIdAndDocumentGroupIdAndNoteId(userId, documentGroupId, noteId)
             .filter(NoteProjectionJpaAdapter::canCreateLinkSuggestions)
+            .map(NoteProjectionJpaAdapter::toAutoLinkNoteSource);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<AutoLinkNoteSource> findGraphAiNoteSource(String userId, String documentGroupId, String noteId) {
+        return findByUserIdAndDocumentGroupIdAndNoteId(userId, documentGroupId, noteId)
+            .filter(NoteProjectionJpaAdapter::canUseGraphAiSource)
             .map(NoteProjectionJpaAdapter::toAutoLinkNoteSource);
     }
 
@@ -153,7 +184,7 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AgentNoteS
             .map(projection -> new NoteIndexStatusProjection(
                 projection.noteId(),
                 projection.searchIndexStatus().name(),
-                canCreateLinkSuggestions(projection),
+                canUseGraphAiSource(projection),
                 projection.indexedAt()
             ))
             .toList();
@@ -199,7 +230,7 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AgentNoteS
         String noteId
     ) {
         return findByUserIdAndDocumentGroupIdAndNoteId(userId, documentGroupId, noteId)
-            .filter(NoteProjectionJpaAdapter::canCreateLinkSuggestions)
+            .filter(NoteProjectionJpaAdapter::canUseGraphAiSource)
             .map(projection -> new ConnectionNoteSource(
                 projection.userId(),
                 projection.documentGroupId(),
@@ -295,6 +326,43 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AgentNoteS
 
     @Override
     @Transactional(readOnly = true)
+    public List<KnowledgeAnalysisNote> findClusteringSourceNotes(String userId, String documentGroupId, int limit) {
+        return findGraphAiSources(userId, documentGroupId, limit).stream()
+            .map(NoteProjectionJpaAdapter::toAnalysisNote)
+            .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<KnowledgeAnalysisNote> findClusteringSourceNotesByIds(
+        String userId,
+        String documentGroupId,
+        List<String> noteIds
+    ) {
+        if (noteIds == null || noteIds.isEmpty()) {
+            return List.of();
+        }
+        Map<String, NoteProjection> projectionsById = findByUserIdAndDocumentGroupIdAndNoteIds(
+                userId,
+                documentGroupId,
+                noteIds
+            ).stream()
+            .filter(NoteProjectionJpaAdapter::canUseGraphAiSource)
+            .collect(Collectors.toMap(
+                NoteProjection::noteId,
+                Function.identity(),
+                (left, right) -> left
+            ));
+        return noteIds.stream()
+            .distinct()
+            .map(projectionsById::get)
+            .filter(Objects::nonNull)
+            .map(NoteProjectionJpaAdapter::toAnalysisNote)
+            .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<OrganizationNoteSource> findOrganizationSourceNotes(String userId, String documentGroupId, int limit) {
         return findSearchableByUserIdAndDocumentGroupId(userId, documentGroupId, limit).stream()
             .filter(NoteProjectionJpaAdapter::canAnalyze)
@@ -345,6 +413,13 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AgentNoteS
             && !projection.contentPending()
             && projection.markdown() != null
             && projection.searchIndexStatus() == NoteSearchIndexStatus.INDEXED;
+    }
+
+    private static boolean canUseGraphAiSource(NoteProjection projection) {
+        return projection.searchable()
+            && !projection.contentPending()
+            && projection.markdown() != null
+            && projection.searchIndexStatus() != NoteSearchIndexStatus.REMOVED;
     }
 
     private static boolean canAnalyze(NoteProjection projection) {

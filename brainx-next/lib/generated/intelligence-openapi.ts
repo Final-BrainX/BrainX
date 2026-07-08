@@ -871,6 +871,7 @@ export interface components {
             notes: {
                 noteId: string;
                 searchIndexStatus: components["schemas"]["NoteSearchIndexStatus"];
+                /** @description true when the Intelligence note projection has active, non-pending markdown that graph AI features such as clustering and source-only link suggestions can use. This is independent from embedding/vector index readiness; see searchIndexStatus for that state. */
                 availableForAiFeatures: boolean;
                 /** Format: date-time */
                 indexedAt?: string | null;
