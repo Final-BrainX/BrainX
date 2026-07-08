@@ -4183,6 +4183,7 @@ components:
           type: string
           nullable: true
         route:
+          type: string
           nullable: true
           allOf:
           - $ref: '#/components/schemas/ChatRoute'

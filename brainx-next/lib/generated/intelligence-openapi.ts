@@ -1145,7 +1145,7 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             llmRunId?: string | null;
-            route?: components["schemas"]["ChatRoute"] | null;
+            route?: (string & components["schemas"]["ChatRoute"]) | null;
             savedDraftNoteId?: string | null;
             feedbackRating?: (string & components["schemas"]["LlmFeedbackRating"]) | null;
             /** Format: date-time */
