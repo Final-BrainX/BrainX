@@ -12,6 +12,7 @@ import {
   AI_CLUSTER_MAX_CLUSTERS,
   AI_CLUSTER_MAX_NOTES,
   AI_CLUSTER_MIN_NOTES,
+  applyDerivedClustersToNotes,
   applyAiClustersToNotes,
   deriveNoteClusterMeta,
   isAiFeatureReadyNote,
@@ -1556,7 +1557,11 @@ function GraphScreenInner() {
     () => aiClusterPanelEnabled ? applyAiClustersToNotes(rawNotes, clusterLatest) : { notes: rawNotes, clusters: null },
     [aiClusterPanelEnabled, clusterLatest, rawNotes]
   );
-  const notes = aiClusterProjection.notes;
+  const graphClusterProjection = useMemo(
+    () => aiClusterProjection.clusters ? aiClusterProjection : applyDerivedClustersToNotes(aiClusterProjection.notes),
+    [aiClusterProjection]
+  );
+  const notes = graphClusterProjection.notes;
   // liveEdges가 없으면(게스트, 또는 서버 그래프 자체를 안 쓰는 경로) 지금까지와 동일하게 전부
   // markdown/제목 기반으로 파생한다. liveEdges가 있으면(로그인, 서버 projection) 그 값을 그대로
   // 신뢰하되, 방금 위키링크로 새로 연결한 노트처럼 서버 NoteLink 생성/재조회가 아직 따라오지
@@ -1608,9 +1613,9 @@ function GraphScreenInner() {
     return optimisticEdges.length > 0 ? [...base, ...optimisticEdges] : base;
   }, [liveEdges, notes]);
   const dynamicClusters = useMemo(() => {
-    if (aiClusterProjection.clusters) return aiClusterProjection.clusters;
+    if (graphClusterProjection.clusters) return graphClusterProjection.clusters;
     return deriveNoteClusterMeta(notes);
-  }, [aiClusterProjection.clusters, notes]);
+  }, [graphClusterProjection.clusters, notes]);
   const clusterMetaById = useMemo(() => {
     const values = new Map<string, GraphClusterMeta>();
     for (const cluster of dynamicClusters) {
