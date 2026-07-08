@@ -295,8 +295,13 @@ export default function EditorPanel({
   const shouldReplace = dragPayload?.kind === "note" && (isEmptyTarget || !canSplitWorkspace);
   /* 문서 제목은 본문 H1보다 한 단계 더 커야 한다(위계 구분, Obsidian/Notion 스타일) — 고정 px가
      아니라 note.typography(전역 배율/h1 개별 오버라이드)로 계산된 실제 H1 px 기준으로 1.2배를
-     잡아서, 사용자가 본문 글씨를 키워도(Ctrl+휠/서식 패널) 제목이 H1에 따라잡히지 않는다. */
-  const titleFontSize = Math.round(computeTypographyPx(note?.typography).h1 * 1.2);
+     잡아서, 사용자가 본문 글씨를 키워도(Ctrl+휠/서식 패널) 제목이 H1에 따라잡히지 않는다.
+     fontScale(이 pane의 Ctrl+Wheel 줌)도 같은 비율로 곱해야 한다 — 제목은 노트 콘텐츠의
+     일부로 취급되어 본문과 함께 확대/축소되는 것이 사용자 기대에 맞고(반대로 제목만 고정하면
+     줌 배율이 커질수록 제목이 본문 H1보다 작아 보이는 위계 역전이 생긴다), 이 값은 순수
+     font-size 배수일 뿐 title input/h1의 className(width/padding/margin)은 그대로라 좌측
+     시작 위치는 변하지 않는다. */
+  const titleFontSize = Math.round(computeTypographyPx(note?.typography).h1 * 1.2 * (fontScale / 100));
   /* 파일 가져오기로 만들어진 PDF 노트(본문이 PDF 임베드 블록 하나뿐)는 Tiptap 노트 에디터가
      아니라 화면 전체를 채우는 전용 PDF 뷰어로 보여준다. */
   const pdfOnly = note ? parsePdfOnlyNote(note.content) : null;
@@ -402,10 +407,12 @@ export default function EditorPanel({
               셋 다 항상 같은 컬럼 기준을 따른다. */}
           <div
             className="mx-auto max-w-[680px] px-8 py-7"
-            // Ctrl+Wheel pane 줌 — CSS zoom은 폰트 크기뿐 아니라 이 wrapper의 레이아웃 박스
-            // 전체(max-w 컬럼 폭 포함)를 함께 확대/축소해 "화면을 당겨서 보는" 느낌을 주고,
-            // 문서 content(HTML)나 note.typography는 전혀 건드리지 않는다 — 100%면 no-op.
-            style={fontScale !== 100 ? { zoom: `${fontScale}%` } : undefined}
+            // Ctrl+Wheel pane 줌은 NoteEditor에 fontScale prop으로 내려가 본문 font-size
+            // 변수(--note-fs-*)에만 반영된다(typographyCssVars 참고) — 이 wrapper 자체는
+            // 항상 고정 크기라 max-w 컬럼 폭/패딩/제목/서식 버튼은 줌과 무관하게 그대로다.
+            // 예전에는 여기 CSS `zoom`을 걸어 이 wrapper 전체(제목/서식 버튼 포함)를 함께
+            // 확대했는데, zoom은 분수 배율에서 각 자손의 박스가 서로 다르게 반올림돼 줄마다
+            // 시작 x축이 계단식으로 어긋나는 렌더링 버그가 있었다.
             onClick={(e) => {
               if (
                 isEdit &&
@@ -425,8 +432,17 @@ export default function EditorPanel({
           >
             {/* 노트 제목: 편집 모드에서는 클릭 → 인라인 input. 우측의 "서식"은 이 노트 전체에
                 적용되는 문서 기본 타이포그래피(글꼴 크기 배율/개별 설정/글꼴) 패널 — 선택한
-                텍스트에만 적용되는 BubbleToolbar의 Aa(FontPopover)와는 별개다 */}
-            <div className="flex items-center justify-between gap-[5px]">
+                텍스트에만 적용되는 BubbleToolbar의 Aa(FontPopover)와는 별개다.
+                예전에는 이 줄을 `flex items-center`로 두어 서식 버튼을 제목과 함께 세로 중앙
+                정렬했는데, Ctrl+Wheel로 제목 font-size/line-height가 커지면 그만큼 이 행의
+                cross-axis 높이도 늘어나 "중앙"의 실제 y좌표가 함께 밀렸다(버튼 자체 크기는
+                고정이어도 위치가 흔들리는 문제). 이제 제목은 그냥 일반 흐름(block)으로 두고,
+                서식 버튼은 `relative` 컨테이너의 좌상단 기준 `absolute`로 고정한다 — 컨테이너가
+                제목 높이만큼 아래로 늘어나도 absolute 자식의 top/right 기준점(컨테이너의
+                padding box 모서리)은 전혀 움직이지 않으므로, 제목 font-size가 얼마든 버튼의
+                x/y/width/height는 항상 동일하다. pr-14(56px)는 서식 버튼 폭(48px)+여백을
+                미리 비워 제목 텍스트가 버튼과 겹치지 않게 한다. */}
+            <div className="relative pr-14">
               {isEdit && isEditingTitle ? (
                 <input
                   ref={titleInputRef}
@@ -471,7 +487,7 @@ export default function EditorPanel({
                 <h1
                   style={{ fontSize: `${titleFontSize}px` }}
                   className={cx(
-                    "mb-2 min-w-0 flex-1 font-bold leading-tight tracking-tight text-txt",
+                    "mb-2 w-full font-bold leading-tight tracking-tight text-txt",
                     isEdit && "cursor-text hover:text-primary/90 transition-colors"
                   )}
                   onMouseDown={(e) => {
@@ -500,7 +516,10 @@ export default function EditorPanel({
                   {note.title}
                 </h1>
               )}
-              <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+              {/* absolute top-1 right-0: 컨테이너(위 relative pr-14 div)의 padding box 모서리
+                  기준으로 고정 — 제목 font-size가 커져 컨테이너 높이가 늘어나도 이 모서리
+                  자체는 움직이지 않으므로 버튼의 x/y/width/height가 zoom과 무관하게 항상 동일. */}
+              <div className="absolute right-0 top-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                 <TypographyPopover
                   typography={note.typography}
                   onChange={(next) => onTypographyChange(note.id, next)}
@@ -531,6 +550,7 @@ export default function EditorPanel({
               onAiAction={onAiAction}
               allTags={Array.from(new Set(allNotes.flatMap((n) => n.tags ?? [])))}
               searchAnchorEl={searchAnchorEl}
+              fontScale={fontScale}
             />
           </div>
         </div>

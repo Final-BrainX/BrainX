@@ -2841,13 +2841,17 @@ interface NoteEditorProps {
       본문 위 플로팅이 아니라 그 자리에 우측 정렬로 꽂아 넣기 위해 InNoteSearch가 포털로 쓴다.
       없으면(예: editor-lab처럼 이 레이아웃이 없는 곳) InNoteSearch가 기존 플로팅 위치로 대체한다. */
   searchAnchorEl?: HTMLElement | null;
+  /** EditorPanel의 Ctrl+Wheel pane 줌 배율(%, 기본 100) — 문서 typography와 곱해져 본문
+      font-size(--note-fs-*)에만 반영된다. 레이아웃(width/padding/margin)에는 영향을 주지
+      않으며, 제목/서식 버튼/탭/사이드바처럼 이 컴포넌트 바깥에 있는 UI는 이 prop과 무관하다. */
+  fontScale?: number;
 }
 
 /** TipTap 에디터 코어 — Bubble Toolbar, 색상/형광펜, 코드블록을 포함한 노트 본문 편집 영역.
     읽기/편집 모드는 노트(탭) 단위로 부모(EditorPanel)가 관리하며, 이 컴포넌트는 mode prop을
     그대로 따르기만 한다(모드를 직접 설정하지 않음 — 그래야 탭별 모드가 서로 덮어쓰지 않는다). */
 const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEditor(
-  { note, mode, allTags, onActivate, onContentChange, onAiAction, searchAnchorEl },
+  { note, mode, allTags, onActivate, onContentChange, onAiAction, searchAnchorEl, fontScale = 100 },
   ref
 ) {
   const contentSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3485,7 +3489,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
         // important를 줘서 강제로 숨긴다(실측: !important 없이는 읽기 모드에서도 display:flex로 보임).
         mode === "read" && "[&_.hf-btn]:!hidden [&_.md-heading-syntax]:hidden [&_.md-heading-syntax-hidden]:hidden [&_.split-drag-handle]:hidden"
       )}
-      style={typographyCssVars(note.typography)}
+      style={typographyCssVars(note.typography, fontScale)}
       onClick={(e) => {
         if (handleInternalLinkClick(e)) return;
         if (mode === "edit") { e.stopPropagation(); onActivate(); }
