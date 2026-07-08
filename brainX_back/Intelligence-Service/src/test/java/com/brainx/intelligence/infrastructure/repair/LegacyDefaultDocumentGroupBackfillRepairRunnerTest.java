@@ -115,6 +115,53 @@ class LegacyDefaultDocumentGroupBackfillRepairRunnerTest {
         assertThat(fixture.projectionStore.findByUserIdAndDocumentGroupIdAndNoteId("user-1", "default", "note-1")).isPresent();
     }
 
+    @Test
+    void skippedTargetDoesNotPreventLaterTargetsInSameRun() {
+        FakeTargetStore targetStore = new FakeTargetStore(List.of(
+            new LegacyDefaultDocumentGroupBackfillTarget("user-1", "note-skip"),
+            new LegacyDefaultDocumentGroupBackfillTarget("user-1", "note-next")
+        ));
+        TestFixture fixture = TestFixture.enabled(targetStore, 1);
+        fixture.projectionStore.save(indexedProjection("user-1", "default", "note-skip"));
+        fixture.projectionStore.save(indexedProjection("user-1", "default", "note-next"));
+        fixture.workspace.snapshots.put("note-skip", new NoteSnapshot(
+            "note-skip",
+            "default",
+            "Skip title",
+            "Skip markdown",
+            List.of(),
+            null,
+            3,
+            Instant.parse("2026-07-08T00:00:00Z")
+        ));
+        fixture.workspace.snapshots.put("note-next", new NoteSnapshot(
+            "note-next",
+            "dgrp_default_user-1",
+            "Next title",
+            "Next markdown",
+            List.of(),
+            null,
+            4,
+            Instant.parse("2026-07-08T00:00:00Z")
+        ));
+        when(fixture.indexingService.indexFromSnapshot(any(), eq(0), any(), any(), eq(true), eq(true))).thenReturn(true);
+
+        fixture.runner.run(null);
+
+        verify(fixture.indexingService).indexFromSnapshot(
+            argThat(projection -> projection.noteId().equals("note-next")),
+            eq(0),
+            any(),
+            any(),
+            eq(true),
+            eq(true)
+        );
+        assertThat(targetStore.findCalls).isGreaterThan(1);
+        assertThat(fixture.searchIndex.deletedKeys).containsExactly("user-1::default::note-next");
+        assertThat(fixture.projectionStore.findByUserIdAndDocumentGroupIdAndNoteId("user-1", "default", "note-skip")).isPresent();
+        assertThat(fixture.projectionStore.findByUserIdAndDocumentGroupIdAndNoteId("user-1", "default", "note-next")).isEmpty();
+    }
+
     private static NoteProjection indexedProjection(String userId, String documentGroupId, String noteId) {
         return new NoteProjection(
             userId,
@@ -147,13 +194,22 @@ class LegacyDefaultDocumentGroupBackfillRepairRunnerTest {
             return create(true, targetStore);
         }
 
+        static TestFixture enabled(FakeTargetStore targetStore, int batchSize) {
+            return create(true, targetStore, batchSize);
+        }
+
         static TestFixture disabled(FakeTargetStore targetStore) {
             return create(false, targetStore);
         }
 
         private static TestFixture create(boolean enabled, FakeTargetStore targetStore) {
+            return create(enabled, targetStore, 200);
+        }
+
+        private static TestFixture create(boolean enabled, FakeTargetStore targetStore, int batchSize) {
             LegacyDefaultDocumentGroupBackfillProperties properties = new LegacyDefaultDocumentGroupBackfillProperties();
             properties.setEnabled(enabled);
+            properties.setBatchSize(batchSize);
             FakeProjectionStore projectionStore = new FakeProjectionStore();
             FakeChunkStore chunkStore = new FakeChunkStore();
             FakeSearchIndex searchIndex = new FakeSearchIndex();
@@ -301,6 +357,7 @@ class LegacyDefaultDocumentGroupBackfillRepairRunnerTest {
 
     private static final class FakeWorkspace implements WorkspaceNotePort {
 
+        private final Map<String, NoteSnapshot> snapshots = new LinkedHashMap<>();
         private NoteSnapshot snapshot;
         private RuntimeException failure;
 
@@ -308,6 +365,9 @@ class LegacyDefaultDocumentGroupBackfillRepairRunnerTest {
         public NoteSnapshot getNoteSnapshot(String noteId) {
             if (failure != null) {
                 throw failure;
+            }
+            if (snapshots.containsKey(noteId)) {
+                return snapshots.get(noteId);
             }
             return snapshot;
         }

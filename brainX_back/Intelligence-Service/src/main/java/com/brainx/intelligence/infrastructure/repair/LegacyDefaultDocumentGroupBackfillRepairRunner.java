@@ -4,7 +4,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,41 +61,59 @@ class LegacyDefaultDocumentGroupBackfillRepairRunner implements ApplicationRunne
         if (!properties.isEnabled()) {
             return;
         }
-        List<LegacyDefaultDocumentGroupBackfillTarget> targets = targetStore.findDefaultOnlyProjectionTargets(
-            properties.normalizedBatchSize()
-        );
-        if (targets.isEmpty()) {
-            LOGGER.info("No legacy default document group backfill targets found.");
-            return;
-        }
-
+        int batchSize = properties.normalizedBatchSize();
+        Set<LegacyDefaultDocumentGroupBackfillTarget> blockedTargets = new LinkedHashSet<>();
+        int attempted = 0;
         int succeeded = 0;
         int skipped = 0;
         int failed = 0;
-        for (LegacyDefaultDocumentGroupBackfillTarget target : targets) {
-            try {
-                BackfillResult result = backfill(target);
-                if (result == BackfillResult.SUCCEEDED) {
-                    succeeded++;
-                } else {
-                    skipped++;
+
+        while (true) {
+            List<LegacyDefaultDocumentGroupBackfillTarget> targets = targetStore.findDefaultOnlyProjectionTargets(
+                batchSize + blockedTargets.size()
+            );
+            List<LegacyDefaultDocumentGroupBackfillTarget> nextTargets = targets.stream()
+                .filter(target -> !blockedTargets.contains(target))
+                .limit(batchSize)
+                .toList();
+            if (nextTargets.isEmpty()) {
+                break;
+            }
+
+            for (LegacyDefaultDocumentGroupBackfillTarget target : nextTargets) {
+                attempted++;
+                try {
+                    BackfillResult result = backfill(target);
+                    if (result == BackfillResult.SUCCEEDED) {
+                        succeeded++;
+                    } else {
+                        skipped++;
+                        blockedTargets.add(target);
+                    }
+                } catch (RuntimeException exception) {
+                    failed++;
+                    blockedTargets.add(target);
+                    LOGGER.warn(
+                        "Failed to backfill legacy default document group projection for userId={}, noteId={}.",
+                        target.userId(),
+                        target.noteId(),
+                        exception
+                    );
                 }
-            } catch (RuntimeException exception) {
-                failed++;
-                LOGGER.warn(
-                    "Failed to backfill legacy default document group projection for userId={}, noteId={}.",
-                    target.userId(),
-                    target.noteId(),
-                    exception
-                );
             }
         }
+
+        if (attempted == 0) {
+            LOGGER.info("No legacy default document group backfill targets found.");
+            return;
+        }
         LOGGER.info(
-            "Legacy default document group backfill completed. targets={}, succeeded={}, skipped={}, failed={}",
-            targets.size(),
+            "Legacy default document group backfill completed. attempted={}, succeeded={}, skipped={}, failed={}, blocked={}",
+            attempted,
             succeeded,
             skipped,
-            failed
+            failed,
+            blockedTargets.size()
         );
     }
 
