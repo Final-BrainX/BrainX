@@ -2,132 +2,135 @@ package com.brainx.intelligence.infrastructure.search;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.springframework.test.web.client.ExpectedCount.once;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import java.math.BigDecimal;
 import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
+import org.springframework.web.reactive.function.client.ClientRequest;
+import org.springframework.web.reactive.function.client.ClientResponse;
+import org.springframework.web.reactive.function.client.WebClient;
 
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.domain.AiModel;
 import com.brainx.intelligence.settings.domain.VendorTokenCost;
 import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchRequest;
+import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchStreamEvent;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
-import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.brainx.intelligence.shared.application.service.AiTokenUsageCostEstimator;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
+
+import reactor.core.publisher.Mono;
 
 class OpenAiExternalSearchAdapterTest {
 
     private static final String API_KEY = "test-secret";
 
     @Test
-    void searchCallsResponsesApiWithRequiredWebSearchAndNormalizesSourcesAndUsage() {
-        Fixture fixture = fixture();
-        fixture.server.expect(once(), requestTo("https://api.openai.test/v1/responses"))
-            .andExpect(method(HttpMethod.POST))
-            .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + API_KEY))
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-            .andExpect(jsonPath("$.model").value("gpt-test"))
-            .andExpect(jsonPath("$.tools[0].type").value("web_search"))
-            .andExpect(jsonPath("$.tools[0].filters.allowed_domains[0]").value("openai.com"))
-            .andExpect(jsonPath("$.tool_choice").value("required"))
-            .andExpect(jsonPath("$.include[0]").value("web_search_call.action.sources"))
-            .andExpect(jsonPath("$.input").value("Responses web search?"))
-            .andRespond(withSuccess("""
-                {
-                  "id": "resp-1",
-                  "output_text": "Answer with citations.",
-                  "usage": {
-                    "input_tokens": 100,
-                    "output_tokens": 20,
-                    "total_tokens": 120,
-                    "input_tokens_details": {
-                      "cached_tokens": 40
-                    },
-                    "output_tokens_details": {
-                      "reasoning_tokens": 5
-                    }
-                  },
-                  "output": [
-                    {
-                      "type": "web_search_call",
-                      "action": {
-                        "type": "search",
-                        "sources": [
-                          {
-                            "title": "Full source",
-                            "url": "https://example.com/full",
-                            "snippet": "Full source snippet"
-                          }
-                        ]
-                      }
-                    },
-                    {
-                      "type": "message",
-                      "content": [
-                        {
-                          "type": "output_text",
-                          "text": "Answer with citations.",
-                          "annotations": [
-                            {
-                              "type": "url_citation",
-                              "start_index": 0,
-                              "end_index": 6,
-                              "title": "Cited source",
-                              "url": "https://example.com/cited"
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-                """, MediaType.APPLICATION_JSON));
-
-        var response = fixture.adapter.search(new ExternalSearchRequest(
+    void requestBodyUsesStreamingRequiredWebSearchWithLowContext() {
+        Map<String, Object> body = new OpenAiExternalSearchRequestFactory().requestBody(new ExternalSearchRequest(
             "user-1",
             "Responses web search?",
             "gpt-test",
             8,
             List.of("https://openai.com/docs"),
             List.of()
-        ));
+        ), "gpt-test", "low");
 
-        assertThat(response.answer()).isEqualTo("Answer with citations.");
-        assertThat(response.provider()).isEqualTo("openai");
-        assertThat(response.modelId()).isEqualTo("gpt-test");
-        assertThat(response.responseId()).isEqualTo("resp-1");
-        assertThat(response.sources()).hasSize(2);
-        assertThat(response.sources().getFirst().title()).isEqualTo("Cited source");
-        assertThat(response.sources().getFirst().url()).isEqualTo("https://example.com/cited");
-        assertThat(response.sources().getFirst().snippet()).isEqualTo("Answer");
-        assertThat(response.sources().get(1).title()).isEqualTo("Full source");
-        assertThat(response.sources().get(1).snippet()).isEqualTo("Full source snippet");
-        assertThat(response.tokenUsage().inputTokens()).isEqualTo(100);
-        assertThat(response.tokenUsage().cachedInputTokens()).isEqualTo(40);
-        assertThat(response.tokenUsage().billableInputTokens()).isEqualTo(60);
-        assertThat(response.tokenUsage().outputTokens()).isEqualTo(20);
-        assertThat(response.tokenUsage().reasoningTokens()).isEqualTo(5);
-        assertThat(response.tokenUsage().totalTokens()).isEqualTo(120);
-        assertThat(response.tokenUsage().costEstimate().totalCost()).isEqualByComparingTo("0.001280000000");
+        assertThat(body)
+            .containsEntry("model", "gpt-test")
+            .containsEntry("tool_choice", "required")
+            .containsEntry("input", "Responses web search?")
+            .containsEntry("stream", true);
+        assertThat(body.get("include")).isEqualTo(List.of("web_search_call.action.sources"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> tool = ((List<Map<String, Object>>) body.get("tools")).getFirst();
+        assertThat(tool)
+            .containsEntry("type", "web_search")
+            .containsEntry("search_context_size", "low");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> filters = (Map<String, Object>) tool.get("filters");
+        assertThat(filters.get("allowed_domains")).isEqualTo(List.of("openai.com"));
+    }
+
+    @Test
+    void searchContextSizeFallsBackToLowForBlankOrUnknownValues() {
+        ExternalSearchProperties properties = new ExternalSearchProperties();
+
+        properties.setSearchContextSize("high");
+        assertThat(properties.getSearchContextSize()).isEqualTo("high");
+
+        properties.setSearchContextSize("  ");
+        assertThat(properties.getSearchContextSize()).isEqualTo("low");
+
+        properties.setSearchContextSize("fast");
+        assertThat(properties.getSearchContextSize()).isEqualTo("low");
+    }
+
+    @Test
+    void searchStreamsResponsesApiAndNormalizesSourcesAndUsage() {
+        Fixture fixture = fixture(successStream("""
+            event: response.created
+            data: {"type":"response.created"}
+
+            event: response.output_item.added
+            data: {"type":"response.output_item.added","item":{"type":"web_search_call","status":"in_progress","action":{"type":"search","query":"Responses web search?"}}}
+
+            event: response.output_item.done
+            data: {"type":"response.output_item.done","item":{"type":"web_search_call","status":"completed","action":{"type":"search","query":"Responses web search?","sources":[{"title":"Full source","url":"https://example.com/full","snippet":"Full source snippet"}]}}}
+
+            event: response.completed
+            data: {"type":"response.completed","response":{"id":"resp-1","output_text":"Answer with citations.","usage":{"input_tokens":100,"output_tokens":20,"total_tokens":120,"input_tokens_details":{"cached_tokens":40},"output_tokens_details":{"reasoning_tokens":5}},"output":[{"type":"message","content":[{"type":"output_text","text":"Answer with citations.","annotations":[{"type":"url_citation","start_index":0,"end_index":6,"title":"Cited source","url":"https://example.com/cited"}]}]}]}}
+
+            """), HttpStatus.OK);
+
+        List<ExternalSearchStreamEvent> events = fixture.adapter.searchStream(new ExternalSearchRequest(
+            "user-1",
+            "Responses web search?",
+            "gpt-test",
+            8,
+            List.of(),
+            List.of()
+        )).collectList().block();
+
+        assertThat(fixture.lastRequest.get().method()).isEqualTo(HttpMethod.POST);
+        assertThat(fixture.lastRequest.get().url().toString()).isEqualTo("https://api.openai.test/v1/responses");
+        assertThat(fixture.lastRequest.get().headers().getFirst(HttpHeaders.AUTHORIZATION))
+            .isEqualTo("Bearer " + API_KEY);
+        assertThat(events).isNotNull();
+        assertThat(events.stream().filter(ExternalSearchStreamEvent::progressEvent)).hasSize(3);
+        assertThat(events.stream().filter(ExternalSearchStreamEvent::sourcesEvent).findFirst())
+            .hasValueSatisfying(event -> assertThat(event.sources()).hasSize(1));
+        var completed = events.stream()
+            .filter(ExternalSearchStreamEvent::completedEvent)
+            .findFirst()
+            .orElseThrow()
+            .response();
+        assertThat(completed.answer()).isEqualTo("Answer with citations.");
+        assertThat(completed.provider()).isEqualTo("openai");
+        assertThat(completed.modelId()).isEqualTo("gpt-test");
+        assertThat(completed.responseId()).isEqualTo("resp-1");
+        assertThat(completed.sources()).hasSize(2);
+        assertThat(completed.sources().getFirst().title()).isEqualTo("Full source");
+        assertThat(completed.sources().get(1).title()).isEqualTo("Cited source");
+        assertThat(completed.tokenUsage().inputTokens()).isEqualTo(100);
+        assertThat(completed.tokenUsage().cachedInputTokens()).isEqualTo(40);
+        assertThat(completed.tokenUsage().billableInputTokens()).isEqualTo(60);
+        assertThat(completed.tokenUsage().outputTokens()).isEqualTo(20);
+        assertThat(completed.tokenUsage().reasoningTokens()).isEqualTo(5);
+        assertThat(completed.tokenUsage().totalTokens()).isEqualTo(120);
+        assertThat(completed.tokenUsage().costEstimate().totalCost()).isEqualByComparingTo("0.001280000000");
 
         assertThat(fixture.tokenUsagePort.records).hasSize(1);
         TokenUsageRecord usage = fixture.tokenUsagePort.records.getFirst();
@@ -141,29 +144,15 @@ class OpenAiExternalSearchAdapterTest {
         assertThat(usage.estimatedCost()).isEqualByComparingTo("0.001280000000");
         assertThat(usage.costCurrency()).isEqualTo("USD");
         assertThat(usage.causationId()).isEqualTo("resp-1");
-        fixture.server.verify();
     }
 
     @Test
     void responseTextFallsBackToMessageContentWhenOutputTextIsMissing() {
-        Fixture fixture = fixture();
-        fixture.server.expect(once(), requestTo("https://api.openai.test/v1/responses"))
-            .andRespond(withSuccess("""
-                {
-                  "id": "resp-2",
-                  "output": [
-                    {
-                      "type": "message",
-                      "content": [
-                        {
-                          "type": "output_text",
-                          "text": "fallback answer"
-                        }
-                      ]
-                    }
-                  ]
-                }
-                """, MediaType.APPLICATION_JSON));
+        Fixture fixture = fixture(successStream("""
+            event: response.completed
+            data: {"type":"response.completed","response":{"id":"resp-2","output":[{"type":"message","content":[{"type":"output_text","text":"fallback answer"}]}]}}
+
+            """), HttpStatus.OK);
 
         var response = fixture.adapter.search(new ExternalSearchRequest(
             "user-1",
@@ -178,14 +167,11 @@ class OpenAiExternalSearchAdapterTest {
         assertThat(response.modelId()).isEqualTo("gpt-test");
         assertThat(response.tokenUsage()).isNull();
         assertThat(fixture.tokenUsagePort.records).isEmpty();
-        fixture.server.verify();
     }
 
     @Test
     void errorsDoNotExposeApiKey() {
-        Fixture fixture = fixture();
-        fixture.server.expect(once(), requestTo("https://api.openai.test/v1/responses"))
-            .andRespond(withServerError());
+        Fixture fixture = fixture("server error", HttpStatus.INTERNAL_SERVER_ERROR);
 
         assertThatThrownBy(() -> fixture.adapter.search(new ExternalSearchRequest(
             "user-1",
@@ -198,20 +184,36 @@ class OpenAiExternalSearchAdapterTest {
             .isInstanceOf(OpenAiExternalSearchException.class)
             .hasMessageContaining("status 500")
             .hasMessageNotContaining(API_KEY);
-        fixture.server.verify();
     }
 
-    private static Fixture fixture() {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.openai.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    private static String successStream(String body) {
+        return body.replace("\r\n", "\n");
+    }
+
+    private static Fixture fixture(String responseBody, HttpStatus status) {
         FakeTokenUsagePort tokenUsagePort = new FakeTokenUsagePort();
+        AtomicReference<ClientRequest> lastRequest = new AtomicReference<>();
+        WebClient webClient = WebClient.builder()
+            .baseUrl("https://api.openai.test")
+            .exchangeFunction(request -> {
+                lastRequest.set(request);
+                ClientResponse response = ClientResponse.create(status)
+                    .header(
+                        HttpHeaders.CONTENT_TYPE,
+                        status.is2xxSuccessful() ? MediaType.TEXT_EVENT_STREAM_VALUE : MediaType.TEXT_PLAIN_VALUE
+                    )
+                    .body(responseBody)
+                    .build();
+                return Mono.just(response);
+            })
+            .build();
         var adapter = new OpenAiExternalSearchAdapter(
-            builder.build(),
+            webClient,
             properties(),
             new AiUsageRecorder(tokenUsagePort, new AiTokenUsageCostEstimator(new FakeAiModelCatalog())),
             new AiTokenUsageCostEstimator(new FakeAiModelCatalog())
         );
-        return new Fixture(adapter, server, tokenUsagePort);
+        return new Fixture(adapter, lastRequest, tokenUsagePort);
     }
 
     private static ExternalSearchProperties properties() {
@@ -219,6 +221,7 @@ class OpenAiExternalSearchAdapterTest {
         properties.setProvider("openai");
         properties.setMaxSources(8);
         properties.setTimeout(Duration.ofSeconds(20));
+        properties.setSearchContextSize("low");
         ExternalSearchProperties.OpenAi openAi = new ExternalSearchProperties.OpenAi();
         openAi.setApiKey(API_KEY);
         openAi.setBaseUrl(URI.create("https://api.openai.test"));
@@ -229,7 +232,7 @@ class OpenAiExternalSearchAdapterTest {
 
     private record Fixture(
         OpenAiExternalSearchAdapter adapter,
-        MockRestServiceServer server,
+        AtomicReference<ClientRequest> lastRequest,
         FakeTokenUsagePort tokenUsagePort
     ) {
     }

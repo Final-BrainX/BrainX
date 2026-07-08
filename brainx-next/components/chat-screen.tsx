@@ -45,6 +45,7 @@ import type {
   ChatMessageView,
   ChatModelOption,
   ChatRoute,
+  ChatStreamPhase,
   ChatThreadListItem,
   DraftNoteSaveState,
   ThreadDeleteCandidate,
@@ -64,6 +65,13 @@ const CHAT_SUGGESTIONS = [
   "최근 작성한 노트들의 핵심 흐름을 요약해줘",
   "내 노트 기준으로 다음에 이어 쓸 주제를 추천해줘",
 ];
+
+function chatStreamPhaseFromEvent(phase?: string): ChatStreamPhase | null {
+  if (phase === "ROUTING" || phase === "WEB_SEARCHING" || phase === "ANSWERING") {
+    return phase;
+  }
+  return null;
+}
 
 export function ChatScreen() {
   const router = useRouter();
@@ -370,7 +378,13 @@ export function ChatScreen() {
     setMessages((current) => [
       ...current,
       { id: localUserId, role: "user", text: trimmed },
-      { id: assistantId, role: "ai", text: "", streaming: true },
+      {
+        id: assistantId,
+        role: "ai",
+        text: "",
+        streaming: true,
+        streamPhase: "ROUTING",
+      },
     ]);
 
     let streamError: unknown = null;
@@ -411,6 +425,33 @@ export function ChatScreen() {
           modelId: model.id,
         },
         {
+          onStatus: (event) => {
+            const phase = chatStreamPhaseFromEvent(event.phase);
+            const statusWebSearchQuery =
+              typeof event.webSearchQuery === "string" &&
+              event.webSearchQuery.trim()
+                ? event.webSearchQuery.trim()
+                : null;
+            if (event.requiresWebSearch) {
+              streamRequiresWebSearch = true;
+              streamWebSearchQuery =
+                statusWebSearchQuery ?? streamWebSearchQuery ?? null;
+            }
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId
+                  ? {
+                      ...message,
+                      streamPhase: phase ?? message.streamPhase ?? null,
+                      requiresWebSearch:
+                        event.requiresWebSearch || message.requiresWebSearch,
+                      webSearchQuery:
+                        statusWebSearchQuery ?? message.webSearchQuery ?? null,
+                    }
+                  : message,
+              ),
+            );
+          },
           onRoute: (event) => {
             const route = chatRouteFromEvent(event);
             if (!route) return;
@@ -434,11 +475,67 @@ export function ChatScreen() {
               ),
             );
           },
+          onWebSearchProgress: (event) => {
+            const progressQuery =
+              typeof event.query === "string" && event.query.trim()
+                ? event.query.trim()
+                : null;
+            if (progressQuery) {
+              streamWebSearchQuery = progressQuery;
+            }
+            streamRequiresWebSearch = true;
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId
+                  ? {
+                      ...message,
+                      streamPhase: "WEB_SEARCHING",
+                      requiresWebSearch: true,
+                      webSearchQuery:
+                        progressQuery ?? message.webSearchQuery ?? null,
+                      webSearchProgress: event,
+                    }
+                  : message,
+              ),
+            );
+          },
+          onWebSources: (event) => {
+            const sourceQuery =
+              typeof event.webSearchQuery === "string" &&
+              event.webSearchQuery.trim()
+                ? event.webSearchQuery.trim()
+                : null;
+            if (sourceQuery) {
+              streamWebSearchQuery = sourceQuery;
+            }
+            streamRequiresWebSearch = true;
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId
+                  ? {
+                      ...message,
+                      requiresWebSearch: true,
+                      webSearchQuery:
+                        sourceQuery ?? message.webSearchQuery ?? null,
+                      webSources:
+                        event.sources.length > 0
+                          ? event.sources
+                          : message.webSources,
+                    }
+                  : message,
+              ),
+            );
+          },
           onDelta: (text) => {
             setMessages((current) =>
               current.map((message) =>
                 message.id === assistantId
-                  ? { ...message, text: message.text + text, streaming: true }
+                  ? {
+                      ...message,
+                      text: message.text + text,
+                      streaming: true,
+                      streamPhase: "ANSWERING",
+                    }
                   : message,
               ),
             );
@@ -460,6 +557,11 @@ export function ChatScreen() {
           },
           onError: (error) => {
             streamError = error;
+            if (error instanceof AiUsageLimitExceededError) {
+              openAiUsageLimitModal(error.reason);
+            } else {
+              pushToast(messageFromError(error), "err");
+            }
             setMessages((current) =>
               current.map((message) =>
                 message.id === assistantId
@@ -467,6 +569,7 @@ export function ChatScreen() {
                       ...message,
                       text: message.text || messageFromError(error),
                       streaming: false,
+                      streamPhase: null,
                       error: true,
                     }
                   : message,
@@ -496,6 +599,7 @@ export function ChatScreen() {
                 ...message,
                 text: message.text || messageFromError(error),
                 streaming: false,
+                streamPhase: null,
                 error: true,
               }
             : message,

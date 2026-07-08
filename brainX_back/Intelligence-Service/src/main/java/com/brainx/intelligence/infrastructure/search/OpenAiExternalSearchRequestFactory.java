@@ -17,9 +17,10 @@ final class OpenAiExternalSearchRequestFactory {
     private static final String SOURCES_INCLUDE = "web_search_call.action.sources";
     private static final int MAX_DOMAIN_FILTERS = 100;
 
-    Map<String, Object> requestBody(ExternalSearchRequest request, String modelId) {
+    Map<String, Object> requestBody(ExternalSearchRequest request, String modelId, String searchContextSize) {
         Map<String, Object> webSearchTool = new LinkedHashMap<>();
         webSearchTool.put("type", WEB_SEARCH_TOOL);
+        webSearchTool.put("search_context_size", searchContextSize);
         Map<String, Object> filters = filters(request.allowedDomains(), request.blockedDomains());
         if (!filters.isEmpty()) {
             webSearchTool.put("filters", filters);
@@ -31,6 +32,7 @@ final class OpenAiExternalSearchRequestFactory {
         body.put("tool_choice", "required");
         body.put("include", List.of(SOURCES_INCLUDE));
         body.put("input", request.query());
+        body.put("stream", true);
         return body;
     }
 

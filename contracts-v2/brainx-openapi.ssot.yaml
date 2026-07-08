@@ -2189,7 +2189,7 @@ paths:
       x-produces-events: []
       x-internal-sync-calls: []
       x-async-boundary: false
-      description: 인증된 사용자 본인의 전체 Workspace(documentGroup) 기준 노트 개수, 워크스페이스 개수, 최근 활동을 조회한다.
+      description: 인증된 사용자 본인의 전체 Workspace(documentGroup) 기준 노트 개수, 워크스페이스 개수, 최근 활동을 조회한다. canonical route는 복수형 `/api/v1/workspaces/me/stats`이며 단수형 `/api/v1/workspace/me/stats`는 SSOT 범위가 아니다.
       responses:
         '200':
           description: 성공
@@ -6987,13 +6987,66 @@ paths:
             text/event-stream:
               schema:
                 type: string
-                description: Server-Sent Events 스트림. 이벤트는 줄 단위 text/event-stream 프레임으로 전달된다. COMPOSE/NOTE_ACTION 초안 응답의 delta text는 첫 줄이 `# 제목`인 Markdown 문자열로 시작한다.
+                description: Server-Sent Events 스트림. 이벤트는 줄 단위 text/event-stream 프레임으로 전달된다. 서버는 `status`, `route`, `web_search_progress`, `web_sources`, `delta`, `done`, `error` 이벤트를 보낼 수 있으며, 웹 검색이 필요한 요청은 답변 전 `status.phase=WEB_SEARCHING`, 검색 진행 `web_search_progress`, 출처 `web_sources`, 답변 생성 `status.phase=ANSWERING` 이벤트를 보낼 수 있다. COMPOSE/NOTE_ACTION 초안 응답의 delta text는 첫 줄이 `# 제목`인 Markdown 문자열로 시작한다.
               examples:
                 delta_done:
-                  summary: 종료 이벤트가 포함된 델타 스트림
-                  value: 'event: delta
+                  summary: status와 종료 이벤트가 포함된 델타 스트림
+                  value: 'event: status
+
+                    data: {"phase":"ROUTING","message":"Routing chat request.","requiresWebSearch":false,"webSearchQuery":""}
+
+
+                    event: route
+
+                    data: {"route":"NOTE_QA","reason":"note question","routerModel":"gpt-5.4-nano","requiresWebSearch":false,"webSearchQuery":""}
+
+
+                    event: delta
 
                     data: {"text":"JWT는"}
+
+
+                    event: done
+
+                    data: {"messageId":"msg_01J...","llmRunId":"run_01J..."}
+
+
+                    '
+                web_search_status:
+                  summary: 웹 검색 상태 이벤트가 포함된 스트림
+                  value: 'event: status
+
+                    data: {"phase":"ROUTING","message":"Routing chat request.","requiresWebSearch":false,"webSearchQuery":""}
+
+
+                    event: route
+
+                    data: {"route":"COMPOSE","reason":"current topic draft","routerModel":"gpt-5.4-nano","requiresWebSearch":true,"webSearchQuery":"latest AI news"}
+
+
+                    event: status
+
+                    data: {"phase":"WEB_SEARCHING","message":"Searching the web.","requiresWebSearch":true,"webSearchQuery":"latest AI news"}
+
+
+                    event: web_search_progress
+
+                    data: {"status":"started","actionType":"search","query":"latest AI news","message":"Web search search started."}
+
+
+                    event: web_sources
+
+                    data: {"webSearchQuery":"latest AI news","sources":[{"title":"Example AI news","url":"https://example.com/ai-news","snippet":"Recent AI news summary","rank":1}]}
+
+
+                    event: status
+
+                    data: {"phase":"ANSWERING","message":"Generating an answer.","requiresWebSearch":true,"webSearchQuery":"latest AI news"}
+
+
+                    event: delta
+
+                    data: {"text":"# 최신 AI 뉴스\n\n"}
 
 
                     event: done
@@ -9912,7 +9965,7 @@ paths:
       x-produces-events: []
       x-internal-sync-calls: []
       x-async-boundary: false
-      x-implementation-note: The landing download tracker records installer requests, but the installer binary itself is a deployment artifact outside this SSOT contract. Frontend builds must stay deployable even when the local repository checkout does not contain `brainx-electron/release/BrainX Setup 0.1.0.exe`; in that case the public `/download/windows` route may legitimately return 404 until `public/downloads/BrainX Setup 0.1.0.exe` is provisioned into the deployed frontend artifact.
+      x-implementation-note: The landing download tracker records installer requests, but the installer binary itself is a deployment artifact outside this SSOT contract. Frontend builds must stay deployable even when the local repository checkout does not contain `brainx-electron/release/BrainX Setup 0.1.0.exe`; in that case the public `/download/windows` route may legitimately return 404 until `public/downloads/BrainX Setup 0.1.0.exe` is provisioned into the deployed frontend artifact. Gateway-Service must expose `/api/v1/landing/**` as a public route to Admin-Service so `brainx-next` can record download ledgers without an admin token.
       requestBody:
         required: true
         content:
@@ -20134,7 +20187,7 @@ components:
       additionalProperties: false
     WorkspaceUserStatsData:
       type: object
-      description: Authenticated user workspace statistics returned by `/api/v1/workspaces/me/stats`.
+      description: Authenticated user workspace statistics returned by the canonical route `/api/v1/workspaces/me/stats`.
       properties:
         workspaceCount:
           type: integer

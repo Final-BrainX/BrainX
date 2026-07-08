@@ -18,6 +18,7 @@ import org.springframework.util.StringUtils;
 import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort;
 import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchRequest;
 import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchSource;
+import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchStreamEvent;
 import com.brainx.intelligence.shared.application.port.outbound.ExternalSearchPort.ExternalSearchTokenUsage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -69,7 +70,10 @@ public class ExternalSearchApplicationRunner implements ApplicationRunner {
         }
     }
 
-    ExternalSearchCliResponse search(String query) {
+    Object search(String query) {
+        if (properties.isStreamEvents()) {
+            return searchWithStreamEvents(query);
+        }
         var response = externalSearchPort.search(new ExternalSearchRequest(
             properties.getUserId(),
             query,
@@ -86,6 +90,34 @@ public class ExternalSearchApplicationRunner implements ApplicationRunner {
             response.modelId(),
             response.tokenUsage(),
             response.responseId()
+        );
+    }
+
+    private ExternalSearchStreamingCliResponse searchWithStreamEvents(String query) {
+        List<ExternalSearchStreamEvent> events = externalSearchPort.searchStream(new ExternalSearchRequest(
+            properties.getUserId(),
+            query,
+            properties.getModelId(),
+            properties.getMaxSources(),
+            properties.getAllowedDomains(),
+            properties.getBlockedDomains()
+        )).collectList().block();
+        List<ExternalSearchStreamEvent> safeEvents = events == null ? List.of() : events;
+        var response = safeEvents.stream()
+            .filter(ExternalSearchStreamEvent::completedEvent)
+            .map(ExternalSearchStreamEvent::response)
+            .filter(item -> item != null)
+            .reduce((first, second) -> second)
+            .orElseThrow(() -> new IllegalStateException("External search stream completed without response."));
+        return new ExternalSearchStreamingCliResponse(
+            query,
+            response.answer(),
+            response.sources(),
+            response.provider(),
+            response.modelId(),
+            response.tokenUsage(),
+            response.responseId(),
+            safeEvents.stream().map(ExternalSearchCliStreamEvent::from).toList()
         );
     }
 
@@ -110,4 +142,44 @@ public class ExternalSearchApplicationRunner implements ApplicationRunner {
         String responseId
     ) {
     }
+
+    public record ExternalSearchStreamingCliResponse(
+        String query,
+        String answer,
+        List<ExternalSearchSource> sources,
+        String provider,
+        String modelId,
+        ExternalSearchTokenUsage tokenUsage,
+        String responseId,
+        List<ExternalSearchCliStreamEvent> streamEvents
+    ) {
+    }
+
+    public record ExternalSearchCliStreamEvent(
+        String eventType,
+        String status,
+        String actionType,
+        String query,
+        String message,
+        int sourceCount,
+        List<ExternalSearchSource> sources
+    ) {
+
+        static ExternalSearchCliStreamEvent from(ExternalSearchStreamEvent event) {
+            List<ExternalSearchSource> sources = event.completedEvent() && event.response() != null
+                ? event.response().sources()
+                : event.sources();
+            sources = sources == null ? List.of() : sources;
+            return new ExternalSearchCliStreamEvent(
+                event.eventType(),
+                event.status(),
+                event.actionType(),
+                event.query(),
+                event.message(),
+                sources.size(),
+                sources
+            );
+        }
+    }
+
 }

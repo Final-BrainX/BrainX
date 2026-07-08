@@ -195,6 +195,7 @@ public class WorkspaceService {
         activity(userId, note, "created", now);
         eventPublisher.publish("NoteCreated", userId, payload(
                 "noteId", note.getNoteId(),
+                "documentGroupId", note.getDocumentGroupId(),
                 "userId", userId,
                 "title", note.getTitle(),
                 "folderId", note.getFolderId(),
@@ -224,6 +225,7 @@ public class WorkspaceService {
             syncIncomingWikiLinksForTitle(userId, note.getTitle(), note.getNoteId(), now);
             eventPublisher.publish("NoteCreated", userId, payload(
                     "noteId", note.getNoteId(),
+                    "documentGroupId", note.getDocumentGroupId(),
                     "userId", userId,
                     "title", note.getTitle(),
                     "folderId", note.getFolderId(),
@@ -233,8 +235,9 @@ public class WorkspaceService {
         } else {
             note.applyDraft(title, markdown, draft.folderId(), now);
             syncWikiLinksForNote(note, now);
-            eventPublisher.publish("NoteContentSaved", userId, Map.of(
+            eventPublisher.publish("NoteContentSaved", userId, payload(
                     "noteId", note.getNoteId(),
+                    "documentGroupId", note.getDocumentGroupId(),
                     "userId", userId,
                     "version", note.getVersion(),
                     "markdownHash", sha256(note.getMarkdown()),
@@ -265,12 +268,19 @@ public class WorkspaceService {
         Instant now = Instant.now();
         if ("permanent".equalsIgnoreCase(mode)) {
             noteRepository.delete(note);
-            eventPublisher.publish("NoteDeleted", userId, Map.of("noteId", noteId, "userId", userId, "deletedAt", now, "permanent", true));
+            eventPublisher.publish("NoteDeleted", userId, payload(
+                    "noteId", noteId,
+                    "documentGroupId", note.getDocumentGroupId(),
+                    "userId", userId,
+                    "deletedAt", now,
+                    "permanent", true
+            ));
             return new DeleteNoteData(noteId, now, null);
         }
         note.trash(now);
-        eventPublisher.publish("NoteTrashed", userId, Map.of(
+        eventPublisher.publish("NoteTrashed", userId, payload(
                 "noteId", noteId,
+                "documentGroupId", note.getDocumentGroupId(),
                 "userId", userId,
                 "deletedAt", now,
                 "purgeAt", now.plus(30, ChronoUnit.DAYS)
@@ -289,8 +299,9 @@ public class WorkspaceService {
         syncWikiLinksForNote(note, now);
         snapshot(note, now);
         activity(userId, note, "updated", now);
-        eventPublisher.publish("NoteContentSaved", userId, Map.of(
+        eventPublisher.publish("NoteContentSaved", userId, payload(
                 "noteId", noteId,
+                "documentGroupId", note.getDocumentGroupId(),
                 "userId", userId,
                 "version", note.getVersion(),
                 "markdownHash", sha256(note.getMarkdown()),
@@ -338,7 +349,11 @@ public class WorkspaceService {
                 requireFolderInWorkspace(userId, targetFolderId, note.getDocumentGroupId(),
                         "FOLDER_WORKSPACE_MISMATCH", "Folder does not belong to the note's Workspace.");
             }
-            finalTitle = dedupeNoteTitle(userId, note.getDocumentGroupId(), targetFolderId, desiredTitle, noteId);
+            boolean titleChanged = request.title() != null && !Objects.equals(desiredTitle, note.getTitle());
+            boolean folderChanged = request.folderId() != null && !Objects.equals(targetFolderId, note.getFolderId());
+            finalTitle = (titleChanged || folderChanged)
+                    ? dedupeNoteTitle(userId, note.getDocumentGroupId(), targetFolderId, desiredTitle, noteId)
+                    : note.getTitle();
             note.patchMetadata(finalTitle, request.folderId(), request.tags(), request.archived(), typographyJson(request.typography()), now);
         }
 
@@ -359,6 +374,7 @@ public class WorkspaceService {
         }
         eventPublisher.publish("NoteMetadataChanged", userId, payload(
                 "noteId", noteId,
+                "documentGroupId", note.getDocumentGroupId(),
                 "userId", userId,
                 "title", note.getTitle(),
                 "folderId", note.getFolderId(),
@@ -385,8 +401,9 @@ public class WorkspaceService {
         note.saveContent(version.getMarkdown(), now);
         syncWikiLinksForNote(note, now);
         snapshot(note, now);
-        eventPublisher.publish("NoteContentSaved", userId, Map.of(
+        eventPublisher.publish("NoteContentSaved", userId, payload(
                 "noteId", noteId,
+                "documentGroupId", note.getDocumentGroupId(),
                 "userId", userId,
                 "version", note.getVersion(),
                 "markdownHash", sha256(note.getMarkdown()),
@@ -596,13 +613,26 @@ public class WorkspaceService {
         }
         boolean[] createdTarget = {false};
         Note target = request.targetNoteId() == null
-                ? noteRepository.findFirstByUserIdAndTitleAndDeletedFalse(userId, request.targetTitle().trim())
+                ? noteRepository.findFirstByUserIdAndDocumentGroupIdAndTitleAndDeletedFalse(
+                        userId,
+                        source.getDocumentGroupId(),
+                        request.targetTitle().trim()
+                )
                 .orElseGet(() -> {
                     if (!request.createIfMissing()) {
                         return null;
                     }
                     createdTarget[0] = true;
-                    return new Note(Ids.note(), userId, request.targetTitle().trim(), "", null, List.of(), Instant.now());
+                    return new Note(
+                            Ids.note(),
+                            userId,
+                            source.getDocumentGroupId(),
+                            request.targetTitle().trim(),
+                            "",
+                            null,
+                            List.of(),
+                            Instant.now()
+                    );
                 })
                 : note(userId, request.targetNoteId());
         if (target == null) {
@@ -621,6 +651,7 @@ public class WorkspaceService {
             snapshot(target, Instant.now());
             eventPublisher.publish("NoteCreated", userId, payload(
                     "noteId", target.getNoteId(),
+                    "documentGroupId", target.getDocumentGroupId(),
                     "userId", userId,
                     "title", target.getTitle(),
                     "folderId", null,
@@ -878,6 +909,13 @@ public class WorkspaceService {
     }
 
     @Transactional(readOnly = true)
+    public WorkspaceUserStatsData getPublicUserWorkspaceStats(String userId) {
+        InternalUserWorkspaceStatsData stats = getUserWorkspaceStats(userId);
+        int workspaceCount = listWorkspaces(userId).workspaces().size();
+        return new WorkspaceUserStatsData(workspaceCount, stats.noteCount(), stats.storageBytes(), stats.activities());
+    }
+
+    @Transactional(readOnly = true)
     public InternalWorkspaceMonitoringSummaryData getWorkspaceMonitoringSummary() {
         List<Note> notes = noteRepository.findByDeletedFalseOrderByUpdatedAtDesc();
         long totalStorageBytes = notes.stream()
@@ -967,7 +1005,12 @@ public class WorkspaceService {
         Map<String, DesiredWikiLink> desiredByTarget = new LinkedHashMap<>();
 
         for (ParsedWikiLink parsed : parsedLinks) {
-            Note target = noteRepository.findFirstByUserIdAndTitleAndDeletedFalse(source.getUserId(), parsed.title())
+            // createLink(createIfMissing)와 동일한 Workspace 정책: source note와 같은
+            // documentGroupId(null이면 null끼리만, Ticket8 findSiblingsBy...와 동일한 null-매치
+            // 규칙) 안에서만 target을 찾는다 — 그래야 동일 제목 노트가 여러 Workspace에 있어도
+            // 다른 Workspace의 노트가 잘못 연결되지 않는다.
+            Note target = noteRepository.findFirstByUserIdAndDocumentGroupIdAndTitleAndDeletedFalse(
+                            source.getUserId(), source.getDocumentGroupId(), parsed.title())
                     .orElse(null);
             if (target == null || Objects.equals(target.getNoteId(), source.getNoteId())) {
                 continue;

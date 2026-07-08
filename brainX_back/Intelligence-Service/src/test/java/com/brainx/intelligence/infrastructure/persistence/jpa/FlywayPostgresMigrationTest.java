@@ -9,6 +9,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -75,6 +76,35 @@ class FlywayPostgresMigrationTest {
             .doesNotContain("assistanceStyle");
     }
 
+    @Test
+    void removesLegacyDefaultProjectionWhenWorkspaceProjectionExists() throws SQLException {
+        assertDedicatedTestDatabase();
+        resetPublicSchema();
+        migrateTo("20260706.03");
+        createLegacyDefaultDocumentGroupFixture();
+
+        migrateAll();
+
+        try (ConfigurableApplicationContext context = new SpringApplicationBuilder(IntelligenceServiceApplication.class)
+            .run(applicationArgs())) {
+            assertThat(context.isActive()).isTrue();
+        }
+
+        assertThat(singleLong("select count(*) from intelligence_note_projections where user_id = 'user-1' and document_group_id = 'default' and note_id = 'note-1'"))
+            .isZero();
+        assertThat(singleLong("select count(*) from intelligence_note_index_chunks where user_id = 'user-1' and document_group_id = 'default' and note_id = 'note-1'"))
+            .isZero();
+        assertThat(singleLong("select count(*) from intelligence_note_projections where user_id = 'user-1' and document_group_id = 'default' and note_id = 'note-2'"))
+            .isEqualTo(1);
+        assertThat(singleLong("select count(*) from intelligence_note_index_chunks where user_id = 'user-1' and document_group_id = 'default' and note_id = 'note-2'"))
+            .isEqualTo(1);
+        assertThat(singleLong("select count(*) from intelligence_note_projections where user_id = 'user-1' and document_group_id = 'dgrp_default_user-1' and note_id = 'note-1'"))
+            .isEqualTo(1);
+        assertThat(singleString("select vector_cleanup_status from intelligence_legacy_default_document_group_repairs where repair_id = 'user-1::default::note-1'"))
+            .isNull();
+        assertThat(migrationApplied("V20260707_01__cleanup_legacy_default_note_projections.sql")).isTrue();
+    }
+
     private static String[] applicationArgs() {
         return new String[] {
             "--spring.main.web-application-type=none",
@@ -96,6 +126,7 @@ class FlywayPostgresMigrationTest {
             "--brainx.events.consumer.enabled=false",
             "--brainx.events.producer.enabled=false",
             "--brainx.note-index.retry.enabled=false",
+            "--brainx.repair.legacy-default-document-group-vectors.enabled=false",
             "--brainx.external-search.provider=none",
             "--brainx.ai.embedding.provider=none",
             "--brainx.vector.qdrant.enabled=false"
@@ -106,6 +137,53 @@ class FlywayPostgresMigrationTest {
         String lowerCaseUrl = POSTGRES_URL.toLowerCase();
         if (!lowerCaseUrl.contains("_ci") && !lowerCaseUrl.contains("test")) {
             throw new IllegalStateException("BRAINX_TEST_POSTGRES_URL must point at a disposable CI/test database.");
+        }
+    }
+
+    private static void createLegacyDefaultDocumentGroupFixture() throws SQLException {
+        try (Connection connection = connection(); Statement statement = connection.createStatement()) {
+            statement.execute("""
+                insert into intelligence_note_projections (
+                  projection_id,
+                  user_id,
+                  document_group_id,
+                  note_id,
+                  title,
+                  tags,
+                  note_version,
+                  content_pending,
+                  archived,
+                  trashed,
+                  deleted,
+                  last_event_id,
+                  updated_at,
+                  search_index_status,
+                  index_attempt_count
+                ) values
+                  ('user-1::default::note-1', 'user-1', 'default', 'note-1', 'Legacy duplicate', '[]', 1, false, false, false, false, 'event-1', now(), 'STALE', 0),
+                  ('user-1::dgrp_default_user-1::note-1', 'user-1', 'dgrp_default_user-1', 'note-1', 'Current duplicate', '[]', 2, false, false, false, false, 'event-2', now(), 'INDEXED', 0),
+                  ('user-1::default::note-2', 'user-1', 'default', 'note-2', 'Legacy only', '[]', 1, false, false, false, false, 'event-3', now(), 'INDEXED', 0),
+                  ('user-1::dgrp_default_user-1::note-3', 'user-1', 'dgrp_default_user-1', 'note-3', 'Current only', '[]', 1, false, false, false, false, 'event-4', now(), 'INDEXED', 0)
+                """);
+            statement.execute("""
+                insert into intelligence_note_index_chunks (
+                  manifest_id,
+                  user_id,
+                  document_group_id,
+                  note_id,
+                  chunk_id,
+                  chunk_index,
+                  embedding_text_hash,
+                  payload_hash,
+                  chunker_version,
+                  indexed_version,
+                  indexed_markdown_hash,
+                  indexed_at
+                ) values
+                  ('user-1::default::note-1::chunk-1', 'user-1', 'default', 'note-1', 'chunk-1', 0, 'hash-a', 'payload-a', 1, 1, 'markdown-a', now()),
+                  ('user-1::dgrp_default_user-1::note-1::chunk-1', 'user-1', 'dgrp_default_user-1', 'note-1', 'chunk-1', 0, 'hash-b', 'payload-b', 1, 2, 'markdown-b', now()),
+                  ('user-1::default::note-2::chunk-1', 'user-1', 'default', 'note-2', 'chunk-1', 0, 'hash-c', 'payload-c', 1, 1, 'markdown-c', now())
+                """);
         }
     }
 
@@ -325,6 +403,15 @@ class FlywayPostgresMigrationTest {
         }
     }
 
+    private static long singleLong(String sql) throws SQLException {
+        try (Connection connection = connection(); Statement statement = connection.createStatement()) {
+            try (ResultSet resultSet = statement.executeQuery(sql)) {
+                assertThat(resultSet.next()).isTrue();
+                return resultSet.getLong(1);
+            }
+        }
+    }
+
     private static String singleString(String sql) throws SQLException {
         try (Connection connection = connection(); Statement statement = connection.createStatement()) {
             try (ResultSet resultSet = statement.executeQuery(sql)) {
@@ -339,6 +426,27 @@ class FlywayPostgresMigrationTest {
             assertThat(resultSet.next()).isTrue();
             return resultSet.getLong(1);
         }
+    }
+
+    private static void migrateTo(String target) {
+        flyway(target).migrate();
+    }
+
+    private static void migrateAll() {
+        flyway(null).migrate();
+    }
+
+    private static Flyway flyway(String target) {
+        var configuration = Flyway.configure()
+            .dataSource(POSTGRES_URL, POSTGRES_USERNAME, POSTGRES_PASSWORD)
+            .locations("classpath:db/migration")
+            .baselineOnMigrate(true)
+            .baselineVersion("0")
+            .validateOnMigrate(true);
+        if (target != null && !target.isBlank()) {
+            configuration.target(target);
+        }
+        return configuration.load();
     }
 
     private static Connection connection() throws SQLException {

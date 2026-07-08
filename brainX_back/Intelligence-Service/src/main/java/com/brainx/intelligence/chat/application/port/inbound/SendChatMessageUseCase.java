@@ -1,5 +1,6 @@
 package com.brainx.intelligence.chat.application.port.inbound;
 
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -60,6 +61,41 @@ public interface SendChatMessageUseCase {
             values.put("requiresWebSearch", requiresWebSearch);
             values.put("webSearchQuery", webSearchQuery == null ? "" : webSearchQuery);
             return new ChatStreamEvent("route", values);
+        }
+
+        public static ChatStreamEvent status(
+            String phase,
+            String message,
+            boolean requiresWebSearch,
+            String webSearchQuery
+        ) {
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("phase", phase == null || phase.isBlank() ? "ROUTING" : phase);
+            values.put("message", message == null ? "" : message);
+            values.put("requiresWebSearch", requiresWebSearch);
+            values.put("webSearchQuery", webSearchQuery == null ? "" : webSearchQuery);
+            return new ChatStreamEvent("status", values);
+        }
+
+        public static ChatStreamEvent webSearchProgress(
+            String status,
+            String actionType,
+            String query,
+            String message
+        ) {
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("status", status == null ? "" : status);
+            values.put("actionType", actionType == null ? "" : actionType);
+            values.put("query", query == null ? "" : query);
+            values.put("message", message == null ? "" : message);
+            return new ChatStreamEvent("web_search_progress", values);
+        }
+
+        public static ChatStreamEvent webSources(String webSearchQuery, List<Map<String, Object>> sources) {
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("webSearchQuery", webSearchQuery == null ? "" : webSearchQuery);
+            values.put("sources", sources == null ? List.of() : List.copyOf(sources));
+            return new ChatStreamEvent("web_sources", values);
         }
 
         public static ChatStreamEvent error(String code, String message) {

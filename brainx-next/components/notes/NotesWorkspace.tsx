@@ -600,10 +600,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     folders: USE_MOCK_NOTES ? [...MOCK_FOLDERS] : [],
   });
 
-  /* 게스트 여부 — 인증 세션이 없으면 게스트 */
-  const isGuest = useMemo(() => {
-    const session = readAuthSession();
-    return !session?.accessToken;
+  /* 게스트 여부 — 인증 세션 변경 이벤트를 구독해 stale 값이 남지 않게 한다. */
+  const [isGuest, setIsGuest] = useState(() => !readAuthSession()?.accessToken);
+  useEffect(() => {
+    const syncGuestState = () => {
+      setIsGuest(!readAuthSession()?.accessToken);
+    };
+    window.addEventListener("brainx-auth-session-changed", syncGuestState);
+    return () => {
+      window.removeEventListener("brainx-auth-session-changed", syncGuestState);
+    };
   }, []);
   const refreshDesktopSyncPolicy = useCallback(async () => {
     if (!isElectronDesktop()) {
@@ -933,7 +939,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
      같은 위치에 동일 제목이 이미 있으면 커밋하지 않는다 — 사이드바 rename(handleRenameNoteFromExplorer)과
      동일한 중복 검사를 공유한다. 거부되면 notes 상태가 바뀌지 않으므로 EditorPanel은 note.title을
      그대로 다시 보여줘 자동으로 이전 제목으로 되돌아간다. */
-  const handleTitleChange = useCallback((noteId: string, newTitle: string) => {
+  const handleTitleChange = useCallback(async (noteId: string, newTitle: string) => {
     const note = notes.find((n) => n.id === noteId);
     if (!note) return;
     if (newTitle !== note.title && checkNoteDuplicate(newTitle, note.folderId)) {
@@ -993,9 +999,11 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
           ? saveWorkspaceNoteDraft(renamedNote)
           : null;
       if (persistTitle) {
-        void persistTitle.catch((error) => {
+        try {
+          await persistTitle;
+        } catch (error) {
           pushToast(error instanceof Error ? error.message : "제목을 저장하지 못했습니다.", "err");
-        });
+        }
       }
     }
 
@@ -1225,6 +1233,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         localKey: localNoteId,
         noteId: localNoteId,
         title: noteTitle,
+        documentGroupId: newNote.documentGroupId ?? null,
         sourceNoteId: linkFromNoteId,
         sourceTitle: linkFromNoteId ? notes.find((n) => n.id === linkFromNoteId)?.title : undefined,
         createdAt: Date.now(),
