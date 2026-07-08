@@ -27,6 +27,8 @@ brainX_back/**/*.env
 !brainX_back/**/*.env.example
 application-local.yml
 **/application-local.yml
+k8s/secrets/*.yaml
+!k8s/secrets/*.example.yaml
 # Build outputs
 **/bin/
 **/build/

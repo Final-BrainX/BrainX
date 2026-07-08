@@ -26,7 +26,10 @@ spec:
             - name: SERVER_PORT
               value: "8088"
             - name: SERVICE_TOKEN
-              value: "local-service-token"
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secret
+                  key: SERVICE_TOKEN
             - name: EUREKA_CLIENT_ENABLED
               value: "false"
             - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE

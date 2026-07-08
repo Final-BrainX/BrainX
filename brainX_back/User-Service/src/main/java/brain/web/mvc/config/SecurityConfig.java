@@ -40,6 +40,11 @@ public class SecurityConfig {
                         .requestMatchers("/oauth/token", "/oauth/register").permitAll()
                         .requestMatchers("/.well-known/oauth-authorization-server", "/.well-known/openid-configuration").permitAll()
                         .requestMatchers("/h2-console/**").permitAll()
+                        .requestMatchers(
+                                "/actuator/health",
+                                "/actuator/health/readiness",
+                                "/actuator/health/liveness"
+                        ).permitAll()
                         .requestMatchers("/actuator/prometheus").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/internal/v1/**").hasRole("SERVICE")

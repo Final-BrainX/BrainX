@@ -1,30 +1,30 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: admin-service
+  name: user-service
   namespace: brainx
   labels:
-    app: admin-service
+    app: user-service
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: admin-service
+      app: user-service
   template:
     metadata:
       labels:
-        app: admin-service
+        app: user-service
     spec:
       containers:
-        - name: admin-service
-          image: brainx-admin-service:local
+        - name: user-service
+          image: brainx-user-service:local
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 8085
+            - containerPort: 8080
               name: http
           env:
             - name: SERVER_PORT
-              value: "8085"
+              value: "8080"
             - name: POSTGRES_HOST
               value: host.docker.internal
             - name: POSTGRES_PORT
@@ -39,48 +39,38 @@ spec:
                 secretKeyRef:
                   name: postgres-secret
                   key: POSTGRES_PASSWORD
-            - name: ADMIN_DB_NAME
-              value: "brainx_admin"
+            - name: USER_DB_NAME
+              value: "brainx_user"
+            - name: REDIS_HOST
+              value: host.docker.internal
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_TIMEOUT
+              value: "2s"
+            - name: WORKSPACE_SERVICE_BASE_URL
+              value: http://host.docker.internal:8082
             - name: SERVICE_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: gateway-secret
                   key: SERVICE_TOKEN
-            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
-              value: host.docker.internal:9092
-            - name: BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID
-              value: intelligence-service
             - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
               value: http://discovery-service:8761/eureka/
             - name: EUREKA_INSTANCE_HOSTNAME
-              value: admin-service
-            - name: GATEWAY_SERVICE_URL
-              value: http://host.docker.internal:8088
-            - name: USER_SERVICE_URL
-              value: http://host.docker.internal:8080
-            - name: COMMERCE_SERVICE_URL
-              value: http://host.docker.internal:8084
-            - name: WORKSPACE_SERVICE_URL
-              value: http://host.docker.internal:8082
-            - name: INGESTION_SERVICE_URL
-              value: http://host.docker.internal:8083
-            - name: INTELLIGENCE_SERVICE_URL
-              value: http://host.docker.internal:8086
-            - name: MCP_SERVICE_URL
-              value: http://host.docker.internal:8087
+              value: user-service
           readinessProbe:
             httpGet:
-              path: /actuator/health
+              path: /actuator/health/readiness
               port: http
-            initialDelaySeconds: 30
+            initialDelaySeconds: 40
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
           livenessProbe:
             httpGet:
-              path: /actuator/health
+              path: /actuator/health/liveness
               port: http
-            initialDelaySeconds: 60
+            initialDelaySeconds: 70
             periodSeconds: 20
             timeoutSeconds: 5
             failureThreshold: 3
@@ -88,15 +78,15 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: admin-service
+  name: user-service
   namespace: brainx
   labels:
-    app: admin-service
+    app: user-service
 spec:
   type: ClusterIP
   selector:
-    app: admin-service
+    app: user-service
   ports:
     - name: http
-      port: 8085
+      port: 8080
       targetPort: http
