@@ -783,10 +783,10 @@ export function LandingScreen() {
               <Btn variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={handleLogout}>
                 로그아웃
               </Btn>
-              <Btn variant="outline" size="sm" className="hidden sm:inline-flex" onClick={() => startWindowsDownload("header")}>
+              <Btn variant="outline" size="sm" className="hidden sm:inline-flex !rounded-[6px] !border-primary !bg-white !text-[13px] !text-primary hover:!bg-white hover:!text-primary" onClick={() => startWindowsDownload("header")}>
                 Windows 앱 다운로드
               </Btn>
-              <Btn variant="primary" size="sm" onClick={() => router.push("/home")}>
+              <Btn variant="primary" size="sm" className="!rounded-[6px] !text-[13px]" onClick={() => router.push("/home")}>
                 BrainX 시작하기
               </Btn>
             </>
@@ -795,10 +795,10 @@ export function LandingScreen() {
             <Btn variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => router.push("/login")}>
               로그인
             </Btn>
-              <Btn variant="outline" size="sm" className="hidden sm:inline-flex" onClick={() => startWindowsDownload("header")}>
+              <Btn variant="outline" size="sm" className="hidden sm:inline-flex !rounded-[6px] !border-primary !bg-white !text-[13px] !text-primary hover:!bg-white hover:!text-primary" onClick={() => startWindowsDownload("header")}>
                 Windows 앱 다운로드
               </Btn>
-              <Btn variant="primary" size="sm" onClick={() => router.push("/home")}>
+              <Btn variant="primary" size="sm" className="!rounded-[6px] !text-[13px]" onClick={() => router.push("/home")}>
                 BrainX 시작하기
               </Btn>
             </>
@@ -836,7 +836,7 @@ export function LandingScreen() {
             <Btn variant="primary" size="lg" icon="bolt" onClick={enterGuestMode}>
               BrainX 시작하기
             </Btn>
-            <Btn variant="outline" size="lg" onClick={() => startWindowsDownload("hero")}>
+            <Btn variant="outline" size="lg" className="border-primary bg-white !text-primary hover:bg-white hover:!text-primary" onClick={() => startWindowsDownload("hero")}>
               Windows 앱 다운로드
             </Btn>
           </div>
