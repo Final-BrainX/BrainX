@@ -1,7 +1,10 @@
 package com.brainx.intelligence.infrastructure.persistence.jpa.note;
 
 import java.time.Instant;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -22,6 +25,10 @@ import com.brainx.intelligence.connection.application.port.outbound.ConnectionNo
 import com.brainx.intelligence.connection.application.port.outbound.ConnectionNoteSourcePort.ConnectionNoteSource;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteIndexStatusPort;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteIndexStatusPort.NoteIndexStatusProjection;
+import com.brainx.intelligence.exploration.application.port.outbound.NoteKeywordSearchPort;
+import com.brainx.intelligence.exploration.application.port.outbound.NoteKeywordSearchPort.KeywordSearchQuery;
+import com.brainx.intelligence.exploration.domain.SearchMatchType;
+import com.brainx.intelligence.exploration.domain.SemanticSearchResult;
 import com.brainx.intelligence.infrastructure.events.note.NoteProjection;
 import com.brainx.intelligence.infrastructure.events.note.NoteProjectionStore;
 import com.brainx.intelligence.infrastructure.events.note.NoteSearchIndexStatus;
@@ -32,7 +39,11 @@ import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysi
 import com.brainx.intelligence.shared.domain.DocumentGroups;
 
 @Repository
-public class NoteProjectionJpaAdapter implements NoteProjectionStore, AgentNoteSourcePort, AutoLinkNoteSourcePort, ConnectionNoteSourcePort, KnowledgeAnalysisNoteSourcePort, OrganizationNoteSourcePort, NoteIndexStatusPort {
+public class NoteProjectionJpaAdapter implements NoteProjectionStore, AgentNoteSourcePort, AutoLinkNoteSourcePort, ConnectionNoteSourcePort, KnowledgeAnalysisNoteSourcePort, OrganizationNoteSourcePort, NoteIndexStatusPort, NoteKeywordSearchPort {
+
+    private static final int KEYWORD_CANDIDATE_OVERFETCH_FACTOR = 12;
+    private static final int KEYWORD_CANDIDATE_MIN_LIMIT = 50;
+    private static final int KEYWORD_CANDIDATE_MAX_LIMIT = 500;
 
     private final NoteProjectionJpaRepository repository;
 
@@ -145,6 +156,38 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AgentNoteS
                 canCreateLinkSuggestions(projection),
                 projection.indexedAt()
             ))
+            .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<SemanticSearchResult> searchKeyword(KeywordSearchQuery query) {
+        List<String> terms = keywordTerms(query.queryText());
+        if (terms.isEmpty() || query.limit() <= 0) {
+            return List.of();
+        }
+        int candidateLimit = keywordCandidateLimit(query.limit());
+        Map<String, NoteProjection> candidatesByNoteId = new LinkedHashMap<>();
+        for (String term : terms) {
+            repository.findKeywordSearchable(
+                    query.userId(),
+                    query.documentGroupId(),
+                    NoteSearchIndexStatus.INDEXED.name(),
+                    "%" + term + "%",
+                    PageRequest.of(0, candidateLimit)
+                ).stream()
+                .map(NoteProjectionJpaEntity::toDomain)
+                .forEach(projection -> candidatesByNoteId.putIfAbsent(projection.noteId(), projection));
+        }
+
+        return candidatesByNoteId.values().stream()
+            .map(projection -> toKeywordSearchResult(projection, terms))
+            .filter(Objects::nonNull)
+            .sorted(Comparator
+                .comparingDouble(SemanticSearchResult::score)
+                .reversed()
+                .thenComparing(SemanticSearchResult::noteId))
+            .limit(query.limit())
             .toList();
     }
 
@@ -377,5 +420,87 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AgentNoteS
             return normalized;
         }
         return normalized.substring(0, 700).trim();
+    }
+
+    private static List<String> keywordTerms(String queryText) {
+        if (queryText == null || queryText.isBlank()) {
+            return List.of();
+        }
+        return java.util.Arrays.stream(queryText.toLowerCase(Locale.ROOT)
+                .split("[^\\p{IsAlphabetic}\\p{IsDigit}]+"))
+            .map(String::trim)
+            .filter(term -> !term.isBlank())
+            .distinct()
+            .limit(8)
+            .toList();
+    }
+
+    private static int keywordCandidateLimit(int limit) {
+        return Math.min(
+            KEYWORD_CANDIDATE_MAX_LIMIT,
+            Math.max(KEYWORD_CANDIDATE_MIN_LIMIT, limit * KEYWORD_CANDIDATE_OVERFETCH_FACTOR)
+        );
+    }
+
+    private static SemanticSearchResult toKeywordSearchResult(NoteProjection projection, List<String> terms) {
+        String title = lowercase(projection.title());
+        String markdown = lowercase(projection.markdown());
+        String tags = lowercase(String.join(" ", projection.tags() == null ? List.of() : projection.tags()));
+        double score = 0.0d;
+        int matchedTerms = 0;
+        for (String term : terms) {
+            boolean matched = false;
+            if (title.contains(term)) {
+                score += 0.45d;
+                matched = true;
+            }
+            if (tags.contains(term)) {
+                score += 0.35d;
+                matched = true;
+            }
+            if (markdown.contains(term)) {
+                score += 0.20d;
+                matched = true;
+            }
+            if (matched) {
+                matchedTerms++;
+            }
+        }
+        if (matchedTerms == 0) {
+            return null;
+        }
+        double normalizedScore = Math.min(1.0d, score / Math.max(1, terms.size()));
+        return new SemanticSearchResult(
+            projection.noteId(),
+            projection.title(),
+            keywordExcerpt(projection.markdown(), terms),
+            normalizedScore,
+            SearchMatchType.KEYWORD
+        );
+    }
+
+    private static String keywordExcerpt(String markdown, List<String> terms) {
+        String fallback = excerpt(markdown);
+        if (markdown == null || markdown.isBlank()) {
+            return fallback;
+        }
+        String lowerMarkdown = markdown.toLowerCase(Locale.ROOT);
+        int index = -1;
+        for (String term : terms) {
+            index = lowerMarkdown.indexOf(term);
+            if (index >= 0) {
+                break;
+            }
+        }
+        if (index < 0) {
+            return fallback;
+        }
+        int start = Math.max(0, index - 160);
+        int end = Math.min(markdown.length(), index + 360);
+        return excerpt(markdown.substring(start, end));
+    }
+
+    private static String lowercase(String value) {
+        return value == null ? "" : value.toLowerCase(Locale.ROOT);
     }
 }

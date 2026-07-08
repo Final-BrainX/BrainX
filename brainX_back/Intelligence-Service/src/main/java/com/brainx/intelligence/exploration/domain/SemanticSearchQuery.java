@@ -15,11 +15,24 @@ public record SemanticSearchQuery(
     String query,
     Map<String, Object> filters,
     int limit,
-    List<String> hybridWithClientKeywordIds
+    List<String> hybridWithClientKeywordIds,
+    SearchMode searchMode
 ) {
 
     public static final int DEFAULT_LIMIT = 10;
     public static final int MAX_LIMIT = 50;
+
+    public SemanticSearchQuery(
+        String userId,
+        SearchScope scope,
+        String documentGroupId,
+        String query,
+        Map<String, Object> filters,
+        int limit,
+        List<String> hybridWithClientKeywordIds
+    ) {
+        this(userId, scope, documentGroupId, query, filters, limit, hybridWithClientKeywordIds, SearchMode.SEMANTIC);
+    }
 
     public SemanticSearchQuery(
         String userId,
@@ -29,7 +42,7 @@ public record SemanticSearchQuery(
         int limit,
         List<String> hybridWithClientKeywordIds
     ) {
-        this(userId, SearchScope.DOCUMENT_GROUP, documentGroupId, query, filters, limit, hybridWithClientKeywordIds);
+        this(userId, SearchScope.DOCUMENT_GROUP, documentGroupId, query, filters, limit, hybridWithClientKeywordIds, SearchMode.SEMANTIC);
     }
 
     public SemanticSearchQuery(
@@ -39,7 +52,7 @@ public record SemanticSearchQuery(
         int limit,
         List<String> hybridWithClientKeywordIds
     ) {
-        this(userId, SearchScope.DOCUMENT_GROUP, DocumentGroups.DEFAULT_DOCUMENT_GROUP_ID, query, filters, limit, hybridWithClientKeywordIds);
+        this(userId, SearchScope.DOCUMENT_GROUP, DocumentGroups.DEFAULT_DOCUMENT_GROUP_ID, query, filters, limit, hybridWithClientKeywordIds, SearchMode.SEMANTIC);
     }
 
     public SemanticSearchQuery {
@@ -50,6 +63,7 @@ public record SemanticSearchQuery(
         filters = immutableMap(filters);
         limit = normalizeLimit(limit);
         hybridWithClientKeywordIds = immutableTextList(hybridWithClientKeywordIds);
+        searchMode = searchMode == null ? SearchMode.SEMANTIC : searchMode;
     }
 
     public static int normalizeLimit(Integer value) {

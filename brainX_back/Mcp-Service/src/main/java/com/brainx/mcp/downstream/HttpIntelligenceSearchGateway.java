@@ -41,7 +41,8 @@ public class HttpIntelligenceSearchGateway implements IntelligenceSearchGateway 
             query.query(),
             Map.of(),
             query.limit(),
-            List.of()
+            List.of(),
+            query.mode()
         );
         try {
             ApiEnvelope<SearchResponse> response = restClient.post()
@@ -62,6 +63,38 @@ public class HttpIntelligenceSearchGateway implements IntelligenceSearchGateway 
             );
         } catch (RestClientException exception) {
             throw new DownstreamServiceException("Intelligence semantic search failed.", exception);
+        }
+    }
+
+    @Override
+    public AskNotesResponse askNotes(String userId, AskNotesQuery query) {
+        var request = new InternalRagAnswerRequest(
+            userId,
+            query.scope(),
+            query.documentGroupId(),
+            query.question(),
+            query.limit(),
+            query.modelId()
+        );
+        try {
+            ApiEnvelope<AskNotesResponse> response = restClient.post()
+                .uri("/internal/v1/intelligence/rag-answer")
+                .header(SERVICE_TOKEN_HEADER, serviceProperties.getServiceToken())
+                .body(request)
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiEnvelope<AskNotesResponse>>() {
+                });
+            if (response == null || response.data() == null) {
+                throw new DownstreamServiceException("Intelligence RAG answer response did not include data.");
+            }
+            return response.data();
+        } catch (RestClientResponseException exception) {
+            throw new DownstreamServiceException(
+                "Intelligence RAG answer failed with status " + exception.getStatusCode().value() + ".",
+                exception
+            );
+        } catch (RestClientException exception) {
+            throw new DownstreamServiceException("Intelligence RAG answer failed.", exception);
         }
     }
 
@@ -90,7 +123,18 @@ public class HttpIntelligenceSearchGateway implements IntelligenceSearchGateway 
         String query,
         Map<String, Object> filters,
         Integer limit,
-        List<String> hybridWithClientKeywordIds
+        List<String> hybridWithClientKeywordIds,
+        String searchMode
+    ) {
+    }
+
+    record InternalRagAnswerRequest(
+        String userId,
+        String scope,
+        String documentGroupId,
+        String question,
+        Integer limit,
+        String modelId
     ) {
     }
 }
