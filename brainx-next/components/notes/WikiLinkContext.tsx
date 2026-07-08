@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext } from "react";
+import { normalizeTitleForMatch } from "@/lib/wiki-links";
 
 export interface WikiLinkNoteRef {
   id: string;
@@ -63,13 +64,17 @@ export function normalizeOptionalWikiLinkText(value: unknown): string | null {
 }
 
 /** 정확히 일치 → 부분 일치(유일할 때만) 순서로 찾는다. 공유 로직이라 Context value를 만드는
-    쪽(NotesWorkspace)과 자동완성 쪽(WikiLinkAutocomplete) 모두 이 함수를 쓴다. */
+    쪽(NotesWorkspace)과 자동완성 쪽(WikiLinkAutocomplete) 모두 이 함수를 쓴다.
+    normalizeTitleForMatch로 노트 제목 앞의 이모지 아이콘(📄, 🔲 등)을 무시한다 — 링크 텍스트
+    쪽에는 보통 이모지가 없어서, 이 정규화가 없으면 이모지가 붙은 제목의 노트는 exact match가
+    항상 실패하고 이름이 겹치는 다른 노트가 있으면 partial match도 실패해 "새 노트 생성"
+    상태(주황색)로 잘못 표시된다. */
 export function resolveWikiLinkTitle(notes: WikiLinkNoteRef[], title: unknown): WikiLinkNoteRef | null {
-  const needle = normalizeWikiLinkText(title).trim().toLowerCase();
+  const needle = normalizeTitleForMatch(normalizeWikiLinkText(title));
   if (!needle) return null;
-  const exact = notes.find((n) => normalizeWikiLinkText(n.title).trim().toLowerCase() === needle);
+  const exact = notes.find((n) => normalizeTitleForMatch(normalizeWikiLinkText(n.title)) === needle);
   if (exact) return exact;
-  const partial = notes.filter((n) => normalizeWikiLinkText(n.title).trim().toLowerCase().includes(needle));
+  const partial = notes.filter((n) => normalizeTitleForMatch(normalizeWikiLinkText(n.title)).includes(needle));
   return partial.length === 1 ? partial[0] : null;
 }
 

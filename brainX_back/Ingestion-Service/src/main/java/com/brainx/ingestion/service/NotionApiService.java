@@ -363,8 +363,19 @@ public class NotionApiService {
                 if ("title".equals(prop.get("type"))) {
                     List<Map<String, Object>> title = (List<Map<String, Object>>) prop.get("title");
                     if (title != null && !title.isEmpty()) {
-                        Map<String, Object> text = (Map<String, Object>) title.get(0).get("text");
-                        return (String) text.get("content");
+                        // 제목 앞에 이모지 아이콘을 붙이는 등 서식이 섞이면 Notion이 rich_text를
+                        // 여러 run으로 쪼개서 보낸다. run[0]만 읽으면 이모지만 제목으로 잡히거나
+                        // (첫 run이 "text"가 아니면) 예외로 fallback되어 제목을 통째로 잃는다 —
+                        // 모든 run의 plain_text를 이어 붙여 전체 제목을 복원한다.
+                        StringBuilder titleBuilder = new StringBuilder();
+                        for (Map<String, Object> run : title) {
+                            Object plainText = run.get("plain_text");
+                            if (plainText != null) {
+                                titleBuilder.append(plainText);
+                            }
+                        }
+                        String combined = titleBuilder.toString();
+                        if (!combined.isBlank()) return combined;
                     }
                 }
             }
@@ -504,7 +515,7 @@ public class NotionApiService {
                 if ("child_page".equals(type) && seenIds.add(id)) {
                     Map<String, Object> cp = (Map<String, Object>) block.get("child_page");
                     refs.add(new ChildPageRef(id, (String) cp.get("title")));
-                } else if (List.of("column_list", "column").contains(type)
+                } else if (List.of("column_list", "column", "toggle").contains(type)
                            && Boolean.TRUE.equals(block.get("has_children"))) {
                     // getPageMarkdown이 재귀하는 컨테이너와 동일한 범위만 탐색
                     collectChildPagesDeep(id, accessToken, refs, seenIds, depth + 1);
