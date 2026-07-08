@@ -56,7 +56,10 @@ interface NoteProjectionJpaRepository extends JpaRepository<NoteProjectionJpaEnt
           and projection.deleted = false
           and projection.contentPending = false
           and projection.markdown is not null
-          and projection.searchIndexStatus <> :removedStatus
+          and (
+            projection.searchIndexStatus is null
+            or projection.searchIndexStatus <> :removedStatus
+          )
         order by projection.updatedAt desc, projection.noteId asc
         """)
     List<NoteProjectionJpaEntity> findGraphAiSources(

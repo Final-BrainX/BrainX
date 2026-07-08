@@ -80,7 +80,12 @@ class McpRagAnswerServiceTest {
         assertThat(chunkRetrieval.lastQuery.scope()).isEqualTo(SearchScope.USER);
         assertThat(chunkRetrieval.lastQuery.documentGroupId()).isNull();
         assertThat(aiChatPort.lastRequest.modelId()).isEqualTo("model-default");
-        assertThat(entitlementPort.requests).hasSize(1);
+        assertThat(entitlementPort.requests).hasSize(2);
+        assertThat(entitlementPort.requests).allSatisfy(request -> {
+            assertThat(request.userId()).isEqualTo("user-1");
+            assertThat(request.capability()).isEqualTo("RAG_CHAT");
+            assertThat(request.requestedTokenEstimate()).isPositive();
+        });
         assertThat(result.answer()).isEqualTo("Answer from notes");
         assertThat(result.citations()).hasSize(1);
         assertThat(result.citations().getFirst().noteId()).isEqualTo("note-1");
@@ -93,6 +98,8 @@ class McpRagAnswerServiceTest {
 
     @Test
     void askNotesReturnsUnchargedFallbackWhenNoContextExists() {
+        settingsPort.settings = Optional.of(new AiModelSettings("user-1", "model-default", Map.of()));
+
         var result = service.askNotes(new AskNotesCommand(
             "user-1",
             null,
@@ -106,7 +113,29 @@ class McpRagAnswerServiceTest {
         assertThat(result.tokenEstimate()).isZero();
         assertThat(result.citations()).isEmpty();
         assertThat(aiChatPort.generateCalls).isZero();
-        assertThat(entitlementPort.requests).isEmpty();
+        assertThat(entitlementPort.requests).hasSize(1);
+    }
+
+    @Test
+    void askNotesChecksEntitlementBeforeRetrievingChunks() {
+        settingsPort.settings = Optional.of(new AiModelSettings("user-1", "model-default", Map.of()));
+        entitlementPort.allowed = false;
+        entitlementPort.reasonCode = "QUOTA_EXHAUSTED";
+
+        assertThatThrownBy(() -> service.askNotes(new AskNotesCommand(
+            "user-1",
+            null,
+            null,
+            "Should not search when RAG entitlement is exhausted.",
+            8,
+            null
+        )))
+            .isInstanceOf(ChatDomainException.class)
+            .hasMessageContaining("QUOTA_EXHAUSTED");
+
+        assertThat(entitlementPort.requests).hasSize(1);
+        assertThat(chunkRetrieval.lastQuery).isNull();
+        assertThat(aiChatPort.generateCalls).isZero();
     }
 
     @Test
@@ -138,11 +167,13 @@ class McpRagAnswerServiceTest {
     private static final class FakeEntitlementPort implements EntitlementPort {
 
         private final List<EntitlementRequest> requests = new ArrayList<>();
+        private boolean allowed = true;
+        private String reasonCode;
 
         @Override
         public EntitlementDecision checkEntitlement(EntitlementRequest request) {
             requests.add(request);
-            return new EntitlementDecision(true, null, 100);
+            return new EntitlementDecision(allowed, reasonCode, allowed ? 100 : 0);
         }
     }
 
