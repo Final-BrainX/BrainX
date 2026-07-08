@@ -207,7 +207,7 @@ jobs:
     needs:
       - detect
       - desktop-installer
-    if: needs.detect.outputs.services_space != '' && (needs.desktop-installer.result == 'success' || needs.desktop-installer.result == 'skipped')
+    if: always() && needs.detect.outputs.services_space != '' && (needs.desktop-installer.result == 'success' || needs.desktop-installer.result == 'skipped')
     strategy:
       fail-fast: false
       matrix:
