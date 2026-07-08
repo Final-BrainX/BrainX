@@ -281,7 +281,7 @@ export function pendingWikiLinkEntryToEdge(entry: {
     type: "REFERENCE" as const,
     weight: 0.95,
     reason: `${entry.sourceNoteId} 노트의 위키링크가 "${entry.title}"를 참조합니다(optimistic).`,
-    bridge: false
+    bridge: true
   };
 }
 
@@ -291,7 +291,7 @@ export function pendingWikiLinkEntryToEdge(entry: {
     로그인 사용자의 NoteLink(WIKI 타입, 실제 [[ ]] 참조만)와 같은 의미를 유지해야 로그인 후
     Graph API 그래프로 전환될 때 엣지가 갑자기 늘거나 줄어 보이지 않는다. */
 export function deriveDraftWikiLinkEdges(notes: BrainXNote[]) {
-  const edges: Array<{ source: string; target: string; bridge: boolean }> = [];
+  const edges: Array<{ source: string; target: string; bridge: boolean; type: "REFERENCE" }> = [];
   const seen = new Set<string>();
   for (const note of notes) {
     for (const target of extractWikiLinkTargets(note.markdown)) {
@@ -300,7 +300,7 @@ export function deriveDraftWikiLinkEdges(notes: BrainXNote[]) {
       const key = [note.id, resolved.id].sort().join("::");
       if (seen.has(key)) continue;
       seen.add(key);
-      edges.push({ source: note.id, target: resolved.id, bridge: true });
+      edges.push({ source: note.id, target: resolved.id, bridge: true, type: "REFERENCE" });
     }
   }
   return edges;
@@ -310,6 +310,7 @@ export function graphEdgesForFlow(graph: GraphData) {
   return graph.edges.map((edge) => ({
     source: edge.source,
     target: edge.target,
+    type: edge.type,
     bridge: edge.type !== "TAG" && edge.type !== "RELATED"
   }));
 }

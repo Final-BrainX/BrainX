@@ -77,6 +77,22 @@ const electronProcess = process as NodeJS.Process & {
   defaultApp?: boolean;
 };
 
+function getWindowChromeOptions() {
+  if (process.platform !== "win32") {
+    return {};
+  }
+
+  return {
+    titleBarStyle: "hidden" as const,
+    titleBarOverlay: {
+      color: "#eef1ff",
+      symbolColor: "#334155",
+      height: 36,
+    },
+    backgroundColor: "#eef1ff",
+  };
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const preloadPath = path.join(__dirname, "..", "preload", "index.js");
@@ -1014,6 +1030,7 @@ function createChildWindow(url: string, opener?: BrowserWindow | null, options?:
     minWidth: options?.minWidth ?? 960,
     minHeight: options?.minHeight ?? 640,
     autoHideMenuBar: true,
+    ...getWindowChromeOptions(),
     show: false,
     title: options?.name ?? getWindowTitle(),
     icon: getWindowIconPath(),
@@ -2042,8 +2059,8 @@ async function createMainWindow() {
     minHeight: 760,
     title: getWindowTitle(),
     autoHideMenuBar: true,
+    ...getWindowChromeOptions(),
     show: false,
-    backgroundColor: "#0b1020",
     icon: getWindowIconPath(),
     webPreferences: {
       preload: preloadPath,

@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
+    "prebuild": "node scripts/sync-desktop-installer.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

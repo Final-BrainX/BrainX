@@ -68,11 +68,9 @@ function recommendationText(value: unknown) {
 
 function UserInsightDashboard({
   notes,
-  workspaceStats,
   currentWorkspaceId,
 }: {
   notes: BrainXNote[];
-  workspaceStats: WorkspaceUserStatsData | null;
   currentWorkspaceId: string | null;
 }) {
   const router = useRouter();
@@ -86,11 +84,14 @@ function UserInsightDashboard({
   const [insightStatus, setInsightStatus] = useState<AiInsightStatus>("idle");
   const [insightError, setInsightError] = useState<string | null>(null);
   const insightRequestIdRef = useRef(0);
+  // notes(HomeScreen이 currentWorkspaceId 기준으로 이미 필터링해 넘긴 값)에서 직접 계산한다 —
+  // getMyWorkspaceStats()(workspaceStats)는 SSOT상 "계정 전체 Workspace 합산" 전용이라 여기서
+  // 쓰면 Workspace를 바꿔도 항상 같은 숫자가 나온다.
   const summary = useMemo(() => summarizeWorkspaceNotes(notes), [notes]);
-  const totalNotes = workspaceStats?.noteCount ?? summary.totalNotes;
+  const totalNotes = summary.totalNotes;
   const totalLinks = summary.totalLinks;
   const totalWords = summary.totalWords;
-  const recentActivityTitle = workspaceStats?.activities?.[0]?.title?.trim() || null;
+  const recentActivityTitle = summary.recentNotes[0]?.title?.trim() || null;
   const currentSession = readAuthSession();
   // Ticket16: AI 클러스터/인사이트는 "default" 문자열이 아니라 현재 선택된 Workspace의 실제
   // documentGroupId가 있을 때만 호출한다 — Guest/미선택 상태(currentWorkspaceId=null)는 기존과
@@ -829,6 +830,18 @@ export function HomeScreen() {
   const [displayName, setDisplayName] = useState("사용자");
   const [workspaceStats, setWorkspaceStats] = useState<WorkspaceUserStatsData | null>(null);
   const currentWorkspace = workspaces.find((workspace) => workspace.documentGroupId === currentWorkspaceId) ?? null;
+  // NotesWorkspace.tsx(Ticket14)의 matchesCurrentWorkspace와 동일한 규칙: currentWorkspaceId가
+  // null이면(Guest/미선택) 기존처럼 전체 노트를 그대로 쓰고, 실제 Workspace가 선택돼 있으면 그
+  // Workspace(default Workspace는 documentGroupId가 아직 없는 레거시 노트도 함께) 노트만 남긴다.
+  const includeLegacyNullDocumentGroup = currentWorkspaceId === null || currentWorkspace?.isDefault === true;
+  const visibleNotes = useMemo(() => {
+    if (currentWorkspaceId === null) return notes;
+    return notes.filter((note) => {
+      const noteWorkspaceId = note.documentGroupId ?? null;
+      if (noteWorkspaceId === currentWorkspaceId) return true;
+      return includeLegacyNullDocumentGroup && noteWorkspaceId === null;
+    });
+  }, [notes, currentWorkspaceId, includeLegacyNullDocumentGroup]);
 
   useEffect(() => {
     let active = true;
@@ -848,14 +861,13 @@ export function HomeScreen() {
     };
   }, []);
 
-  /** Ticket13: Workspace 전환(currentWorkspaceId 변경) 시에도 Home 통계를 다시 불러온다.
-      단, getMyWorkspaceStats()(`/api/v1/workspaces/me/stats`)는 SSOT 설명대로 "인증된 사용자
-      본인의 전체 Workspace(documentGroup) 기준" 합산값이라 documentGroupId로 필터링되지 않는다
-      — 지금은 어떤 Workspace를 선택해도 같은 값이 돌아온다. 실제로 선택한 Workspace만의 노트 수/
-      최근 활동을 보여주려면 Backend가 documentGroupId로 스코프된 통계 API를 새로 노출해야 하고,
-      그 전까지는 여기서 클라이언트가 노트 목록을 documentGroupId로 걸러 흉내내지 않는다(Note
-      목록 응답에 documentGroupId가 아직 없어 어차피 불가능하고, 억지로 다른 값을 만들면 실제
-      데이터와 어긋난 숫자를 보여주게 된다). */
+  /** getMyWorkspaceStats()(`/api/v1/workspaces/me/stats`)는 SSOT상 "인증된 사용자 본인의 전체
+      Workspace(documentGroup) 기준" 합산값이라 documentGroupId로 필터링되지 않는다 — 어떤
+      Workspace를 선택해도 이 응답 자체는 항상 같다. 노트 수/최근 활동은 이제 이 값을 쓰지 않고
+      visibleNotes(currentWorkspaceId로 이미 필터링된 노트) 기준으로 아래 렌더/UserInsightDashboard
+      쪽에서 클라이언트가 직접 계산한다 — 이 fetch는 "통계가 로드됐는지" 상태 표시용으로만 남긴다.
+      documentGroupId로 스코프된 통계 API(SSOT의 `/api/v1/workspaces/{documentGroupId}/sync`)는
+      아직 Backend에 구현돼 있지 않다. */
   useEffect(() => {
     let active = true;
     const loadStats = () => {
@@ -896,10 +908,10 @@ export function HomeScreen() {
           </h1>
           <p className="mt-2 text-[13px] text-txt3">
             {workspaceStats
-              ? `지금 ${workspaceStats.noteCount.toLocaleString("ko-KR")}개의 실제 노트가 동기화되어 있고, 가장 최근 활동은 "${workspaceStats.activities[0]?.title ?? "노트"}"예요.`
-              : `지금 ${notes.length.toLocaleString("ko-KR")}개의 노트를 기준으로 인사이트를 계산하고 있어요.`}
+              ? `지금 ${visibleNotes.length.toLocaleString("ko-KR")}개의 실제 노트가 동기화되어 있고, 가장 최근 활동은 "${visibleNotes[0]?.title ?? "노트"}"예요.`
+              : `지금 ${visibleNotes.length.toLocaleString("ko-KR")}개의 노트를 기준으로 인사이트를 계산하고 있어요.`}
             {currentWorkspace && workspaces.length > 1
-              ? " (통계는 아직 계정 전체 Workspace 합산 기준이에요)"
+              ? " (토큰 사용량만 전체 Workspace 합산 기준이에요)"
               : ""}
           </p>
         </div>
@@ -909,7 +921,7 @@ export function HomeScreen() {
         </div>
       </div>
 
-      <UserInsightDashboard notes={notes} workspaceStats={workspaceStats} currentWorkspaceId={currentWorkspaceId} />
+      <UserInsightDashboard notes={visibleNotes} currentWorkspaceId={currentWorkspaceId} />
     </div>
   );
 }
