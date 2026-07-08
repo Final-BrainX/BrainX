@@ -1331,7 +1331,7 @@ function TopBar({
 
     try {
       const data = await deleteMyNotification(notification.notificationId);
-      setUnreadCount((current) => Math.min(current, data.unreadCount));
+      setUnreadCount(data.unreadCount);
     } catch (error) {
       setNotifications(previousNotifications);
       setUnreadCount(previousUnreadCount);
@@ -1455,67 +1455,80 @@ function TopBar({
                       </div>
                     ) : (
                       notifications.map((notification) => (
-                        <button
+                        // 알림 행 자체는 button이 아닌 div로 둔다 — 안쪽 삭제 button과
+                        // button-in-button 중첩(invalid DOM nesting/hydration 경고)이
+                        // 생기지 않도록, 클릭 가능한 영역(role="button")과 삭제 button을
+                        // 형제로 분리한다. 클릭 동작·삭제 stopPropagation·키보드 접근성은
+                        // 그대로 유지한다.
+                        <div
                           key={notification.notificationId}
-                          type="button"
-                          onClick={async () => {
-                            if (!notification.read) {
-                              const updated = await markMyNotificationRead(
-                                notification.notificationId,
-                              );
-                              setNotifications((current) =>
-                                current.map((item) =>
-                                  item.notificationId === updated.notificationId
-                                    ? updated
-                                    : item,
-                                ),
-                              );
-                              setUnreadCount((count) => Math.max(0, count - 1));
-                            }
-                          }}
                           className={cx(
-                            "w-full border-b border-line/40 px-4 py-3 text-left transition-colors hover:bg-surface2/50",
+                            "relative border-b border-line/40 transition-colors hover:bg-surface2/50",
                             notification.read
                               ? "bg-transparent"
                               : "bg-accent/[0.06]",
                           )}
                         >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="truncate text-[13px] font-semibold text-txt">
-                                {notification.title}
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={async () => {
+                              if (!notification.read) {
+                                const updated = await markMyNotificationRead(
+                                  notification.notificationId,
+                                );
+                                setNotifications((current) =>
+                                  current.map((item) =>
+                                    item.notificationId === updated.notificationId
+                                      ? updated
+                                      : item,
+                                  ),
+                                );
+                                setUnreadCount((count) => Math.max(0, count - 1));
+                              }
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key !== "Enter" && event.key !== " ") return;
+                              event.preventDefault();
+                              event.currentTarget.click();
+                            }}
+                            className="w-full cursor-pointer px-4 py-3 pr-9 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="truncate text-[13px] font-semibold text-txt">
+                                  {notification.title}
+                                </div>
+                                <div className="mt-1 whitespace-pre-wrap text-[12px] leading-5 text-txt2">
+                                  {notification.body}
+                                </div>
+                                <div className="mt-2 text-[11px] text-txt3">
+                                  {(notification.sentByAdminName ||
+                                    "BrainX Admin") +
+                                    " · " +
+                                    formatNotificationTime(
+                                      notification.createdAt,
+                                    )}
+                                </div>
                               </div>
-                              <div className="mt-1 whitespace-pre-wrap text-[12px] leading-5 text-txt2">
-                                {notification.body}
-                              </div>
-                              <div className="mt-2 text-[11px] text-txt3">
-                                {(notification.sentByAdminName ||
-                                  "BrainX Admin") +
-                                  " · " +
-                                  formatNotificationTime(
-                                    notification.createdAt,
-                                  )}
-                              </div>
-                            </div>
-                            <div className="flex shrink-0 items-start gap-2">
                               {!notification.read ? (
                                 <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-accent" />
                               ) : null}
-                              <button
-                                type="button"
-                                aria-label="알림 삭제"
-                                disabled={deletingNotificationId === notification.notificationId}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void handleDeleteNotification(notification);
-                                }}
-                                className="rounded p-1 text-txt3 transition-colors hover:bg-surface2/70 hover:text-txt disabled:opacity-40"
-                              >
-                                <Icon name="x" size={12} />
-                              </button>
                             </div>
                           </div>
-                        </button>
+                          <button
+                            type="button"
+                            aria-label="알림 삭제"
+                            disabled={deletingNotificationId === notification.notificationId}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleDeleteNotification(notification);
+                            }}
+                            className="absolute right-3 top-3 rounded p-1 text-txt3 transition-colors hover:bg-surface2/70 hover:text-txt disabled:opacity-40"
+                          >
+                            <Icon name="x" size={12} />
+                          </button>
+                        </div>
                       ))
                     )}
                   </div>

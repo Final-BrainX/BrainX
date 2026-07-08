@@ -210,22 +210,42 @@ export function extractWikiLinkTargets(markdown: string) {
   return matches.map((match) => match.slice(2, -2)).filter(Boolean);
 }
 
+/** span으로 렌더된 위키링크(`data-wiki-link` atom 노드)와, 아직 span으로 변환되지 않은
+    원문 `[[title]]` 표기가 한 본문에 섞여 있을 수 있다(예: 자동완성으로 확정된 링크와 막
+    타이핑 중인/가져오기 등으로 아직 파싱 전인 링크). 예전에는 span이 하나라도 있으면 원문
+    `[[...]]` 추출을 건너뛰어 섞인 케이스에서 outgoing/backlink 패널에 일부가 누락됐다 —
+    span의 outerHTML 자체를 먼저 들어내고(그 안에 담긴 `[[title]]`/`[[alias]]` 텍스트가
+    "원문 링크"로 중복 추출되지 않도록) 남은 본문에서 원문 `[[...]]`을 마저 추출한 뒤 둘을
+    합치고 중복만 제거한다. */
 export function extractResolvedWikiLinkTargets(content: string) {
   if (!content) return [];
 
-  const resolvedTargets: string[] = [];
+  const spanTargets: string[] = [];
+  let contentWithoutSpans = content;
   if (content.includes("data-wiki-link")) {
-    const spanRe = /<span\b([^>]*)>/gi;
-    let match: RegExpExecArray | null;
-    while ((match = spanRe.exec(content))) {
-      const attrs = match[1] ?? "";
-      if (!/data-wiki-link\s*=\s*["']true["']/i.test(attrs)) continue;
-      const titleMatch = attrs.match(/data-title\s*=\s*["']([^"']+)["']/i);
-      if (titleMatch?.[1]?.trim()) resolvedTargets.push(titleMatch[1].trim());
-    }
+    const spanRe = /<span\b([^>]*)>[\s\S]*?<\/span>/gi;
+    contentWithoutSpans = content.replace(spanRe, (full, attrs: string) => {
+      if (!/data-wiki-link\s*=\s*["']true["']/i.test(attrs)) return full;
+      // 여는 quote와 같은 닫는 quote까지만 값으로 인정한다 — data-title="John's Plan"처럼
+      // 값 안에 반대쪽 quote 문자가 섞여 있어도 그 자리에서 값이 끊기지 않게 하기 위함.
+      const titleMatch = attrs.match(/data-title\s*=\s*(?:"([^"]*)"|'([^']*)')/i);
+      const raw = (titleMatch?.[1] ?? titleMatch?.[2] ?? "").trim();
+      if (raw) spanTargets.push(raw);
+      return "";
+    });
   }
 
-  return resolvedTargets.length > 0 ? resolvedTargets : extractWikiLinkTargets(content);
+  const rawTargets = extractWikiLinkTargets(contentWithoutSpans);
+
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const target of [...spanTargets, ...rawTargets]) {
+    const key = normalizeWikiLinkTarget(target);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(target);
+  }
+  return merged;
 }
 
 /** 두 시점의 본문에서 "위키링크가 가리키는 target 집합" 자체가 달라졌는지만 비교한다(추가든

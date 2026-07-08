@@ -26,7 +26,7 @@ import {
   type LinkSuggestion,
   type LinkSuggestionEdge,
 } from "@/lib/link-suggestions";
-import { getNote, updateWorkspaceNoteContent, USE_MOCK_NOTES, WorkspaceApiError } from "@/lib/workspace-api";
+import { getNote, matchesWorkspaceScope, updateWorkspaceNoteContent, USE_MOCK_NOTES, WorkspaceApiError } from "@/lib/workspace-api";
 import { contentHasWikiLinkTo } from "@/lib/wiki-links";
 import { useBrainX } from "@/components/brainx-provider";
 import { useWorkspace } from "@/components/workspace-provider";
@@ -479,7 +479,7 @@ export default function RightSidebar({
   const aiMockTimerRef = useRef<number | null>(null);
   const activeDraftSessionRef = useRef<InlineDraftSession | null>(null);
   const chatThreadIdsRef = useRef<Record<string, string>>({});
-  const { currentWorkspaceId } = useWorkspace();
+  const { currentWorkspaceId, workspaces } = useWorkspace();
   const { openAiUsageLimitModal, pushToast } = useBrainX();
   const activeNoteDocumentGroupId = activeNote?.documentGroupId ?? undefined;
 
@@ -526,8 +526,12 @@ export default function RightSidebar({
     if (!activeNote) return { backlinks: [], connections: [], aiSuggestions: [] as string[] };
 
     const mockContext = MOCK_CONTEXT_DATA[activeNote.id];
-    const workspaceNotes = allNotes.filter(
-      (note) => (note.documentGroupId ?? null) === (activeNote.documentGroupId ?? null)
+    // NotesWorkspace.tsx의 visibleNotes(matchesCurrentWorkspace)와 동일한 판정을 쓴다 — default
+    // Workspace에서는 documentGroupId=null인 레거시 노트도 링크 스코프에 포함해야 하고, 그 외
+    // Workspace에서는 해당 Workspace 노트만 포함해야 한다(activeNote.documentGroupId 단순 비교로는
+    // 이 규칙을 재현할 수 없다).
+    const workspaceNotes = allNotes.filter((note) =>
+      matchesWorkspaceScope(note.documentGroupId ?? null, currentWorkspaceId, workspaces)
     );
     const outboundSeen = new Set<string>();
     const connections: MockNote[] = [];
@@ -538,14 +542,17 @@ export default function RightSidebar({
       connections.push(resolved);
     }
 
+    // backlink도 outbound와 동일하게 workspaceNotes 전체를 대상으로 resolve해야 한다 — 대상 노트
+    // 하나만 놓고 resolve하면 "Spring" / "Spring Security"처럼 제목이 겹치는 경우, 실제로는 다른
+    // 노트를 가리키는 링크까지 activeNote의 backlink로 오판(false backlink)할 수 있다.
     const backlinks = workspaceNotes.filter((note) => {
       if (note.id === activeNote.id) return false;
       const targets = extractResolvedWikiLinkTargets(note.content);
-      return targets.some((target) => resolveWikiLinkByTitle([activeNote], target)?.id === activeNote.id);
+      return targets.some((target) => resolveWikiLinkByTitle(workspaceNotes, target)?.id === activeNote.id);
     });
 
     return { backlinks, connections, aiSuggestions: mockContext?.aiSuggestions ?? [] };
-  }, [activeNote, allNotes]);
+  }, [activeNote, allNotes, currentWorkspaceId, workspaces]);
 
   useEffect(() => {
     setLinkSuggestionStatus("idle");
