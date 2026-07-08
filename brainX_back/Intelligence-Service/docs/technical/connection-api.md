@@ -53,9 +53,9 @@
 - archived/trashed/deleted가 아닌 searchable projection이어야 한다.
 - `contentPending=false`여야 한다.
 - raw `markdown`이 있어야 한다.
-- `searchIndexStatus=INDEXED`여야 한다.
+- `searchIndexStatus=REMOVED`가 아니어야 한다.
 
-이 조건은 자동 연결이 raw markdown anchor를 찾고 최신 검색 가능 projection만 대상으로 삼기 때문이다.
+이 조건은 public 연결 추천이 source-only `LLM_ONLY` 경로를 사용해 raw markdown anchor를 찾기 때문이다. embedding/Qdrant index는 필요하지 않으며, `searchIndexStatus`가 `NOT_INDEXED`, `STALE`, `FAILED`여도 projection markdown이 준비되어 있으면 사용할 수 있다. 단, 내부 비교/진단용 `VECTOR_LLM` 전략과 semantic search/RAG 경로는 계속 embedding index를 요구한다.
 
 `bridge-concepts` source note는 searchable projection이면 사용할 수 있고, prompt에는 title/tags만 넣는다. 3개 이상 입력된 note는 후보 생성 배경으로 활용할 수 있지만, 저장될 bridge note가 wiki link로 직접 연결하는 원본 concept은 앞의 두 note로 제한한다.
 
@@ -106,5 +106,5 @@ python scripts\capture_connection_cli.py --run-name 20260626-connection-quality
 
 - `connection` public API는 사용자-facing surface다.
 - `autolink`는 내부 분석/CLI/품질 평가 기능이다.
-- public 연결 추천은 source-only `LLM_ONLY` 경로를 사용한다. `VECTOR_LLM`과 전체 note 자동 분석은 내부 비교/진단 전략으로 유지한다.
+- public 연결 추천은 source-only `LLM_ONLY` 경로를 사용하므로 embedding index 없이 active markdown projection만으로 동작한다. `VECTOR_LLM`과 전체 note 자동 분석은 내부 비교/진단 전략으로 유지하며 index-ready source만 사용한다.
 - public response는 source markdown anchor text와 UTF-16 offset을 노출한다. 클라이언트는 offset 또는 유일한 anchor 매칭으로 위치를 확정할 수 있을 때만 해당 구간을 치환하고, 실패하면 저장하지 않아야 한다.

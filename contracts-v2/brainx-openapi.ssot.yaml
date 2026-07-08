@@ -17301,6 +17301,7 @@ components:
                 $ref: '#/components/schemas/NoteSearchIndexStatus'
               availableForAiFeatures:
                 type: boolean
+                description: true when the Intelligence note projection has active, non-pending markdown that graph AI features such as clustering and source-only link suggestions can use. This is independent from embedding/vector index readiness; see searchIndexStatus for that state.
               indexedAt:
                 type: string
                 format: date-time

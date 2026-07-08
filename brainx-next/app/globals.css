@@ -5,6 +5,7 @@
 /** import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/web/variable/pretendardvariable-dynamic-subset.min.css");*/
 
 :root {
+  --brainx-desktop-top-inset: 0px;
   --bg: 17 16 42;
   --bg2: 20 19 46;
   --surface: 22 21 48;
@@ -66,6 +67,24 @@ body {
 
 body {
   font-family: var(--font-sans);
+}
+
+.brainx-desktop body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: var(--brainx-desktop-top-inset);
+  background: rgb(var(--bg2) / 0.9);
+  border-bottom: 1px solid rgb(var(--border) / 0.35);
+  backdrop-filter: blur(18px);
+  pointer-events: none;
+  z-index: 15;
+}
+
+.brainx-desktop .brainx-app-shell {
+  padding-top: var(--brainx-desktop-top-inset);
 }
 
 ::selection {

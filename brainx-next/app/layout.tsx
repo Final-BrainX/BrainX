@@ -17,6 +17,7 @@ export const metadata: Metadata = {
 
 const themeScript = `(() => {
   try {
+    const isWindowsDesktop = !!window.brainxDesktop && /Windows/i.test(navigator.userAgent);
     const readStoredValue = (area, key) => {
       if (window.brainxDesktop?.getStoredValue) {
         return window.brainxDesktop.getStoredValue(area, key);
@@ -30,6 +31,8 @@ const themeScript = `(() => {
     const language = readStoredValue('local', 'brainx_language_v1') || 'ko';
     document.documentElement.classList.toggle('light', theme === 'light');
     document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.documentElement.classList.toggle('brainx-desktop', isWindowsDesktop);
+    document.documentElement.style.setProperty('--brainx-desktop-top-inset', isWindowsDesktop ? '36px' : '0px');
     document.documentElement.style.colorScheme = theme;
     document.documentElement.lang = language;
   } catch (error) {}
@@ -56,7 +59,7 @@ export default function RootLayout({
           <b />
           <b />
         </div>
-        <div className="relative z-10 min-h-screen">
+        <div className="brainx-app-shell relative z-10 min-h-screen">
           <BrainXProvider>
             <TutorialProvider>
               {children}

@@ -10,6 +10,10 @@ public interface AutoLinkNoteSourcePort {
 
     Optional<AutoLinkNoteSource> findSearchableNoteSource(String userId, String documentGroupId, String noteId);
 
+    List<AutoLinkNoteSource> findGraphAiNoteSources(String userId, String documentGroupId, int limit);
+
+    Optional<AutoLinkNoteSource> findGraphAiNoteSource(String userId, String documentGroupId, String noteId);
+
     record AutoLinkNoteSource(
         String userId,
         String documentGroupId,

@@ -52,6 +52,7 @@ type BrainxDesktopConfig = {
   appOrigin: string;
   appMode: "dev-server" | "bundled-standalone" | "remote-web";
   activeVault: BrainxDesktopVaultSummary | null;
+  windowControlsOverlayHeight: number;
 };
 
 export type BrainxDesktopVaultSummary = {

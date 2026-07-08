@@ -20,6 +20,7 @@ import com.brainx.intelligence.clustering.application.port.inbound.GetLatestClus
 import com.brainx.intelligence.clustering.application.port.inbound.GetLatestClusterJobUseCase.LatestClusterJob;
 import com.brainx.intelligence.clustering.application.port.inbound.RequestClusterJobUseCase;
 import com.brainx.intelligence.clustering.application.port.outbound.ClusterJobStore;
+import com.brainx.intelligence.clustering.application.port.outbound.ClusteringNoteSourcePort;
 import com.brainx.intelligence.clustering.application.port.outbound.ClusteringEventPort;
 import com.brainx.intelligence.clustering.application.port.outbound.ClusteringEventPort.ClusterJobCompletedEvent;
 import com.brainx.intelligence.clustering.application.port.outbound.ClusteringEventPort.ClusterJobRequestedEvent;
@@ -43,7 +44,6 @@ import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiRol
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTokenUsage;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort.EntitlementRequest;
-import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysisNoteSourcePort;
 import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysisNoteSourcePort.KnowledgeAnalysisNote;
 import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -60,7 +60,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
     private static final int LATEST_JOB_LOOKBACK = 20;
 
     private final ClusterJobStore clusterJobStore;
-    private final KnowledgeAnalysisNoteSourcePort noteSourcePort;
+    private final ClusteringNoteSourcePort noteSourcePort;
     private final EntitlementPort entitlementPort;
     private final AiModelSettingsPort aiModelSettingsPort;
     private final AiChatPort aiChatPort;
@@ -76,7 +76,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
     @Autowired
     public ClusteringService(
         ClusterJobStore clusterJobStore,
-        KnowledgeAnalysisNoteSourcePort noteSourcePort,
+        ClusteringNoteSourcePort noteSourcePort,
         EntitlementPort entitlementPort,
         AiModelSettingsPort aiModelSettingsPort,
         AiChatPort aiChatPort,
@@ -105,7 +105,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
 
     ClusteringService(
         ClusterJobStore clusterJobStore,
-        KnowledgeAnalysisNoteSourcePort noteSourcePort,
+        ClusteringNoteSourcePort noteSourcePort,
         EntitlementPort entitlementPort,
         AiModelSettingsPort aiModelSettingsPort,
         AiChatPort aiChatPort,
@@ -250,7 +250,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
     public LatestClusterJob getLatestClusterJob(GetLatestClusterJobQuery query) {
         String userId = requireText(query.userId(), "userId");
         String documentGroupId = requireText(query.documentGroupId(), "documentGroupId");
-        List<KnowledgeAnalysisNote> notes = noteSourcePort.findAnalysisNotes(
+        List<KnowledgeAnalysisNote> notes = noteSourcePort.findClusteringSourceNotes(
             userId,
             documentGroupId,
             Math.min(properties.getMaxNotes(), HARD_MAX_NOTES)
@@ -296,9 +296,9 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
 
     private List<KnowledgeAnalysisNote> loadNotes(String userId, ScopeSpec scope) {
         if (scope.noteIds().isEmpty()) {
-            return noteSourcePort.findAnalysisNotes(userId, scope.documentGroupId(), scope.maxNotes());
+            return noteSourcePort.findClusteringSourceNotes(userId, scope.documentGroupId(), scope.maxNotes());
         }
-        List<KnowledgeAnalysisNote> notes = noteSourcePort.findAnalysisNotesByIds(
+        List<KnowledgeAnalysisNote> notes = noteSourcePort.findClusteringSourceNotesByIds(
             userId,
             scope.documentGroupId(),
             scope.noteIds()
