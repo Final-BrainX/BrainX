@@ -11,7 +11,7 @@
 - Container runtime on EC2:
   - `discovery-service`, `gateway-service`, `user-service`, `workspace-service`, `ingestion-service`, `commerce-service`, `admin-service`, `intelligence-service`, `mcp-service`
   - `frontend`, `admin-frontend`
-  - `prometheus`, `grafana`, `redis`, `neo4j`, `qdrant`, `kafka`, `caddy`
+  - `prometheus`, `grafana`, `loki`, `promtail`, `redis`, `neo4j`, `qdrant`, `kafka`, `caddy`
 
 `discovery-service` listens on port `8761` and stays on the internal registry path; Caddy does not publish it as a public route.
 - Public entry:
@@ -24,7 +24,11 @@
 
 Prometheus stays on the internal Docker network and scrapes `user-service`, `gateway-service`, `workspace-service`, `admin-service`, `commerce-service`, `ingestion-service`, and `intelligence-service` from their `/actuator/prometheus` endpoints. Grafana is auto-provisioned with that Prometheus datasource, so you do not need to add it manually in the UI.
 
+Loki also stays on the internal Docker network, and Promtail ships Docker container logs into Loki first. The initial AWS dev logging scope is application and container logs for `gateway-service`, `user-service`, `workspace-service`, `ingestion-service`, `commerce-service`, `admin-service`, `intelligence-service`, `mcp-service`, and the supporting containers. EC2 host system logs under `/var/log` are mounted into Promtail for a later second-phase scrape expansion, but they are not labeled or queried by default yet.
+
 The monitoring dashboard is file-provisioned from `/etc/grafana/dashboards/spring-boot-2-1-system-monitor.json` inside the Grafana container, which maps back to `infra/aws-dev/deploy/grafana/dashboards/spring-boot-2-1-system-monitor.json` in this repository. Because `allowUiUpdates: false` is set, UI edits are temporary unless you click `Save JSON to file`, overwrite that provisioned JSON path, and let Grafana reload the file.
+
+The logging dashboard is likewise file-provisioned from `/etc/grafana/dashboards/brainx-logs.json`, backed by `infra/aws-dev/deploy/grafana/dashboards/brainx-logs.json` in this repository. Use this dashboard for service-level log volume/error trends and use Grafana Explore with the provisioned `Loki` datasource for ad hoc searches.
 
 The provider also sets `updateIntervalSeconds: 30`, so Grafana should pick up the changed dashboard automatically within about 30 seconds; if it does not, restart Grafana with `docker compose --env-file /opt/brainx/env/runtime.env -f docker-compose.yml restart grafana`.
 

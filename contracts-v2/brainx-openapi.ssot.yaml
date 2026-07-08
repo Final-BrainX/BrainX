@@ -2,6 +2,8 @@ x-desktop-popup-bridge:
   description: Browser popup callbacks may use window.postMessage, while Electron desktop clients may deliver the same callback payload through preload/IPC renderer events or through a custom-protocol deep link that returns external-browser OAuth completion into the renderer callback route.
 x-runtime-secret-rotation:
   description: Shared runtime secrets such as RDS credentials may rotate independently of code changes; deployment flows must refresh encrypted parameter material on every run and force-recreate all DB-backed runtime services when the applied RDS credential fingerprint changes so gateway-routed note, plan, auth, admin, commerce, intelligence, and MCP APIs do not keep stale database passwords in long-lived containers.
+x-observability-log-stack:
+  description: AWS dev observability may provision Loki and Promtail alongside Prometheus and Grafana; phase-one log collection targets Docker and Spring Boot container logs, while EC2 system-log scraping remains an optional follow-up expansion.
 x-desktop-file-session-bridge:
   description: Electron desktop clients may back renderer auth/session persistence, login-OAuth API fallback requests, and file open-save flows with preload IPC bridges while Web clients continue to use browser storage and download behavior; desktop auth persistence may also invalidate stored sessions once when the packaged app version changes after a rebuild/update, desktop login requests may omit browser geolocation-enriched headers, and desktop shells must not synthesize web-only dev bypass sessions when no stored auth session exists.
 x-desktop-bundled-renderer:
