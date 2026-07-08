@@ -77,6 +77,8 @@ const electronProcess = process as NodeJS.Process & {
   defaultApp?: boolean;
 };
 
+const WINDOWS_TITLE_BAR_OVERLAY_HEIGHT = 36;
+
 function getWindowChromeOptions() {
   if (process.platform !== "win32") {
     return {};
@@ -87,7 +89,7 @@ function getWindowChromeOptions() {
     titleBarOverlay: {
       color: "#eef1ff",
       symbolColor: "#334155",
-      height: 36,
+      height: WINDOWS_TITLE_BAR_OVERLAY_HEIGHT,
     },
     backgroundColor: "#eef1ff",
   };
@@ -2152,6 +2154,8 @@ function registerIpc() {
     appOrigin,
     appMode: rendererMode,
     activeVault: getActiveVault(),
+    windowControlsOverlayHeight:
+      process.platform === "win32" ? WINDOWS_TITLE_BAR_OVERLAY_HEIGHT : 0,
   }));
 
   ipcMain.handle("brainx-desktop:open-external", async (_event, url: string) => {
