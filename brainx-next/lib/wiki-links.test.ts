@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   decodeHtmlEntities,
+  extractResolvedWikiLinkTargets,
   normalizeTitleForMatch,
   normalizeWikiLinkTarget,
   resolveWikiLinkByTitle,
@@ -72,4 +73,28 @@ test("resolveWikiLinkByTitle matches a note despite a double-escaped ampersand i
   const resolved = resolveWikiLinkByTitle(notes, "🍽️ 푸디스트 (Foodiest) — 음식점 리뷰 &amp;amp; 평가 플랫폼");
 
   assert.equal(resolved?.id, "1");
+});
+
+test("extractResolvedWikiLinkTargets parses a double-quoted data-title containing an apostrophe", () => {
+  const html = `<p><span data-wiki-link="true" data-title="John's Plan">[[John's Plan]]</span></p>`;
+
+  assert.deepEqual(extractResolvedWikiLinkTargets(html), ["John's Plan"]);
+});
+
+test("extractResolvedWikiLinkTargets parses a single-quoted data-title containing a double quote", () => {
+  const html = `<p><span data-wiki-link='true' data-title='John "Draft" Plan'>[[John "Draft" Plan]]</span></p>`;
+
+  assert.deepEqual(extractResolvedWikiLinkTargets(html), ['John "Draft" Plan']);
+});
+
+test("extractResolvedWikiLinkTargets keeps both span-based and raw [[...]] targets in mixed content", () => {
+  const html = `<p><span data-wiki-link="true" data-title="Spring">[[Spring]]</span> and also [[Spring Security]] typed raw.</p>`;
+
+  assert.deepEqual(extractResolvedWikiLinkTargets(html), ["Spring", "Spring Security"]);
+});
+
+test("extractResolvedWikiLinkTargets de-duplicates when the same target appears in both span and raw form", () => {
+  const html = `<p><span data-wiki-link="true" data-title="Spring">[[Spring]]</span> repeated as [[Spring]] again.</p>`;
+
+  assert.deepEqual(extractResolvedWikiLinkTargets(html), ["Spring"]);
 });
