@@ -116,6 +116,32 @@ public class ChatJpaAdapter implements ChatPersistencePort {
 
     @Override
     @Transactional(readOnly = true)
+    public Optional<ChatMessage> findMessageByUserIdAndThreadIdAndMessageId(
+        String userId,
+        String threadId,
+        String messageId
+    ) {
+        return chatMessageJpaRepository.findByUserIdAndThreadIdAndMessageId(userId, threadId, messageId)
+            .map(ChatMessageJpaEntity::toDomain);
+    }
+
+    @Override
+    @Transactional
+    public Optional<ChatMessage> recordSavedDraftNoteId(
+        String userId,
+        String threadId,
+        String messageId,
+        String noteId
+    ) {
+        return chatMessageJpaRepository.findByUserIdAndThreadIdAndMessageIdForUpdate(userId, threadId, messageId)
+            .map(entity -> {
+                entity.recordSavedDraftNoteId(noteId);
+                return chatMessageJpaRepository.save(entity).toDomain();
+            });
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<ChatMessage> findMessagesByUserIdAndThreadId(String userId, String threadId) {
         return chatMessageJpaRepository.findByUserIdAndThreadIdOrderByCreatedAtAsc(userId, threadId).stream()
             .map(ChatMessageJpaEntity::toDomain)

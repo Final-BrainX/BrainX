@@ -20,6 +20,8 @@ public record ChatMessage(
     List<ChatWebSource> webSources,
     ChatTokenUsage tokenUsage,
     String llmRunId,
+    ChatRoute route,
+    String savedDraftNoteId,
     Instant createdAt
 ) {
 
@@ -37,6 +39,10 @@ public record ChatMessage(
         citations = immutableList(citations);
         webSources = immutableWebSources(webSources);
         llmRunId = llmRunId == null || llmRunId.isBlank() ? null : llmRunId.trim();
+        route = role == ChatRole.ASSISTANT ? route : null;
+        savedDraftNoteId = role != ChatRole.ASSISTANT || savedDraftNoteId == null || savedDraftNoteId.isBlank()
+            ? null
+            : savedDraftNoteId.trim();
         createdAt = createdAt == null ? Instant.now() : createdAt;
     }
 
@@ -63,6 +69,41 @@ public record ChatMessage(
             List.of(),
             null,
             null,
+            null,
+            null,
+            createdAt
+        );
+    }
+
+    public static ChatMessage assistant(
+        String messageId,
+        String threadId,
+        String userId,
+        String content,
+        String modelId,
+        List<ChatCitation> citations,
+        List<ChatWebSource> webSources,
+        ChatTokenUsage tokenUsage,
+        String llmRunId,
+        ChatRoute route,
+        String savedDraftNoteId,
+        Instant createdAt
+    ) {
+        return new ChatMessage(
+            messageId,
+            threadId,
+            userId,
+            ChatRole.ASSISTANT,
+            content,
+            modelId,
+            Map.of(),
+            Map.of(),
+            citations,
+            webSources,
+            tokenUsage,
+            llmRunId,
+            route,
+            savedDraftNoteId,
             createdAt
         );
     }
@@ -79,19 +120,47 @@ public record ChatMessage(
         String llmRunId,
         Instant createdAt
     ) {
-        return new ChatMessage(
+        return assistant(
             messageId,
             threadId,
             userId,
-            ChatRole.ASSISTANT,
             content,
             modelId,
-            Map.of(),
-            Map.of(),
             citations,
             webSources,
             tokenUsage,
             llmRunId,
+            null,
+            null,
+            createdAt
+        );
+    }
+
+    public static ChatMessage assistant(
+        String messageId,
+        String threadId,
+        String userId,
+        String content,
+        String modelId,
+        List<ChatCitation> citations,
+        List<ChatWebSource> webSources,
+        ChatTokenUsage tokenUsage,
+        String llmRunId,
+        ChatRoute route,
+        Instant createdAt
+    ) {
+        return assistant(
+            messageId,
+            threadId,
+            userId,
+            content,
+            modelId,
+            citations,
+            webSources,
+            tokenUsage,
+            llmRunId,
+            route,
+            null,
             createdAt
         );
     }

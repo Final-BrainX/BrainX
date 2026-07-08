@@ -24,6 +24,14 @@ public interface NoteRepository extends JpaRepository<Note, String> {
                                                                                @Param("documentGroupId") String documentGroupId,
                                                                                @Param("title") String title);
 
+    /** 위키링크 제목 매칭(정규화 비교)을 애플리케이션 코드에서 하기 위한 후보 목록 조회 —
+        title은 DB에 정확히 저장된 값 그대로 두고(이모지 등 선행 아이콘 포함 가능), 비교만
+        Java 쪽에서 정규화해서 한다. WorkspaceService.findNoteByNormalizedTitle 참고. */
+    @Query("SELECT n FROM Note n WHERE n.userId = :userId AND n.deleted = false AND " +
+            "((:documentGroupId IS NULL AND n.documentGroupId IS NULL) OR n.documentGroupId = :documentGroupId)")
+    List<Note> findByUserIdAndDocumentGroupIdAndDeletedFalse(@Param("userId") String userId,
+                                                               @Param("documentGroupId") String documentGroupId);
+
     @Query("SELECT n FROM Note n WHERE n.userId = :userId AND LOWER(n.title) = LOWER(:title) AND n.deleted = false ORDER BY n.createdAt ASC LIMIT 1")
     Optional<Note> findFirstByUserIdAndTitleIgnoreCaseAndDeletedFalse(@Param("userId") String userId, @Param("title") String title);
 

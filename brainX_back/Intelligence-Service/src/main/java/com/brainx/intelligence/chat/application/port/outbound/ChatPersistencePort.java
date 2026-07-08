@@ -29,6 +29,10 @@ public interface ChatPersistencePort {
 
     ChatMessage saveMessage(ChatMessage message);
 
+    Optional<ChatMessage> findMessageByUserIdAndThreadIdAndMessageId(String userId, String threadId, String messageId);
+
+    Optional<ChatMessage> recordSavedDraftNoteId(String userId, String threadId, String messageId, String noteId);
+
     List<ChatMessage> findMessagesByUserIdAndThreadId(String userId, String threadId);
 
     record ChatThreadSummaryCursor(

@@ -16,6 +16,11 @@ on:
         required: false
         default: false
         type: boolean
+      build_desktop_installer:
+        description: "Build and upload the Windows desktop installer before frontend image build"
+        required: false
+        default: false
+        type: boolean
       services:
         description: "Optional space/comma-separated service list"
         required: false
@@ -35,6 +40,7 @@ env:
   AWS_ROLE_TO_ASSUME: ${{ vars.AWS_ROLE_TO_ASSUME }}
   AWS_DEV_INSTANCE_ID: ${{ vars.AWS_DEV_INSTANCE_ID }}
   AWS_DEV_ARTIFACT_BUCKET: ${{ vars.AWS_DEV_ARTIFACT_BUCKET }}
+  AWS_DEV_ASSET_BUCKET: ${{ vars.AWS_DEV_ASSET_BUCKET }}
   AWS_ECR_REGISTRY: ${{ vars.AWS_ECR_REGISTRY }}
   AWS_DEV_RDS_SECRET_ARN: ${{ vars.AWS_DEV_RDS_SECRET_ARN }}
   AWS_DEV_RDS_HOST: ${{ vars.AWS_DEV_RDS_HOST }}
@@ -45,6 +51,7 @@ env:
   AWS_DEV_PUBLIC_SITE_ADDRESS: ${{ vars.AWS_DEV_PUBLIC_SITE_ADDRESS }}
   AWS_DEV_ADMIN_SITE_ADDRESS: ${{ vars.AWS_DEV_ADMIN_SITE_ADDRESS }}
   AWS_DEV_ACME_EMAIL: ${{ vars.AWS_DEV_ACME_EMAIL }}
+  AWS_DEV_DESKTOP_INSTALLER_KEY: desktop-installers/latest/BrainX Setup 0.1.0.exe
   IMAGE_TAG: ${{ github.sha }}
 
 jobs:
@@ -64,6 +71,7 @@ jobs:
             AWS_ROLE_TO_ASSUME \
             AWS_DEV_INSTANCE_ID \
             AWS_DEV_ARTIFACT_BUCKET \
+            AWS_DEV_ASSET_BUCKET \
             AWS_ECR_REGISTRY \
             AWS_DEV_RDS_SECRET_ARN \
             AWS_DEV_RDS_HOST \
@@ -97,6 +105,7 @@ jobs:
       services_space: ${{ steps.detect.outputs.services_space }}
       should_deploy: ${{ steps.detect.outputs.should_deploy }}
       deploy_config_changed: ${{ steps.detect.outputs.deploy_config_changed }}
+      desktop_installer_changed: ${{ steps.detect.outputs.desktop_installer_changed }}
       force_runtime_refresh: ${{ steps.detect.outputs.force_runtime_refresh }}
     steps:
       - uses: actions/checkout@v4
@@ -120,6 +129,10 @@ jobs:
             ARGS+=(--force-runtime-refresh)
           fi
 
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.build_desktop_installer }}" = "true" ]; then
+            ARGS+=(--build-desktop-installer)
+          fi
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.services }}" ]; then
             ARGS+=(--services "${{ inputs.services }}")
           fi
@@ -139,14 +152,62 @@ jobs:
               fp.write(f"services_space={detection['servicesSpace']}\n")
               fp.write(f"should_deploy={str(detection['shouldDeploy']).lower()}\n")
               fp.write(f"deploy_config_changed={str(detection['deployConfigChanged']).lower()}\n")
+              fp.write(f"desktop_installer_changed={str(detection['desktopInstallerChanged']).lower()}\n")
               fp.write(f"force_runtime_refresh={str(detection['forceRuntimeRefresh']).lower()}\n")
           PY
+
+  desktop-installer:
+    name: Build and upload desktop installer
+    runs-on: windows-latest
+    needs: detect
+    if: needs.detect.outputs.should_deploy == 'true' && contains(needs.detect.outputs.services_json, '"frontend"') && needs.detect.outputs.desktop_installer_changed == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+
+      - name: Install renderer dependencies
+        working-directory: brainx-next
+        shell: pwsh
+        run: npm ci
+
+      - name: Install desktop dependencies
+        working-directory: brainx-electron
+        shell: pwsh
+        run: npm ci
+
+      - name: Build Windows installer
+        working-directory: brainx-electron
+        shell: pwsh
+        run: npm run dist:win
+
+      - name: Upload installer to S3
+        shell: pwsh
+        run: |
+          $installerPath = Join-Path $env:GITHUB_WORKSPACE 'brainx-electron\release\BrainX Setup 0.1.0.exe'
+          if (!(Test-Path $installerPath)) {
+            throw "Desktop installer not found at $installerPath"
+          }
+
+          $versionedKey = "desktop-installers/$env:GITHUB_SHA/BrainX Setup 0.1.0.exe"
+          aws s3 cp $installerPath "s3://$env:AWS_DEV_ASSET_BUCKET/$versionedKey" --region $env:AWS_REGION
+          aws s3 cp $installerPath "s3://$env:AWS_DEV_ASSET_BUCKET/$env:AWS_DEV_DESKTOP_INSTALLER_KEY" --region $env:AWS_REGION
 
   build:
     name: Build and push ${{ matrix.service }}
     runs-on: ubuntu-latest
-    needs: detect
-    if: needs.detect.outputs.services_space != ''
+    needs:
+      - detect
+      - desktop-installer
+    if: always() && needs.detect.outputs.services_space != '' && (needs.desktop-installer.result == 'success' || needs.desktop-installer.result == 'skipped')
     strategy:
       fail-fast: false
       matrix:
@@ -165,6 +226,18 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Sync desktop installer from S3
+        if: matrix.service == 'frontend'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "brainx-next/public/downloads"
+          aws s3 cp \
+            "s3://$AWS_DEV_ASSET_BUCKET/$AWS_DEV_DESKTOP_INSTALLER_KEY" \
+            "brainx-next/public/downloads/BrainX Setup 0.1.0.exe" \
+            --region "$AWS_REGION"
+          ls -lh "brainx-next/public/downloads/BrainX Setup 0.1.0.exe"
 
       - name: Build and push image
         shell: bash

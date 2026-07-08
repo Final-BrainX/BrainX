@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -29,6 +30,8 @@ import com.brainx.intelligence.chat.application.port.inbound.GetChatThreadUseCas
 import com.brainx.intelligence.chat.application.port.inbound.GetChatThreadUseCase.GetChatThreadQuery;
 import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase;
 import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ListChatThreadsQuery;
+import com.brainx.intelligence.chat.application.port.inbound.RecordChatDraftNoteUseCase;
+import com.brainx.intelligence.chat.application.port.inbound.RecordChatDraftNoteUseCase.RecordChatDraftNoteCommand;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.ChatStreamEvent;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.SendChatMessageCommand;
@@ -56,6 +59,7 @@ public class ChatController {
     private final SendChatMessageUseCase sendChatMessageUseCase;
     private final GetChatThreadUseCase getChatThreadUseCase;
     private final UpdateChatThreadUseCase updateChatThreadUseCase;
+    private final RecordChatDraftNoteUseCase recordChatDraftNoteUseCase;
     private final ObjectMapper objectMapper;
 
     public ChatController(
@@ -64,6 +68,7 @@ public class ChatController {
         SendChatMessageUseCase sendChatMessageUseCase,
         GetChatThreadUseCase getChatThreadUseCase,
         UpdateChatThreadUseCase updateChatThreadUseCase,
+        RecordChatDraftNoteUseCase recordChatDraftNoteUseCase,
         ObjectMapper objectMapper
     ) {
         this.createChatThreadUseCase = createChatThreadUseCase;
@@ -71,6 +76,7 @@ public class ChatController {
         this.sendChatMessageUseCase = sendChatMessageUseCase;
         this.getChatThreadUseCase = getChatThreadUseCase;
         this.updateChatThreadUseCase = updateChatThreadUseCase;
+        this.recordChatDraftNoteUseCase = recordChatDraftNoteUseCase;
         this.objectMapper = objectMapper;
     }
 
@@ -154,6 +160,26 @@ public class ChatController {
         return ResponseEntity.ok()
             .contentType(MediaType.TEXT_EVENT_STREAM)
             .body(body);
+    }
+
+    @PutMapping("/api/v1/ai/chat-threads/{threadId}/messages/{messageId}/draft-note")
+    public ApiSuccessResponse<ChatDraftNoteData> recordChatDraftNote(
+        Principal principal,
+        @PathVariable @NotBlank String threadId,
+        @PathVariable @NotBlank String messageId,
+        @Valid @RequestBody ChatDraftNoteRequest request
+    ) {
+        var result = recordChatDraftNoteUseCase.recordChatDraftNote(new RecordChatDraftNoteCommand(
+            userId(principal),
+            threadId,
+            messageId,
+            request.noteId()
+        ));
+        return ApiSuccessResponse.ok(new ChatDraftNoteData(
+            result.threadId(),
+            result.messageId(),
+            result.noteId()
+        ));
     }
 
     @GetMapping("/api/v1/ai/chat-threads/{threadId}")
@@ -275,6 +301,11 @@ public class ChatController {
     ) {
     }
 
+    record ChatDraftNoteRequest(
+        @NotBlank String noteId
+    ) {
+    }
+
     record ClientContextRequest(
         @NotBlank String mode,
         @NotBlank String source,
@@ -325,6 +356,13 @@ public class ChatController {
     record ChatThreadDeleteData(
         String threadId,
         Instant deletedAt
+    ) {
+    }
+
+    record ChatDraftNoteData(
+        String threadId,
+        String messageId,
+        String noteId
     ) {
     }
 

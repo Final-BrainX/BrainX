@@ -18,7 +18,7 @@ function forwardedIp(request: Request) {
 async function recordDesktopDownload(request: Request, clientKey: string | null, source: string | null) {
   try {
     const endpoint = new URL("/api/v1/landing/desktop-downloads", request.url);
-    await fetch(endpoint, {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -33,6 +33,14 @@ async function recordDesktopDownload(request: Request, clientKey: string | null,
       }),
       cache: "no-store"
     });
+    if (!response.ok) {
+      const responseBody = await response.text().catch(() => "");
+      console.error("Failed to record desktop download", {
+        status: response.status,
+        statusText: response.statusText,
+        body: responseBody.slice(0, 500)
+      });
+    }
   } catch (error) {
     console.error("Failed to record desktop download", error);
   }

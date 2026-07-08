@@ -36,20 +36,27 @@ export function ChatMessageItem({
   onSubmitFeedback,
   feedbackLoading,
 }: ChatMessageItemProps) {
-  const saveStatus = saveState?.status ?? "idle";
+  const persistedSaveState: DraftNoteSaveState | undefined =
+    message.savedDraftNoteId
+      ? { status: "saved", noteId: message.savedDraftNoteId }
+      : undefined;
+  const effectiveSaveState = saveState ?? persistedSaveState;
+  const saveStatus = effectiveSaveState?.status ?? "idle";
   const isSavingDraft = saveStatus === "saving";
-  const isSavedDraft = saveStatus === "saved" && !!saveState?.noteId;
+  const isSavedDraft = saveStatus === "saved" && !!effectiveSaveState?.noteId;
   const canSaveDraft = canSaveAiMessageDraft(message);
+  const canShowDraftAction = isSavedDraft || canSaveDraft;
   const canSubmitFeedback =
     message.role === "ai" &&
     !message.streaming &&
     !message.error &&
     Boolean(message.llmRunId);
-  const webSearchProgressText =
-    message.webSearchProgress?.message ||
-    (message.webSearchProgress?.status
-      ? `웹 검색 ${message.webSearchProgress.status}`
-      : "웹 검색 중");
+  const isWebSearching =
+    message.role === "ai" &&
+    message.streaming &&
+    message.streamPhase === "WEB_SEARCHING";
+  const webSources = message.webSources ?? [];
+  const hasWebSources = message.role === "ai" && webSources.length > 0;
 
   return (
     <div
@@ -86,33 +93,54 @@ export function ChatMessageItem({
               {message.text}
             </p>
           ) : (
-            <AiMarkdownMessage
-              text={message.text}
-              streaming={message.streaming}
-            />
+            <>
+              {isWebSearching ? (
+                <div className="mb-2 flex min-w-0 items-center gap-2 rounded-xl border border-line/70 bg-surface2/70 px-2.5 py-1.5 text-[12px] leading-5 text-txt2">
+                  <Icon
+                    name="refresh"
+                    size={13}
+                    className="shrink-0 animate-spin text-primary"
+                  />
+                  <span className="min-w-0 truncate">
+                    웹 검색 중
+                    {message.webSearchQuery ? ` · ${message.webSearchQuery}` : ""}
+                  </span>
+                </div>
+              ) : null}
+              {message.text.trim() ? (
+                <AiMarkdownMessage
+                  text={message.text}
+                  streaming={message.streaming}
+                />
+              ) : null}
+              {hasWebSources ? (
+                <details className="mt-2 rounded-xl border border-line/60 bg-surface2/55 px-2.5 py-1.5 text-[12px] text-txt3">
+                  <summary className="flex cursor-pointer list-none items-center gap-1.5 font-semibold text-txt2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60">
+                    <Icon name="search" size={12} className="shrink-0 text-primary" />
+                    <span>웹 출처 {webSources.length}개</span>
+                  </summary>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {webSources.map((source) => {
+                      const host = webSourceHost(source.url);
+                      return (
+                        <a
+                          key={`${message.id}-${source.rank}-${source.url}`}
+                          href={source.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="max-w-full truncate rounded-full border border-line/70 bg-surface px-2 py-0.5 text-[11.5px] leading-5 text-txt3 transition-colors hover:border-primary/45 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                          title={host}
+                        >
+                          {host}
+                        </a>
+                      );
+                    })}
+                  </div>
+                </details>
+              ) : null}
+            </>
           )}
         </div>
-        {message.role === "ai" &&
-        message.streaming &&
-        message.streamPhase === "WEB_SEARCHING" ? (
-          <div className="mt-2 flex max-w-full flex-wrap items-center gap-2 rounded-xl border border-line bg-surface2 px-3 py-2 text-[12.5px] text-txt2">
-            <Icon
-              name="refresh"
-              size={13}
-              className="shrink-0 animate-spin text-primary"
-            />
-            <span className="min-w-0 truncate">
-              웹 검색 중…
-              {message.webSearchQuery ? `: ${message.webSearchQuery}` : ""}
-            </span>
-            {message.webSearchProgress?.message ||
-            message.webSearchProgress?.status ? (
-              <span className="min-w-0 truncate text-[11.5px] text-txt3">
-                {webSearchProgressText}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
         {message.role === "ai" &&
         message.citations &&
         message.citations.length > 0 &&
@@ -154,49 +182,6 @@ export function ChatMessageItem({
             </div>
           </div>
         ) : null}
-        {message.role === "ai" &&
-        message.webSources &&
-        message.webSources.length > 0 ? (
-          <div className="mt-2.5 w-full">
-            <div className="mb-1.5 flex items-center gap-1.5 text-[13px] font-semibold text-txt3">
-              <Icon name="search" size={12} />
-              웹 출처 {message.webSources.length}
-            </div>
-            <div className="space-y-2">
-              {message.webSources.map((source) => (
-                <a
-                  key={`${message.id}-${source.rank}-${source.url}`}
-                  href={source.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex min-w-0 items-start gap-2 rounded-xl border border-line bg-surface2 px-3 py-2 text-left transition-colors hover:border-primary/45 focus-visible:ring-2 focus-visible:ring-primary/60"
-                >
-                  <Icon
-                    name="link"
-                    size={13}
-                    className="mt-0.5 shrink-0 text-primary"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13.5px] font-semibold text-txt">
-                      {source.title || source.url}
-                    </span>
-                    <span className="mt-0.5 block truncate text-[12px] text-txt3">
-                      {webSourceHost(source.url)}
-                    </span>
-                    {source.snippet ? (
-                      <span className="mt-1 block truncate text-[12.5px] leading-5 text-txt2">
-                        {source.snippet}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="shrink-0 font-mono text-[12px] text-txt3">
-                    [W{source.rank}]
-                  </span>
-                </a>
-              ))}
-            </div>
-          </div>
-        ) : null}
         {message.role === "user" ? (
           <div className="pointer-events-none mt-1 flex h-7 justify-end opacity-0 transition-opacity group-hover/message:pointer-events-auto group-hover/message:opacity-100 group-focus-within/message:pointer-events-auto group-focus-within/message:opacity-100">
             <CopyMessageButton message={message} onCopy={onCopyMessage} />
@@ -205,12 +190,12 @@ export function ChatMessageItem({
           <div
             className={cx(
               "flex w-full flex-wrap items-center gap-2 mt-1",
-              canSaveDraft
+              canShowDraftAction
                 ? "justify-between border-t border-line/50"
                 : "justify-start",
             )}
           >
-            {canSaveDraft ? (
+            {canShowDraftAction ? (
               <span
                 className={cx(
                   "min-w-0 flex-1 truncate text-[12px]",
@@ -222,7 +207,7 @@ export function ChatMessageItem({
                 {isSavedDraft
                   ? "Workspace 노트로 저장됨"
                   : saveStatus === "error"
-                    ? saveState?.error
+                    ? effectiveSaveState?.error
                     : "AI 답변을 새 노트로 저장할 수 있어요"}
               </span>
             ) : null}
@@ -235,7 +220,7 @@ export function ChatMessageItem({
                 />
               ) : null}
               <CopyMessageButton message={message} onCopy={onCopyMessage} />
-              {canSaveDraft ? (
+              {canShowDraftAction ? (
                 <button
                   type="button"
                   disabled={isSavingDraft}
@@ -272,7 +257,7 @@ function webSourceHost(url: string) {
   try {
     return new URL(url).hostname.replace(/^www\./, "");
   } catch {
-    return url;
+    return url.replace(/^https?:\/\//, "").split(/[/?#]/)[0] || url;
   }
 }
 

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/core";
 import { FileText, FilePlus2 } from "lucide-react";
 import { cx } from "@/lib/utils";
+import { normalizeTitleForMatch } from "@/lib/wiki-links";
 import { WikiLinkSuggestionKey } from "./WikiLinkSuggestion";
 import { useWikiLinkContext, folderPathOf } from "./WikiLinkContext";
 
@@ -46,8 +47,11 @@ export function WikiLinkAutocomplete({ editor }: { editor: Editor }) {
 
   const candidates: Candidate[] = (() => {
     if (!ctx || !active) return [];
-    const q = query.trim().toLowerCase();
-    const matches = q ? ctx.notes.filter((n) => n.title.toLowerCase().includes(q)) : ctx.notes;
+    // normalizeTitleForMatch로 노트 제목 앞의 이모지 아이콘을 무시한다 — 그렇지 않으면 이미
+    // 존재하는(이모지 붙은) 노트를 정확히 입력해도 exact가 항상 false가 되어 "새 노트 만들기"
+    // 후보가 실제 노트 후보와 함께 잘못 나타난다.
+    const q = normalizeTitleForMatch(query);
+    const matches = q ? ctx.notes.filter((n) => normalizeTitleForMatch(n.title).includes(q)) : ctx.notes;
     const folders = ctx.folders ?? [];
     const list: Candidate[] = matches.slice(0, 8).map((n) => {
       let folderPath: string | null = null;
@@ -58,7 +62,7 @@ export function WikiLinkAutocomplete({ editor }: { editor: Editor }) {
       }
       return { id: n.id, kind: "note", title: n.title, folderPath };
     });
-    const exact = matches.some((n) => n.title.toLowerCase() === q);
+    const exact = matches.some((n) => normalizeTitleForMatch(n.title) === q);
     if (q.trim() && !exact) list.push({ id: `create:${query.trim().toLowerCase()}`, kind: "create", title: query.trim() });
     return list;
   })();

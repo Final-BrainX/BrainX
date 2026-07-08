@@ -178,6 +178,19 @@ resource "aws_iam_policy" "github_actions" {
         ]
       },
       {
+        Sid    = "ReadWriteDesktopInstallerAssets"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.assets.arn,
+          "${aws_s3_bucket.assets.arn}/*"
+        ]
+      },
+      {
         Sid    = "RunSsmDeploy"
         Effect = "Allow"
         Action = ["ssm:SendCommand"]

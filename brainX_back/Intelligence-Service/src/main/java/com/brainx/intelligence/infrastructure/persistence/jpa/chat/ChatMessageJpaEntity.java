@@ -12,6 +12,7 @@ import org.hibernate.type.SqlTypes;
 import com.brainx.intelligence.chat.domain.ChatCitation;
 import com.brainx.intelligence.chat.domain.ChatMessage;
 import com.brainx.intelligence.chat.domain.ChatRole;
+import com.brainx.intelligence.chat.domain.ChatRoute;
 import com.brainx.intelligence.chat.domain.ChatTokenUsage;
 import com.brainx.intelligence.chat.domain.ChatWebSource;
 import com.brainx.intelligence.infrastructure.persistence.jpa.JsonListMapAttributeConverter;
@@ -88,6 +89,13 @@ public class ChatMessageJpaEntity {
     @Column(name = "llm_run_id", length = 120)
     private String llmRunId;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "route", length = 40)
+    private ChatRoute route;
+
+    @Column(name = "saved_draft_note_id", length = 120)
+    private String savedDraftNoteId;
+
     protected ChatMessageJpaEntity() {
     }
 
@@ -109,6 +117,8 @@ public class ChatMessageJpaEntity {
             .toList();
         entity.tokenUsage = message.tokenUsage() == null ? null : message.tokenUsage().toMap();
         entity.llmRunId = message.llmRunId();
+        entity.route = message.route();
+        entity.savedDraftNoteId = message.savedDraftNoteId();
         entity.createdAt = message.createdAt();
         return entity;
     }
@@ -127,12 +137,20 @@ public class ChatMessageJpaEntity {
             listValue(webSources).stream().map(ChatMessageJpaEntity::webSourceFromMap).toList(),
             tokenUsage == null || tokenUsage.isEmpty() ? null : tokenUsageFromMap(tokenUsage),
             llmRunId,
+            route,
+            savedDraftNoteId,
             createdAt
         );
     }
 
     String content() {
         return content;
+    }
+
+    void recordSavedDraftNoteId(String noteId) {
+        if (savedDraftNoteId == null || savedDraftNoteId.isBlank()) {
+            savedDraftNoteId = noteId;
+        }
     }
 
     private static ChatCitation citationFromMap(Map<String, Object> values) {

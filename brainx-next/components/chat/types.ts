@@ -40,6 +40,7 @@ export type ChatMessageView = {
   modelId?: string;
   createdAt?: string;
   route?: ChatRoute;
+  savedDraftNoteId?: string | null;
   llmRunId?: string | null;
   feedbackRating?: LlmFeedbackRating | null;
   requiresWebSearch?: boolean;

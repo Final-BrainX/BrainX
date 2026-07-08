@@ -22,6 +22,8 @@ export type ChatThreadData = Schemas["ChatThreadData"];
 export type ChatThreadDeleteData = Schemas["ChatThreadDeleteData"];
 export type ChatThreadListData = Schemas["ChatThreadListData"];
 export type ChatMessageCreateRequest = Schemas["ChatMessageCreateRequest"];
+export type ChatDraftNoteRequest = Schemas["ChatDraftNoteRequest"];
+export type ChatDraftNoteData = Schemas["ChatDraftNoteData"];
 export type ChatThreadDetailData = Schemas["ChatThreadDetailData"];
 export type ChatMessageData = Schemas["ChatMessageData"];
 export type ChatWebSourceData = Schemas["ChatWebSource"];
@@ -555,6 +557,22 @@ export function getChatThread(threadId: string, options?: IntelligenceRequestOpt
   return authedRequest<ChatThreadDetailData>(
     `/api/v1/ai/chat-threads/${encodeURIComponent(threadId)}`,
     undefined,
+    options
+  );
+}
+
+export function recordChatMessageDraftNote(
+  threadId: string,
+  messageId: string,
+  payload: ChatDraftNoteRequest,
+  options?: IntelligenceRequestOptions
+) {
+  return authedRequest<ChatDraftNoteData>(
+    `/api/v1/ai/chat-threads/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}/draft-note`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    },
     options
   );
 }

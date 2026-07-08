@@ -187,6 +187,8 @@ create table if not exists intelligence_chat_messages (
   content text not null,
   model_id varchar(120),
   llm_run_id varchar(120),
+  route varchar(40),
+  saved_draft_note_id varchar(120),
   note_scope text not null,
   client_context text not null,
   citations text not null,
@@ -548,7 +550,9 @@ create index if not exists idx_note_projection_index_retry
 alter table intelligence_chat_messages
   add column if not exists client_context text not null default '{}',
   add column if not exists web_sources text not null default '[]',
-  add column if not exists llm_run_id varchar(120);
+  add column if not exists llm_run_id varchar(120),
+  add column if not exists route varchar(40),
+  add column if not exists saved_draft_note_id varchar(120);
 
 alter table intelligence_chat_threads
   add column if not exists archived_at timestamp(6) with time zone,

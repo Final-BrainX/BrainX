@@ -5,6 +5,7 @@ import { NodeSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/stat
 import { ReactNodeViewRenderer, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { FilePlus2 } from "lucide-react";
 import { cx } from "@/lib/utils";
+import { decodeHtmlEntities } from "@/lib/wiki-links";
 import { normalizeOptionalWikiLinkText, normalizeWikiLinkText, useWikiLinkContext, resolveWikiLinkTitle } from "./WikiLinkContext";
 
 /** `[[노트]]` / `[[노트|별칭]]` / `[[노트#헤딩]]` / `[[노트#헤딩|별칭]]` 입력 형태를 그대로
@@ -116,8 +117,12 @@ export const WikiLink = Node.create({
         tag: "span[data-wiki-link]",
         getAttrs: (el) => {
           if (!(el instanceof HTMLElement)) return false;
+          // decodeHtmlEntities: 예전에 저장 경로에서 실수로 이중 이스케이프된(& -> &amp;amp;)
+          // 노트를 열면, 브라우저가 HTML을 파싱하며 한 겹만 풀어줘서 data-title에 "&amp;"가
+          // 문자 그대로 남는다 — 여기서 한 번 더 풀어 화면에 진짜 "&"로 보이게 하고, 이
+          // 노드를 다시 저장할 때도 깨끗한 값으로 직렬화되게 한다(자동 복구).
           return {
-            title: normalizeWikiLinkText(el.getAttribute("data-title")).trim(),
+            title: decodeHtmlEntities(normalizeWikiLinkText(el.getAttribute("data-title")).trim()),
             alias: normalizeOptionalWikiLinkText(el.getAttribute("data-alias")),
             heading: normalizeOptionalWikiLinkText(el.getAttribute("data-heading")),
           };

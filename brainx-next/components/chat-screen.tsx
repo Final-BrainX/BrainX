@@ -9,6 +9,7 @@ import {
   getChatThread,
   listAiModels,
   listChatThreads,
+  recordChatMessageDraftNote,
   sendChatMessageStream,
   updateChatThread,
   upsertLlmFeedback,
@@ -16,7 +17,12 @@ import {
   type ChatThreadListStatus,
   type LlmFeedbackRating,
 } from "@/lib/intelligence-api";
-import { createWorkspaceNoteFromPayload, matchesWorkspaceScope } from "@/lib/workspace-api";
+import {
+  createWorkspaceNoteFromPayload,
+  deleteWorkspaceNote,
+  matchesWorkspaceScope,
+  type NoteCreated,
+} from "@/lib/workspace-api";
 import { useBrainX } from "@/components/brainx-provider";
 import { useWorkspace } from "@/components/workspace-provider";
 import {
@@ -65,6 +71,46 @@ const CHAT_SUGGESTIONS = [
   "최근 작성한 노트들의 핵심 흐름을 요약해줘",
   "내 노트 기준으로 다음에 이어 쓸 주제를 추천해줘",
 ];
+
+function serverRecordableDraftNoteId(note: NoteCreated) {
+  if (note.storage === "desktop-vault") {
+    return note.remoteNoteId?.trim() || null;
+  }
+  return note.noteId;
+}
+
+function draftSaveStatesFromMessages(messages: ChatMessageView[]) {
+  const states: Record<string, DraftNoteSaveState> = {};
+  for (const message of messages) {
+    if (message.savedDraftNoteId) {
+      states[message.id] = {
+        status: "saved",
+        noteId: message.savedDraftNoteId,
+      };
+    }
+  }
+  return states;
+}
+
+function mergeDraftSaveStates(
+  serverStates: Record<string, DraftNoteSaveState>,
+  localStates: Record<string, DraftNoteSaveState>,
+  messages: ChatMessageView[],
+) {
+  const messageIds = new Set(messages.map((message) => message.id));
+  const merged = { ...serverStates };
+  for (const [messageId, state] of Object.entries(localStates)) {
+    if (
+      messageIds.has(messageId) &&
+      state.status === "saved" &&
+      state.noteId &&
+      !merged[messageId]
+    ) {
+      merged[messageId] = state;
+    }
+  }
+  return merged;
+}
 
 function chatStreamPhaseFromEvent(phase?: string): ChatStreamPhase | null {
   if (phase === "ROUTING" || phase === "WEB_SEARCHING" || phase === "ANSWERING") {
@@ -234,9 +280,10 @@ export function ChatScreen() {
     try {
       const detail = await getChatThread(threadId);
       if (detailRequestIdRef.current !== requestId) return;
+      const nextMessages = messagesFromThread(detail);
       setActiveThread(detail.thread);
-      setMessages(messagesFromThread(detail));
-      setDraftSaveStates({});
+      setMessages(nextMessages);
+      setDraftSaveStates(draftSaveStatesFromMessages(nextMessages));
     } catch (error) {
       if (detailRequestIdRef.current !== requestId) return;
       setActiveThreadId(null);
@@ -294,6 +341,13 @@ export function ChatScreen() {
       });
     }
     setMessages(nextMessages);
+    setDraftSaveStates((current) =>
+      mergeDraftSaveStates(
+        draftSaveStatesFromMessages(nextMessages),
+        current,
+        nextMessages,
+      ),
+    );
   }
 
   async function setThreadArchived(
@@ -618,8 +672,18 @@ export function ChatScreen() {
   async function saveAiMessageAsNote(message: ChatMessageView) {
     const currentState = draftSaveStates[message.id];
     if (currentState?.status === "saving") return;
-    if (currentState?.status === "saved" && currentState.noteId) {
-      router.push(`/notes/${currentState.noteId}`);
+    const savedNoteId =
+      currentState?.status === "saved" && currentState.noteId
+        ? currentState.noteId
+        : message.savedDraftNoteId;
+    if (savedNoteId) {
+      router.push(`/notes/${savedNoteId}`);
+      return;
+    }
+
+    const threadId = activeThread?.threadId ?? activeThreadId;
+    if (!threadId) {
+      pushToast("채팅 스레드를 확인하지 못했습니다. 다시 열고 시도해 주세요.", "err");
       return;
     }
 
@@ -634,6 +698,26 @@ export function ChatScreen() {
     }));
 
     try {
+      const latestThread = await getChatThread(threadId);
+      const existingSavedNoteId =
+        messagesFromThread(latestThread).find((item) => item.id === message.id)
+          ?.savedDraftNoteId ?? null;
+      if (existingSavedNoteId) {
+        setDraftSaveStates((current) => ({
+          ...current,
+          [message.id]: { status: "saved", noteId: existingSavedNoteId },
+        }));
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === message.id
+              ? { ...item, savedDraftNoteId: existingSavedNoteId }
+              : item,
+          ),
+        );
+        router.push(`/notes/${existingSavedNoteId}`);
+        return;
+      }
+
       const created = await createWorkspaceNoteFromPayload({
         title,
         markdown,
@@ -641,16 +725,61 @@ export function ChatScreen() {
         tags: CHAT_DRAFT_NOTE_TAGS,
         documentGroupId: currentWorkspaceId ?? undefined,
       });
+      let noteId = created.noteId;
+      let syncFailed = false;
+      let serverRecordSkipped = false;
+      let duplicateCleanupFailed = false;
+      const draftNoteIdForServer = serverRecordableDraftNoteId(created);
+      if (!draftNoteIdForServer) {
+        serverRecordSkipped = true;
+      } else {
+        try {
+          const recorded = await recordChatMessageDraftNote(threadId, message.id, {
+            noteId: draftNoteIdForServer,
+          });
+          const recordedNoteId = recorded.noteId || draftNoteIdForServer;
+          if (created.storage !== "desktop-vault") {
+            if (recordedNoteId !== created.noteId) {
+              noteId = recordedNoteId;
+              try {
+                await deleteWorkspaceNote(created.noteId, "permanent");
+              } catch (error) {
+                duplicateCleanupFailed = true;
+                console.warn("Failed to delete duplicate AI draft note.", error);
+              }
+            } else {
+              noteId = recordedNoteId;
+            }
+          }
+        } catch {
+          syncFailed = true;
+        }
+      }
       setDraftSaveStates((current) => ({
         ...current,
-        [message.id]: { status: "saved", noteId: created.noteId },
+        [message.id]: { status: "saved", noteId },
       }));
+      setMessages((current) =>
+        current.map((item) =>
+          item.id === message.id ? { ...item, savedDraftNoteId: noteId } : item,
+        ),
+      );
       window.dispatchEvent(
         new CustomEvent("brainx:notes-refresh", {
-          detail: { noteId: created.noteId },
+          detail: { noteId },
         }),
       );
-      pushToast("AI 초안을 노트로 저장했어요.", "ok");
+      if (syncFailed) {
+        pushToast("노트는 저장됐지만 채팅 저장 상태 동기화에 실패했어요.", "err");
+      } else if (duplicateCleanupFailed) {
+        pushToast("이미 저장된 노트로 연결했지만 중복 노트 정리에 실패했어요.", "err");
+      } else if (serverRecordSkipped) {
+        pushToast("AI 초안을 로컬 vault 노트로 저장했어요.", "ok");
+      } else if (noteId !== created.noteId) {
+        pushToast("이미 저장된 노트로 연결했어요.", "ok");
+      } else {
+        pushToast("AI 초안을 노트로 저장했어요.", "ok");
+      }
     } catch (error) {
       setDraftSaveStates((current) => ({
         ...current,
