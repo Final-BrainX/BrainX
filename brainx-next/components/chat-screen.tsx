@@ -21,6 +21,7 @@ import {
   createWorkspaceNoteFromPayload,
   deleteWorkspaceNote,
   matchesWorkspaceScope,
+  type NoteCreated,
 } from "@/lib/workspace-api";
 import { useBrainX } from "@/components/brainx-provider";
 import { useWorkspace } from "@/components/workspace-provider";
@@ -70,6 +71,13 @@ const CHAT_SUGGESTIONS = [
   "최근 작성한 노트들의 핵심 흐름을 요약해줘",
   "내 노트 기준으로 다음에 이어 쓸 주제를 추천해줘",
 ];
+
+function serverRecordableDraftNoteId(note: NoteCreated) {
+  if (note.storage === "desktop-vault") {
+    return note.remoteNoteId?.trim() || null;
+  }
+  return note.noteId;
+}
 
 function draftSaveStatesFromMessages(messages: ChatMessageView[]) {
   const states: Record<string, DraftNoteSaveState> = {};
@@ -719,25 +727,33 @@ export function ChatScreen() {
       });
       let noteId = created.noteId;
       let syncFailed = false;
+      let serverRecordSkipped = false;
       let duplicateCleanupFailed = false;
-      try {
-        const recorded = await recordChatMessageDraftNote(threadId, message.id, {
-          noteId: created.noteId,
-        });
-        const recordedNoteId = recorded.noteId || created.noteId;
-        if (recordedNoteId !== created.noteId) {
-          noteId = recordedNoteId;
-          try {
-            await deleteWorkspaceNote(created.noteId, "permanent");
-          } catch (error) {
-            duplicateCleanupFailed = true;
-            console.warn("Failed to delete duplicate AI draft note.", error);
+      const draftNoteIdForServer = serverRecordableDraftNoteId(created);
+      if (!draftNoteIdForServer) {
+        serverRecordSkipped = true;
+      } else {
+        try {
+          const recorded = await recordChatMessageDraftNote(threadId, message.id, {
+            noteId: draftNoteIdForServer,
+          });
+          const recordedNoteId = recorded.noteId || draftNoteIdForServer;
+          if (created.storage !== "desktop-vault") {
+            if (recordedNoteId !== created.noteId) {
+              noteId = recordedNoteId;
+              try {
+                await deleteWorkspaceNote(created.noteId, "permanent");
+              } catch (error) {
+                duplicateCleanupFailed = true;
+                console.warn("Failed to delete duplicate AI draft note.", error);
+              }
+            } else {
+              noteId = recordedNoteId;
+            }
           }
-        } else {
-          noteId = recordedNoteId;
+        } catch {
+          syncFailed = true;
         }
-      } catch {
-        syncFailed = true;
       }
       setDraftSaveStates((current) => ({
         ...current,
@@ -757,6 +773,8 @@ export function ChatScreen() {
         pushToast("노트는 저장됐지만 채팅 저장 상태 동기화에 실패했어요.", "err");
       } else if (duplicateCleanupFailed) {
         pushToast("이미 저장된 노트로 연결했지만 중복 노트 정리에 실패했어요.", "err");
+      } else if (serverRecordSkipped) {
+        pushToast("AI 초안을 로컬 vault 노트로 저장했어요.", "ok");
       } else if (noteId !== created.noteId) {
         pushToast("이미 저장된 노트로 연결했어요.", "ok");
       } else {
