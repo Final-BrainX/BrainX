@@ -713,8 +713,10 @@ export default function RightSidebar({
     try {
       const targetNote = allNotes.find((note) => note.id === suggestion.targetNoteId);
       const targetTitle = normalizeMarkdownText(suggestion.targetTitle || targetNote?.title || "연결 노트");
+      activeEditor?.flushPendingSave();
+      const currentContent = activeEditor ? activeEditor.getHTML() : activeNote.content;
       const latestSource = await getNote(activeNote.id);
-      const applied = applyLinkSuggestionToMarkdown(latestSource.markdown ?? "", suggestion, targetTitle);
+      const applied = applyLinkSuggestionToMarkdown(currentContent ?? latestSource.markdown ?? "", suggestion, targetTitle);
       if (applied.error) {
         throw new Error(applied.error);
       }
@@ -730,7 +732,7 @@ export default function RightSidebar({
           documentGroupId: latestSource.documentGroupId ?? activeNote.documentGroupId,
           createdAt: Date.parse(latestSource.createdAt) || activeNote.createdAt || Date.now(),
           updatedAt: Date.now(),
-          version: latestSource.version ?? activeNote.version,
+          version: activeNote.version ?? latestSource.version,
           persisted: true,
           typography: latestSource.typography ?? activeNote.typography,
         });

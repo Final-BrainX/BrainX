@@ -105,12 +105,36 @@ spring:
               metadata:
                 response-timeout: 120000
 
+            - id: intelligence-service-inline-assist-stream
+              uri: lb://intelligence-service
+              predicates:
+                - Path=/api/v1/ai/inline-assists
+              metadata:
+                response-timeout: 120000
+
+            - id: intelligence-service-agent-message-stream
+              uri: lb://intelligence-service
+              predicates:
+                - Path=/api/v1/ai/agent-threads/*/messages
+              metadata:
+                response-timeout: 120000
+
+            - id: intelligence-service-llm-commands
+              uri: lb://intelligence-service
+              predicates:
+                - Path=/api/v1/ai/link-suggestions,/api/v1/ai/clusters,/api/v1/ai/insight-reports,/api/v1/ai/folder-organization-proposals,/api/v1/ai/bridge-concepts
+              metadata:
+                response-timeout: 120000
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: intelligenceServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/intelligence
+
             - id: intelligence-service
               uri: lb://intelligence-service
               predicates:
                 - Path=/api/v1/intelligence/**,/api/v1/ai/**
-              metadata:
-                response-timeout: 120000
               filters:
                 - name: CircuitBreaker
                   args:
