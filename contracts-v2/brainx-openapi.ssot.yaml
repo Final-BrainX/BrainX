@@ -17173,6 +17173,7 @@ components:
         charged:
           type: boolean
         tokenUsage:
+          type: object
           nullable: true
           allOf:
           - $ref: '#/components/schemas/RagAnswerTokenUsage'
