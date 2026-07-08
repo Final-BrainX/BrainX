@@ -12,19 +12,26 @@ class ExplorationDomainTest {
 
     @Test
     void semanticSearchQueryRejectsBlankQuery() {
-        assertThatThrownBy(() -> new SemanticSearchQuery("user-1", " ", Map.of(), 10, List.of()))
+        assertThatThrownBy(() -> new SemanticSearchQuery("user-1", "group-1", " ", Map.of(), 10, List.of()))
             .isInstanceOf(ExplorationDomainException.class)
             .hasMessageContaining("query must not be blank");
     }
 
     @Test
     void semanticSearchQueryNormalizesLimit() {
-        var defaulted = new SemanticSearchQuery("user-1", "rag", Map.of(), 0, List.of());
-        var capped = new SemanticSearchQuery("user-1", "rag", Map.of(), 1000, List.of());
+        var defaulted = new SemanticSearchQuery("user-1", "group-1", "rag", Map.of(), 0, List.of());
+        var capped = new SemanticSearchQuery("user-1", "group-1", "rag", Map.of(), 1000, List.of());
 
         assertThat(defaulted.limit()).isEqualTo(SemanticSearchQuery.DEFAULT_LIMIT);
         assertThat(capped.limit()).isEqualTo(SemanticSearchQuery.MAX_LIMIT);
         assertThat(defaulted.searchMode()).isEqualTo(SearchMode.SEMANTIC);
+    }
+
+    @Test
+    void semanticSearchQueryDocumentGroupScopeRequiresDocumentGroup() {
+        assertThatThrownBy(() -> new SemanticSearchQuery("user-1", "rag", Map.of(), 10, List.of()))
+            .isInstanceOf(ExplorationDomainException.class)
+            .hasMessageContaining("documentGroupId");
     }
 
     @Test

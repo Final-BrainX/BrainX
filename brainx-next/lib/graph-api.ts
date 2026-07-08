@@ -17,6 +17,7 @@ export type GraphNodeData = {
   id: string;
   noteId: string;
   aiSourceNoteId?: string | null;
+  documentGroupId?: string | null;
   title: string;
   summary?: string | null;
   folderId?: string | null;
@@ -175,6 +176,7 @@ export function graphToBrainXNotes(graph: GraphData): BrainXNote[] {
     return {
       id: node.noteId,
       aiSourceNoteId,
+      documentGroupId: node.documentGroupId ?? null,
       title,
       markdown: "",
       folderId: cluster,

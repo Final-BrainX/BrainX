@@ -130,10 +130,10 @@ class InsightControllerTest {
     }
 
     @Test
-    void getLatestInsightReportDefaultsDocumentGroupAndAllowsNoReportState() throws Exception {
+    void getLatestInsightReportRequiresDocumentGroupAndAllowsNoReportState() throws Exception {
         when(getLatestInsightReportUseCase.getLatestInsightReport(any(GetLatestInsightReportQuery.class)))
             .thenReturn(new LatestInsightReport(
-                "default",
+                "group-1",
                 0,
                 null,
                 InsightReportLatestState.NO_SOURCE_NOTES,
@@ -141,16 +141,17 @@ class InsightControllerTest {
             ));
 
         mockMvc.perform(get("/api/v1/ai/insight-reports/latest")
+                .param("documentGroupId", "group-1")
                 .with(user("user-1")))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.documentGroupId").value("default"))
+            .andExpect(jsonPath("$.data.documentGroupId").value("group-1"))
             .andExpect(jsonPath("$.data.searchableNoteCount").value(0))
             .andExpect(jsonPath("$.data.latestNoteUpdatedAt").doesNotExist())
             .andExpect(jsonPath("$.data.state").value("NO_SOURCE_NOTES"))
             .andExpect(jsonPath("$.data.report").doesNotExist());
 
         verify(getLatestInsightReportUseCase).getLatestInsightReport(argThat(query ->
-            query.userId().equals("user-1") && query.documentGroupId().equals("default")
+            query.userId().equals("user-1") && query.documentGroupId().equals("group-1")
         ));
     }
 
@@ -221,9 +222,9 @@ class InsightControllerTest {
         return new InsightReport(
             id,
             "user-1",
-            "default",
+            "group-1",
             status,
-            Map.of("documentGroupId", "default"),
+            Map.of("documentGroupId", "group-1"),
             false,
             "summary",
             List.of("gap"),

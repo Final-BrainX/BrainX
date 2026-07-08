@@ -91,6 +91,7 @@ public class Neo4jGraphProjection {
                 session.executeWrite(tx -> tx.run("""
                         MERGE (n:Note {userId: $userId, noteId: $noteId})
                         SET n.workspaceId = $workspaceId,
+                            n.documentGroupId = $documentGroupId,
                             n.title = $title,
                             n.createdAt = $createdAt,
                             n.updatedAt = $updatedAt,
@@ -98,6 +99,7 @@ public class Neo4jGraphProjection {
                         """, params(
                         "userId", note.getUserId(),
                         "workspaceId", note.getUserId(),
+                        "documentGroupId", note.getDocumentGroupId(),
                         "noteId", note.getNoteId(),
                         "title", note.getTitle(),
                         "createdAt", iso(note.getCreatedAt()),
@@ -191,10 +193,12 @@ public class Neo4jGraphProjection {
         Map<String, Object> payload = event.payload();
         String userId = requiredString(payload, "userId", event.userId());
         String noteId = requiredString(payload, "noteId", null);
+        String documentGroupId = string(payload, "documentGroupId");
         String title = string(payload, "title");
         session.executeWrite(tx -> tx.run("""
                 MERGE (n:Note {userId: $userId, noteId: $noteId})
                 SET n.workspaceId = $workspaceId,
+                    n.documentGroupId = $documentGroupId,
                     n.title = $title,
                     n.createdAt = $occurredAt,
                     n.updatedAt = $occurredAt,
@@ -202,6 +206,7 @@ public class Neo4jGraphProjection {
                 """, params(
                 "userId", userId,
                 "workspaceId", userId,
+                "documentGroupId", documentGroupId,
                 "noteId", noteId,
                 "title", title,
                 "occurredAt", iso(event.occurredAt())
@@ -212,13 +217,16 @@ public class Neo4jGraphProjection {
         Map<String, Object> payload = event.payload();
         String userId = requiredString(payload, "userId", event.userId());
         String noteId = requiredString(payload, "noteId", null);
+        String documentGroupId = string(payload, "documentGroupId");
         session.executeWrite(tx -> tx.run("""
                 MERGE (n:Note {userId: $userId, noteId: $noteId})
-                SET n.updatedAt = $savedAt,
+                SET n.documentGroupId = coalesce($documentGroupId, n.documentGroupId),
+                    n.updatedAt = $savedAt,
                     n.deleted = false
                 """, params(
                 "userId", userId,
                 "noteId", noteId,
+                "documentGroupId", documentGroupId,
                 "savedAt", instantString(payload.get("savedAt"), event.occurredAt())
         )).consume());
     }
@@ -227,15 +235,18 @@ public class Neo4jGraphProjection {
         Map<String, Object> payload = event.payload();
         String userId = requiredString(payload, "userId", event.userId());
         String noteId = requiredString(payload, "noteId", null);
+        String documentGroupId = string(payload, "documentGroupId");
         String title = nullableString(payload, "title");
         session.executeWrite(tx -> tx.run("""
                 MERGE (n:Note {userId: $userId, noteId: $noteId})
-                SET n.title = coalesce($title, n.title),
+                SET n.documentGroupId = coalesce($documentGroupId, n.documentGroupId),
+                    n.title = coalesce($title, n.title),
                     n.updatedAt = $occurredAt,
                     n.deleted = false
                 """, params(
                 "userId", userId,
                 "noteId", noteId,
+                "documentGroupId", documentGroupId,
                 "title", title,
                 "occurredAt", iso(event.occurredAt())
         )).consume());
@@ -334,6 +345,7 @@ public class Neo4jGraphProjection {
                     session.executeWrite(tx -> tx.run("""
                             MERGE (n:Note {userId: $userId, noteId: $noteId})
                             SET n.workspaceId = $workspaceId,
+                                n.documentGroupId = $documentGroupId,
                                 n.title = $title,
                                 n.createdAt = $createdAt,
                                 n.updatedAt = $updatedAt,
@@ -341,6 +353,7 @@ public class Neo4jGraphProjection {
                             """, params(
                             "userId", note.getUserId(),
                             "workspaceId", note.getUserId(),
+                            "documentGroupId", note.getDocumentGroupId(),
                             "noteId", note.getNoteId(),
                             "title", note.getTitle(),
                             "createdAt", iso(note.getCreatedAt()),

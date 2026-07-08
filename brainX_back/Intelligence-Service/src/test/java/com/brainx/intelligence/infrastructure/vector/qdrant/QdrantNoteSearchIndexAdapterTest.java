@@ -375,7 +375,7 @@ class QdrantNoteSearchIndexAdapterTest {
         QdrantNoteSearchIndexAdapter noEmbedding = adapter(vectorIndexClient, null, new FakeTokenUsagePort());
 
         assertThat(noClient.replaceNoteChunks("user-1", "group-1", "note-1", List.of())).isFalse();
-        assertThat(noClient.search(new NoteSearchQuery("user-1", "query", Map.of(), 3, List.of()))).isEmpty();
+        assertThat(noClient.search(new NoteSearchQuery("user-1", "group-1", "query", Map.of(), 3, List.of()))).isEmpty();
         assertThat(noEmbedding.replaceNoteChunks("user-1", "default", "note-1", List.of(
             new NoteSearchDocument("user-1", "note-1", "title", "excerpt", List.of())
         ))).isFalse();
@@ -384,7 +384,7 @@ class QdrantNoteSearchIndexAdapterTest {
             List.of(),
             List.of()
         ))).isFalse();
-        assertThat(noEmbedding.searchChunks(new NoteChunkSearchQuery("user-1", "query", 2))).isEmpty();
+        assertThat(noEmbedding.searchChunks(new NoteChunkSearchQuery("user-1", "group-1", "query", 2))).isEmpty();
     }
 
     private static QdrantVectorSearchHit hit(double score, Map<String, Object> payload) {

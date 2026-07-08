@@ -8330,10 +8330,9 @@ paths:
       parameters:
       - name: documentGroupId
         in: query
-        required: false
+        required: true
         schema:
           type: string
-          default: default
       responses:
         '200':
           description: 성공
@@ -8626,10 +8625,9 @@ paths:
       parameters:
       - name: documentGroupId
         in: query
-        required: false
+        required: true
         schema:
           type: string
-          default: default
       responses:
         '200':
           description: success
@@ -17062,10 +17060,10 @@ components:
           - DOCUMENT_GROUP
           - USER
           default: DOCUMENT_GROUP
-          description: Search scope. DOCUMENT_GROUP searches within documentGroupId (default group if omitted). USER searches all note chunks owned by the user and must not include documentGroupId.
+          description: Search scope. DOCUMENT_GROUP searches within the required documentGroupId. USER searches all note chunks owned by the user and must not include documentGroupId.
         documentGroupId:
           type: string
-          description: RAG/검색 격리를 위한 논리적 문서 그룹 경계. 생략하면 Knowledge Intelligence는 default로 처리한다.
+          description: RAG/검색 격리를 위한 논리적 문서 그룹 경계. scope=DOCUMENT_GROUP이면 필수이고, scope=USER이면 생략해야 한다.
         query:
           type: string
         filters:
@@ -17099,10 +17097,10 @@ components:
           - DOCUMENT_GROUP
           - USER
           default: DOCUMENT_GROUP
-          description: Search scope. DOCUMENT_GROUP searches within documentGroupId (default group if omitted). USER searches all note chunks owned by the user and must not include documentGroupId.
+          description: Search scope. DOCUMENT_GROUP searches within the required documentGroupId. USER searches all note chunks owned by the user and must not include documentGroupId.
         documentGroupId:
           type: string
-          description: RAG/검색 격리를 위한 논리 문서 그룹 경계. 생략하면 Knowledge Intelligence가 default로 처리한다.
+          description: RAG/검색 격리를 위한 논리 문서 그룹 경계. scope=DOCUMENT_GROUP이면 필수이고, scope=USER이면 생략해야 한다.
         query:
           type: string
         filters:
@@ -17276,7 +17274,8 @@ components:
       properties:
         documentGroupId:
           type: string
-          description: 검색 인덱스 격리를 위한 논리적 문서 그룹 경계. 생략하면 default로 처리한다.
+          minLength: 1
+          description: 검색 인덱스 격리를 위한 Workspace document group 경계.
         noteIds:
           type: array
           minItems: 1
@@ -17285,6 +17284,7 @@ components:
             type: string
             minLength: 1
       required:
+      - documentGroupId
       - noteIds
       additionalProperties: false
     NoteIndexStatusesData:
@@ -18490,6 +18490,10 @@ components:
     FolderOrganizationProposalRequest:
       type: object
       properties:
+        documentGroupId:
+          type: string
+          minLength: 1
+          description: 폴더 정리 제안을 실행할 Workspace document group.
         scope:
           type: string
           enum:
@@ -18499,6 +18503,7 @@ components:
           type: string
           nullable: true
       required:
+      - documentGroupId
       - scope
       additionalProperties: false
     FolderOrganizationProposalData:
@@ -18525,9 +18530,14 @@ components:
     LinkSuggestionsRequest:
       type: object
       properties:
+        documentGroupId:
+          type: string
+          minLength: 1
+          description: AI 연결 추천을 실행할 Workspace document group.
         noteId:
           type: string
       required:
+      - documentGroupId
       - noteId
       additionalProperties: false
     LinkSuggestionsData:
@@ -18654,6 +18664,10 @@ components:
     BridgeConceptsRequest:
       type: object
       properties:
+        documentGroupId:
+          type: string
+          minLength: 1
+          description: 징검다리 개념 추천을 실행할 Workspace document group.
         noteIds:
           type: array
           minItems: 2
@@ -18662,6 +18676,7 @@ components:
             type: string
             minLength: 1
       required:
+      - documentGroupId
       - noteIds
       additionalProperties: false
     BridgeConceptsData:
@@ -20451,7 +20466,7 @@ components:
           type: string
         documentGroupId:
           type: string
-          description: 이 노트의 논리적 문서 그룹 경계. 오래된 Workspace 제공자가 생략하면 소비자는 default를 사용해야 한다.
+          description: 이 노트의 Workspace document group 경계.
         title:
           type: string
         markdown:
@@ -20470,6 +20485,7 @@ components:
           format: date-time
       required:
       - noteId
+      - documentGroupId
       - title
       - markdown
       - version

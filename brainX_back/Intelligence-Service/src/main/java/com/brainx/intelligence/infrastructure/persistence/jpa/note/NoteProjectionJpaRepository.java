@@ -26,6 +26,8 @@ interface NoteProjectionJpaRepository extends JpaRepository<NoteProjectionJpaEnt
         Collection<String> noteIds
     );
 
+    void deleteByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId);
+
     @Query("""
         select projection
         from NoteProjectionJpaEntity projection

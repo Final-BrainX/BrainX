@@ -53,6 +53,7 @@ class FolderEventHandlerTest {
             {
               "folderId": "folder-1",
               "userId": "user-1",
+              "documentGroupId": "group-1",
               "name": "Projects",
               "parentFolderId": "folder-root"
             }
@@ -66,6 +67,7 @@ class FolderEventHandlerTest {
             {
               "folderId": "folder-1",
               "userId": "user-1",
+              "documentGroupId": "group-1",
               "name": "Projects 2026",
               "order": 7
             }
@@ -85,6 +87,7 @@ class FolderEventHandlerTest {
         handler.handle(context("evt-3", "FolderDeleted", """
             {
               "userId": "user-1",
+              "documentGroupId": "group-1",
               "folderIds": ["folder-1", "folder-child"],
               "mode": "trash",
               "noteIds": ["note-1", "note-2"]
@@ -95,13 +98,13 @@ class FolderEventHandlerTest {
         assertThat(folderProjectionStore.findByFolderId("folder-child").orElseThrow().deleted()).isTrue();
         assertThat(folderProjectionStore.findByFolderId("folder-1").orElseThrow().childNoteAction()).isEqualTo("TRASH");
 
-        NoteProjection note1 = noteProjectionStore.findByUserIdAndDocumentGroupIdAndNoteId("user-1", "default", "note-1").orElseThrow();
-        NoteProjection note2 = noteProjectionStore.findByUserIdAndDocumentGroupIdAndNoteId("user-1", "default", "note-2").orElseThrow();
+        NoteProjection note1 = noteProjectionStore.findByUserIdAndDocumentGroupIdAndNoteId("user-1", "group-1", "note-1").orElseThrow();
+        NoteProjection note2 = noteProjectionStore.findByUserIdAndDocumentGroupIdAndNoteId("user-1", "group-1", "note-2").orElseThrow();
         assertThat(note1.trashed()).isTrue();
         assertThat(note2.trashed()).isTrue();
         assertThat(note1.searchIndexStatus()).isEqualTo(NoteSearchIndexStatus.REMOVED);
-        assertThat(searchIndex.deletedKeys).containsExactly("user-1::default::note-1", "user-1::default::note-2");
-        assertThat(chunkManifestStore.deletedKeys).containsExactly("user-1::default::note-1", "user-1::default::note-2");
+        assertThat(searchIndex.deletedKeys).containsExactly("user-1::group-1::note-1", "user-1::group-1::note-2");
+        assertThat(chunkManifestStore.deletedKeys).containsExactly("user-1::group-1::note-1", "user-1::group-1::note-2");
         assertThat(summaryPort.deletedKeys).containsExactly("user-1::note-1", "user-1::note-2");
     }
 
@@ -112,6 +115,7 @@ class FolderEventHandlerTest {
         handler.handle(context("evt-4", "FolderDeleted", """
             {
               "userId": "user-1",
+              "documentGroupId": "group-1",
               "folderIds": ["folder-1"],
               "mode": "permanent",
               "noteIds": ["note-1"]
@@ -119,7 +123,7 @@ class FolderEventHandlerTest {
             """));
 
         FolderProjection deletedFolder = folderProjectionStore.findByFolderId("folder-1").orElseThrow();
-        NoteProjection deletedNote = noteProjectionStore.findByUserIdAndDocumentGroupIdAndNoteId("user-1", "default", "note-1").orElseThrow();
+        NoteProjection deletedNote = noteProjectionStore.findByUserIdAndDocumentGroupIdAndNoteId("user-1", "group-1", "note-1").orElseThrow();
         assertThat(deletedFolder.childNoteAction()).isEqualTo("PERMANENT");
         assertThat(deletedNote.deleted()).isTrue();
         assertThat(deletedNote.searchIndexStatus()).isEqualTo(NoteSearchIndexStatus.REMOVED);
@@ -133,35 +137,36 @@ class FolderEventHandlerTest {
         handler.handle(context("evt-5", "FolderDeleted", """
             {
               "userId": "user-1",
+              "documentGroupId": "group-1",
               "folderIds": ["folder-1"],
               "mode": "trash",
               "noteIds": ["note-1"]
             }
             """));
 
-        NoteProjection projection = noteProjectionStore.findByUserIdAndDocumentGroupIdAndNoteId("user-1", "default", "note-1").orElseThrow();
+        NoteProjection projection = noteProjectionStore.findByUserIdAndDocumentGroupIdAndNoteId("user-1", "group-1", "note-1").orElseThrow();
         assertThat(projection.trashed()).isTrue();
         assertThat(projection.searchIndexStatus()).isEqualTo(NoteSearchIndexStatus.STALE);
-        assertThat(chunkManifestStore.deletedKeys).containsExactly("user-1::default::note-1");
+        assertThat(chunkManifestStore.deletedKeys).containsExactly("user-1::group-1::note-1");
         assertThat(summaryPort.deletedKeys).containsExactly("user-1::note-1");
     }
 
     @Test
     void folderDeletedRejectsInvalidPayloads() {
         assertThatThrownBy(() -> handler.handle(context("evt-6", "FolderDeleted", """
-            {"userId":"user-1","folderIds":[],"mode":"trash","noteIds":["note-1"]}
+            {"userId":"user-1","documentGroupId":"group-1","folderIds":[],"mode":"trash","noteIds":["note-1"]}
             """)))
             .isInstanceOf(EventProcessingException.class)
             .hasMessageContaining("folderIds must not be empty");
 
         assertThatThrownBy(() -> handler.handle(context("evt-7", "FolderDeleted", """
-            {"userId":"user-1","folderIds":["folder-1"],"mode":"move","noteIds":["note-1"]}
+            {"userId":"user-1","documentGroupId":"group-1","folderIds":["folder-1"],"mode":"move","noteIds":["note-1"]}
             """)))
             .isInstanceOf(EventProcessingException.class)
             .hasMessageContaining("mode must be trash or permanent");
 
         assertThatThrownBy(() -> handler.handle(context("evt-8", "FolderDeleted", """
-            {"userId":"user-1","folderIds":["folder-1"],"mode":"trash","noteIds":[]}
+            {"userId":"user-1","documentGroupId":"group-1","folderIds":["folder-1"],"mode":"trash","noteIds":[]}
             """)))
             .isInstanceOf(EventProcessingException.class)
             .hasMessageContaining("noteIds must not be empty");
@@ -170,7 +175,7 @@ class FolderEventHandlerTest {
     private static NoteProjection indexedProjection(String noteId) {
         return new NoteProjection(
             "user-1",
-            "default",
+            "group-1",
             noteId,
             "Title",
             "folder-1",
@@ -266,6 +271,11 @@ class FolderEventHandlerTest {
         public NoteProjection save(NoteProjection projection) {
             projections.put(key(projection.userId(), projection.documentGroupId(), projection.noteId()), projection);
             return projection;
+        }
+
+        @Override
+        public void deleteByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId) {
+            projections.remove(key(userId, documentGroupId, noteId));
         }
 
         private static String key(String userId, String documentGroupId, String noteId) {

@@ -73,7 +73,7 @@ public class InsightController {
     @GetMapping("/api/v1/ai/insight-reports/latest")
     public ApiSuccessResponse<InsightReportLatestData> getLatestInsightReport(
         Principal principal,
-        @RequestParam(name = "documentGroupId", required = false, defaultValue = "default") String documentGroupId
+        @RequestParam(name = "documentGroupId") @NotBlank String documentGroupId
     ) {
         LatestInsightReport latest = getLatestInsightReportUseCase.getLatestInsightReport(new GetLatestInsightReportQuery(
             userId(principal),

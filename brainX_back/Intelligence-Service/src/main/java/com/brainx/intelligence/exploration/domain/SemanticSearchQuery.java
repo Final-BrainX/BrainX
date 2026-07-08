@@ -6,8 +6,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.brainx.intelligence.shared.domain.DocumentGroups;
-
 public record SemanticSearchQuery(
     String userId,
     SearchScope scope,
@@ -52,7 +50,7 @@ public record SemanticSearchQuery(
         int limit,
         List<String> hybridWithClientKeywordIds
     ) {
-        this(userId, SearchScope.DOCUMENT_GROUP, DocumentGroups.DEFAULT_DOCUMENT_GROUP_ID, query, filters, limit, hybridWithClientKeywordIds, SearchMode.SEMANTIC);
+        this(userId, SearchScope.DOCUMENT_GROUP, null, query, filters, limit, hybridWithClientKeywordIds, SearchMode.SEMANTIC);
     }
 
     public SemanticSearchQuery {
@@ -80,7 +78,7 @@ public record SemanticSearchQuery(
             }
             return null;
         }
-        return DocumentGroups.normalize(documentGroupId);
+        return ExplorationValidation.requireText(documentGroupId, "documentGroupId");
     }
 
     private static int normalizeLimit(int value) {

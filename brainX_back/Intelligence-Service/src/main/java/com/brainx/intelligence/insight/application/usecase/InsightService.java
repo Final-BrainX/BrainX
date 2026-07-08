@@ -45,7 +45,6 @@ import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort.
 import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysisNoteSourcePort;
 import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysisNoteSourcePort.KnowledgeAnalysisNote;
 import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
-import com.brainx.intelligence.shared.domain.DocumentGroups;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -254,7 +253,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
     @Transactional(readOnly = true)
     public LatestInsightReport getLatestInsightReport(GetLatestInsightReportQuery query) {
         String userId = requireText(query.userId(), "userId");
-        String documentGroupId = DocumentGroups.normalize(query.documentGroupId());
+        String documentGroupId = requireText(query.documentGroupId(), "documentGroupId");
         List<KnowledgeAnalysisNote> notes = noteSourcePort.findAnalysisNotes(
             userId,
             documentGroupId,
@@ -543,7 +542,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
 
         private static ScopeSpec from(Map<String, Object> scope, int configuredMaxNotes) {
             Map<String, Object> values = scope == null ? new LinkedHashMap<>() : new LinkedHashMap<>(scope);
-            String documentGroupId = DocumentGroups.normalize(stringValue(values.get("documentGroupId")));
+            String documentGroupId = requireText(stringValue(values.get("documentGroupId")), "scope.documentGroupId");
             int maxNotes = boundedInt(values.get("maxNotes"), Math.min(configuredMaxNotes, HARD_MAX_NOTES), 1, HARD_MAX_NOTES);
             List<String> noteIds = stringValues(values.get("noteIds")).stream()
                 .limit(maxNotes)

@@ -43,6 +43,7 @@ class ExplorationServiceTest {
 
         assertThatThrownBy(() -> service.semanticSearch(new SemanticSearchCommand(
             "user-1",
+            "group-1",
             "rag search",
             Map.of(),
             5,
@@ -95,19 +96,19 @@ class ExplorationServiceTest {
     }
 
     @Test
-    void semanticSearchDefaultsToDocumentGroupDefaultScope() {
-        service.semanticSearch(new SemanticSearchCommand(
+    void semanticSearchRequiresDocumentGroupForDocumentScope() {
+        assertThatThrownBy(() -> service.semanticSearch(new SemanticSearchCommand(
             "user-1",
             "rag search",
             Map.of(),
             null,
             List.of()
-        ));
+        )))
+            .isInstanceOf(ExplorationDomainException.class)
+            .hasMessageContaining("documentGroupId");
 
-        assertThat(ports.lastSearchQuery.scope()).isEqualTo(SearchScope.DOCUMENT_GROUP);
-        assertThat(ports.lastSearchQuery.documentGroupId()).isEqualTo("default");
-        assertThat(ports.semanticSearchEvents.getFirst().scope()).isEqualTo(SearchScope.DOCUMENT_GROUP);
-        assertThat(ports.semanticSearchEvents.getFirst().documentGroupId()).isEqualTo("default");
+        assertThat(ports.searchRequests).isZero();
+        assertThat(ports.semanticSearchEvents).isEmpty();
     }
 
     @Test

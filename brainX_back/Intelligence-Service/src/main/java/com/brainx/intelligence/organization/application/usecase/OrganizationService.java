@@ -36,7 +36,6 @@ import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTok
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort.EntitlementRequest;
 import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
-import com.brainx.intelligence.shared.domain.DocumentGroups;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -93,8 +92,8 @@ public class OrganizationService implements CreateFolderOrganizationProposalUseC
     @Override
     public FolderOrganizationProposalResult createFolderOrganizationProposal(FolderOrganizationProposalCommand command) {
         String userId = requireText(command.userId(), "userId");
+        String documentGroupId = requireText(command.documentGroupId(), "documentGroupId");
         ScopeSpec scope = ScopeSpec.from(command.scope(), command.folderId());
-        String documentGroupId = DocumentGroups.DEFAULT_DOCUMENT_GROUP_ID;
         List<OrganizationNoteSource> notes = loadNotes(userId, documentGroupId, scope);
         if (notes.isEmpty() && scope.all()) {
             throw new OrganizationConflictException("No searchable notes are available for folder organization.");
