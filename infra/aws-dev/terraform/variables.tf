@@ -43,7 +43,7 @@ variable "github_oidc_thumbprints" {
 variable "instance_type" {
   description = "Single EC2 instance type for all dev containers."
   type        = string
-  default     = "r7i.xlarge"
+  default     = "m8i.xlarge"
 }
 
 variable "ec2_root_volume_gb" {

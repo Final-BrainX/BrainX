@@ -159,7 +159,7 @@ class LegacyDefaultDocumentGroupBackfillRepairRunner implements ApplicationRunne
                 base,
                 0,
                 sha256(snapshot.markdown()),
-                REPAIR_EVENT_PREFIX + target.userId() + ":" + target.noteId() + ":" + documentGroupId,
+                repairEventId(target, documentGroupId),
                 true,
                 true
             );
@@ -181,6 +181,10 @@ class LegacyDefaultDocumentGroupBackfillRepairRunner implements ApplicationRunne
             target.noteId()
         );
         return BackfillResult.SUCCEEDED;
+    }
+
+    private static String repairEventId(LegacyDefaultDocumentGroupBackfillTarget target, String documentGroupId) {
+        return REPAIR_EVENT_PREFIX + sha256(target.userId() + ":" + target.noteId() + ":" + documentGroupId);
     }
 
     private static String sha256(String value) {
