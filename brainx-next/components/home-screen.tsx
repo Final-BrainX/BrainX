@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clusterById, type BrainXNote } from "@/lib/brainx-data";
 import { useBrainX } from "@/components/brainx-provider";
-import { Btn, Card, Icon } from "@/components/brainx-ui";
+import { Icon } from "@/components/brainx-ui";
 import { useWorkspace } from "@/components/workspace-provider";
 import { isDevAuthSession, readAuthSession } from "@/lib/auth-api";
 import { DEV_USER_ID } from "@/lib/dev-user";
@@ -31,6 +31,15 @@ import {
 import { getMyWorkspaceStats, getWorkspaceDisplayName, type WorkspaceUserStatsData } from "@/lib/workspace-api";
 import { summarizeWorkspaceNotes } from "@/lib/workspace-note-stats";
 import { cx } from "@/lib/utils";
+
+const HOME_LIGHT_CANVAS_STYLE = {
+  "--surface": "255 255 255",
+  "--surface2": "248 250 252",
+  "--txt": "15 23 42",
+  "--txt2": "71 85 105",
+  "--txt3": "100 116 139",
+  "--border": "226 232 240",
+} as CSSProperties;
 
 function userNameFromSession() {
   const session = readAuthSession();
@@ -513,152 +522,155 @@ function UserInsightDashboard({
   }));
 
   return (
-    <>
-      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {kpis.map((kpi, idx) => (
-          <div key={kpi.label} className="relative flex flex-col justify-between rounded-2xl border border-line/60 bg-surface/80 p-4 transition-colors hover:bg-surface">
-            <div
-              className="absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-lg"
-              style={{ background: `rgb(${kpi.color} / 0.15)`, color: `rgb(${kpi.color})` }}
-            >
-              <Icon name={kpi.icon} size={16} />
-            </div>
-            <div className="mt-1 flex flex-col items-start justify-center gap-1">
-              <div className="text-[12px] font-medium text-txt3">{kpi.label}</div>
-              <div className="text-[24px] font-semibold leading-none tracking-tight text-txt" style={{ color: idx === 0 ? 'rgb(var(--accent))' : idx === 1 ? '#10B981' : idx === 2 ? '#F97316' : 'rgb(var(--primary))' }}>{kpi.value}</div>
-            </div>
-            {idx > 0 && (
-              <div className="mt-4 h-[3px] w-full overflow-hidden rounded-full bg-line/50">
-                <div className="h-full rounded-full" style={{ width: `${kpi.fill}%`, background: `rgb(${kpi.color})`, opacity: 0.8 }} />
+          <div
+            key={kpi.label}
+            className="group relative flex min-h-[124px] min-w-0 flex-col justify-between overflow-hidden rounded-2xl border border-line/70 bg-surface p-5 shadow-[0_18px_45px_-32px_rgb(15_23_42_/_0.45)] transition-colors hover:border-accent/40"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="text-[13px] font-semibold text-txt2">{kpi.label}</div>
+                <div className="mt-2 text-[28px] font-semibold leading-none tracking-tight" style={{ color: `rgb(${kpi.color})` }}>
+                  {kpi.value}
+                </div>
               </div>
-            )}
+              <div
+                className="grid h-11 w-11 shrink-0 place-items-center rounded-xl"
+                style={{ background: `rgb(${kpi.color} / 0.12)`, color: `rgb(${kpi.color})` }}
+              >
+                <Icon name={kpi.icon} size={18} />
+              </div>
+            </div>
+            <div className="mt-4">
+              <div className="truncate text-[12px] font-medium text-txt3">
+                {kpi.sub}
+              </div>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-line/[0.45]">
+                <div className="h-full rounded-full" style={{ width: `${kpi.fill}%`, background: `rgb(${kpi.color})` }} />
+              </div>
+            </div>
           </div>
         ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_1.1fr]">
-        <div className="flex flex-col rounded-2xl border border-line/60 bg-surface/40 overflow-hidden">
-          <div className="flex items-center justify-between border-b border-line/60 bg-surface p-4">
-            <div className="flex items-center gap-2">
-              <div className="grid h-[26px] w-[26px] place-items-center rounded-[0.4rem] bg-accent/15 text-accent">
-                <Icon name="brain" size={14} />
+      <div className="grid min-w-0 gap-5 xl:auto-rows-[460px] xl:grid-cols-2 xl:items-stretch">
+        <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-line/70 bg-surface shadow-[0_18px_50px_-36px_rgb(15_23_42_/_0.5)] xl:h-full xl:min-h-0">
+          <div className="flex items-center justify-between gap-3 border-b border-line/60 px-5 py-4">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-accent/[0.12] text-accent">
+                <Icon name="brain" size={15} />
               </div>
-              <span className="text-[16px] font-semibold text-txt">나의 지식 인사이트</span>
+              <span className="truncate text-[16px] font-semibold text-txt">나의 지식 인사이트</span>
             </div>
             <button
               type="button"
               disabled={aiInsightButtonDisabled}
               onClick={requestAiInsightReport}
               className={cx(
-                "inline-flex h-7 items-center gap-1.5 rounded-[0.4rem] px-2.5 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                 insightStatus === "generating"
-                  ? "bg-orange-500/15 text-orange-500"
-                  : "bg-accent text-white hover:bg-accent/90"
+                  ? "border-orange-500/25 bg-orange-500/10 text-orange-500"
+                  : "border-accent/25 bg-accent/10 text-accent hover:bg-accent/15"
               )}
             >
-              <Icon name={insightStatus === "generating" ? "refresh" : "sparkle"} size={12} />
+              <Icon name={insightStatus === "generating" ? "refresh" : "sparkle"} size={13} className={insightStatus === "generating" ? "animate-spin" : undefined} />
               {insightStatus === "generating" ? "생성 중" : insightActionLabel}
             </button>
           </div>
-          <div className="flex-1 p-5">
-            <div
-              className="mb-4 rounded-[0.4rem] border border-purple-500/20 bg-gradient-to-br from-purple-500/10 to-indigo-500/10 p-4 text-[13px] leading-relaxed text-txt shadow-[0_0_20px_rgba(168,85,247,0.05)]"
-              dangerouslySetInnerHTML={{
-                __html: `현재 <strong>${totalNotes}개 노트</strong>와 <strong>${totalLinks}개 연결</strong>이 실제 Workspace 데이터와 동기화되어 있어요.${recentActivityTitle ? ` 최근에 업데이트된 노트는 <strong>"${recentActivityTitle}"</strong>입니다.` : ""}`
-              }}
-            />
-            <div className="mb-4 rounded-[0.4rem] border border-line/60 bg-surface2/40 px-3 py-2">
+          <div className="scroll min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-5">
+            <div className="rounded-xl border border-line/60 bg-surface p-4 text-[13px] leading-6 text-txt">
+              현재 <strong>{totalNotes}개 노트</strong>와 <strong>{totalLinks}개 연결</strong>이 실제 Workspace 데이터와 동기화되어 있어요.
+              {recentActivityTitle ? <> 최근에 업데이트된 노트는 <strong>&quot;{recentActivityTitle}&quot;</strong>입니다.</> : null}
+            </div>
+
+            <div className="rounded-xl border border-line/60 bg-surface px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-[12px] font-semibold text-txt">{insightStateMessage.title}</div>
-                <div className="rounded-[0.4rem] bg-txt/5 px-2 py-0.5 text-[10px] font-medium text-txt3">
+                <div className="text-[13px] font-semibold text-txt">{insightStateMessage.title}</div>
+                <div className="rounded-md bg-txt/5 px-2 py-0.5 text-[10px] font-semibold text-txt3">
                   {insightLatest?.state ?? "LOCAL"} · 분석 가능 {insightLatest?.searchableNoteCount ?? aiClusterUsableNoteCount}개
                 </div>
               </div>
-              <div className="mt-1 text-[11.5px] leading-5 text-txt3">{insightStateMessage.body}</div>
+              <div className="mt-1.5 text-[12px] leading-5 text-txt3">{insightStateMessage.body}</div>
               {insightLatest?.state === "STALE" ? (
-                <div className="mt-2 rounded-[0.4rem] border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-200">
+                <div className="mt-2 rounded-md border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-200">
                   노트가 변경됨 · 최신 리포트 생성 필요
                 </div>
               ) : null}
               {insightError ? (
-                <div className="mt-2 rounded-[0.4rem] border border-red-400/30 bg-red-400/10 px-2.5 py-1.5 text-[11px] font-medium text-red-700 dark:text-red-200">
+                <div className="mt-2 rounded-md border border-red-400/30 bg-red-400/10 px-2.5 py-1.5 text-[11px] font-medium text-red-700 dark:text-red-200">
                   {insightError}
                 </div>
               ) : null}
             </div>
-            <div className="mb-4 flex flex-wrap gap-1.5">
-              {topClusters.map((cluster, i) => (
-                <span
-                  key={cluster.id}
-                  className={cx(
-                    "rounded-[0.4rem] border px-2.5 py-1 text-[11px] font-medium transition-colors cursor-default",
-                    i < 2 ? "border-accent/30 bg-accent/10 text-accent" : "border-line/60 bg-surface2/40 text-txt3"
-                  )}
-                >
+
+            <div className="flex flex-wrap gap-1.5">
+              {topClusters.map((cluster) => (
+                <span key={cluster.id} className="rounded-md border border-accent/20 bg-accent/[0.08] px-2.5 py-1 text-[11px] font-semibold text-accent">
                   {cluster.label} {cluster.count}
                 </span>
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="relative rounded-[0.4rem] border border-line/60 bg-surface2/40 p-3">
-                <div className="text-[11px] text-txt3">분석된 노트</div>
-                <div className="mt-1 text-[18px] font-semibold text-txt">{totalNotes}개</div>
-                <div className="absolute right-3 top-3 rounded-[0.4rem] bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500">실시간</div>
-              </div>
-              <div className="relative rounded-[0.4rem] border border-line/60 bg-surface2/40 p-3">
-                <div className="text-[11px] text-txt3">지식 연결</div>
-                <div className="mt-1 text-[18px] font-semibold text-txt">{totalLinks}개</div>
-                <div className="absolute right-3 top-3 rounded-[0.4rem] bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500">그래프</div>
-              </div>
-              <div className="relative rounded-[0.4rem] border border-line/60 bg-surface2/40 p-3">
-                <div className="text-[11px] text-txt3">핵심 주제군</div>
-                <div className="mt-1 text-[18px] font-semibold text-txt">{topClusters.length}개</div>
-              </div>
-              <div className="relative rounded-[0.4rem] border border-line/60 bg-surface2/40 p-3">
-                <div className="text-[11px] text-txt3">노트 평균 분량</div>
-                <div className="mt-1 text-[18px] font-semibold text-txt">{Math.round(totalWords / Math.max(totalNotes, 1))}자</div>
-              </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              {[
+                ["분석된 노트", `${totalNotes}개`, "실시간"],
+                ["지식 연결", `${totalLinks}개`, "그래프"],
+                ["핵심 주제군", `${topClusters.length}개`, ""],
+                ["노트 평균 분량", `${Math.round(totalWords / Math.max(totalNotes, 1))}자`, ""],
+              ].map(([label, value, badge]) => (
+                <div key={label} className="relative min-w-0 rounded-xl border border-line/60 bg-surface p-4">
+                  <div className="text-[11px] font-medium text-txt3">{label}</div>
+                  <div className="mt-1 text-[18px] font-semibold text-txt">{value}</div>
+                  {badge ? (
+                    <div className="absolute right-3 top-3 rounded-md bg-emerald-500/[0.12] px-1.5 py-0.5 text-[10px] font-semibold text-emerald-500">
+                      {badge}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="flex flex-col rounded-2xl border border-line/60 bg-surface/40 overflow-hidden">
-          <div className="flex items-center justify-between border-b border-line/60 bg-surface p-4">
-            <div className="flex items-center gap-2">
-              <div className="grid h-[26px] w-[26px] place-items-center rounded-[0.4rem] bg-orange-500/15 text-orange-500">
-                <Icon name="sparkle" size={14} />
+        <section className="flex max-h-[70vh] min-h-[min(320px,70vh)] min-w-0 flex-col overflow-hidden rounded-2xl border border-line/70 bg-surface shadow-[0_18px_50px_-36px_rgb(15_23_42_/_0.5)] lg:min-h-[420px] lg:max-h-[620px] xl:h-full xl:min-h-0 xl:max-h-none">
+          <div className="flex items-center justify-between gap-3 border-b border-line/60 px-5 py-4">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-orange-500/[0.12] text-orange-500">
+                <Icon name="sparkle" size={15} />
               </div>
-              <span className="text-[16px] font-semibold text-txt">인사이트 요약</span>
+              <span className="truncate text-[16px] font-semibold text-txt">인사이트 요약</span>
             </div>
-            <div className="flex items-center gap-1 text-[11px] text-txt3">
+            <div className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-txt3">
               {reportInsightItems ? "AI 리포트 기반" : "활동에서 관찰한 패턴"} <Icon name="chevR" size={12} />
             </div>
           </div>
 
-          <div className="flex-1 flex flex-col justify-start">
+          <div className="scroll flex min-h-0 flex-1 flex-col justify-start overflow-y-auto overscroll-contain">
             {visibleInsightItems.map((insight, index) => (
-              <div key={index} className="flex items-stretch gap-3 border-b border-line/40 bg-surface/60 p-4 transition-colors hover:bg-surface cursor-default last:border-b-0">
-                <div className="w-[3px] shrink-0 rounded-full" style={{ background: insight.color }} />
-                <div className="flex-1">
-                  <div className="mb-1 text-[15px] font-semibold uppercase tracking-wider" style={{ color: insight.color }}>{insight.tag}</div>
+              <div key={`${insight.tag}-${index}`} className="flex min-w-0 cursor-default items-start gap-3 border-b border-line/[0.45] bg-transparent px-5 py-4 last:border-b-0">
+                <div className="mt-0.5 h-full min-h-[48px] w-1 shrink-0 rounded-full" style={{ background: insight.color }} />
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1 text-[13px] font-semibold" style={{ color: insight.color }}>{insight.tag}</div>
                   {insight.html ? (
-                    <div className="text-[13px] leading-relaxed text-txt2" dangerouslySetInnerHTML={{ __html: insight.html }} />
+                    <div className="break-words text-[13px] leading-6 text-txt2 [overflow-wrap:anywhere]" dangerouslySetInnerHTML={{ __html: insight.html }} />
                   ) : (
-                    <div className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-txt2">{insight.text}</div>
+                    <div className="whitespace-pre-wrap break-words text-[13px] leading-6 text-txt2 [overflow-wrap:anywhere]">{insight.text}</div>
                   )}
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </section>
 
-        <div className="flex flex-col rounded-2xl border border-line/60 bg-surface/40 overflow-hidden">
-          <div className="flex items-center justify-between border-b border-line/60 bg-surface p-4">
-            <div className="flex items-center gap-2">
-              <div className="grid h-[26px] w-[26px] place-items-center rounded-[0.4rem] bg-emerald-500/15 text-emerald-500">
-                <Icon name="link" size={14} />
+        <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-line/70 bg-surface shadow-[0_18px_50px_-36px_rgb(15_23_42_/_0.5)] xl:h-full xl:min-h-0">
+          <div className="flex items-center justify-between gap-3 border-b border-line/60 px-5 py-4">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-emerald-500/[0.12] text-emerald-500">
+                <Icon name="link" size={15} />
               </div>
-              <span className="text-[16px] font-semibold text-txt">주제 지도</span>
+              <span className="truncate text-[16px] font-semibold text-txt">주제 지도</span>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2 text-[11px] text-txt3">
               <button
@@ -666,58 +678,57 @@ function UserInsightDashboard({
                 disabled={aiClusterButtonDisabled}
                 onClick={requestAiClusterAnalysis}
                 className={cx(
-                  "inline-flex h-7 items-center gap-1.5 rounded-[0.4rem] px-2.5 font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                  "inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                   clusterStatus === "analyzing"
-                    ? "bg-primary/15 text-primary"
-                    : "bg-primary text-white hover:bg-primary/90"
+                    ? "border-primary/25 bg-primary/10 text-primary"
+                    : "border-primary/25 bg-primary/10 text-primary hover:bg-primary/15"
                 )}
               >
-                <Icon name={clusterStatus === "analyzing" ? "refresh" : "sparkle"} size={12} />
+                <Icon name={clusterStatus === "analyzing" ? "refresh" : "sparkle"} size={13} className={clusterStatus === "analyzing" ? "animate-spin" : undefined} />
                 {clusterStatus === "analyzing" ? "분석 중" : clusterActionLabel}
               </button>
-              <div className="flex items-center gap-1">
-                <button onClick={() => setTopicView("bubble")} className={cx("hover:text-txt transition-colors", topicView === "bubble" && "text-txt font-semibold")}>버블</button>
-                <span>·</span>
-                <button onClick={() => setTopicView("trend")} className={cx("hover:text-txt transition-colors", topicView === "trend" && "text-txt font-semibold")}>추이</button>
-                <Icon name="chevR" size={12} className="ml-1" />
+              <div className="inline-flex rounded-lg border border-line/60 bg-surface p-0.5">
+                <button type="button" onClick={() => setTopicView("bubble")} className={cx("rounded-md px-2 py-1 transition-colors hover:text-txt", topicView === "bubble" ? "bg-surface text-txt shadow-sm" : "text-txt3")}>버블</button>
+                <button type="button" onClick={() => setTopicView("trend")} className={cx("rounded-md px-2 py-1 transition-colors hover:text-txt", topicView === "trend" ? "bg-surface text-txt shadow-sm" : "text-txt3")}>추이</button>
               </div>
             </div>
           </div>
-          <div className="p-4 flex-1 flex flex-col justify-center">
-            <div className="mb-3 rounded-[0.4rem] border border-line/60 bg-surface2/40 px-3 py-2">
+          <div className="scroll min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
+            <div className="mb-3 rounded-xl border border-line/60 bg-surface px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-[12px] font-semibold text-txt">{clusterStateMessage.title}</div>
-                <div className="rounded-[0.4rem] bg-txt/5 px-2 py-0.5 text-[10px] font-medium text-txt3">
+                <div className="rounded-md bg-txt/5 px-2 py-0.5 text-[10px] font-semibold text-txt3">
                   {topicClusters ? "AI 클러스터" : "기본 분류"} · 분석 가능 {aiClusterUsableNoteCount}개
                 </div>
               </div>
               <div className="mt-1 text-[11.5px] leading-5 text-txt3">{clusterStateMessage.body}</div>
               {noteIndexStatusUnavailable ? (
-                <div className="mt-2 rounded-[0.4rem] border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-200">
+                <div className="mt-2 rounded-md border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-200">
                   색인 상태를 확인하지 못해 기존 기준을 함께 사용합니다.
                 </div>
               ) : null}
               {clusterLatest?.state === "STALE" ? (
-                <div className="mt-2 rounded-[0.4rem] border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-200">
+                <div className="mt-2 rounded-md border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-200">
                   노트가 변경됨 · 다시 분석 필요
                 </div>
               ) : null}
               {clusterError ? (
-                <div className="mt-2 rounded-[0.4rem] border border-red-400/30 bg-red-400/10 px-2.5 py-1.5 text-[11px] font-medium text-red-700 dark:text-red-200">
+                <div className="mt-2 rounded-md border border-red-400/30 bg-red-400/10 px-2.5 py-1.5 text-[11px] font-medium text-red-700 dark:text-red-200">
                   {clusterError}
                 </div>
               ) : null}
             </div>
             {topClusters.length === 0 ? (
-              <div className="flex items-start gap-3 rounded-[0.4rem] border border-emerald-500/20 bg-emerald-500/5 p-4">
+              <div className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
                 <div className="mt-0.5 text-emerald-500"><Icon name="link" size={18} /></div>
-                <div className="flex-1">
-                  <div className="mb-1 text-[15px] font-medium uppercase tracking-wider text-emerald-500/70">연결 부족</div>
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1 text-[13px] font-semibold text-emerald-500/80">연결 부족</div>
                   <div className="mb-1 text-[14px] font-semibold text-txt">연결이 부족해요</div>
                   <div className="mb-3 text-[12px] leading-relaxed text-txt3">노트에 새로운 주제를 추가해보세요.</div>
                   <button
+                    type="button"
                     onClick={() => router.push("/notes")}
-                    className="inline-flex items-center gap-1 rounded-[0.4rem] border border-emerald-500/30 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-emerald-500 hover:bg-emerald-500/10 transition-colors"
+                    className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-1.5 text-[11px] font-semibold text-emerald-500 transition-colors hover:bg-emerald-500/10"
                   >
                     <Icon name="chevR" size={12} /> 노트 추가하기
                   </button>
@@ -725,7 +736,7 @@ function UserInsightDashboard({
               </div>
             ) : (
               <>
-                <div className="relative h-[280px] w-full overflow-hidden rounded-[0.4rem] border border-line/60 bg-surface/50">
+                <div className="relative h-[280px] w-full overflow-hidden rounded-xl border border-line/60 bg-surface">
                   {topicView === "bubble" ? (
                     <svg viewBox="0 0 320 210" className="h-full w-full">
                       {bubbles.map((b, i) => {
@@ -739,7 +750,7 @@ function UserInsightDashboard({
                             stroke={`rgb(${b.color})`}
                             strokeWidth="1"
                             strokeDasharray="3 3"
-                            opacity="0.3"
+                            opacity="0.28"
                           />
                         );
                       })}
@@ -756,7 +767,7 @@ function UserInsightDashboard({
                     <div className="absolute inset-0 p-4">
                       <svg viewBox="0 0 700 280" className="h-full w-full overflow-visible">
                         {[0, 1, 2, 3].map((line) => (
-                          <line key={line} x1="46" y1={54 + line * 62} x2="654" y2={54 + line * 62} stroke="rgb(var(--line) / 0.5)" strokeWidth="1" />
+                          <line key={line} x1="46" y1={54 + line * 62} x2="654" y2={54 + line * 62} stroke="rgb(var(--border) / 0.45)" strokeWidth="1" />
                         ))}
                         {trendLines.map((line) => (
                           <g key={line.id}>
@@ -780,46 +791,52 @@ function UserInsightDashboard({
                   {bubbles.map((b) => (
                     <div key={b.id} className="flex items-center gap-1.5 text-[11px] text-txt3">
                       <div className="h-1.5 w-1.5 rounded-full" style={{ background: `rgb(${b.color})` }} />
-                      {b.label}
+                      <span className="max-w-[140px] truncate">{b.label}</span>
                     </div>
                   ))}
                 </div>
               </>
             )}
           </div>
-        </div>
+        </section>
 
-        <div className="flex flex-col rounded-2xl border border-line/60 bg-surface/40 overflow-hidden">
-          <div className="flex items-center justify-between border-b border-line/60 bg-surface p-4">
-            <div className="flex items-center gap-2">
-              <div className="grid h-[26px] w-[26px] place-items-center rounded-[0.4rem] bg-accent/15 text-accent">
-                <Icon name="doc" size={14} />
+        <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-line/70 bg-surface shadow-[0_18px_50px_-36px_rgb(15_23_42_/_0.5)] xl:h-full xl:min-h-0">
+          <div className="flex items-center justify-between gap-3 border-b border-line/60 px-5 py-4">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-accent/[0.12] text-accent">
+                <Icon name="doc" size={15} />
               </div>
-              <span className="text-[16px] font-semibold text-txt">다시 보면 좋은 노트</span>
+              <span className="truncate text-[16px] font-semibold text-txt">다시 보면 좋은 노트</span>
             </div>
-            <button className="flex items-center gap-1 text-[11px] text-txt3 hover:text-txt">
+            <button type="button" className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-txt3 transition-colors hover:text-txt">
               연결 추천 <Icon name="chevR" size={12} />
             </button>
           </div>
-          <div className="p-4 flex-1 flex flex-col justify-center">
-            <div className="flex items-start gap-3 rounded-[0.4rem] border border-accent/20 bg-accent/5 p-4">
-              <div className="mt-0.5 text-accent"><Icon name="doc" size={18} /></div>
-              <div className="flex-1">
-                <div className="mb-1 text-[15px] font-medium uppercase tracking-wider text-accent/70">연결 부족 노트</div>
-                <div className="mb-1 text-[14px] font-semibold text-txt">{dormantNote?.title || "추천 노트가 없습니다"}</div>
-                <div className="mb-3 text-[12px] leading-relaxed text-txt3">연결이 아직 적어요. 관련 개념을 추가하거나 다른 노트와 연결해보세요.</div>
-                <button
-                  onClick={() => dormantNote && router.push(`/notes/${dormantNote.id}`)}
-                  className="inline-flex items-center gap-1 rounded-[0.4rem] border border-accent/30 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-accent hover:bg-accent/10 transition-colors"
-                >
-                  <Icon name="chevR" size={12} /> 노트 열기
-                </button>
+          <div className="scroll flex min-h-0 flex-1 flex-col justify-center overflow-y-auto overscroll-contain p-5">
+            <div className="relative overflow-hidden rounded-xl border border-line/60 bg-surface p-5">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent/[0.12] text-accent">
+                  <Icon name="doc" size={17} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1 text-[13px] font-semibold text-accent/80">연결 부족 노트</div>
+                  <div className="mb-1 truncate text-[15px] font-semibold text-txt">{dormantNote?.title || "추천 노트가 없습니다"}</div>
+                  <div className="mb-4 text-[12px] leading-5 text-txt3">연결이 아직 적어요. 관련 개념을 추가하거나 다른 노트와 연결해보세요.</div>
+                  <button
+                    type="button"
+                    onClick={() => dormantNote && router.push(`/notes/${dormantNote.id}`)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-accent/25 bg-surface px-3 py-1.5 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!dormantNote}
+                  >
+                    <Icon name="chevR" size={12} /> 노트 열기
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </section>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -829,6 +846,7 @@ export function HomeScreen() {
   const { workspaces, currentWorkspaceId } = useWorkspace();
   const [displayName, setDisplayName] = useState("사용자");
   const [workspaceStats, setWorkspaceStats] = useState<WorkspaceUserStatsData | null>(null);
+  const [headerClock, setHeaderClock] = useState<{ dateLabel: string; dayPart: string; greeting: string } | null>(null);
   const currentWorkspace = workspaces.find((workspace) => workspace.documentGroupId === currentWorkspaceId) ?? null;
   // NotesWorkspace.tsx(Ticket14)의 matchesCurrentWorkspace와 동일한 규칙: currentWorkspaceId가
   // null이면(Guest/미선택) 기존처럼 전체 노트를 그대로 쓰고, 실제 Workspace가 선택돼 있으면 그
@@ -842,6 +860,7 @@ export function HomeScreen() {
       return includeLegacyNullDocumentGroup && noteWorkspaceId === null;
     });
   }, [notes, currentWorkspaceId, includeLegacyNullDocumentGroup]);
+  const headerSummary = useMemo(() => summarizeWorkspaceNotes(visibleNotes), [visibleNotes]);
 
   useEffect(() => {
     let active = true;
@@ -889,39 +908,69 @@ export function HomeScreen() {
     };
   }, [currentWorkspaceId]);
 
-  return (
-    <div data-route className="mx-auto max-w-[1100px] px-6 py-6 md:px-8 lg:py-8">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4 border-b border-line/60 pb-5">
-        <div>
-          <p className="mb-1.5 flex flex-wrap items-center gap-2 text-[11px] font-medium tracking-wide text-txt3">
-            <span>{new Intl.DateTimeFormat('ko-KR', { dateStyle: 'full' }).format(new Date())} · 오전</span>
-            {currentWorkspace ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-line/60 bg-surface2/50 px-2 py-0.5 text-[10px] font-semibold text-txt2">
-                <Icon name="folder" size={10} />
-                {getWorkspaceDisplayName(currentWorkspace)}
-              </span>
-            ) : null}
-          </p>
-          <h1 className="text-[30px] font-semibold tracking-tight text-txt">
-            좋은 아침이에요,<br />
-            <span className="text-accent">{displayName}</span>님 🌿
-          </h1>
-          <p className="mt-2 text-[13px] text-txt3">
-            {workspaceStats
-              ? `지금 ${visibleNotes.length.toLocaleString("ko-KR")}개의 실제 노트가 동기화되어 있고, 가장 최근 활동은 "${visibleNotes[0]?.title ?? "노트"}"예요.`
-              : `지금 ${visibleNotes.length.toLocaleString("ko-KR")}개의 노트를 기준으로 인사이트를 계산하고 있어요.`}
-            {currentWorkspace && workspaces.length > 1
-              ? " (토큰 사용량만 전체 Workspace 합산 기준이에요)"
-              : ""}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 rounded-xl border border-accent/30 bg-accent/10 px-4 py-2.5 text-[12px] font-medium text-accent">
-          <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-          AI가 지식 그래프를 분석 중이에요
-        </div>
-      </div>
+  useEffect(() => {
+    const now = new Date();
+    const hour = now.getHours();
+    setHeaderClock({
+      dateLabel: new Intl.DateTimeFormat("ko-KR", { dateStyle: "full" }).format(now),
+      dayPart: hour < 12 ? "오전" : hour < 18 ? "오후" : "저녁",
+      greeting: hour < 12 ? "좋은 아침이에요" : hour < 18 ? "좋은 오후예요" : "좋은 저녁이에요",
+    });
+  }, []);
 
-      <UserInsightDashboard notes={visibleNotes} currentWorkspaceId={currentWorkspaceId} />
+  const dateLine = headerClock ? `${headerClock.dateLabel} · ${headerClock.dayPart}` : "오늘";
+  const greeting = headerClock?.greeting ?? "안녕하세요";
+  const workspaceLabel = currentWorkspace ? getWorkspaceDisplayName(currentWorkspace) : "기본 Workspace";
+  const recentActivityTitle = headerSummary.recentNotes[0]?.title?.trim() || "노트";
+  const noteCountLabel = headerSummary.totalNotes.toLocaleString("ko-KR");
+
+  return (
+    <div data-route className="flex min-h-full w-full items-start justify-center px-3 py-4 md:px-6 lg:px-8 lg:py-8">
+      <div
+        className="w-full max-w-[1360px] overflow-hidden rounded-[28px] border border-line/70 bg-white p-5 shadow-[0_28px_90px_-56px_rgb(15_23_42_/_0.5)] md:p-8 lg:p-10"
+        style={HOME_LIGHT_CANVAS_STYLE}
+      >
+        <div className="mb-7 grid gap-6 lg:grid-cols-[minmax(0,1fr)_370px] lg:items-start">
+          <div className="min-w-0">
+            <p className="mb-3 flex flex-wrap items-center gap-2 text-[12px] font-semibold text-txt3">
+              <span>{dateLine}</span>
+              <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line/70 bg-surface px-3 py-1 text-[11px] font-semibold text-txt2">
+                <Icon name="folder" size={10} />
+                <span className="truncate">{workspaceLabel}</span>
+              </span>
+            </p>
+            <h1 className="text-[30px] font-semibold leading-tight tracking-tight text-txt md:text-[36px]">
+              {greeting},<br />
+              <span className="text-accent">{displayName}</span>님 🌿
+            </h1>
+            <p className="mt-4 max-w-[680px] break-words text-[13px] leading-6 text-txt3 md:text-[14px]">
+              {workspaceStats
+                ? `지금 ${noteCountLabel}개의 실제 노트가 동기화되어 있고, 가장 최근 활동은 "${recentActivityTitle}"예요.`
+                : `지금 ${noteCountLabel}개의 노트를 기준으로 인사이트를 계산하고 있어요.`}
+              {currentWorkspace && workspaces.length > 1
+                ? " 토큰 사용량은 전체 Workspace 합산 기준이에요."
+                : ""}
+            </p>
+          </div>
+
+          <div className="relative min-h-[138px] overflow-hidden rounded-2xl border border-line/70 bg-surface p-6 shadow-[0_18px_60px_-46px_rgb(15_23_42_/_0.45)]">
+            <div className="relative">
+              <div className="text-[14px] font-semibold text-txt">AI가 지식 그래프를 분석 중이에요</div>
+              <p className="mt-3 max-w-[260px] text-[12px] leading-5 text-txt3">
+                연결된 개념을 발견하고 인사이트를 준비하고 있어요.
+              </p>
+              <div className="mt-5 flex items-center gap-1.5">
+                <span className="h-1.5 w-9 rounded-full bg-accent" />
+                <span className="h-1.5 w-1.5 rounded-full bg-accent/30" />
+                <span className="h-1.5 w-1.5 rounded-full bg-accent/30" />
+                <span className="h-1.5 w-1.5 rounded-full bg-accent/30" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <UserInsightDashboard notes={visibleNotes} currentWorkspaceId={currentWorkspaceId} />
+      </div>
     </div>
   );
 }

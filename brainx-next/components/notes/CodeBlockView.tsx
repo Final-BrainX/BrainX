@@ -523,7 +523,9 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: NodeVi
             overflowX: "auto",
             background: "rgb(var(--surface2) / 0.4)",
             lineHeight: 1.75,
-            fontSize: "12px",
+            // Ctrl+Wheel pane 줌(fontScale)이 --note-fs-code로 내려오면 그 값을 쓰고, 아니면
+            // 기존과 동일한 고정 12px(서식 패널의 scalePercent와는 무관, typography.ts 참고).
+            fontSize: "var(--note-fs-code, 12px)",
             fontFamily: "var(--font-mono, ui-monospace, 'Cascadia Code', monospace)",
             borderRadius: "0 0 0.75rem 0.75rem",
             display: effectivePreview ? "none" : "block",

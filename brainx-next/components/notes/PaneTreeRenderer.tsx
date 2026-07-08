@@ -15,9 +15,13 @@ export interface QuickSwitcherTarget {
 interface Props {
   node: PaneNode;
   notes: MockNote[];
-  /** Ticket14 후속: 패널 내부 Quick Switcher(Ctrl+O) 전용 — 현재 Workspace 기준으로 걸러진
-      노트 목록. 탭 콘텐츠 해석(note/allNotes)은 그대로 전체 notes를 써야 하므로(전환 직후
-      탭 자동 정리 effect가 아직 안 돈 순간에도 이미 열린 탭 내용이 깨지지 않게) 별도로 둔다. */
+  /** Ticket14 후속: 패널 내부 Quick Switcher(Ctrl+O)뿐 아니라, 아래 leaf의 탭 콘텐츠 해석(note)
+      에도 쓴다 — 현재 Workspace 기준으로 걸러진 노트 목록. allNotes(태그 자동완성 등 Workspace와
+      무관하게 전체가 필요한 곳)는 여전히 notes(전체)를 그대로 쓴다. Workspace 전환 시 탭 정리
+      effect(NotesWorkspace.tsx의 Ticket14 2단계)가 useLayoutEffect라 페인트 전에 항상 먼저
+      끝나므로, note를 visibleNotes에서 찾아도 "정리되기 전 화면"이 따로 보일 일은 없다 —
+      오히려 이 필터가 있어야, 그 effect가 아직 못 지운 아주 짧은 순간에도 이전 Workspace
+      노트의 실제 내용이 화면에 새는 것을 이중으로 막아준다. */
   visibleNotes: MockNote[];
   activeId: string;
   dragPayload: DragPayload | null;
@@ -118,8 +122,10 @@ export default function PaneTreeRenderer({
     const fallbackTab: Tab = { id: activeTabId, kind: "note", noteId: "" };
     const activeTab: Tab = tabs.find((t) => t.id === activeTabId) ?? fallbackTab;
     // 노트를 찾지 못하면 notes[0](임의의 다른 노트)로 빠지지 않고 null로 둔다 — EditorPanel은
-    // note===null일 때 이미 "노트 없음" 복구 화면을 그리도록 되어 있다.
-    const note = activeTab.kind === "note" ? notes.find((n) => n.id === activeTab.noteId) ?? null : null;
+    // note===null일 때 이미 "노트 없음" 복구 화면을 그리도록 되어 있다. visibleNotes(현재
+    // Workspace 기준)에서 찾으므로, 탭이 아직 안 지워진 다른 Workspace 노트를 가리키고 있어도
+    // 내용은 절대 새지 않고 곧바로 이 복구 화면이 보인다.
+    const note = activeTab.kind === "note" ? visibleNotes.find((n) => n.id === activeTab.noteId) ?? null : null;
     // NotesWorkspace.canSplitPane과 동일한 기준 — 탭이 1개뿐이어도 분할(복제) 가능.
     const canSplitPane = hasSplitPanels || tabs.length >= 1;
 
