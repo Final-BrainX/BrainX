@@ -17,7 +17,11 @@ import {
   type ChatThreadListStatus,
   type LlmFeedbackRating,
 } from "@/lib/intelligence-api";
-import { createWorkspaceNoteFromPayload, matchesWorkspaceScope } from "@/lib/workspace-api";
+import {
+  createWorkspaceNoteFromPayload,
+  deleteWorkspaceNote,
+  matchesWorkspaceScope,
+} from "@/lib/workspace-api";
 import { useBrainX } from "@/components/brainx-provider";
 import { useWorkspace } from "@/components/workspace-provider";
 import {
@@ -686,6 +690,26 @@ export function ChatScreen() {
     }));
 
     try {
+      const latestThread = await getChatThread(threadId);
+      const existingSavedNoteId =
+        messagesFromThread(latestThread).find((item) => item.id === message.id)
+          ?.savedDraftNoteId ?? null;
+      if (existingSavedNoteId) {
+        setDraftSaveStates((current) => ({
+          ...current,
+          [message.id]: { status: "saved", noteId: existingSavedNoteId },
+        }));
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === message.id
+              ? { ...item, savedDraftNoteId: existingSavedNoteId }
+              : item,
+          ),
+        );
+        router.push(`/notes/${existingSavedNoteId}`);
+        return;
+      }
+
       const created = await createWorkspaceNoteFromPayload({
         title,
         markdown,
@@ -695,11 +719,23 @@ export function ChatScreen() {
       });
       let noteId = created.noteId;
       let syncFailed = false;
+      let duplicateCleanupFailed = false;
       try {
         const recorded = await recordChatMessageDraftNote(threadId, message.id, {
           noteId: created.noteId,
         });
-        noteId = recorded.noteId || created.noteId;
+        const recordedNoteId = recorded.noteId || created.noteId;
+        if (recordedNoteId !== created.noteId) {
+          noteId = recordedNoteId;
+          try {
+            await deleteWorkspaceNote(created.noteId, "permanent");
+          } catch (error) {
+            duplicateCleanupFailed = true;
+            console.warn("Failed to delete duplicate AI draft note.", error);
+          }
+        } else {
+          noteId = recordedNoteId;
+        }
       } catch {
         syncFailed = true;
       }
@@ -714,11 +750,15 @@ export function ChatScreen() {
       );
       window.dispatchEvent(
         new CustomEvent("brainx:notes-refresh", {
-          detail: { noteId: created.noteId },
+          detail: { noteId },
         }),
       );
       if (syncFailed) {
         pushToast("노트는 저장됐지만 채팅 저장 상태 동기화에 실패했어요.", "err");
+      } else if (duplicateCleanupFailed) {
+        pushToast("이미 저장된 노트로 연결했지만 중복 노트 정리에 실패했어요.", "err");
+      } else if (noteId !== created.noteId) {
+        pushToast("이미 저장된 노트로 연결했어요.", "ok");
       } else {
         pushToast("AI 초안을 노트로 저장했어요.", "ok");
       }
