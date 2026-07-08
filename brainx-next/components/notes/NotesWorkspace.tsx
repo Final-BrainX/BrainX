@@ -1071,7 +1071,12 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         .then((persisted) => {
           if (persisted) {
             draftDirtyNoteIdsRef.current.delete(noteToSync.id);
-            window.dispatchEvent(new CustomEvent("brainx:notes-refresh", { detail: { noteId: noteToSync.id } }));
+            // detail.noteId를 싣지 않는다 — handleExternalRefresh(loadFromServer)는 noteId가
+            // 있으면 "그 노트를 활성 탭으로 열라"는 신호로 해석한다. 여기서는 이미 편집된
+            // 노트(위키링크 source)의 백그라운드 저장을 /graph 등에 알리려는 목적일 뿐인데,
+            // noteId를 실으면 방금 위키링크로 새로 만든 노트 탭으로 옮겨간 직후 이 저장이 끝나는
+            // 순간 활성 탭이 다시 source 노트로 튕겨 돌아가는 롤백 버그가 있었다.
+            window.dispatchEvent(new CustomEvent("brainx:notes-refresh"));
           }
         })
         .catch((error) => warnWikiLinkFailure("wikilink target 변경 즉시 저장 실패", error));
@@ -2058,7 +2063,13 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     // 회귀가 있었다.
     function loadFromServer(openNoteId?: string, isInitialLoad = false, attachInitialTab = true) {
       setLoadError(null);
-      const targetNoteId = openNoteId ?? (attachInitialTab && initialTab.kind === "note" ? initialTab.noteId : null);
+      // initialTab(URL의 노트)로 강제 이동하는 폴백은 최초 마운트 복원에서만 쓴다 — 이후
+      // brainx:notes-refresh(예: 데스크톱 수동 동기화의 syncRefresh)가 openNoteId 없이 다시
+      // 불러올 때도 이 폴백을 계속 적용하면, 그 사이 사용자가 새 탭(+ 버튼/위키링크로 만든
+      // 노트)으로 이미 옮겨간 활성 탭을 initialTab이 가리키던 예전 노트로 도로 튕겨내는
+      // 롤백 버그가 있었다.
+      const targetNoteId =
+        openNoteId ?? (isInitialLoad && attachInitialTab && initialTab.kind === "note" ? initialTab.noteId : null);
       return Promise.all([
         shouldUseDesktopVault(),
         listNotes(),
