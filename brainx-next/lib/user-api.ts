@@ -52,6 +52,11 @@ export type MyNotificationsResponse = {
   unreadCount: number;
 };
 
+export type MyNotificationDeleteResponse = {
+  notificationId: string;
+  unreadCount: number;
+};
+
 const LANGUAGE_KEY = "brainx_language_v1";
 const THEME_KEY = "brainx_theme_v1";
 const USE_MOCK_USER_API = process.env.NEXT_PUBLIC_USER_USE_MOCK === "true";
@@ -241,6 +246,14 @@ function demoUserResponse<T>(path: string, init?: RequestInit): T {
     } as T;
   }
 
+  if (path.startsWith("/api/v1/users/me/notifications/") && method === "DELETE") {
+    const notificationId = path.split("/")[5] ?? "ntf_demo_1";
+    return {
+      notificationId,
+      unreadCount: 0
+    } as T;
+  }
+
   throw new Error("데모 모드에서 지원하지 않는 사용자 API입니다.");
 }
 export async function getMyProfile() {
@@ -335,6 +348,12 @@ export async function markMyNotificationRead(notificationId: string) {
 export async function markAllMyNotificationsRead() {
   return authedRequest<MyNotificationsResponse>("/api/v1/users/me/notifications/read-all", {
     method: "POST"
+  });
+}
+
+export async function deleteMyNotification(notificationId: string) {
+  return authedRequest<MyNotificationDeleteResponse>(`/api/v1/users/me/notifications/${notificationId}`, {
+    method: "DELETE"
   });
 }
 
