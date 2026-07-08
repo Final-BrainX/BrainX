@@ -186,6 +186,7 @@ Workflow: `.github/workflows/brainx-dev-deploy.yml`
 - GitHub waits on SSM by polling the command status until it reaches a terminal state, so longer remote redeploys no longer trip the default AWS CLI waiter timeout.
 - Remote deploy reads SSM parameters in one batch, skips repeated database bootstrap after the first successful run for the current RDS target, and only skips image pulls when the deployment is not already rebuilding the affected stack.
 - Remote deploy prints SSM stdout/stderr, `docker compose ps`, and endpoint checks. GitHub endpoint verification is limited to the changed service categories.
+- Before image pulls and after remote smoke checks, EC2 prunes unused local Docker images, stopped containers, and builder cache older than `36h` by default. Named volumes are not pruned, and the cutoff can be overridden with `DOCKER_IMAGE_PRUNE_UNTIL`.
 - For deploy overlap or endpoint verification failures, use [`troubleshooting.md`](troubleshooting.md).
 
 Path mapping:
