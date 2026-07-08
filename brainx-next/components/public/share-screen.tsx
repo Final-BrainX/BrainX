@@ -8,6 +8,7 @@ import { getAssetFileUrl, getPptSlideUrl } from "@/lib/ingestion-api";
 import { markdownToHtml } from "@/components/notes/NoteEditor";
 import { BrandLogo } from "@/components/brand-logo";
 import { ThemeToggle } from "@/components/brainx-ui";
+import { sanitizeHtml } from "@/lib/safe-html";
 
 /**
  * 노트를 에디터에서 한 번도 연 적이 없으면(예: Notion 가져오기 직후) 콘텐츠가 원본 마크다운
@@ -260,7 +261,7 @@ export function ShareScreen({ shareId, noteId }: ShareScreenProps = {}) {
     fetcher
       .then((data) => {
         setNote(data);
-        setProcessedHtml(processHtml(resolveShareHtml(data.markdown ?? ""), data.linkedShares ?? {}));
+        setProcessedHtml(sanitizeHtml(processHtml(resolveShareHtml(data.markdown ?? ""), data.linkedShares ?? {})));
         setStatus("ok");
       })
       .catch((e: Error) => {

@@ -1,5 +1,12 @@
 # BrainX
 
+## Security Checklist
+
+- Repository-wide secure coding checklist: [docs/SECURE_CODING_CHECKLIST.md](/C:/Edu/BrainX/docs/SECURE_CODING_CHECKLIST.md)
+- Shared-note HTML, imported HTML, and AI-generated rich text must be sanitized before rendering.
+- Workspace-Service credentialed CORS must use explicit allowlists via `BRAINX_SECURITY_ALLOWED_ORIGINS`.
+- Internal `/internal/v1/**` APIs remain service-auth-only and are not browser-target public endpoints.
+
 > AI 기반 지식 관리 플랫폼
 
 BrainX는 사용자가 공부하거나 일하면서 적어 둔 노트, 메모, 자료를 한곳에 모으고, AI가 자동으로 요약, 분류, 연결, 검색, 대화까지 도와주는 지식 관리 플랫폼입니다. 이름은 Brain(뇌) + X(탐험/미지)에서 왔으며, 사용자의 지식 우주를 탐험하는 자율형 세컨드 브레인을 지향합니다.

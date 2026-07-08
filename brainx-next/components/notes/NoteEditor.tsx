@@ -25,6 +25,7 @@ import { cx } from "@/lib/utils";
 import { MockNote } from "@/lib/notes/noteTypes";
 import { typographyCssVars } from "@/lib/notes/typography";
 import { titleDragGuard } from "@/lib/notes/titleDragGuard";
+import { sanitizeHtml } from "@/lib/safe-html";
 import { HeadingFold } from "./headingFold";
 import { CodeBlockView } from "./CodeBlockView";
 import { QuickSwatchRow, MoreColorPopover, TEXT_COLOR_QUICK, HIGHLIGHT_SWATCHES } from "./ColorPalette";
@@ -1946,7 +1947,7 @@ function BubbleToolbar({
               {rewriteSuggestion.status === "error" ? (
                 <span className="text-red-400">{rewriteSuggestion.message}</span>
               ) : rewritePreviewHtml ? (
-                <div className="tiptap-note-content" dangerouslySetInnerHTML={{ __html: rewritePreviewHtml }} />
+                <div className="tiptap-note-content" dangerouslySetInnerHTML={{ __html: sanitizeHtml(rewritePreviewHtml) }} />
               ) : (
                 <span className="text-txt3">다시 쓰는 중...</span>
               )}

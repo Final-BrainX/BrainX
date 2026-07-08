@@ -1,5 +1,9 @@
 x-desktop-popup-bridge:
   description: Browser popup callbacks may use window.postMessage, while Electron desktop clients may deliver the same callback payload through preload/IPC renderer events or through a custom-protocol deep link that returns external-browser OAuth completion into the renderer callback route.
+x-secure-browser-rendering:
+  description: Browser and Electron renderer clients must treat note markdown, imported HTML, AI-generated rich text, and shared-note payloads as untrusted HTML until sanitized at render time; inline event handlers and dangerous URL schemes must be stripped before any `dangerouslySetInnerHTML` style injection, and embedded iframe previews must stay sandboxed to the minimum capabilities required by the feature.
+x-api-cors-policy:
+  description: Credentialed browser clients must use explicit origin allowlists configured per environment; wildcard origins are not allowed for authenticated cross-origin requests, and same-origin Next/Electron proxy routes remain the preferred path for desktop-auth and public API flows.
 x-runtime-secret-rotation:
   description: Shared runtime secrets such as RDS credentials may rotate independently of code changes; deployment flows must refresh encrypted parameter material on every run and force-recreate all DB-backed runtime services when the applied RDS credential fingerprint changes so gateway-routed note, plan, auth, admin, commerce, intelligence, and MCP APIs do not keep stale database passwords in long-lived containers.
 x-observability-log-stack:
