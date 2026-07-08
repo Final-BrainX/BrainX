@@ -6,13 +6,27 @@ import { cx } from "@/lib/utils";
 import { Icon } from "@/components/brainx-ui";
 import { MockNote } from "@/lib/notes/noteTypes";
 import { MOCK_CONTEXT_DATA } from "@/lib/notes/mockNotes";
+import { readAuthSession } from "@/lib/auth-api";
 import {
   AiUsageLimitExceededError,
   createChatThread,
   createInlineAssistStream,
+  createLinkSuggestions,
   decideAiSuggestion,
   sendChatMessageStream,
 } from "@/lib/intelligence-api";
+import {
+  applyLinkSuggestionToMarkdown,
+  filterLinkSuggestions,
+  linkAcceptErrorMessage,
+  linkSuggestionErrorMessage,
+  linkSuggestionKey,
+  normalizeMarkdownText,
+  type LinkSuggestion,
+  type LinkSuggestionEdge,
+} from "@/lib/link-suggestions";
+import { getNote, updateWorkspaceNoteContent, USE_MOCK_NOTES, WorkspaceApiError } from "@/lib/workspace-api";
+import { contentHasWikiLinkTo } from "@/lib/wiki-links";
 import { useBrainX } from "@/components/brainx-provider";
 import { useWorkspace } from "@/components/workspace-provider";
 import {
@@ -357,6 +371,13 @@ export interface PendingAiRequest {
   nonce: number;
 }
 
+type NoteLinkSuggestionStatus = "idle" | "loading" | "success" | "error";
+type NoteLinkAcceptStatus = "saving" | "saved" | "error";
+type NoteLinkAcceptState = {
+  status: NoteLinkAcceptStatus;
+  error?: string;
+};
+
 const DEFAULT_CHAT_MODEL_ID = "gpt-5.4-mini";
 const INLINE_AI_HEIGHT_KEY = "brainx_notes_inline_ai_height_v1";
 const INLINE_AI_DEFAULT_HEIGHT = 260;
@@ -399,6 +420,11 @@ export default function RightSidebar({
   const [aiMessages, setAiMessages] = useState<Array<{ role: "ai" | "user"; text: string; streaming?: boolean }>>([
     { role: "ai", text: "이 노트에 대해 무엇이든 물어보세요. 관련 노트도 함께 찾아드려요." },
   ]);
+  const [linkSuggestionStatus, setLinkSuggestionStatus] = useState<NoteLinkSuggestionStatus>("idle");
+  const [linkSuggestions, setLinkSuggestions] = useState<LinkSuggestion[]>([]);
+  const [linkSuggestionError, setLinkSuggestionError] = useState<string | null>(null);
+  const [linkAcceptStates, setLinkAcceptStates] = useState<Record<string, NoteLinkAcceptState>>({});
+  const [hasAuthenticatedSession, setHasAuthenticatedSession] = useState(false);
   const [chatOpen, setChatOpen] = useState(true);
   const [inlineAiHeight, setInlineAiHeight] = useState<number>(() => {
     if (typeof window === "undefined") return INLINE_AI_DEFAULT_HEIGHT;
@@ -415,7 +441,7 @@ export default function RightSidebar({
   const activeDraftSessionRef = useRef<InlineDraftSession | null>(null);
   const chatThreadIdsRef = useRef<Record<string, string>>({});
   const { currentWorkspaceId } = useWorkspace();
-  const { openAiUsageLimitModal } = useBrainX();
+  const { openAiUsageLimitModal, pushToast } = useBrainX();
   const activeNoteDocumentGroupId = activeNote?.documentGroupId ?? undefined;
 
   // 노트별 스레드는 note.documentGroupId와 항상 같은 범위에서만 재사용한다.
@@ -425,6 +451,22 @@ export default function RightSidebar({
 
   const toc = useMemo(() => (activeNote ? parseHeadings(activeNote.content) : []), [activeNote]);
   const ctx = (activeNote && MOCK_CONTEXT_DATA[activeNote.id]) || { backlinks: [], connections: [], aiSuggestions: [] };
+
+  useEffect(() => {
+    setLinkSuggestionStatus("idle");
+    setLinkSuggestions([]);
+    setLinkSuggestionError(null);
+    setLinkAcceptStates({});
+  }, [activeNote?.id]);
+
+  useEffect(() => {
+    const syncAuthSession = () => {
+      setHasAuthenticatedSession(Boolean(readAuthSession()?.accessToken));
+    };
+    syncAuthSession();
+    window.addEventListener("brainx-auth-session-changed", syncAuthSession);
+    return () => window.removeEventListener("brainx-auth-session-changed", syncAuthSession);
+  }, []);
 
   const cancelActiveAiRequest = useCallback(() => {
     aiRequestAbortRef.current?.abort();
@@ -503,6 +545,33 @@ export default function RightSidebar({
   const resolveNoteDocumentGroupId = useCallback((note: MockNote) => (
     note.documentGroupId ?? currentWorkspaceId ?? undefined
   ), [currentWorkspaceId]);
+
+  const activeNoteDocumentGroupIdForLinks = activeNote ? resolveNoteDocumentGroupId(activeNote) : undefined;
+  const activeNoteHasServerSource = Boolean(activeNote && activeNote.persisted === true && activeNoteDocumentGroupIdForLinks);
+  const canRequestLinkSuggestions = Boolean(activeNote && !USE_MOCK_NOTES && hasAuthenticatedSession && activeNoteHasServerSource);
+  const linkSuggestionDisabledReason = !activeNote
+    ? "노트를 먼저 열어 주세요."
+    : USE_MOCK_NOTES
+      ? "데모 노트에서는 실제 AI 연결 추천을 실행하지 않습니다."
+      : !hasAuthenticatedSession
+        ? "로그인 후 AI 연결 추천을 실행할 수 있습니다."
+        : !activeNote.persisted
+          ? "노트가 서버에 저장된 뒤 AI 연결 추천을 실행할 수 있습니다."
+          : !activeNoteDocumentGroupIdForLinks
+            ? "Workspace 정보가 동기화된 뒤 AI 연결 추천을 실행할 수 있습니다."
+            : null;
+
+  const existingLinkSuggestionEdges = useMemo<LinkSuggestionEdge[]>(() => {
+    if (!activeNote) return [];
+    return allNotes.flatMap((note) => {
+      if (note.id === activeNote.id) return [];
+      const linkedFromActive = contentHasWikiLinkTo(activeNote.content, note.title);
+      const linkedToActive = contentHasWikiLinkTo(note.content, activeNote.title);
+      return linkedFromActive || linkedToActive
+        ? [{ source: activeNote.id, target: note.id }]
+        : [];
+    });
+  }, [activeNote, allNotes]);
 
   const ensureNoteChatThread = async (note: MockNote) => {
     const existing = chatThreadIdsRef.current[note.id];
@@ -583,6 +652,110 @@ export default function RightSidebar({
       if (error instanceof AiUsageLimitExceededError) {
         openAiUsageLimitModal(error.reason);
       }
+    }
+  };
+
+  const handleCreateLinkSuggestions = async () => {
+    if (!activeNote) return;
+    const documentGroupId = resolveNoteDocumentGroupId(activeNote);
+    if (!canRequestLinkSuggestions || !documentGroupId) {
+      const fallbackLabels = ctx.aiSuggestions.filter((item) => item.trim());
+      if (fallbackLabels.length > 0) {
+        setLinkSuggestionStatus("success");
+        setLinkSuggestions([]);
+        setLinkSuggestionError(null);
+      }
+      pushToast(linkSuggestionDisabledReason ?? "AI 연결 추천을 실행할 수 없습니다.", "info");
+      return;
+    }
+
+    setLinkSuggestionStatus("loading");
+    setLinkSuggestionError(null);
+    setLinkSuggestions([]);
+    setLinkAcceptStates({});
+
+    try {
+      const result = await createLinkSuggestions({
+        documentGroupId,
+        noteId: activeNote.id,
+      });
+      const suggestions = filterLinkSuggestions(
+        activeNote.id,
+        result.suggestions,
+        allNotes,
+        existingLinkSuggestionEdges
+      );
+      setLinkSuggestions(suggestions);
+      setLinkSuggestionStatus("success");
+      if (suggestions.length > 0) {
+        pushToast("AI 연결 후보를 찾았어요.", "ok");
+      }
+    } catch (error) {
+      setLinkSuggestionStatus("error");
+      setLinkSuggestionError(linkSuggestionErrorMessage(error));
+      if (error instanceof AiUsageLimitExceededError) {
+        openAiUsageLimitModal(error.reason);
+      }
+    }
+  };
+
+  const handleAcceptLinkSuggestion = async (suggestion: LinkSuggestion) => {
+    if (!activeNote) return;
+    const key = linkSuggestionKey(activeNote.id, suggestion);
+    const currentState = linkAcceptStates[key];
+    if (currentState?.status === "saving" || currentState?.status === "saved") return;
+
+    setLinkAcceptStates((current) => ({
+      ...current,
+      [key]: { status: "saving" },
+    }));
+
+    try {
+      const targetNote = allNotes.find((note) => note.id === suggestion.targetNoteId);
+      const targetTitle = normalizeMarkdownText(suggestion.targetTitle || targetNote?.title || "연결 노트");
+      activeEditor?.flushPendingSave();
+      const currentContent = activeEditor ? activeEditor.getHTML() : activeNote.content;
+      const latestSource = await getNote(activeNote.id);
+      const applied = applyLinkSuggestionToMarkdown(currentContent ?? latestSource.markdown ?? "", suggestion, targetTitle);
+      if (applied.error) {
+        throw new Error(applied.error);
+      }
+
+      if (applied.changed) {
+        await updateWorkspaceNoteContent({
+          id: activeNote.id,
+          title: latestSource.title || activeNote.title,
+          content: applied.markdown,
+          tags: latestSource.tags ?? activeNote.tags,
+          category: activeNote.category,
+          folderId: latestSource.folder?.folderId ?? activeNote.folderId,
+          documentGroupId: latestSource.documentGroupId ?? activeNote.documentGroupId,
+          createdAt: Date.parse(latestSource.createdAt) || activeNote.createdAt || Date.now(),
+          updatedAt: Date.now(),
+          version: activeNote.version ?? latestSource.version,
+          persisted: true,
+          typography: latestSource.typography ?? activeNote.typography,
+        });
+      }
+
+      setLinkAcceptStates((current) => ({
+        ...current,
+        [key]: { status: "saved" },
+      }));
+      window.dispatchEvent(new CustomEvent("brainx:notes-refresh", {
+        detail: { sourceNoteId: activeNote.id, targetNoteId: suggestion.targetNoteId },
+      }));
+      pushToast("AI 연결 후보를 본문 링크로 저장했어요.", "ok");
+    } catch (error) {
+      if (error instanceof WorkspaceApiError && error.code === "NOTE_VERSION_CONFLICT") {
+        window.dispatchEvent(new CustomEvent("brainx:notes-refresh", {
+          detail: { sourceNoteId: activeNote.id, targetNoteId: suggestion.targetNoteId },
+        }));
+      }
+      setLinkAcceptStates((current) => ({
+        ...current,
+        [key]: { status: "error", error: linkAcceptErrorMessage(error) },
+      }));
     }
   };
 
@@ -786,6 +959,19 @@ export default function RightSidebar({
   }, [pendingAiRequest?.nonce]);
 
   const totalLinks = ctx.connections.length + ctx.backlinks.length;
+  const mockLinkSuggestionLabels = ctx.aiSuggestions.filter((item) => item.trim());
+  const showMockLinkSuggestions = !canRequestLinkSuggestions && mockLinkSuggestionLabels.length > 0;
+  const aiLinkSuggestionCount = linkSuggestions.length > 0
+    ? linkSuggestions.length
+    : showMockLinkSuggestions
+      ? mockLinkSuggestionLabels.length
+      : 0;
+  const aiLinkButtonDisabled = linkSuggestionStatus === "loading" || !canRequestLinkSuggestions;
+  const aiLinkButtonLabel = linkSuggestionStatus === "loading"
+    ? "추천 분석 중…"
+    : linkSuggestionStatus === "error"
+      ? "다시 분석"
+      : "AI 연결 제안";
 
   return (
     <div
@@ -880,39 +1066,131 @@ export default function RightSidebar({
           icon="sparkle"
           accent
           defaultOpen
-          count={ctx.aiSuggestions.length}
+          count={aiLinkSuggestionCount}
         >
-          {ctx.aiSuggestions.length > 0 ? (
-            <>
-              <p className="mb-2.5 text-[12px] leading-relaxed text-txt2">
-                이 노트는{" "}
-                <span className="font-semibold text-txt">「{ctx.aiSuggestions[0]}」</span>
-                {ctx.aiSuggestions.length > 1 ? ` 외 ${ctx.aiSuggestions.length - 1}개 주제` : ""}와 강하게 연관돼요.
-              </p>
-              <div className="mb-3 flex flex-wrap gap-1.5">
-                {ctx.aiSuggestions.map((s) => (
-                  <span
-                    key={s}
-                    className="rounded-full border border-accent/30 px-2 py-0.5 text-[11px] font-medium text-accent"
-                    style={{ background: "rgb(var(--accent) / 0.08)" }}
-                  >
-                    {s}
-                  </span>
-                ))}
+          <div className="space-y-3" aria-live="polite">
+            {showMockLinkSuggestions ? (
+              <div>
+                <p className="mb-2 text-[12px] leading-relaxed text-txt2">
+                  데모 추천 주제입니다. 실제 Workspace 노트에서는 AI가 연결할 노트를 직접 찾습니다.
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {mockLinkSuggestionLabels.map((label) => (
+                    <span
+                      key={label}
+                      className="rounded-full border border-accent/30 px-2 py-0.5 text-[11px] font-medium text-accent"
+                      style={{ background: "rgb(var(--accent) / 0.08)" }}
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
               </div>
-              <button
-                type="button"
-                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-accent/30 py-1.5 text-[12px] font-medium text-accent transition-colors hover:border-accent/50 hover:bg-accent/10"
-              >
-                <Icon name="link" size={12} />
-                연결 추가
-              </button>
-            </>
-          ) : (
-            <p className="text-[12px] leading-relaxed text-txt2">
-              분석 중입니다. 내용을 더 추가하면 연관 노트를 제안해드려요.
-            </p>
-          )}
+            ) : null}
+
+            <button
+              type="button"
+              disabled={aiLinkButtonDisabled}
+              onClick={handleCreateLinkSuggestions}
+              className={cx(
+                "flex h-8 w-full items-center justify-center gap-1.5 rounded-lg text-[12px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-55",
+                aiLinkButtonDisabled
+                  ? "border border-line/60 bg-surface2/60 text-txt3"
+                  : "border border-accent/30 text-accent hover:border-accent/50 hover:bg-accent/10"
+              )}
+            >
+              <Icon name={linkSuggestionStatus === "loading" ? "refresh" : "link"} size={12} className={linkSuggestionStatus === "loading" ? "animate-spin" : undefined} />
+              {aiLinkButtonLabel}
+            </button>
+
+            {linkSuggestionDisabledReason ? (
+              <p className="text-[11px] leading-5 text-txt3">{linkSuggestionDisabledReason}</p>
+            ) : null}
+
+            {linkSuggestionStatus === "error" ? (
+              <div className="rounded-lg border border-primary/25 bg-primary/[0.08] p-2.5 text-[12px] leading-5 text-txt2">
+                {linkSuggestionError ?? "AI 연결 추천 생성에 실패했습니다. 다시 시도해 주세요."}
+              </div>
+            ) : null}
+
+            {linkSuggestionStatus === "success" && linkSuggestions.length === 0 && !showMockLinkSuggestions ? (
+              <div className="rounded-lg border border-line/60 bg-surface2/40 p-3 text-center">
+                <p className="text-[12px] font-semibold text-txt">새로 연결할 후보가 없습니다</p>
+                <p className="mt-1 text-[11px] leading-5 text-txt3">
+                  노트를 더 저장하거나 다른 노트에서 다시 실행해 보세요.
+                </p>
+              </div>
+            ) : null}
+
+            {linkSuggestions.length > 0 ? (
+              <div className="space-y-2">
+                {linkSuggestions.map((suggestion) => {
+                  const key = activeNote ? linkSuggestionKey(activeNote.id, suggestion) : suggestion.suggestionId;
+                  const acceptState = linkAcceptStates[key];
+                  const acceptStatus = acceptState?.status ?? "idle";
+                  const isSaving = acceptStatus === "saving";
+                  const isSaved = acceptStatus === "saved";
+                  const targetNote = allNotes.find((note) => note.id === suggestion.targetNoteId);
+                  const title = suggestion.targetTitle || targetNote?.title || "연결 후보";
+                  return (
+                    <article
+                      key={key}
+                      className="rounded-lg border border-line/60 bg-surface2/40 p-3"
+                    >
+                      <div className="flex min-w-0 items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-[12.5px] font-semibold text-txt">{title}</div>
+                          <p className="mt-1 truncate text-[11px] text-txt3">
+                            기준 문구: {suggestion.anchorText || "본문 위치"}
+                          </p>
+                        </div>
+                        <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent tabular-nums">
+                          {Math.round((suggestion.score ?? 0) * 100)}%
+                        </span>
+                      </div>
+
+                      {suggestion.reason ? (
+                        <p className="mt-2 max-h-20 overflow-y-auto break-words text-[12px] leading-5 text-txt2">
+                          {suggestion.reason}
+                        </p>
+                      ) : null}
+
+                      <div className="mt-3 flex items-center justify-between gap-2 border-t border-line/50 pt-2.5">
+                        <span
+                          className={cx(
+                            "min-w-0 truncate text-[11px]",
+                            acceptStatus === "error" ? "text-primary" : "text-txt3"
+                          )}
+                        >
+                          {isSaving
+                            ? "본문 링크로 저장 중…"
+                            : isSaved
+                              ? "본문 링크로 저장됨"
+                              : acceptStatus === "error"
+                                ? acceptState.error
+                                : "현재 노트 본문에 링크로 저장할 수 있습니다"}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={isSaving || isSaved}
+                          onClick={() => handleAcceptLinkSuggestion(suggestion)}
+                          className={cx(
+                            "inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-60",
+                            isSaved
+                              ? "bg-txt/10 text-txt"
+                              : "bg-accent text-white hover:bg-accent/90"
+                          )}
+                        >
+                          <Icon name={isSaving ? "refresh" : isSaved ? "check" : "plus"} size={12} className={isSaving ? "animate-spin" : undefined} />
+                          {isSaving ? "저장 중" : isSaved ? "수락됨" : "수락"}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
         </SideCard>
       </div>
 
