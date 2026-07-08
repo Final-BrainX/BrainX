@@ -118,4 +118,9 @@ public class UserController {
     ) {
         return ResponseEntity.ok(ApiResponse.success(userNotificationService.markAsRead(userDetails.getUsername(), notificationId), "알림을 읽음 처리했습니다."));
     }
+
+    @PostMapping("/notifications/read-all")
+    public ResponseEntity<ApiResponse<NotificationsResponse>> markAllNotificationsRead(@AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(ApiResponse.success(userNotificationService.markAllAsRead(userDetails.getUsername()), "모든 알림을 읽음 처리했습니다."));
+    }
 }

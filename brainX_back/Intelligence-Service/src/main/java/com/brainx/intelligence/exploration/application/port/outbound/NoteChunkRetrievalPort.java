@@ -5,7 +5,6 @@ import java.util.List;
 import com.brainx.intelligence.exploration.domain.ExplorationDomainException;
 import com.brainx.intelligence.exploration.domain.NoteChunkSearchResult;
 import com.brainx.intelligence.exploration.domain.SearchScope;
-import com.brainx.intelligence.shared.domain.DocumentGroups;
 
 public interface NoteChunkRetrievalPort {
 
@@ -26,14 +25,10 @@ public interface NoteChunkRetrievalPort {
             this(userId, SearchScope.DOCUMENT_GROUP, documentGroupId, queryText, topK);
         }
 
-        public NoteChunkSearchQuery(String userId, String queryText, int topK) {
-            this(userId, SearchScope.DOCUMENT_GROUP, DocumentGroups.DEFAULT_DOCUMENT_GROUP_ID, queryText, topK);
-        }
-
         public NoteChunkSearchQuery {
             userId = requireText(userId, "userId");
             scope = scope == null ? SearchScope.DOCUMENT_GROUP : scope;
-            documentGroupId = scope == SearchScope.USER ? null : DocumentGroups.normalize(documentGroupId);
+            documentGroupId = scope == SearchScope.USER ? null : requireText(documentGroupId, "documentGroupId");
             queryText = requireText(queryText, "queryText");
             topK = normalizeTopK(topK);
         }

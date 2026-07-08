@@ -116,6 +116,9 @@ brainx:
   repair:
     legacy-default-document-group-vectors:
       enabled: ${BRAINX_REPAIR_LEGACY_DEFAULT_DOCUMENT_GROUP_VECTORS_ENABLED:false}
+    legacy-default-document-group-backfill:
+      enabled: ${BRAINX_REPAIR_LEGACY_DEFAULT_DOCUMENT_GROUP_BACKFILL_ENABLED:false}
+      batch-size: ${BRAINX_REPAIR_LEGACY_DEFAULT_DOCUMENT_GROUP_BACKFILL_BATCH_SIZE:200}
   chat:
     title:
       enabled: ${BRAINX_CHAT_TITLE_ENABLED:true}

@@ -500,7 +500,8 @@ public class WorkspaceService {
         Folder folder = new Folder(Ids.folder(), userId, documentGroupId, name, request.parentFolderId(), now);
         folderRepository.save(folder);
         eventPublisher.publish("FolderCreated", userId, payload(
-                "folderId", folder.getFolderId(), "userId", userId, "name", folder.getName(), "parentFolderId", folder.getParentFolderId()
+                "folderId", folder.getFolderId(), "userId", userId, "documentGroupId", folder.getDocumentGroupId(),
+                "name", folder.getName(), "parentFolderId", folder.getParentFolderId()
         ));
         return folderData(folder);
     }
@@ -532,7 +533,8 @@ public class WorkspaceService {
         String finalName = dedupeFolderName(userId, folder.getDocumentGroupId(), targetParentFolderId, desiredName, folderId);
         folder.patch(finalName, request.parentFolderId(), Instant.now());
         eventPublisher.publish("FolderChanged", userId, payload(
-                "folderId", folderId, "userId", userId, "name", folder.getName(), "parentFolderId", request.parentFolderId()
+                "folderId", folderId, "userId", userId, "documentGroupId", folder.getDocumentGroupId(),
+                "name", folder.getName(), "parentFolderId", request.parentFolderId()
         ));
         return folderData(folder);
     }
@@ -545,7 +547,7 @@ public class WorkspaceService {
         if (!"trash".equalsIgnoreCase(mode) && !"permanent".equalsIgnoreCase(mode)) {
             throw new WorkspaceException(HttpStatus.BAD_REQUEST, "INVALID_DELETE_MODE", "Delete mode must be trash or permanent.");
         }
-        folder(userId, folderId);
+        Folder folder = folder(userId, folderId);
         Set<String> folderIds = collectDescendantFolderIds(userId, folderId);
         List<Note> notes = noteRepository.findByUserIdAndFolderIdIn(userId, folderIds);
         Instant now = Instant.now();
@@ -558,6 +560,7 @@ public class WorkspaceService {
         List<String> noteIds = notes.stream().map(Note::getNoteId).toList();
         eventPublisher.publish("FolderDeleted", userId, payload(
                 "userId", userId,
+                "documentGroupId", folder.getDocumentGroupId(),
                 "folderIds", List.copyOf(folderIds),
                 "mode", mode,
                 "noteIds", noteIds
@@ -600,7 +603,12 @@ public class WorkspaceService {
     public NoteTagsData putTags(String userId, String noteId, NoteTagsPutRequest request) {
         Note note = note(userId, noteId);
         note.replaceTags(request.tagNames(), Instant.now());
-        eventPublisher.publish("NoteTagsChanged", userId, Map.of("noteId", noteId, "userId", userId, "tags", note.getTags()));
+        eventPublisher.publish("NoteTagsChanged", userId, payload(
+                "noteId", noteId,
+                "userId", userId,
+                "documentGroupId", note.getDocumentGroupId(),
+                "tags", note.getTags()
+        ));
         return new NoteTagsData(noteId, note.getTags());
     }
 
@@ -731,6 +739,7 @@ public class WorkspaceService {
                 "id", note.getNoteId(),
                 "noteId", note.getNoteId(),
                 "title", note.getTitle(),
+                "documentGroupId", note.getDocumentGroupId(),
                 "tags", new ArrayList<>(note.getTags()),
                 "folderId", note.getFolderId()
         )).toList();

@@ -73,7 +73,7 @@ class ClusteringControllerTest {
             .andExpect(status().isAccepted())
             .andExpect(jsonPath("$.success").value(true))
             .andExpect(jsonPath("$.data.clusterJobId").value("job-1"))
-            .andExpect(jsonPath("$.data.documentGroupId").value("default"))
+            .andExpect(jsonPath("$.data.documentGroupId").value("group-1"))
             .andExpect(jsonPath("$.data.status").value("COMPLETED"))
             .andExpect(jsonPath("$.data.createdAt").value("2026-06-26T00:00:00Z"))
             .andExpect(jsonPath("$.data.completedAt").value("2026-06-26T00:00:01Z"))
@@ -139,9 +139,10 @@ class ClusteringControllerTest {
             ClusterJobLatestState.FAILED
         )) {
             when(getLatestClusterJobUseCase.getLatestClusterJob(any(GetLatestClusterJobQuery.class)))
-                .thenReturn(new LatestClusterJob("default", 0, null, state, null));
+                .thenReturn(new LatestClusterJob("group-1", 0, null, state, null));
 
             mockMvc.perform(get("/api/v1/ai/clusters/latest")
+                    .queryParam("documentGroupId", "group-1")
                     .with(user("user-1")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.state").value(state.name()))
@@ -209,9 +210,9 @@ class ClusteringControllerTest {
         return new ClusterJob(
             id,
             "user-1",
-            "default",
+            "group-1",
             status,
-            Map.of("documentGroupId", "default"),
+            Map.of("documentGroupId", "group-1"),
             Map.of("maxClusters", 3),
             List.of(new Cluster("cluster-1", "Backend", "summary", List.of("note-1"), List.of("Spring"), 0.9d)),
             "gpt-test",

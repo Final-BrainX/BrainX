@@ -11,6 +11,7 @@ public interface CreateFolderOrganizationProposalUseCase {
 
     record FolderOrganizationProposalCommand(
         String userId,
+        String documentGroupId,
         String scope,
         String folderId
     ) {

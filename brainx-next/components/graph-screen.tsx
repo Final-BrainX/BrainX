@@ -12,6 +12,7 @@ import {
   AI_CLUSTER_MAX_CLUSTERS,
   AI_CLUSTER_MAX_NOTES,
   AI_CLUSTER_MIN_NOTES,
+  applyDerivedClustersToNotes,
   applyAiClustersToNotes,
   deriveNoteClusterMeta,
   isAiFeatureReadyNote,
@@ -1556,7 +1557,11 @@ function GraphScreenInner() {
     () => aiClusterPanelEnabled ? applyAiClustersToNotes(rawNotes, clusterLatest) : { notes: rawNotes, clusters: null },
     [aiClusterPanelEnabled, clusterLatest, rawNotes]
   );
-  const notes = aiClusterProjection.notes;
+  const graphClusterProjection = useMemo(
+    () => aiClusterProjection.clusters ? aiClusterProjection : applyDerivedClustersToNotes(aiClusterProjection.notes),
+    [aiClusterProjection]
+  );
+  const notes = graphClusterProjection.notes;
   // liveEdges가 없으면(게스트, 또는 서버 그래프 자체를 안 쓰는 경로) 지금까지와 동일하게 전부
   // markdown/제목 기반으로 파생한다. liveEdges가 있으면(로그인, 서버 projection) 그 값을 그대로
   // 신뢰하되, 방금 위키링크로 새로 연결한 노트처럼 서버 NoteLink 생성/재조회가 아직 따라오지
@@ -1608,9 +1613,9 @@ function GraphScreenInner() {
     return optimisticEdges.length > 0 ? [...base, ...optimisticEdges] : base;
   }, [liveEdges, notes]);
   const dynamicClusters = useMemo(() => {
-    if (aiClusterProjection.clusters) return aiClusterProjection.clusters;
+    if (graphClusterProjection.clusters) return graphClusterProjection.clusters;
     return deriveNoteClusterMeta(notes);
-  }, [aiClusterProjection.clusters, notes]);
+  }, [graphClusterProjection.clusters, notes]);
   const clusterMetaById = useMemo(() => {
     const values = new Map<string, GraphClusterMeta>();
     for (const cluster of dynamicClusters) {
@@ -1658,6 +1663,7 @@ function GraphScreenInner() {
     bridgeSelectedIds.length === bridgeSelectAllIds.length &&
     bridgeSelectAllIds.every((id) => bridgeSelectedIds.includes(id));
   const canCreateBridgeConcepts =
+    !!currentWorkspaceId &&
     bridgeSelectedIds.length >= BRIDGE_MIN_NOTE_COUNT &&
     bridgeSelectedIds.length <= BRIDGE_MAX_NOTE_COUNT &&
     bridgeSelectedReady &&
@@ -1682,6 +1688,7 @@ function GraphScreenInner() {
     linkSelectedIds.length === linkSelectAllIds.length &&
     linkSelectAllIds.every((id) => linkSelectedIds.includes(id));
   const canCreateLinkSuggestions =
+    !!currentWorkspaceId &&
     linkSelectedIds.length >= LINK_MIN_NOTE_COUNT &&
     linkSelectedIds.length <= LINK_MAX_NOTE_COUNT &&
     linkSelectedReady &&
@@ -1807,7 +1814,7 @@ function GraphScreenInner() {
       try {
         const graph = await getGraph();
         if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
-        const graphNotes = await mergeNoteIndexStatuses(graphToBrainXNotes(graph));
+        const graphNotes = await mergeNoteIndexStatuses(graphToBrainXNotes(graph), currentWorkspaceId);
         if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
         const serverNoteIds = new Set(graphNotes.map((note) => note.id));
         const optimisticNotes = Object.values(optimisticGraphNotesRef.current).filter((note) => {
@@ -1818,9 +1825,9 @@ function GraphScreenInner() {
           }
           return true;
         });
-        // GraphNodeData(=/api/v1/graph 응답)에는 documentGroupId가 없어 그래프 자체로는 Workspace를
-        // 판정할 수 없다 — mockNotes(useBrainX(), 실제로는 Notes API로 이미 documentGroupId까지
-        // 불러온 전역 노트 목록)와 noteId로 대조해 현재 Workspace 소속만 남긴다. optimisticNotes는
+        // GraphNodeData(=/api/v1/graph 응답)는 documentGroupId를 포함한다. 예전 응답/캐시처럼
+        // 값이 비어 있을 수 있는 경우만 mockNotes(useBrainX(), 실제로는 Notes API로 이미
+        // documentGroupId까지 불러온 전역 노트 목록)와 noteId로 보정한다. optimisticNotes는
         // sessionStorage에 생성 당시 documentGroupId를 함께 보존해 두고, 같은 기준으로 현재
         // Workspace와 일치하는 것만 merge한다. 그래야 Workspace A에서 막 만든 노트가 projection
         // 반영 전에 Workspace B graph로 잠깐 섞이는 회귀를 막을 수 있다.
@@ -1829,7 +1836,7 @@ function GraphScreenInner() {
           matchesWorkspaceScope(note.documentGroupId ?? null, currentWorkspaceId, workspaces)
         );
         const scopedGraphNotes = graphNotes.filter((note) => {
-          const knownDocGroupId = docGroupByNoteId.get(note.id);
+          const knownDocGroupId = note.documentGroupId ?? docGroupByNoteId.get(note.id);
           // mockNotes(useBrainX(), 별도로 비동기 로드되는 전역 노트 목록)가 이 그래프 응답의
           // 노트를 아직 못 따라온 순간에는 documentGroupId를 모른다 — null(레거시/미배정)로
           // 단정해 배제하면, 실제로는 현재 Workspace 소속인 노트가 두 소스의 로딩 타이밍 차이
@@ -2106,7 +2113,7 @@ function GraphScreenInner() {
   };
 
   const handleCreateBridgeConcepts = async () => {
-    if (!canCreateBridgeConcepts) return;
+    if (!canCreateBridgeConcepts || !currentWorkspaceId) return;
     const session = readAuthSession();
     const hasRealLogin = !!session?.accessToken && !isDevAuthSession(session);
     if (!hasRealLogin) {
@@ -2118,7 +2125,10 @@ function GraphScreenInner() {
     setBridgeError(null);
     setBridgeSaveStates({});
     try {
-      const result = await createBridgeConcepts({ noteIds: bridgeSelectedIds.map(resolveAiRequestNoteId) });
+      const result = await createBridgeConcepts({
+        documentGroupId: currentWorkspaceId,
+        noteIds: bridgeSelectedIds.map(resolveAiRequestNoteId)
+      });
       setBridgeRecommendations(result.recommendations);
       setBridgeStatus("success");
       if (result.recommendations.length > 0) {
@@ -2132,7 +2142,7 @@ function GraphScreenInner() {
   };
 
   const handleCreateLinkSuggestions = async () => {
-    if (!canCreateLinkSuggestions) return;
+    if (!canCreateLinkSuggestions || !currentWorkspaceId) return;
     const session = readAuthSession();
     if (!session?.accessToken) {
       pushToast("회원가입/로그인 하고 이어서 작업할 수 있어요.", "info");
@@ -2154,7 +2164,10 @@ function GraphScreenInner() {
         const sourceNote = notes.find((note) => note.id === sourceNoteId);
         if (!sourceNote) continue;
         setLinkProgress({ current: index + 1, total: linkSelectedIds.length });
-        const result = await createLinkSuggestions({ noteId: resolveAiRequestNoteId(sourceNoteId) });
+        const result = await createLinkSuggestions({
+          documentGroupId: currentWorkspaceId,
+          noteId: resolveAiRequestNoteId(sourceNoteId)
+        });
         const suggestions = filterLinkSuggestions(sourceNoteId, result.suggestions, notes, edges);
         if (suggestions.length > 0) {
           groups.push({

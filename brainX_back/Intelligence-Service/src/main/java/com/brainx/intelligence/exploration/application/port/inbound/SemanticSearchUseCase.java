@@ -7,7 +7,6 @@ import com.brainx.intelligence.exploration.domain.ExplorationDomainException;
 import com.brainx.intelligence.exploration.domain.SearchMatchType;
 import com.brainx.intelligence.exploration.domain.SearchMode;
 import com.brainx.intelligence.exploration.domain.SearchScope;
-import com.brainx.intelligence.shared.domain.DocumentGroups;
 
 public interface SemanticSearchUseCase {
 
@@ -65,8 +64,15 @@ public interface SemanticSearchUseCase {
                 }
                 documentGroupId = null;
             } else {
-                documentGroupId = DocumentGroups.normalize(documentGroupId);
+                documentGroupId = requireText(documentGroupId, "documentGroupId");
             }
+        }
+
+        private static String requireText(String value, String name) {
+            if (value == null || value.isBlank()) {
+                throw new ExplorationDomainException(name + " must not be blank.");
+            }
+            return value.trim();
         }
     }
 

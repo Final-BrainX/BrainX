@@ -65,6 +65,7 @@ class ConnectionControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
+                      "documentGroupId": "group-1",
                       "noteId": "note-1"
                     }
                     """))
@@ -80,7 +81,9 @@ class ConnectionControllerTest {
             .andExpect(jsonPath("$.data.suggestions[0].anchorEndOffset").value(23));
 
         verify(createLinkSuggestionsUseCase).createLinkSuggestions(argThat(command ->
-            command.userId().equals("user-1") && command.noteId().equals("note-1")
+            command.userId().equals("user-1")
+                && command.documentGroupId().equals("group-1")
+                && command.noteId().equals("note-1")
         ));
     }
 
@@ -104,6 +107,7 @@ class ConnectionControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
+                      "documentGroupId": "group-1",
                       "noteId": ""
                     }
                     """))
@@ -121,6 +125,7 @@ class ConnectionControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
+                      "documentGroupId": "group-1",
                       "noteId": "missing"
                     }
                     """))
@@ -138,6 +143,7 @@ class ConnectionControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
+                      "documentGroupId": "group-1",
                       "noteId": "note-1"
                     }
                     """))
@@ -155,6 +161,7 @@ class ConnectionControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
+                      "documentGroupId": "group-1",
                       "noteId": "note-1"
                     }
                     """))
@@ -176,6 +183,7 @@ class ConnectionControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
+                      "documentGroupId": "group-1",
                       "noteIds": ["note-1", "note-2"]
                     }
                     """))
@@ -186,7 +194,9 @@ class ConnectionControllerTest {
             .andExpect(jsonPath("$.data.recommendations[0].bridgeReason").value("Java와 Database 노트를 이어준다."));
 
         verify(createBridgeConceptsUseCase).createBridgeConcepts(argThat(command ->
-            command.userId().equals("user-1") && command.noteIds().equals(List.of("note-1", "note-2"))
+            command.userId().equals("user-1")
+                && command.documentGroupId().equals("group-1")
+                && command.noteIds().equals(List.of("note-1", "note-2"))
         ));
     }
 
@@ -210,6 +220,7 @@ class ConnectionControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
+                      "documentGroupId": "group-1",
                       "noteIds": ["note-1", ""]
                     }
                     """))
@@ -221,6 +232,7 @@ class ConnectionControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
+                      "documentGroupId": "group-1",
                       "noteIds": ["note-1"]
                     }
                     """))
@@ -238,6 +250,7 @@ class ConnectionControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
+                      "documentGroupId": "group-1",
                       "noteIds": ["note-1", "missing"]
                     }
                     """))
@@ -255,6 +268,7 @@ class ConnectionControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
+                      "documentGroupId": "group-1",
                       "noteIds": ["note-1", "note-2"]
                     }
                     """))

@@ -27,4 +27,6 @@ public interface NoteProjectionStore {
     List<NoteProjection> findIndexRetryCandidates(Instant now, int limit);
 
     NoteProjection save(NoteProjection projection);
+
+    void deleteByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId);
 }

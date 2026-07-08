@@ -409,6 +409,13 @@ class SampleRagServiceTest {
             saved.add(projection);
             return projection;
         }
+
+        @Override
+        public void deleteByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId) {
+            saved.removeIf(projection -> projection.userId().equals(userId)
+                && projection.documentGroupId().equals(documentGroupId)
+                && projection.noteId().equals(noteId));
+        }
     }
 
     private static final class FakeSearchIndex implements NoteSearchIndexPort {

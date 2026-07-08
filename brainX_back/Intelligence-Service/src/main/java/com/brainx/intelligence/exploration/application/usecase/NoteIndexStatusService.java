@@ -12,7 +12,6 @@ import com.brainx.intelligence.exploration.application.port.inbound.GetNoteIndex
 import com.brainx.intelligence.exploration.application.port.outbound.NoteIndexStatusPort;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteIndexStatusPort.NoteIndexStatusProjection;
 import com.brainx.intelligence.exploration.domain.ExplorationDomainException;
-import com.brainx.intelligence.shared.domain.DocumentGroups;
 
 @Service
 public class NoteIndexStatusService implements GetNoteIndexStatusesUseCase {
@@ -29,7 +28,7 @@ public class NoteIndexStatusService implements GetNoteIndexStatusesUseCase {
     @Override
     public NoteIndexStatusesResponse getNoteIndexStatuses(NoteIndexStatusesCommand command) {
         String userId = requireText(command.userId(), "userId");
-        String documentGroupId = DocumentGroups.normalize(command.documentGroupId());
+        String documentGroupId = requireText(command.documentGroupId(), "documentGroupId");
         List<String> noteIds = normalizeNoteIds(command.noteIds());
         Map<String, NoteIndexStatusProjection> projectionsById = noteIndexStatusPort.findNoteIndexStatuses(
                 userId,

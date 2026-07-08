@@ -34,24 +34,29 @@ export async function mergeNoteIndexStatuses(
   documentGroupId?: string | null
 ): Promise<BrainXNote[]> {
   const baseNotes = notes.map(withUnknownNoteIndexStatus);
-  const aiSourceNoteIds = Array.from(
-    new Set(
-      baseNotes
-        .map((note) => note.aiSourceNoteId?.trim() || "")
-        .filter((noteId) => noteId.length > 0)
-    )
-  );
-  if (aiSourceNoteIds.length === 0) return baseNotes;
+  const noteIdsByDocumentGroup = new Map<string, string[]>();
+  for (const note of baseNotes) {
+    const aiSourceNoteId = note.aiSourceNoteId?.trim();
+    if (!aiSourceNoteId) continue;
+    const noteDocumentGroupId = (documentGroupId ?? note.documentGroupId)?.trim();
+    if (!noteDocumentGroupId) continue;
+    const noteIds = noteIdsByDocumentGroup.get(noteDocumentGroupId) ?? [];
+    if (!noteIds.includes(aiSourceNoteId)) noteIds.push(aiSourceNoteId);
+    noteIdsByDocumentGroup.set(noteDocumentGroupId, noteIds);
+  }
+  if (noteIdsByDocumentGroup.size === 0) return baseNotes;
 
   try {
     const statusEntries: NoteIndexStatusesData["notes"] = [];
-    for (let index = 0; index < aiSourceNoteIds.length; index += NOTE_INDEX_STATUS_BATCH_SIZE) {
-      const batchIds = aiSourceNoteIds.slice(index, index + NOTE_INDEX_STATUS_BATCH_SIZE);
-      const result = await getNoteIndexStatuses({
-        ...(documentGroupId ? { documentGroupId } : {}),
-        noteIds: batchIds
-      });
-      statusEntries.push(...result.notes);
+    for (const [targetDocumentGroupId, aiSourceNoteIds] of noteIdsByDocumentGroup) {
+      for (let index = 0; index < aiSourceNoteIds.length; index += NOTE_INDEX_STATUS_BATCH_SIZE) {
+        const batchIds = aiSourceNoteIds.slice(index, index + NOTE_INDEX_STATUS_BATCH_SIZE);
+        const result = await getNoteIndexStatuses({
+          documentGroupId: targetDocumentGroupId,
+          noteIds: batchIds
+        });
+        statusEntries.push(...result.notes);
+      }
     }
     const statusesById = new Map(statusEntries.map((note) => [note.noteId, note]));
     return baseNotes.map((note) => {

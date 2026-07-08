@@ -43,6 +43,7 @@ public class ConnectionController {
     ) {
         var result = createLinkSuggestionsUseCase.createLinkSuggestions(new LinkSuggestionsCommand(
             userId(principal),
+            request.documentGroupId(),
             request.noteId()
         ));
 
@@ -70,6 +71,7 @@ public class ConnectionController {
     ) {
         var result = createBridgeConceptsUseCase.createBridgeConcepts(new BridgeConceptsCommand(
             userId(principal),
+            request.documentGroupId(),
             request.noteIds()
         ));
 
@@ -97,6 +99,7 @@ public class ConnectionController {
     }
 
     record LinkSuggestionsRequest(
+        @NotBlank String documentGroupId,
         @NotBlank String noteId
     ) {
     }
@@ -120,6 +123,7 @@ public class ConnectionController {
     }
 
     record BridgeConceptsRequest(
+        @NotBlank String documentGroupId,
         @NotEmpty @Size(min = 2, max = 10) List<@NotBlank String> noteIds
     ) {
     }

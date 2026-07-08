@@ -24,6 +24,7 @@ export type BrainXNote = {
   indexStatusUnavailable?: boolean;
   folderId: ClusterId;
   cluster: ClusterId;
+  clusterSource?: "explicit" | "fallback";
   summary: string;
   tags: string[];
   links: string[];

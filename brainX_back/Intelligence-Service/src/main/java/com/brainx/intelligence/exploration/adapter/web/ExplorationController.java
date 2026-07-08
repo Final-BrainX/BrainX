@@ -190,7 +190,7 @@ public class ExplorationController {
     }
 
     record NoteIndexStatusesRequest(
-        String documentGroupId,
+        @NotBlank String documentGroupId,
         @NotEmpty @Size(max = 200) List<@NotBlank String> noteIds
     ) {
     }

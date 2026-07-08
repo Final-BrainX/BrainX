@@ -10,7 +10,6 @@ import com.brainx.intelligence.exploration.application.port.outbound.NoteSummary
 import com.brainx.intelligence.infrastructure.events.consumer.BrainxEventHandler;
 import com.brainx.intelligence.infrastructure.events.consumer.EventProcessingContext;
 import com.brainx.intelligence.infrastructure.events.consumer.EventProcessingException;
-import com.brainx.intelligence.shared.domain.DocumentGroups;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -73,7 +72,7 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
         requireText(payload.noteId(), "noteId");
         requireText(payload.userId(), "userId");
         requireText(payload.title(), "title");
-        String documentGroupId = DocumentGroups.normalize(payload.documentGroupId());
+        String documentGroupId = requireText(payload.documentGroupId(), "documentGroupId");
         int version = requireVersion(payload.version());
 
         var existing = noteProjectionStore.findByUserIdAndDocumentGroupIdAndNoteId(
@@ -120,7 +119,7 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
         NoteContentSavedPayload payload = readPayload(context, NoteContentSavedPayload.class);
         requireText(payload.noteId(), "noteId");
         requireText(payload.userId(), "userId");
-        String documentGroupId = DocumentGroups.normalize(payload.documentGroupId());
+        String documentGroupId = requireText(payload.documentGroupId(), "documentGroupId");
         int version = requireVersion(payload.version());
         requireText(payload.markdownHash(), "markdownHash");
 
@@ -162,7 +161,7 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
         JsonNode payload = context.payload();
         String noteId = requireText(text(payload, "noteId"), "noteId");
         String userId = requireText(text(payload, "userId"), "userId");
-        String documentGroupId = DocumentGroups.normalize(text(payload, "documentGroupId"));
+        String documentGroupId = requireText(text(payload, "documentGroupId"), "documentGroupId");
         int version = requireVersion(integer(payload, "version"));
 
         NoteProjection base = noteProjectionStore.findByUserIdAndDocumentGroupIdAndNoteId(userId, documentGroupId, noteId)
@@ -213,7 +212,7 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
         NoteTagsChangedPayload payload = readPayload(context, NoteTagsChangedPayload.class);
         requireText(payload.noteId(), "noteId");
         requireText(payload.userId(), "userId");
-        String documentGroupId = DocumentGroups.normalize(payload.documentGroupId());
+        String documentGroupId = requireText(payload.documentGroupId(), "documentGroupId");
 
         NoteProjection base = noteProjectionStore.findByUserIdAndDocumentGroupIdAndNoteId(
                 payload.userId(),
@@ -247,7 +246,7 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
         NoteStatePayload payload = readPayload(context, NoteStatePayload.class);
         requireText(payload.noteId(), "noteId");
         requireText(payload.userId(), "userId");
-        String documentGroupId = DocumentGroups.normalize(payload.documentGroupId());
+        String documentGroupId = requireText(payload.documentGroupId(), "documentGroupId");
         NoteProjection updated = noteProjectionStore.findByUserIdAndDocumentGroupIdAndNoteId(
                 payload.userId(),
                 documentGroupId,
@@ -263,7 +262,7 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
         NoteStatePayload payload = readPayload(context, NoteStatePayload.class);
         requireText(payload.noteId(), "noteId");
         requireText(payload.userId(), "userId");
-        String documentGroupId = DocumentGroups.normalize(payload.documentGroupId());
+        String documentGroupId = requireText(payload.documentGroupId(), "documentGroupId");
         NoteProjection updated = noteProjectionStore.findByUserIdAndDocumentGroupIdAndNoteId(
                 payload.userId(),
                 documentGroupId,

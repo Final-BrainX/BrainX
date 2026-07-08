@@ -223,6 +223,10 @@ function demoUserResponse<T>(path: string, init?: RequestInit): T {
     } as T;
   }
 
+  if (path === "/api/v1/users/me/notifications/read-all" && method === "POST") {
+    return { notifications: [], unreadCount: 0 } as T;
+  }
+
   if (path.startsWith("/api/v1/users/me/notifications/") && path.endsWith("/read") && method === "POST") {
     const notificationId = path.split("/")[5] ?? "ntf_demo_1";
     return {
@@ -324,6 +328,12 @@ export async function getMyNotifications() {
 
 export async function markMyNotificationRead(notificationId: string) {
   return authedRequest<MyNotification>(`/api/v1/users/me/notifications/${notificationId}/read`, {
+    method: "POST"
+  });
+}
+
+export async function markAllMyNotificationsRead() {
+  return authedRequest<MyNotificationsResponse>("/api/v1/users/me/notifications/read-all", {
     method: "POST"
   });
 }

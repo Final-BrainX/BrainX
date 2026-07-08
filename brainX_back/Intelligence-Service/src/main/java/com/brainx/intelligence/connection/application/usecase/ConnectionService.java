@@ -48,7 +48,6 @@ import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTok
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort.EntitlementRequest;
 import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
-import com.brainx.intelligence.shared.domain.DocumentGroups;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -112,7 +111,7 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
     public LinkSuggestionsResult createLinkSuggestions(LinkSuggestionsCommand command) {
         String userId = requireText(command.userId(), "userId");
         String noteId = requireText(command.noteId(), "noteId");
-        String documentGroupId = DocumentGroups.DEFAULT_DOCUMENT_GROUP_ID;
+        String documentGroupId = requireText(command.documentGroupId(), "documentGroupId");
 
         noteSourcePort.findLinkSuggestionSourceNote(userId, documentGroupId, noteId)
             .orElseThrow(() -> new ConnectionNotFoundException("Note is not available for link suggestions: " + noteId));
@@ -163,7 +162,7 @@ public class ConnectionService implements CreateLinkSuggestionsUseCase, CreateBr
     public BridgeConceptsResult createBridgeConcepts(BridgeConceptsCommand command) {
         String userId = requireText(command.userId(), "userId");
         List<String> noteIds = normalizeBridgeNoteIds(command.noteIds());
-        String documentGroupId = DocumentGroups.DEFAULT_DOCUMENT_GROUP_ID;
+        String documentGroupId = requireText(command.documentGroupId(), "documentGroupId");
         List<ConnectionBridgeSourceNote> sourceNotes = bridgeSourceNotes(userId, documentGroupId, noteIds);
         String modelId = resolveBridgeModelId(userId);
         int maxRecommendations = bridgeProperties.getMaxRecommendations();
