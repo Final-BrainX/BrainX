@@ -44,6 +44,7 @@ PATH_RULES: list[tuple[str, set[str]]] = [
     ("brainX_back/Admin-Service/", {"admin-service"}),
     ("brainX_back/Intelligence-Service/", {"intelligence-service"}),
     ("brainX_back/Mcp-Service/", {"mcp-service"}),
+    ("brainx-electron/", {"frontend"}),
     ("brainx-next/", {"frontend"}),
     ("brainx-admin-next/", {"admin-frontend"}),
     ("contracts-v2/", {"intelligence-service", "mcp-service", "frontend"}),
@@ -93,6 +94,7 @@ def main() -> int:
     parser.add_argument("--head", required=True)
     parser.add_argument("--deploy-all", action="store_true")
     parser.add_argument("--force-runtime-refresh", action="store_true")
+    parser.add_argument("--build-desktop-installer", action="store_true")
     parser.add_argument("--services", default="")
     args = parser.parse_args()
 
@@ -104,6 +106,7 @@ def main() -> int:
     requested = [service for service in requested if service]
 
     deploy_config_changed = False
+    desktop_installer_changed = args.build_desktop_installer
     if args.deploy_all:
         services = list(ALL_SERVICES)
         changed_files: list[str] = []
@@ -115,6 +118,8 @@ def main() -> int:
         detected: set[str] = set()
         for path in changed_files:
             detected.update(services_for_path(path))
+            if path.startswith("brainx-electron/"):
+                desktop_installer_changed = True
             if path.startswith(DEPLOY_CONFIG_PREFIXES):
                 deploy_config_changed = True
         services = [service for service in ALL_SERVICES if service in detected]
@@ -127,6 +132,7 @@ def main() -> int:
         "servicesSpace": " ".join(services),
         "shouldDeploy": bool(services or deploy_config_changed or args.force_runtime_refresh),
         "deployConfigChanged": deploy_config_changed or args.deploy_all,
+        "desktopInstallerChanged": desktop_installer_changed,
         "forceRuntimeRefresh": args.force_runtime_refresh,
         "runtimeRefreshServices": RDS_RUNTIME_SERVICES,
         "changedFiles": changed_files,
