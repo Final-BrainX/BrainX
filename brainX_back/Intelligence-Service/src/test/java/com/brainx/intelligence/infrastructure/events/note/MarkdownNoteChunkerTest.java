@@ -64,6 +64,52 @@ class MarkdownNoteChunkerTest {
     }
 
     @Test
+    void stripsHtmlTagsAndEntitiesFromChunkTextAndExcerpt() {
+        MarkdownNoteChunker chunker = new MarkdownNoteChunker(120, 20, 10);
+
+        var chunks = chunker.chunk(
+            "user-1",
+            "note-1",
+            "<span>제주&nbsp;여행</span>",
+            "<p><strong>제주 여행</strong><br>렌터카&nbsp;&amp;&nbsp;우도</p>\n\n&lt;p&gt;비 오는 날&lt;/p&gt;",
+            List.of(),
+            "hash-1",
+            1
+        );
+
+        assertThat(chunks).hasSize(1);
+        assertThat(chunks.getFirst().chunkText())
+            .contains("제주 여행")
+            .contains("렌터카 & 우도")
+            .contains("비 오는 날")
+            .doesNotContain("<span>", "<p>", "</p>", "<strong>", "<br>", "&nbsp;", "&lt;");
+        assertThat(chunks.getFirst().excerpt())
+            .doesNotContain("<span>", "<p>", "</p>", "<strong>", "<br>", "&nbsp;", "&lt;");
+    }
+
+    @Test
+    void preservesAngleBracketTextThatIsNotHtmlTag() {
+        MarkdownNoteChunker chunker = new MarkdownNoteChunker(120, 20, 10);
+
+        var chunks = chunker.chunk(
+            "user-1",
+            "note-1",
+            "Comparison",
+            "A &lt; B &amp; C &gt; D\n\nX < Y & Z > W\n\nx&lt;y&gt;z List&lt;T&gt;\n\nraw x<y>z List<T>",
+            List.of(),
+            "hash-1",
+            1
+        );
+
+        assertThat(chunks).hasSize(1);
+        assertThat(chunks.getFirst().chunkText())
+            .contains("A < B & C > D")
+            .contains("X < Y & Z > W")
+            .contains("x<y>z List<T>")
+            .contains("raw x<y>z List<T>");
+    }
+
+    @Test
     void stopsAtMaxChunkCount() {
         MarkdownNoteChunker chunker = new MarkdownNoteChunker(40, 5, 2);
 

@@ -84,6 +84,9 @@ export function isMeaningfulEditorContent(value?: string | null) {
   const trimmed = value?.trim() ?? "";
   if (!trimmed) return false;
   const withoutComments = trimmed.replace(/<!--[\s\S]*?-->/g, "");
+  if (/\bdata-(?:image|pdf|ppt|html)-block(?:\s|=|>)/i.test(withoutComments)) {
+    return true;
+  }
   if (/<(?:img|video|audio|iframe|object|embed|canvas|svg|table|hr|input|textarea|select|button)\b/i.test(withoutComments)) {
     return true;
   }

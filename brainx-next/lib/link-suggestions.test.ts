@@ -30,6 +30,20 @@ test("linkSuggestionApplyContent keeps non-text editor nodes before saved markdo
   );
 });
 
+test("linkSuggestionApplyContent keeps custom asset blocks before saved markdown", () => {
+  for (const editorContent of [
+    '<div data-image-block="true" data-asset-id="asset-image" data-file-name="diagram.png"></div>',
+    '<div data-pdf-block="true" data-asset-id="asset-pdf" data-file-name="paper.pdf"></div>',
+    '<div data-ppt-block="true" data-asset-id="asset-ppt" data-file-name="deck.pptx" data-slide-count="3"></div>',
+    '<div data-html-block="true" data-asset-id="asset-html" data-file-name="page.html"></div>',
+  ]) {
+    assert.equal(
+      linkSuggestionApplyContent(editorContent, "saved markdown with target concept", "fallback content"),
+      editorContent
+    );
+  }
+});
+
 test("filterLinkSuggestions excludes already linked targets", () => {
   const result = filterLinkSuggestions(
     "source-1",
