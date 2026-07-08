@@ -313,7 +313,7 @@ spring:
             - id: admin-service
               uri: lb://Admin-Service
               predicates:
-                - Path=/api/v1/admin/**
+                - Path=/api/v1/admin/**,/api/v1/landing/**
               filters:
                 - name: CircuitBreaker
                   args:
@@ -388,6 +388,7 @@ brainx:
         - /api/v1/assets/*/slides/*
         - /api/v1/assets/*/slides/*/video
         - /api/v1/assets/proxy-image
+        - /api/v1/landing/**
         - /api/v1/mcp/**
         - /mcp
         - /mcp/**

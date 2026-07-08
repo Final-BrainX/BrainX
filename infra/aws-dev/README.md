@@ -164,6 +164,8 @@ Security/cost defaults:
 
 If direct browser upload is implemented later, CORS defaults to the configured public/admin domains. Override with `asset_bucket_cors_allowed_origins` when needed.
 
+The same asset bucket also stores the latest Windows desktop installer used by the public frontend download route. The AWS dev deploy workflow uploads the installer to `s3://<asset-bucket>/desktop-installers/latest/BrainX Setup 0.1.0.exe` and then downloads that object into `brainx-next/public/downloads/` before the `frontend` image build. This keeps the installer out of Git while still making the public `/download/windows` route serve the newest packaged app.
+
 ## Runtime Environment And Secrets
 
 Runtime app secrets and service configuration are managed through AWS SSM Parameter Store and EC2 Docker Compose runtime env. Human operation steps and AI agent editing rules are kept in [`runtime-environment.md`](runtime-environment.md).
@@ -174,6 +176,7 @@ Workflow: `.github/workflows/brainx-dev-deploy.yml`
 
 - Push to `main` detects changed paths and builds only affected images. If the change only touches the runtime deployment paths under `infra/aws-dev/deploy/`, `infra/aws-dev/scripts/`, `infra/aws-dev/terraform/`, or the deploy workflow, the pipeline promotes it to a full stack build/deploy so newly introduced images such as `discovery-service` exist before `docker compose up` refreshes the stack.
 - `workflow_dispatch` can deploy all services or a specific service list.
+- `workflow_dispatch` can also force a fresh Windows installer build/upload through `build_desktop_installer=true` before the `frontend` image build runs.
 - Workflow-level concurrency serializes AWS dev deploys with `group: brainx-dev-deploy` and `cancel-in-progress: false`.
 - Image tags:
   - immutable: commit SHA
@@ -197,6 +200,7 @@ Path mapping:
 | `brainX_back/Admin-Service/**` | `admin-service` |
 | `brainX_back/Intelligence-Service/**` | `intelligence-service` |
 | `brainX_back/Mcp-Service/**` | `mcp-service` |
+| `brainx-electron/**` | `frontend` |
 | `brainx-next/**` | `frontend` |
 | `brainx-admin-next/**` | `admin-frontend` |
 | `contracts-v2/**` | `intelligence-service`, `mcp-service`, `frontend` |
@@ -205,3 +209,13 @@ Path mapping:
 For first deployment after adding Mcp-Service, run Terraform apply first so the `brainx-dev-mcp-service` ECR repository exists, then run the workflow manually with `deploy_all=true` so every ECR image exists before partial deployments start.
 
 For first deployment after adding Discovery-Service or any other new backend service, run Terraform apply first so the matching `brainx-dev-<service>` ECR repository and GitHub Actions ECR policy exist before the workflow tries to push the image. If the repo is missing or the policy is stale, the build step will fail with a `403 Forbidden` push error.
+
+For the first deployment after enabling desktop installer sync, run `terraform apply` so the GitHub Actions role gains read/write access to the asset bucket, then execute `BrainX Dev Deploy` once with:
+
+```text
+deploy_all=false
+services=frontend
+build_desktop_installer=true
+```
+
+That bootstrap run uploads the installer to S3, injects it into the `frontend` image build, and ensures the public website starts serving the packaged app download without requiring any installer binary in Git history.
