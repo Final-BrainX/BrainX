@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-service
+  namespace: brainx
+  labels:
+    app: admin-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: admin-service
+  template:
+    metadata:
+      labels:
+        app: admin-service
+    spec:
+      containers:
+        - name: admin-service
+          image: brainx-admin-service:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8085
+              name: http
+          env:
+            - name: SERVER_PORT
+              value: "8085"
+            - name: POSTGRES_HOST
+              value: host.docker.internal
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: ADMIN_DB_NAME
+              value: "brainx_admin"
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: host.docker.internal:9092
+            - name: BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID
+              value: intelligence-service
+            - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+              value: http://discovery-service:8761/eureka/
+            - name: EUREKA_INSTANCE_HOSTNAME
+              value: admin-service
+            - name: GATEWAY_SERVICE_URL
+              value: http://host.docker.internal:8088
+            - name: USER_SERVICE_URL
+              value: http://host.docker.internal:8080
+            - name: COMMERCE_SERVICE_URL
+              value: http://host.docker.internal:8084
+            - name: WORKSPACE_SERVICE_URL
+              value: http://host.docker.internal:8082
+            - name: INGESTION_SERVICE_URL
+              value: http://host.docker.internal:8083
+            - name: INTELLIGENCE_SERVICE_URL
+              value: http://host.docker.internal:8086
+            - name: MCP_SERVICE_URL
+              value: http://host.docker.internal:8087
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-service
+  namespace: brainx
+  labels:
+    app: admin-service
+spec:
+  type: ClusterIP
+  selector:
+    app: admin-service
+  ports:
+    - name: http
+      port: 8085
+      targetPort: http

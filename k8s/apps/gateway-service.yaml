@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-service
+  namespace: brainx
+  labels:
+    app: gateway-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway-service
+  template:
+    metadata:
+      labels:
+        app: gateway-service
+    spec:
+      containers:
+        - name: gateway-service
+          image: brainx-gateway-service:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8088
+              name: http
+          env:
+            - name: SERVER_PORT
+              value: "8088"
+            - name: SERVICE_TOKEN
+              value: "local-service-token"
+            - name: EUREKA_CLIENT_ENABLED
+              value: "false"
+            - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+              value: http://discovery-service:8761/eureka/
+            - name: EUREKA_INSTANCE_HOSTNAME
+              value: gateway-service
+            - name: SPRING_APPLICATION_JSON
+              value: >-
+                {"spring":{"cloud":{"discovery":{"client":{"simple":{"instances":{"User-Service":[{"uri":"http://host.docker.internal:8080"}],"Workspace-Service":[{"uri":"http://host.docker.internal:8082"}],"ingestion-service":[{"uri":"http://host.docker.internal:8083"}],"Commerce-Service":[{"uri":"http://host.docker.internal:8084"}],"Admin-Service":[{"uri":"http://host.docker.internal:8085"}],"intelligence-service":[{"uri":"http://host.docker.internal:8086"}],"mcp-service":[{"uri":"http://host.docker.internal:8087"}]}}}}}}}
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-service
+  namespace: brainx
+  labels:
+    app: gateway-service
+spec:
+  type: ClusterIP
+  selector:
+    app: gateway-service
+  ports:
+    - name: http
+      port: 8088
+      targetPort: http
