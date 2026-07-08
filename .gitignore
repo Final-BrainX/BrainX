@@ -44,6 +44,7 @@ out/
 build/
 dist/
 brainx-electron/release/
+brainx-electron/.app-bundle/
 brainx-next/public/downloads/
 
 # Environment variables
