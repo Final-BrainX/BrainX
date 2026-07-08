@@ -18,6 +18,7 @@ import com.brainx.intelligence.chat.application.port.outbound.ChatPersistencePor
 import com.brainx.intelligence.chat.domain.ChatCitation;
 import com.brainx.intelligence.chat.domain.ChatMessage;
 import com.brainx.intelligence.chat.domain.ChatRole;
+import com.brainx.intelligence.chat.domain.ChatRoute;
 import com.brainx.intelligence.chat.domain.ChatThread;
 import com.brainx.intelligence.chat.domain.ChatThreadStatus;
 import com.brainx.intelligence.chat.domain.ChatTokenUsage;
@@ -117,6 +118,7 @@ class ChatJpaAdapterTest {
                 "USD"
             ),
             null,
+            ChatRoute.COMPOSE,
             Instant.parse("2026-06-23T00:00:02Z")
         ));
         entityManager.flush();
@@ -135,6 +137,49 @@ class ChatJpaAdapterTest {
         assertThat(messages.get(1).webSources().getFirst().url()).isEqualTo("https://example.com/source");
         assertThat(messages.get(1).tokenUsage().inputTokens()).isEqualTo(10);
         assertThat(messages.get(1).tokenUsage().estimatedCost()).isEqualByComparingTo("0.003");
+        assertThat(messages.get(1).route()).isEqualTo(ChatRoute.COMPOSE);
+        assertThat(messages.get(1).savedDraftNoteId()).isNull();
+    }
+
+    @Test
+    void recordSavedDraftNoteIdPersistsOnce() {
+        chatJpaAdapter.saveThread(new ChatThread(
+            "thread-1",
+            "user-1",
+            "group-1",
+            "RAG 질문",
+            "gpt-test",
+            Instant.parse("2026-06-23T00:00:00Z")
+        ));
+        chatJpaAdapter.saveMessage(ChatMessage.assistant(
+            "message-2",
+            "thread-1",
+            "user-1",
+            "# 초안\n\n본문",
+            "gpt-test",
+            List.of(),
+            List.of(),
+            null,
+            null,
+            ChatRoute.NOTE_ACTION,
+            Instant.parse("2026-06-23T00:00:02Z")
+        ));
+        entityManager.flush();
+        entityManager.clear();
+
+        var recorded = chatJpaAdapter.recordSavedDraftNoteId("user-1", "thread-1", "message-2", "note-1")
+            .orElseThrow();
+        entityManager.flush();
+        entityManager.clear();
+        var repeated = chatJpaAdapter.recordSavedDraftNoteId("user-1", "thread-1", "message-2", "note-2")
+            .orElseThrow();
+        var found = chatJpaAdapter.findMessageByUserIdAndThreadIdAndMessageId("user-1", "thread-1", "message-2")
+            .orElseThrow();
+
+        assertThat(recorded.savedDraftNoteId()).isEqualTo("note-1");
+        assertThat(repeated.savedDraftNoteId()).isEqualTo("note-1");
+        assertThat(found.route()).isEqualTo(ChatRoute.NOTE_ACTION);
+        assertThat(found.savedDraftNoteId()).isEqualTo("note-1");
     }
 
     @Test

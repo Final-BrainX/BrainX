@@ -136,6 +136,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai/chat-threads/{threadId}/messages/{messageId}/draft-note": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * AI 채팅 메시지 초안 노트 저장 매핑 기록
+         * @description Workspace 공개 노트 생성이 성공한 뒤, 해당 AI assistant 메시지가 어떤 노트로 저장됐는지 기록한다. 이미 저장된 메시지는 기존 noteId를 반환하고 덮어쓰지 않는다.
+         */
+        put: operations["recordChatMessageDraftNote"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ai/chat-threads/{threadId}": {
         parameters: {
             query?: never;
@@ -1072,6 +1092,9 @@ export interface components {
             clientContext?: components["schemas"]["AiClientContext"];
             modelId: string;
         };
+        ChatDraftNoteRequest: {
+            noteId: string;
+        };
         /** @description Frontend-selected AI context for the current task. The user message and client context are separate so the model can distinguish instructions from source material. */
         AiClientContext: {
             /** @enum {string} */
@@ -1099,6 +1122,8 @@ export interface components {
             /** Format: int32 */
             rank: number;
         };
+        /** @enum {string} */
+        ChatRoute: "NOTE_QA" | "WORKSPACE_SEARCH" | "COMPOSE" | "NOTE_ACTION" | "OUT_OF_SCOPE";
         ChatMessageData: {
             messageId: string;
             threadId: string;
@@ -1120,9 +1145,16 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             llmRunId?: string | null;
+            route?: components["schemas"]["ChatRoute"] | null;
+            savedDraftNoteId?: string | null;
             feedbackRating?: (string & components["schemas"]["LlmFeedbackRating"]) | null;
             /** Format: date-time */
             createdAt: string;
+        };
+        ChatDraftNoteData: {
+            threadId: string;
+            messageId: string;
+            noteId: string;
         };
         ChatThreadDetailData: {
             thread: components["schemas"]["ChatThreadData"];
@@ -1952,6 +1984,89 @@ export interface operations {
             };
             /** @description 권한 없음 */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 서버 내부 오류 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    recordChatMessageDraftNote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: string;
+                messageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatDraftNoteRequest"];
+            };
+        };
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["ChatDraftNoteData"];
+                    };
+                };
+            };
+            /** @description 잘못된 요청 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 인증 필요 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 권한 없음 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 찾을 수 없음 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 초안 노트로 저장할 수 없는 메시지 */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

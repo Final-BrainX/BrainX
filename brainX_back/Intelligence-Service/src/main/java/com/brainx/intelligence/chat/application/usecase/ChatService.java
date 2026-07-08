@@ -25,6 +25,9 @@ import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseC
 import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ChatThreadListPagination;
 import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ChatThreadListResult;
 import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ListChatThreadsQuery;
+import com.brainx.intelligence.chat.application.port.inbound.RecordChatDraftNoteUseCase;
+import com.brainx.intelligence.chat.application.port.inbound.RecordChatDraftNoteUseCase.ChatDraftNoteResult;
+import com.brainx.intelligence.chat.application.port.inbound.RecordChatDraftNoteUseCase.RecordChatDraftNoteCommand;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.ChatStreamEvent;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.SendChatMessageCommand;
@@ -83,7 +86,8 @@ public class ChatService implements
     ListChatThreadsUseCase,
     SendChatMessageUseCase,
     GetChatThreadUseCase,
-    UpdateChatThreadUseCase {
+    UpdateChatThreadUseCase,
+    RecordChatDraftNoteUseCase {
 
     static final String RAG_CHAT_CAPABILITY = "RAG_CHAT";
     static final String RAG_CHAT_FEATURE_ID = "rag-chat";
@@ -281,13 +285,13 @@ public class ChatService implements
         ));
         ChatRoute route = routeDecision.route();
         if (route == ChatRoute.OUT_OF_SCOPE && !routeDecision.requiresWebSearch()) {
-            return Flux.concat(Flux.just(routeEvent(routeDecision)), fixedAnswerStream(thread, userMessage, modelId, OUT_OF_SCOPE_ANSWER));
+            return Flux.concat(Flux.just(routeEvent(routeDecision)), fixedAnswerStream(thread, userMessage, modelId, OUT_OF_SCOPE_ANSWER, route));
         }
         if (requiresNoteContext(route)
             && hasClientContext
             && isRightSidebarContext(command.clientContext())
             && clientContextContentLength(command.clientContext()) < MIN_CLIENT_CONTEXT_CHARS) {
-            return Flux.concat(Flux.just(routeEvent(routeDecision)), fixedAnswerStream(thread, userMessage, modelId, INSUFFICIENT_CONTEXT_ANSWER));
+            return Flux.concat(Flux.just(routeEvent(routeDecision)), fixedAnswerStream(thread, userMessage, modelId, INSUFFICIENT_CONTEXT_ANSWER, route));
         }
         return Flux.concat(
             Flux.just(routeEvent(routeDecision)),
@@ -427,7 +431,7 @@ public class ChatService implements
         if (routeDecision.requiresWebSearch() && !webSearch.available()) {
             return Flux.concat(
                 Flux.just(routeEvent(unavailableWebSearchRouteDecision(routeDecision))),
-                fixedAnswerStream(thread, userMessage, modelId, WEB_SEARCH_UNAVAILABLE_ANSWER)
+                fixedAnswerStream(thread, userMessage, modelId, WEB_SEARCH_UNAVAILABLE_ANSWER, ChatRoute.OUT_OF_SCOPE)
             );
         }
 
@@ -450,7 +454,7 @@ public class ChatService implements
         entitlementGuard.checkRagChat(userId, tokenEstimate);
 
         if (requiresNoteContext(route) && !hasClientContext && contexts.isEmpty() && !webSearch.available()) {
-            return fixedAnswerStream(thread, userMessage, modelId, NO_CONTEXT_ANSWER);
+            return fixedAnswerStream(thread, userMessage, modelId, NO_CONTEXT_ANSWER, route);
         }
         Flux<ChatStreamEvent> answerStream = aiStream(
             thread,
@@ -545,11 +549,37 @@ public class ChatService implements
         return new ChatThreadDeleteResult(thread.threadId(), thread.deletedAt());
     }
 
+    @Override
+    public ChatDraftNoteResult recordChatDraftNote(RecordChatDraftNoteCommand command) {
+        String userId = requireText(command.userId(), "userId");
+        String threadId = requireText(command.threadId(), "threadId");
+        String messageId = requireText(command.messageId(), "messageId");
+        String noteId = requireText(command.noteId(), "noteId");
+        chatPersistencePort.findThreadByUserIdAndThreadId(userId, threadId)
+            .orElseThrow(() -> new ChatNotFoundException("Chat thread not found: " + threadId));
+        ChatMessage message = chatPersistencePort.findMessageByUserIdAndThreadIdAndMessageId(
+                userId,
+                threadId,
+                messageId
+            )
+            .orElseThrow(() -> new ChatNotFoundException("Chat message not found: " + messageId));
+        if (message.role() != ChatRole.ASSISTANT || !isDraftSaveRoute(message.route())) {
+            throw new ChatConflictException("Chat message cannot be saved as a draft note.");
+        }
+        if (StringUtils.hasText(message.savedDraftNoteId())) {
+            return new ChatDraftNoteResult(threadId, messageId, message.savedDraftNoteId());
+        }
+        ChatMessage updated = chatPersistencePort.recordSavedDraftNoteId(userId, threadId, messageId, noteId)
+            .orElseThrow(() -> new ChatNotFoundException("Chat message not found: " + messageId));
+        return new ChatDraftNoteResult(threadId, messageId, updated.savedDraftNoteId());
+    }
+
     private Flux<ChatStreamEvent> fixedAnswerStream(
         ChatThread thread,
         ChatMessage userMessage,
         String modelId,
-        String answer
+        String answer,
+        ChatRoute route
     ) {
         String assistantMessageId = UUID.randomUUID().toString();
         ChatTokenUsage tokenUsage = estimatedUsage(modelId, userMessage.content(), answer);
@@ -559,7 +589,8 @@ public class ChatService implements
             answer,
             modelId,
             List.of(),
-            tokenUsage
+            tokenUsage,
+            route
         );
         publishMessageSideEffects(thread, assistantMessage, tokenUsage);
         return Flux.just(ChatStreamEvent.delta(answer), ChatStreamEvent.done(assistantMessageId));
@@ -647,7 +678,8 @@ public class ChatService implements
                     contexts.stream().map(RagContext::citation).toList(),
                     webSearch.sources(),
                     tokenUsage,
-                    runHandle.llmRunId()
+                    runHandle.llmRunId(),
+                    route
                 );
                 publishMessageSideEffects(thread, assistantMessage, tokenUsage);
                 recordAiStreamUsage(thread.userId(), assistantMessage, tokenUsage);
@@ -666,9 +698,10 @@ public class ChatService implements
         String answer,
         String modelId,
         List<ChatCitation> citations,
-        ChatTokenUsage tokenUsage
+        ChatTokenUsage tokenUsage,
+        ChatRoute route
     ) {
-        return saveAssistantMessage(thread, assistantMessageId, answer, modelId, citations, tokenUsage, null);
+        return saveAssistantMessage(thread, assistantMessageId, answer, modelId, citations, tokenUsage, null, route);
     }
 
     private ChatMessage saveAssistantMessage(
@@ -678,9 +711,10 @@ public class ChatService implements
         String modelId,
         List<ChatCitation> citations,
         ChatTokenUsage tokenUsage,
-        String llmRunId
+        String llmRunId,
+        ChatRoute route
     ) {
-        return saveAssistantMessage(thread, assistantMessageId, answer, modelId, citations, List.of(), tokenUsage, llmRunId);
+        return saveAssistantMessage(thread, assistantMessageId, answer, modelId, citations, List.of(), tokenUsage, llmRunId, route);
     }
 
     private ChatMessage saveAssistantMessage(
@@ -691,7 +725,8 @@ public class ChatService implements
         List<ChatCitation> citations,
         List<ChatWebSource> webSources,
         ChatTokenUsage tokenUsage,
-        String llmRunId
+        String llmRunId,
+        ChatRoute route
     ) {
         return chatPersistencePort.saveMessage(ChatMessage.assistant(
             assistantMessageId,
@@ -703,6 +738,7 @@ public class ChatService implements
             webSources,
             tokenUsage,
             llmRunId,
+            route,
             Instant.now()
         ));
     }
@@ -919,6 +955,10 @@ public class ChatService implements
         return route == ChatRoute.NOTE_QA || route == ChatRoute.WORKSPACE_SEARCH;
     }
 
+    private static boolean isDraftSaveRoute(ChatRoute route) {
+        return route == ChatRoute.COMPOSE || route == ChatRoute.NOTE_ACTION;
+    }
+
     private static String clientContextPrompt(Map<String, Object> clientContext) {
         if (clientContext == null || clientContext.isEmpty()) {
             return "";
@@ -1075,6 +1115,8 @@ public class ChatService implements
         values.put("webSources", message.webSources().stream().map(ChatWebSource::toMap).toList());
         values.put("tokenUsage", message.tokenUsage() == null ? null : message.tokenUsage().toMap());
         values.put("llmRunId", message.llmRunId());
+        values.put("route", message.route() == null ? null : message.route().name());
+        values.put("savedDraftNoteId", message.savedDraftNoteId());
         values.put("feedbackRating", feedbackRating == null ? null : feedbackRating.name());
         values.put("createdAt", message.createdAt());
         return values;

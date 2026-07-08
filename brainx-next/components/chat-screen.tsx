@@ -9,6 +9,7 @@ import {
   getChatThread,
   listAiModels,
   listChatThreads,
+  recordChatMessageDraftNote,
   sendChatMessageStream,
   updateChatThread,
   upsertLlmFeedback,
@@ -65,6 +66,39 @@ const CHAT_SUGGESTIONS = [
   "최근 작성한 노트들의 핵심 흐름을 요약해줘",
   "내 노트 기준으로 다음에 이어 쓸 주제를 추천해줘",
 ];
+
+function draftSaveStatesFromMessages(messages: ChatMessageView[]) {
+  const states: Record<string, DraftNoteSaveState> = {};
+  for (const message of messages) {
+    if (message.savedDraftNoteId) {
+      states[message.id] = {
+        status: "saved",
+        noteId: message.savedDraftNoteId,
+      };
+    }
+  }
+  return states;
+}
+
+function mergeDraftSaveStates(
+  serverStates: Record<string, DraftNoteSaveState>,
+  localStates: Record<string, DraftNoteSaveState>,
+  messages: ChatMessageView[],
+) {
+  const messageIds = new Set(messages.map((message) => message.id));
+  const merged = { ...serverStates };
+  for (const [messageId, state] of Object.entries(localStates)) {
+    if (
+      messageIds.has(messageId) &&
+      state.status === "saved" &&
+      state.noteId &&
+      !merged[messageId]
+    ) {
+      merged[messageId] = state;
+    }
+  }
+  return merged;
+}
 
 function chatStreamPhaseFromEvent(phase?: string): ChatStreamPhase | null {
   if (phase === "ROUTING" || phase === "WEB_SEARCHING" || phase === "ANSWERING") {
@@ -234,9 +268,10 @@ export function ChatScreen() {
     try {
       const detail = await getChatThread(threadId);
       if (detailRequestIdRef.current !== requestId) return;
+      const nextMessages = messagesFromThread(detail);
       setActiveThread(detail.thread);
-      setMessages(messagesFromThread(detail));
-      setDraftSaveStates({});
+      setMessages(nextMessages);
+      setDraftSaveStates(draftSaveStatesFromMessages(nextMessages));
     } catch (error) {
       if (detailRequestIdRef.current !== requestId) return;
       setActiveThreadId(null);
@@ -294,6 +329,13 @@ export function ChatScreen() {
       });
     }
     setMessages(nextMessages);
+    setDraftSaveStates((current) =>
+      mergeDraftSaveStates(
+        draftSaveStatesFromMessages(nextMessages),
+        current,
+        nextMessages,
+      ),
+    );
   }
 
   async function setThreadArchived(
@@ -618,8 +660,18 @@ export function ChatScreen() {
   async function saveAiMessageAsNote(message: ChatMessageView) {
     const currentState = draftSaveStates[message.id];
     if (currentState?.status === "saving") return;
-    if (currentState?.status === "saved" && currentState.noteId) {
-      router.push(`/notes/${currentState.noteId}`);
+    const savedNoteId =
+      currentState?.status === "saved" && currentState.noteId
+        ? currentState.noteId
+        : message.savedDraftNoteId;
+    if (savedNoteId) {
+      router.push(`/notes/${savedNoteId}`);
+      return;
+    }
+
+    const threadId = activeThread?.threadId ?? activeThreadId;
+    if (!threadId) {
+      pushToast("채팅 스레드를 확인하지 못했습니다. 다시 열고 시도해 주세요.", "err");
       return;
     }
 
@@ -641,16 +693,35 @@ export function ChatScreen() {
         tags: CHAT_DRAFT_NOTE_TAGS,
         documentGroupId: currentWorkspaceId ?? undefined,
       });
+      let noteId = created.noteId;
+      let syncFailed = false;
+      try {
+        const recorded = await recordChatMessageDraftNote(threadId, message.id, {
+          noteId: created.noteId,
+        });
+        noteId = recorded.noteId || created.noteId;
+      } catch {
+        syncFailed = true;
+      }
       setDraftSaveStates((current) => ({
         ...current,
-        [message.id]: { status: "saved", noteId: created.noteId },
+        [message.id]: { status: "saved", noteId },
       }));
+      setMessages((current) =>
+        current.map((item) =>
+          item.id === message.id ? { ...item, savedDraftNoteId: noteId } : item,
+        ),
+      );
       window.dispatchEvent(
         new CustomEvent("brainx:notes-refresh", {
           detail: { noteId: created.noteId },
         }),
       );
-      pushToast("AI 초안을 노트로 저장했어요.", "ok");
+      if (syncFailed) {
+        pushToast("노트는 저장됐지만 채팅 저장 상태 동기화에 실패했어요.", "err");
+      } else {
+        pushToast("AI 초안을 노트로 저장했어요.", "ok");
+      }
     } catch (error) {
       setDraftSaveStates((current) => ({
         ...current,

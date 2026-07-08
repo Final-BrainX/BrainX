@@ -36,10 +36,16 @@ export function ChatMessageItem({
   onSubmitFeedback,
   feedbackLoading,
 }: ChatMessageItemProps) {
-  const saveStatus = saveState?.status ?? "idle";
+  const persistedSaveState: DraftNoteSaveState | undefined =
+    message.savedDraftNoteId
+      ? { status: "saved", noteId: message.savedDraftNoteId }
+      : undefined;
+  const effectiveSaveState = saveState ?? persistedSaveState;
+  const saveStatus = effectiveSaveState?.status ?? "idle";
   const isSavingDraft = saveStatus === "saving";
-  const isSavedDraft = saveStatus === "saved" && !!saveState?.noteId;
+  const isSavedDraft = saveStatus === "saved" && !!effectiveSaveState?.noteId;
   const canSaveDraft = canSaveAiMessageDraft(message);
+  const canShowDraftAction = isSavedDraft || canSaveDraft;
   const canSubmitFeedback =
     message.role === "ai" &&
     !message.streaming &&
@@ -184,12 +190,12 @@ export function ChatMessageItem({
           <div
             className={cx(
               "flex w-full flex-wrap items-center gap-2 mt-1",
-              canSaveDraft
+              canShowDraftAction
                 ? "justify-between border-t border-line/50"
                 : "justify-start",
             )}
           >
-            {canSaveDraft ? (
+            {canShowDraftAction ? (
               <span
                 className={cx(
                   "min-w-0 flex-1 truncate text-[12px]",
@@ -201,7 +207,7 @@ export function ChatMessageItem({
                 {isSavedDraft
                   ? "Workspace 노트로 저장됨"
                   : saveStatus === "error"
-                    ? saveState?.error
+                    ? effectiveSaveState?.error
                     : "AI 답변을 새 노트로 저장할 수 있어요"}
               </span>
             ) : null}
@@ -214,7 +220,7 @@ export function ChatMessageItem({
                 />
               ) : null}
               <CopyMessageButton message={message} onCopy={onCopyMessage} />
-              {canSaveDraft ? (
+              {canShowDraftAction ? (
                 <button
                   type="button"
                   disabled={isSavingDraft}
