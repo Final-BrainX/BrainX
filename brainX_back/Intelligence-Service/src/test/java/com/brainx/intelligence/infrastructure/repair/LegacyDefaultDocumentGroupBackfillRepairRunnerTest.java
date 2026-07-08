@@ -11,14 +11,19 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import com.brainx.intelligence.exploration.application.port.outbound.NoteSearchIndexPort;
 import com.brainx.intelligence.exploration.domain.NoteSearchDocument;
@@ -67,7 +72,7 @@ class LegacyDefaultDocumentGroupBackfillRepairRunnerTest {
             argThat(projection -> projection.documentGroupId().equals("dgrp_default_user-1")),
             eq(0),
             any(),
-            argThat(eventId -> eventId.startsWith("legacy-default-document-group-backfill:user-1:note-1:")),
+            eq(repairEventId("user-1", "note-1", "dgrp_default_user-1")),
             eq(true),
             eq(true)
         );
@@ -162,6 +167,43 @@ class LegacyDefaultDocumentGroupBackfillRepairRunnerTest {
         assertThat(fixture.projectionStore.findByUserIdAndDocumentGroupIdAndNoteId("user-1", "default", "note-next")).isEmpty();
     }
 
+    @Test
+    void backfillUsesBoundedDeterministicRepairEventIdForLongIdentifiers() {
+        String userId = "user-" + "u".repeat(90);
+        String noteId = "note-" + "n".repeat(90);
+        String documentGroupId = "dgrp_" + "g".repeat(90);
+        FakeTargetStore targetStore = new FakeTargetStore(List.of(new LegacyDefaultDocumentGroupBackfillTarget(userId, noteId)));
+        TestFixture fixture = TestFixture.enabled(targetStore);
+        fixture.projectionStore.save(indexedProjection(userId, "default", noteId));
+        fixture.workspace.snapshot = new NoteSnapshot(
+            noteId,
+            documentGroupId,
+            "Snapshot title",
+            "Snapshot markdown",
+            List.of(),
+            null,
+            7,
+            Instant.parse("2026-07-08T00:00:00Z")
+        );
+        when(fixture.indexingService.indexFromSnapshot(any(), eq(0), any(), any(), eq(true), eq(true))).thenReturn(true);
+        ArgumentCaptor<String> eventIdCaptor = ArgumentCaptor.forClass(String.class);
+
+        fixture.runner.run(null);
+
+        verify(fixture.indexingService).indexFromSnapshot(
+            any(),
+            eq(0),
+            any(),
+            eventIdCaptor.capture(),
+            eq(true),
+            eq(true)
+        );
+        String eventId = eventIdCaptor.getValue();
+        assertThat(eventId).isEqualTo(repairEventId(userId, noteId, documentGroupId));
+        assertThat(eventId).startsWith("legacy-default-document-group-backfill:");
+        assertThat(eventId).hasSizeLessThanOrEqualTo(160);
+    }
+
     private static NoteProjection indexedProjection(String userId, String documentGroupId, String noteId) {
         return new NoteProjection(
             userId,
@@ -180,6 +222,19 @@ class LegacyDefaultDocumentGroupBackfillRepairRunnerTest {
             "evt-old",
             Instant.parse("2026-07-08T00:00:00Z")
         ).indexed(3, "hash", Instant.parse("2026-07-08T00:00:01Z"));
+    }
+
+    private static String repairEventId(String userId, String noteId, String documentGroupId) {
+        return "legacy-default-document-group-backfill:" + sha256(userId + ":" + noteId + ":" + documentGroupId);
+    }
+
+    private static String sha256(String value) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is not available.", exception);
+        }
     }
 
     private record TestFixture(
