@@ -1712,7 +1712,10 @@ function GraphScreenInner() {
       // 노트 id는 전역적으로 고유하므로, 여기서 만든 항목이 다른 optimistic 기능(예: 그래프
       // 자체의 "징검다리 개념" 생성)의 항목과 같은 id로 충돌할 일은 없다.
       for (const entry of readPendingCreatedNotes()) {
-        optimisticGraphNotesRef.current[entry.noteId] = pendingCreatedNoteToBrainXNote(entry);
+        optimisticGraphNotesRef.current[entry.noteId] = {
+          ...pendingCreatedNoteToBrainXNote(entry),
+          documentGroupId: entry.documentGroupId ?? null,
+        };
       }
 
       if (isDevAuthSession(session)) {
@@ -1780,15 +1783,19 @@ function GraphScreenInner() {
         });
         // GraphNodeData(=/api/v1/graph 응답)에는 documentGroupId가 없어 그래프 자체로는 Workspace를
         // 판정할 수 없다 — mockNotes(useBrainX(), 실제로는 Notes API로 이미 documentGroupId까지
-        // 불러온 전역 노트 목록)와 noteId로 대조해 현재 Workspace 소속만 남긴다. optimisticNotes(방금
-        // 만들어 아직 서버 그래프에 없는 노트)는 이 대조표에 없을 수 있어 필터링하지 않고 그대로
-        // 둔다 — 방금 만든 노트가 순간적으로 사라지는 것이 더 나쁜 회귀다.
+        // 불러온 전역 노트 목록)와 noteId로 대조해 현재 Workspace 소속만 남긴다. optimisticNotes는
+        // sessionStorage에 생성 당시 documentGroupId를 함께 보존해 두고, 같은 기준으로 현재
+        // Workspace와 일치하는 것만 merge한다. 그래야 Workspace A에서 막 만든 노트가 projection
+        // 반영 전에 Workspace B graph로 잠깐 섞이는 회귀를 막을 수 있다.
         const docGroupByNoteId = new Map(mockNotes.map((note) => [note.id, note.documentGroupId ?? null]));
+        const scopedOptimisticNotes = optimisticNotes.filter((note) =>
+          matchesWorkspaceScope(note.documentGroupId ?? null, currentWorkspaceId, workspaces)
+        );
         const scopedGraphNotes = graphNotes.filter((note) =>
           matchesWorkspaceScope(docGroupByNoteId.get(note.id) ?? null, currentWorkspaceId, workspaces)
         );
-        const scopedNoteIds = new Set([...scopedGraphNotes.map((note) => note.id), ...optimisticNotes.map((note) => note.id)]);
-        setLiveNotes(optimisticNotes.length > 0 ? [...optimisticNotes, ...scopedGraphNotes] : scopedGraphNotes);
+        const scopedNoteIds = new Set([...scopedGraphNotes.map((note) => note.id), ...scopedOptimisticNotes.map((note) => note.id)]);
+        setLiveNotes(scopedOptimisticNotes.length > 0 ? [...scopedOptimisticNotes, ...scopedGraphNotes] : scopedGraphNotes);
         setLiveEdges(graphEdgesForFlow(graph).filter((edge) => scopedNoteIds.has(edge.source) && scopedNoteIds.has(edge.target)));
         setGraphDataVersion((version) => version + 1);
       } catch (error) {
