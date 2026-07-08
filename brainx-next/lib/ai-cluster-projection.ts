@@ -18,6 +18,8 @@ type NormalizedAiCluster = AiClusterMeta & {
   noteIds: string[];
 };
 
+const LEGACY_CLUSTER_IDS = new Set(["ml", "read", "proj", "work", "life"]);
+
 export const AI_CLUSTER_MIN_NOTES = 5;
 export const AI_CLUSTER_MAX_NOTES = 50;
 export const AI_CLUSTER_MAX_CLUSTERS = 6;
@@ -57,12 +59,7 @@ export function aiClusterJobUsable(job: ClusterJobData | null | undefined): job 
 export function resolveAiCluster(clusterId: string, clusterMetaById: Map<string, AiClusterMeta>): AiClusterMeta {
   const known = clusterMetaById.get(clusterId);
   if (known) return known;
-  return {
-    id: clusterId,
-    label: "미분류",
-    color: UNASSIGNED_CLUSTER.color,
-    keywords: [],
-  };
+  return UNASSIGNED_CLUSTER;
 }
 
 export function deriveNoteClusterMeta(notes: BrainXNote[]): AiClusterMeta[] {
@@ -81,7 +78,8 @@ export function deriveNoteClusterMeta(notes: BrainXNote[]): AiClusterMeta[] {
   return [...groups.entries()]
     .sort((a, b) => a[1].firstIndex - b[1].firstIndex)
     .map(([id, group], index) => {
-      const label = [...group.tags.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ko"))[0]?.[0] ?? "미분류";
+      const label = [...group.tags.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ko"))[0]?.[0]
+        ?? fallbackClusterLabel(id);
       return {
         id,
         label,
@@ -89,6 +87,16 @@ export function deriveNoteClusterMeta(notes: BrainXNote[]): AiClusterMeta[] {
         keywords: [...group.tags.keys()].slice(0, 6),
       };
     });
+}
+
+export function applyDerivedClustersToNotes(notes: BrainXNote[]) {
+  const normalizedNotes = notes.map((note) => {
+    if (meaningfulTags(note).length > 0) return note;
+    if (note.cluster === UNASSIGNED_CLUSTER_ID && note.folderId === UNASSIGNED_CLUSTER_ID) return note;
+    if (!shouldNormalizeUnlabeledFallbackCluster(note)) return note;
+    return { ...note, cluster: UNASSIGNED_CLUSTER_ID, folderId: UNASSIGNED_CLUSTER_ID };
+  });
+  return { notes: normalizedNotes, clusters: deriveNoteClusterMeta(normalizedNotes) };
 }
 
 export function applyAiClustersToNotes(notes: BrainXNote[], latest: ClusterJobLatestData | null) {
@@ -169,4 +177,19 @@ function stringArrayField(value: unknown) {
   return value
     .map((item) => (typeof item === "string" ? item.trim() : ""))
     .filter(Boolean);
+}
+
+function meaningfulTags(note: BrainXNote) {
+  return note.tags
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+function shouldNormalizeUnlabeledFallbackCluster(note: BrainXNote) {
+  if (note.clusterSource === "explicit") return false;
+  return note.clusterSource === "fallback" || LEGACY_CLUSTER_IDS.has(note.cluster);
+}
+
+function fallbackClusterLabel(clusterId: string) {
+  return clusterId === UNASSIGNED_CLUSTER_ID ? UNASSIGNED_CLUSTER.label : clusterId;
 }

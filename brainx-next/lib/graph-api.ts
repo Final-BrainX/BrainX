@@ -7,6 +7,7 @@ import { requestDesktopApiJson } from "@/lib/desktop-api-request";
 import { getBrainxDesktopConfig, isElectronDesktop } from "@/lib/desktop-bridge";
 import { getDesktopVaultSnapshot } from "@/lib/desktop-vault";
 import { DEV_USER_ID as WORKSPACE_DEV_USER_ID } from "@/lib/dev-user";
+import { UNASSIGNED_CLUSTER_ID } from "@/lib/ai-cluster-projection";
 import { extractWikiLinkTargets, resolveWikiLinkByTitle } from "@/lib/wiki-links";
 import type { NoteDraftData } from "@/lib/workspace-api";
 
@@ -169,7 +170,7 @@ export function graphToBrainXNotes(graph: GraphData): BrainXNote[] {
 
   return graph.nodes.map((node) => {
     const title = node.title?.trim() || "Untitled";
-    const cluster = normalizeClusterId(node.clusterId ?? node.folderId ?? node.noteId);
+    const cluster = graphNodeCluster(node, isDesktopVaultGraph);
     const createdAt = normalizeDate(node.createdAt);
     const updatedAt = normalizeDate(node.updatedAt);
     const aiSourceNoteId = node.aiSourceNoteId ?? (isDesktopVaultGraph ? null : node.noteId);
@@ -179,8 +180,9 @@ export function graphToBrainXNotes(graph: GraphData): BrainXNote[] {
       documentGroupId: node.documentGroupId ?? null,
       title,
       markdown: "",
-      folderId: cluster,
-      cluster,
+      folderId: cluster.id,
+      cluster: cluster.id,
+      clusterSource: cluster.source,
       summary: normalizeSummary(node.summary),
       tags: node.tags ?? [],
       links: Array.from(linksByNoteId.get(node.noteId) ?? []),
@@ -195,6 +197,19 @@ export function graphToBrainXNotes(graph: GraphData): BrainXNote[] {
       version: 1
     };
   });
+}
+
+function graphNodeCluster(
+  node: GraphNodeData,
+  isDesktopVaultGraph: boolean
+): { id: ClusterId; source: NonNullable<BrainXNote["clusterSource"]> } {
+  const clusterId = node.clusterId?.trim();
+  if (clusterId) return { id: clusterId, source: "explicit" };
+  if (isDesktopVaultGraph) {
+    const folderId = node.folderId?.trim();
+    if (folderId) return { id: folderId, source: "fallback" };
+  }
+  return { id: UNASSIGNED_CLUSTER_ID, source: "fallback" };
 }
 
 /** Guest actor의 노트는 Postgres에 없고 Redis draft로만 존재해(CurrentActor GUEST 정책)
