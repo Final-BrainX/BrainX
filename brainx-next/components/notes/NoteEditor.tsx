@@ -34,7 +34,7 @@ import { PdfBlock } from "./PdfBlockNode";
 import { PptBlock } from "./PptBlockNode";
 import { HtmlBlock } from "./HtmlBlockNode";
 import { blockWidthPercent, type BlockWidthMode } from "./BlockControls";
-import { FontSize, FontFamily, FONT_SIZE_PRESETS, FONT_FAMILY_PRESETS } from "./fontExtensions";
+import { FontSize, FontFamily, InlineFontScale, FONT_SIZE_PRESETS, FONT_FAMILY_PRESETS } from "./fontExtensions";
 import { WikiLink, WikiLinkLiveEdit } from "./WikiLinkNode";
 import { DragHandle, startBlockDrag } from "./DragHandleExtension";
 import { WikiLinkSuggestion } from "./WikiLinkSuggestion";
@@ -2305,6 +2305,7 @@ const NOTE_EDITOR_EXTENSIONS = [
   Color,
   FontSize,
   FontFamily,
+  InlineFontScale,
   Highlight.configure({ multicolor: true }),
   CodeBlockLowlight.extend({
     addAttributes() {
@@ -3469,6 +3470,20 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
     if (!editor) return;
     editor.setEditable(mode === "edit");
   }, [editor, mode]);
+
+  /* Ctrl+Wheel pane 줌(fontScale) → BubbleToolbar가 만든 inline font-size mark(<span
+     style="font-size: ...px">)에도 반영. InlineFontScale 확장(fontExtensions.ts)의
+     storage에 현재 배율만 적어두고, 문서를 바꾸지 않는 빈 트랜잭션을 dispatch해 그 확장의
+     decorations()가 최신 storage 값으로 다시 계산되게 한다 — editor.state.tr은 doc/selection을
+     그대로 유지하는 no-op 트랜잭션이라 Tiptap이 onUpdate(자동저장 트리거)를 발생시키지 않는다
+     (docChanged가 false면 onUpdate 자체가 호출되지 않음, @tiptap/core dispatchTransaction 참고).
+     이 storage는 editor.extensionStorage[name]으로 Editor 인스턴스마다(=pane마다) 독립적으로
+     생성되므로, 다른 pane의 fontScale과 서로 섞이지 않는다. */
+  useEffect(() => {
+    if (!editor) return;
+    editor.storage.inlineFontScale.scale = fontScale;
+    editor.view.dispatch(editor.state.tr);
+  }, [editor, fontScale]);
 
   /* 언마운트 시 보류 중인 디바운스 동기화 정리 */
   useEffect(() => {

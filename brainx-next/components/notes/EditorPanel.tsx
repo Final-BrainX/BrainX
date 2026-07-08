@@ -188,22 +188,117 @@ export default function EditorPanel({
      React 19의 onWheel은 루트에 passive 리스너로 등록되어 JSX onWheel 안에서 preventDefault가
      무시된다("Unable to preventDefault inside passive event listener" 경고와 함께 브라우저
      자체 페이지 확대가 같이 동작해버림) — 그래서 ref + addEventListener("wheel", ..., { passive:
-     false })로 직접 등록해야 ctrl+휠일 때 브라우저 기본 확대를 실제로 막을 수 있다. */
+     false })로 직접 등록해야 ctrl+휠일 때 브라우저 기본 확대를 실제로 막을 수 있다.
+
+     이전에는 이벤트마다 그 이벤트 하나만의 delta로 1~5% step을 즉시 계산해 fontScaleRef에
+     더했다 — rAF로 "state 반영"만 프레임당 한 번으로 묶었지만, 한 프레임 안에 도착한
+     이벤트가 여러 개면 그 step들이 그대로 다 더해져 프레임당 변화량 자체는 무제한으로
+     커질 수 있었다(빠르게 굴릴수록 한 프레임에 더 많은 이벤트가 들어와 그만큼 더 큰
+     점프가 발생 → 매 프레임 점프 폭이 들쭉날쭉해 "드드득"거리는 느낌). 지금은 "이벤트의
+     delta"가 아니라 "그 프레임에 아직 반영 안 된 raw px delta 합"을 wheelDeltaRef에 쌓아두고,
+     rAF가 실행되는 시점에 그 누적값 전체를 딱 한 번만 1~5%로 환산·clamp한다 — 그래서 한
+     프레임에 이벤트가 1개든 20개든 그 프레임의 최종 변화 폭은 항상 같은 상한(최대 5%) 안에
+     있고, 이벤트가 아주 작아도(천천히 한 번 굴림) 최소 1%는 보장된다. 방향이 도중에
+     바뀌면(줌인 중 곧바로 줌아웃 등) wheelDirectionRef로 감지해 이전 방향의 잔여 누적값을
+     버리고 새 방향으로 다시 쌓기 시작한다 — 안 그러면 반대 방향 입력이 이전 누적값에
+     상쇄되어 즉시 반영되지 않는다. */
+  // 일반 마우스는 노치(한 칸) 당 deltaMode=0 기준 대략 100px, 트랙패드는 같은 모드에서 한
+  // 프레임에 몇 px 정도의 훨씬 작은 delta를 여러 번 보낸다 — PX_PER_PERCENT로 나눠 magnitude를
+  // 구하면 마우스 노치는 5%에 가깝게, 트랙패드의 작은 delta는 1% 미만으로 나오는데 아래
+  // MIN_STEP_PERCENT 클램프가 "프레임당 최소 1% 변화"를 항상 보장하고, MAX_STEP_PERCENT가
+  // "프레임당 최대 5% 변화"로 눌러준다.
+  const WHEEL_ZOOM_MIN_STEP_PERCENT = 1;
+  const WHEEL_ZOOM_MAX_STEP_PERCENT = 5;
+  const WHEEL_ZOOM_PX_PER_PERCENT = 20;
+  // deltaMode가 0(PIXEL)이 아닌 환경(일부 구형 마우스 드라이버가 DOM_DELTA_LINE(1)을 보냄)에서도
+  // 위 px 기준 계산이 같은 체감으로 동작하도록 대략적인 px 환산값을 곱해 normalize한다.
+  const normalizeWheelDeltaY = useCallback((event: WheelEvent) => {
+    if (event.deltaMode === 1) return event.deltaY * 16; // DOM_DELTA_LINE ≈ 16px/line
+    if (event.deltaMode === 2) return event.deltaY * 800; // DOM_DELTA_PAGE ≈ 뷰포트 한 페이지
+    return event.deltaY; // DOM_DELTA_PIXEL(대부분의 트랙패드/최신 브라우저 기본값)
+  }, []);
+
+  const fontScaleRef = useRef(fontScale);
+  const lastEmittedFontScaleRef = useRef(fontScale);
+  // 아직 rAF로 flush되지 않은, 이번 프레임의 raw px delta 누적값(부호 있음).
+  const wheelDeltaRef = useRef(0);
+  // wheelDeltaRef가 지금 어느 방향으로 쌓이고 있는지(1=확대, -1=축소, 0=없음) — 반대 방향
+  // 이벤트가 들어오면 이 값과 비교해 누적값을 리셋하는 데 쓴다.
+  const wheelDirectionRef = useRef(0);
+  const wheelZoomRafRef = useRef<number | null>(null);
+
+  // 파일/pane 전환, 서식 초기화처럼 "우리가 emit한 게 아닌" fontScale prop 변경만 ref에
+  // 반영한다 — 그렇지 않으면 우리가 방금 emit한 값이 아직 이 컴포넌트에 prop으로 돌아오기
+  // 전(리렌더 지연)에 이 effect가 낡은 fontScale로 ref를 도로 덮어써, 막 반영한 휠 입력이
+  // 취소된 것처럼 보이는 레이스가 생긴다.
+  useEffect(() => {
+    if (fontScale !== lastEmittedFontScaleRef.current) {
+      fontScaleRef.current = fontScale;
+    }
+  }, [fontScale]);
+
+  /* rAF 콜백 — 이번 프레임 동안 쌓인 raw delta 전체를 딱 한 번만 1~5% step으로 환산해
+     fontScaleRef/React state에 반영한다. 프레임당 setState(onFontScaleChange)는 최대 1회만
+     발생한다(값이 실제로 안 바뀌면 그마저도 스킵). */
+  const flushWheelZoom = useCallback(() => {
+    wheelZoomRafRef.current = null;
+    const accumulated = wheelDeltaRef.current;
+    wheelDeltaRef.current = 0;
+    wheelDirectionRef.current = 0;
+    if (accumulated === 0) return;
+
+    const magnitude = Math.min(
+      WHEEL_ZOOM_MAX_STEP_PERCENT,
+      Math.max(WHEEL_ZOOM_MIN_STEP_PERCENT, Math.abs(accumulated) / WHEEL_ZOOM_PX_PER_PERCENT)
+    );
+    const direction = accumulated < 0 ? 1 : -1; // 위로 굴리면(deltaY 합<0) 확대
+    const clamped = Math.min(
+      TYPOGRAPHY_SCALE_MAX,
+      Math.max(TYPOGRAPHY_SCALE_MIN, fontScaleRef.current + direction * magnitude)
+    );
+    // 정수 반올림은 1~2회 입력이 같은 값으로 뭉개질 수 있어 0.5% 단위로만 다듬는다.
+    const next = Math.round(clamped * 2) / 2;
+    fontScaleRef.current = next;
+    if (next !== lastEmittedFontScaleRef.current) {
+      lastEmittedFontScaleRef.current = next;
+      onFontScaleChange(next);
+    }
+  }, [onFontScaleChange]);
+
+  const applyWheelZoomDelta = useCallback((event: WheelEvent) => {
+    const pxDelta = normalizeWheelDeltaY(event);
+    if (pxDelta === 0) return;
+
+    const direction = pxDelta < 0 ? 1 : -1;
+    if (wheelDirectionRef.current !== 0 && wheelDirectionRef.current !== direction) {
+      // 방향 전환 — 이전 방향으로 쌓인 잔여 누적값은 반대 방향 입력을 상쇄해버리므로 버린다.
+      wheelDeltaRef.current = 0;
+    }
+    wheelDirectionRef.current = direction;
+    wheelDeltaRef.current += pxDelta;
+
+    if (wheelZoomRafRef.current === null) {
+      wheelZoomRafRef.current = requestAnimationFrame(flushWheelZoom);
+    }
+  }, [normalizeWheelDeltaY, flushWheelZoom]);
+
+  useEffect(() => {
+    return () => {
+      if (wheelZoomRafRef.current !== null) cancelAnimationFrame(wheelZoomRafRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
     const handler = (event: WheelEvent) => {
       if (!event.ctrlKey || !note) return;
       event.preventDefault();
-      const next = Math.min(
-        TYPOGRAPHY_SCALE_MAX,
-        Math.max(TYPOGRAPHY_SCALE_MIN, fontScale + (event.deltaY < 0 ? 5 : -5))
-      );
-      if (next !== fontScale) onFontScaleChange(next);
+      applyWheelZoomDelta(event);
     };
     el.addEventListener("wheel", handler, { passive: false });
     return () => el.removeEventListener("wheel", handler);
-  }, [note, fontScale, onFontScaleChange]);
+  }, [note, applyWheelZoomDelta]);
 
   /* ── 제목 편집 상태 ── */
   const [isEditingTitle, setIsEditingTitle] = useState(false);

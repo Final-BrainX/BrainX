@@ -1,16 +1,20 @@
 import type { CSSProperties } from "react";
 import type { NoteTypography } from "./noteTypes";
 
-/** 에디터 본문 wrapper는 항상 `split-pane-editor` 클래스를 함께 갖고 있어(NoteEditor.tsx),
-    더 높은 specificity의 `.split-pane-editor.tiptap-note-content .ProseMirror` 규칙(0.8125rem)이
-    `.tiptap-note-content .ProseMirror`(0.9375rem)를 항상 덮어쓴다 — 실제 기본 본문 크기는
-    13px다. h1/h2/h3는 그 13px 기준 em 비율(1.8/1.35/1.1)이 실제 렌더링 값과 일치한다.
-    scalePercent 계산의 출발점이므로, 여기 값을 바꾸면 CSS 쪽 기본값과 어긋난다. */
+/** globals.css의 `.split-pane-editor.tiptap-note-content .ProseMirror`(및 그 부모
+    `.tiptap-note-content .ProseMirror`) 둘 다 `font-size: var(--note-fs-body, 14px)`라 —
+    typography도 pane 줌도 전혀 없는 순수 CSS 폴백 기준 본문 크기는 14px다. h1/h2/h3의 CSS
+    폴백(1.8em/1.35em/1.1em)도 이 body 14px 기준 상대값이므로, 여기 상수를 CSS 폴백과 다르게
+    잡으면(과거엔 13px으로 어긋나 있었다) "typography/줌이 전혀 없을 때"와 "scalePercent=100
+    또는 fontScale=100으로 명시적으로 계산했을 때"의 렌더링 결과가 달라져 버린다 — 예를 들어
+    Ctrl+Wheel을 100%→105%로 딱 한 번 올렸는데 13*1.05=13.65px(반올림 13.7px)로, 아무 것도
+    안 누른 상태의 14px보다 오히려 작아지는 버그가 있었다. CSS 폴백과 반드시 같은 값으로
+    맞춰야 한다 — 여기 값을 바꾸면 CSS 쪽 기본값과 다시 어긋난다. */
 export const TYPOGRAPHY_BASE_PX = {
-  body: 13, // 0.8125rem * 16px
-  h1: 23.4, // 13 * 1.8
-  h2: 17.55, // 13 * 1.35
-  h3: 14.3, // 13 * 1.1
+  body: 14, // globals.css 폴백과 동일
+  h1: 25.2, // 14 * 1.8
+  h2: 18.9, // 14 * 1.35
+  h3: 15.4, // 14 * 1.1
 } as const;
 
 export const TYPOGRAPHY_SCALE_MIN = 80;
