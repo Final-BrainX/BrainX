@@ -104,6 +104,22 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function isAsciiWord(value: string | undefined) {
+  return !!value && /^[A-Za-z0-9_]$/.test(value);
+}
+
+function hasTokenBoundary(markdown: string, start: number, end: number, anchorText: string) {
+  const trimmedAnchor = anchorText.trim();
+  if (!trimmedAnchor) return false;
+  const first = trimmedAnchor[0];
+  const last = trimmedAnchor[trimmedAnchor.length - 1];
+  const previous = start > 0 ? markdown[start - 1] : undefined;
+  const next = end < markdown.length ? markdown[end] : undefined;
+  if (isAsciiWord(first) && isAsciiWord(previous)) return false;
+  if (isAsciiWord(last) && isAsciiWord(next)) return false;
+  return true;
+}
+
 function insideExcludedRange(start: number, end: number, ranges: TextRange[]) {
   return ranges.some((range) => start < range.end && end > range.start);
 }
@@ -186,12 +202,21 @@ function addHtmlTagRanges(markdown: string, ranges: TextRange[]) {
   }
 }
 
+function addHtmlProtectedElementRanges(markdown: string, ranges: TextRange[]) {
+  const protectedElementPattern = /<(a|pre|code|script|style)\b[^>]*>[\s\S]*?<\/\1>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = protectedElementPattern.exec(markdown))) {
+    ranges.push({ start: match.index, end: match.index + match[0].length });
+  }
+}
+
 function excludedRanges(markdown: string) {
   const ranges: TextRange[] = [];
   addFencedCodeRanges(markdown, ranges);
   addInlineCodeRanges(markdown, ranges);
   addMarkdownLinkRanges(markdown, ranges);
   addWikiLinkRanges(markdown, ranges);
+  addHtmlProtectedElementRanges(markdown, ranges);
   addHtmlTagRanges(markdown, ranges);
   return ranges
     .filter((range) => range.end > range.start)
@@ -213,13 +238,19 @@ function exactOccurrences(markdown: string, anchorText: string, ignoreCase: bool
 function whitespaceNormalizedOccurrences(markdown: string, anchorText: string) {
   const tokens = anchorText.trim().split(/\s+/).filter(Boolean);
   if (tokens.length <= 1) return [];
-  const pattern = new RegExp(tokens.map(escapeRegExp).join("\\s+"), "g");
+  const inlineGap = "(?:[ \\t]+|[ \\t]*\\r?\\n[ \\t]*)";
+  const pattern = new RegExp(tokens.map(escapeRegExp).join(inlineGap), "g");
   const ranges: TextRange[] = [];
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(markdown))) {
     ranges.push({ start: match.index, end: match.index + match[0].length });
   }
   return ranges;
+}
+
+function occurrenceIsSafe(markdown: string, anchorText: string, range: TextRange, ranges: TextRange[]) {
+  return !insideExcludedRange(range.start, range.end, ranges) &&
+    hasTokenBoundary(markdown, range.start, range.end, anchorText);
 }
 
 function safeOccurrences(markdown: string, anchorText: string, ranges: TextRange[]) {
@@ -230,13 +261,19 @@ function safeOccurrences(markdown: string, anchorText: string, ranges: TextRange
   ];
 
   let sawExcludedOnly = false;
+  let sawBoundaryOnly = false;
   for (const occurrences of attempts) {
     if (occurrences.length === 0) continue;
-    const safe = occurrences.filter((range) => !insideExcludedRange(range.start, range.end, ranges));
-    if (safe.length > 0) return { ranges: safe, excludedOnly: false };
-    sawExcludedOnly = true;
+    const outsideExcluded = occurrences.filter((range) => !insideExcludedRange(range.start, range.end, ranges));
+    const safe = outsideExcluded.filter((range) => occurrenceIsSafe(markdown, anchorText, range, ranges));
+    if (safe.length > 0) return { ranges: safe, excludedOnly: false, boundaryOnly: false };
+    if (outsideExcluded.length > 0) {
+      sawBoundaryOnly = true;
+    } else {
+      sawExcludedOnly = true;
+    }
   }
-  return { ranges: [], excludedOnly: sawExcludedOnly };
+  return { ranges: [], excludedOnly: sawExcludedOnly, boundaryOnly: sawBoundaryOnly };
 }
 
 function replaceRanges(markdown: string, ranges: TextRange[], targetTitle: string) {
@@ -249,6 +286,7 @@ export type LinkSuggestionApplyErrorCode =
   | "ANCHOR_EMPTY"
   | "ANCHOR_NOT_FOUND"
   | "ANCHOR_UNSAFE_ONLY"
+  | "ANCHOR_BOUNDARY_ONLY"
   | "ANCHOR_WHOLE_DOCUMENT";
 
 export type LinkSuggestionApplyResult =
@@ -293,9 +331,11 @@ export function applyLinkSuggestionToMarkdown(
   return {
     markdown,
     changed: false,
-    error: matches.excludedOnly
+    error: matches.boundaryOnly
+      ? "추천 문구가 다른 단어 안에서만 발견되어 자동으로 바꾸지 않았어요. 다른 문구로 다시 분석해 주세요."
+      : matches.excludedOnly
       ? "코드나 이미 링크된 문구만 발견되어 자동으로 바꾸지 않았어요. 다른 문구로 다시 분석해 주세요."
       : "추천을 만든 뒤 본문이 바뀌었을 수 있어요. 다시 분석해 주세요.",
-    errorCode: matches.excludedOnly ? "ANCHOR_UNSAFE_ONLY" : "ANCHOR_NOT_FOUND"
+    errorCode: matches.boundaryOnly ? "ANCHOR_BOUNDARY_ONLY" : matches.excludedOnly ? "ANCHOR_UNSAFE_ONLY" : "ANCHOR_NOT_FOUND"
   };
 }

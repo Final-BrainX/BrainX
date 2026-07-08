@@ -169,6 +169,90 @@ test("applyLinkSuggestionToMarkdown falls back to whitespace-normalized matching
   );
 });
 
+test("applyLinkSuggestionToMarkdown does not merge paragraph boundaries in whitespace fallback", () => {
+  const markdown = "semantic\n\nsearch stays separate, but semantic\nsearch is one soft break.";
+  const result = applyLinkSuggestionToMarkdown(
+    markdown,
+    suggestion({
+      targetTitle: "Search Notes",
+      anchorText: "semantic search",
+      anchorStartOffset: 999,
+      anchorEndOffset: 1014,
+    }),
+    "Search Notes"
+  );
+
+  assert.equal(result.changed, true);
+  assert.equal(
+    result.markdown,
+    "semantic\n\nsearch stays separate, but [[Search Notes|semantic search]] is one soft break."
+  );
+});
+
+test("applyLinkSuggestionToMarkdown does not link anchors inside larger latin words", () => {
+  const markdown = "JavaScript mentions Java, and Java powers another note.";
+  const result = applyLinkSuggestionToMarkdown(
+    markdown,
+    suggestion({
+      targetTitle: "Java",
+      anchorText: "Java",
+      anchorStartOffset: 0,
+      anchorEndOffset: 4,
+    }),
+    "Java"
+  );
+
+  assert.equal(result.changed, true);
+  assert.equal(
+    result.markdown,
+    "JavaScript mentions [[Java]], and [[Java]] powers another note."
+  );
+});
+
+test("applyLinkSuggestionToMarkdown reports boundary-only occurrences", () => {
+  const result = applyLinkSuggestionToMarkdown(
+    "JavaScript only mentions the substring.",
+    suggestion({
+      targetTitle: "Java",
+      anchorText: "Java",
+      anchorStartOffset: 0,
+      anchorEndOffset: 4,
+    }),
+    "Java"
+  );
+
+  assert.equal(result.changed, false);
+  assert.equal(result.errorCode, "ANCHOR_BOUNDARY_ONLY");
+});
+
+test("applyLinkSuggestionToMarkdown skips HTML code and link element bodies", () => {
+  const markdown = [
+    "<p>semantic search outside</p>",
+    "<pre><code>semantic search inside code</code></pre>",
+    '<a href="https://example.com">semantic search inside link</a>',
+  ].join("");
+  const result = applyLinkSuggestionToMarkdown(
+    markdown,
+    suggestion({
+      targetTitle: "Search Notes",
+      anchorText: "semantic search",
+      anchorStartOffset: 3,
+      anchorEndOffset: 18,
+    }),
+    "Search Notes"
+  );
+
+  assert.equal(result.changed, true);
+  assert.equal(
+    result.markdown,
+    [
+      "<p>[[Search Notes|semantic search]] outside</p>",
+      "<pre><code>semantic search inside code</code></pre>",
+      '<a href="https://example.com">semantic search inside link</a>',
+    ].join("")
+  );
+});
+
 test("applyLinkSuggestionToMarkdown refuses to replace the whole document", () => {
   const result = applyLinkSuggestionToMarkdown(
     "semantic search",
