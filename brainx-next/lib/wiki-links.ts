@@ -1,4 +1,28 @@
 const LEADING_EMOJI_RE = /^[\p{Extended_Pictographic}\uFE0F\u200D]+\s*/u;
+const HTML_ENTITY_RE = /&(amp|lt|gt|quot|#39|apos);/g;
+const HTML_ENTITY_DECODE: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  "#39": "'",
+  apos: "'",
+};
+
+/** 제목에 `&` 같은 문자가 있으면 저장/직렬화 경로(예: 위키링크 span의 data-title 속성)를
+    거치며 실수로 두 번 이스케이프되어 `&amp;amp;`처럼 남는 경우가 있다 — 노트의 실제 제목은
+    `&`(1글자)인데 링크에 박제된 값은 `&amp;`(문자 그대로 5글자)라 이모지를 떼어내도 절대
+    같아지지 않는다. 더 이상 안 바뀔 때까지 반복 디코딩해서 이런 이중/삼중 이스케이프도
+    흡수한다(정상적으로 한 번만 이스케이프된 값은 한 번 돌고 더 이상 안 바뀌어 끝난다). */
+export function decodeHtmlEntities(value: string): string {
+  let current = value;
+  for (let i = 0; i < 5; i += 1) {
+    const next = current.replace(HTML_ENTITY_RE, (_match, name: string) => HTML_ENTITY_DECODE[name] ?? _match);
+    if (next === current) break;
+    current = next;
+  }
+  return current;
+}
 
 /** 노트 제목 매칭(백링크 존재 여부 판별)에 쓰는 모든 문자열 비교는 이 함수를 거쳐야 한다.
     노트 제목 앞에는 사용자가 붙인 이모지 아이콘(📄, 🔲 등)이 있을 수 있는 반면, `[[title]]`
@@ -6,9 +30,10 @@ const LEADING_EMOJI_RE = /^[\p{Extended_Pictographic}\uFE0F\u200D]+\s*/u;
     항상 실패하고, partial match(부분 문자열 포함)도 같은 부분 문자열을 포함하는 다른 노트가
     하나라도 더 있으면 후보가 여럿이 되어 매칭에 실패한다(그 결과 실제로 존재하는 노트인데도
     "새 노트 생성" 상태 — 주황색 — 로 표시됨). 앞쪽 이모지만 제거하고(제목 중간의 이모지는
-    사용자가 의도한 제목의 일부이므로 보존), 공백을 한 칸으로 접고 소문자로 비교한다. */
+    사용자가 의도한 제목의 일부이므로 보존), HTML 엔티티를 디코딩하고(저장 경로에서 실수로
+    이스케이프된 & 등을 흡수), 공백을 한 칸으로 접고 소문자로 비교한다. */
 export function normalizeTitleForMatch(value: string): string {
-  return value
+  return decodeHtmlEntities(value)
     .trim()
     .replace(LEADING_EMOJI_RE, "")
     .trim()
