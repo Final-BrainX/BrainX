@@ -113,6 +113,9 @@ brainx:
       batch-size: ${BRAINX_NOTE_INDEX_RETRY_BATCH_SIZE:20}
       max-attempts: ${BRAINX_NOTE_INDEX_RETRY_MAX_ATTEMPTS:10}
       exhausted-delay: ${BRAINX_NOTE_INDEX_RETRY_EXHAUSTED_DELAY:PT24H}
+  repair:
+    legacy-default-document-group-vectors:
+      enabled: ${BRAINX_REPAIR_LEGACY_DEFAULT_DOCUMENT_GROUP_VECTORS_ENABLED:false}
   chat:
     title:
       enabled: ${BRAINX_CHAT_TITLE_ENABLED:true}
@@ -129,7 +132,8 @@ brainx:
   external-search:
     provider: ${BRAINX_EXTERNAL_SEARCH_PROVIDER:none}
     max-sources: ${BRAINX_EXTERNAL_SEARCH_MAX_SOURCES:8}
-    timeout: ${BRAINX_EXTERNAL_SEARCH_TIMEOUT:20s}
+    timeout: ${BRAINX_EXTERNAL_SEARCH_TIMEOUT:60s}
+    search-context-size: ${BRAINX_EXTERNAL_SEARCH_CONTEXT_SIZE:low}
     openai:
       api-key: ${OPENAI_API_KEY:}
       base-url: ${OPENAI_BASE_URL:https://api.openai.com}

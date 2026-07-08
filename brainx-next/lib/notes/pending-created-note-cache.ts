@@ -29,6 +29,9 @@ export interface PendingCreatedNoteEntry {
   /** 지금까지 알려진 가장 최신 노트 id(처음엔 localKey와 동일, draft id 확정 후 교체됨). */
   noteId: string;
   title: string;
+  /** 생성 당시의 Workspace(documentGroup) 경계. /graph가 완전히 별도 마운트되더라도
+      현재 Workspace가 바뀐 뒤 다른 Workspace 그래프에 잠깐 섞이지 않게 하기 위해 함께 저장한다. */
+  documentGroupId?: string | null;
   /** 위키링크로 만든 경우에만 채워진다 — 있으면 graph-screen이 optimistic edge도 합성한다.
       일반 새 노트 생성은 undefined로 두어 node만 optimistic 처리한다. */
   sourceNoteId?: string;
@@ -50,6 +53,8 @@ function readAll(): PendingCreatedNoteEntry[] {
         typeof entry === "object" &&
         typeof (entry as PendingCreatedNoteEntry).localKey === "string" &&
         typeof (entry as PendingCreatedNoteEntry).noteId === "string" &&
+        (((entry as PendingCreatedNoteEntry).documentGroupId ?? null) === null ||
+          typeof (entry as PendingCreatedNoteEntry).documentGroupId === "string") &&
         typeof (entry as PendingCreatedNoteEntry).createdAt === "number" &&
         now - (entry as PendingCreatedNoteEntry).createdAt < TTL_MS
     );

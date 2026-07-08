@@ -96,6 +96,13 @@ spring:
                     name: commerceServiceCircuitBreaker
                     fallbackUri: forward:/fallback/commerce
 
+            - id: intelligence-service-chat-message-stream
+              uri: lb://intelligence-service
+              predicates:
+                - Path=/api/v1/ai/chat-threads/*/messages
+              metadata:
+                response-timeout: 120000
+
             - id: intelligence-service
               uri: lb://intelligence-service
               predicates:
@@ -184,6 +191,16 @@ spring:
                   args:
                     name: workspaceServiceCircuitBreaker
                     fallbackUri: forward:/fallback/workspace
+
+            - id: internal-intelligence-service
+              uri: lb://intelligence-service
+              predicates:
+                - Path=/internal/v1/intelligence/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: intelligenceServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/intelligence
 
             - id: internal-ingestion-health
               uri: lb://ingestion-service

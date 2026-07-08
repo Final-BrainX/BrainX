@@ -5,12 +5,18 @@ import java.util.List;
 
 import org.springframework.util.StringUtils;
 
+import reactor.core.publisher.Flux;
+
 /**
  * 외부 자료 검색 provider를 application 계층에서 기술 독립적으로 호출하기 위한 출력 포트입니다.
  */
 public interface ExternalSearchPort {
 
     ExternalSearchResponse search(ExternalSearchRequest request);
+
+    default Flux<ExternalSearchStreamEvent> searchStream(ExternalSearchRequest request) {
+        return Flux.defer(() -> Flux.just(ExternalSearchStreamEvent.completed(search(request))));
+    }
 
     record ExternalSearchRequest(
         String userId,
@@ -51,6 +57,59 @@ public interface ExternalSearchPort {
             provider = provider == null ? "" : provider;
             modelId = modelId == null ? "" : modelId;
             responseId = StringUtils.hasText(responseId) ? responseId.trim() : null;
+        }
+    }
+
+    record ExternalSearchStreamEvent(
+        String eventType,
+        String status,
+        String actionType,
+        String query,
+        List<ExternalSearchSource> sources,
+        ExternalSearchResponse response,
+        String message
+    ) {
+
+        private static final String EVENT_PROGRESS = "progress";
+        private static final String EVENT_SOURCES = "sources";
+        private static final String EVENT_COMPLETED = "completed";
+
+        public ExternalSearchStreamEvent {
+            eventType = StringUtils.hasText(eventType) ? eventType.trim() : EVENT_PROGRESS;
+            status = status == null ? "" : status.trim();
+            actionType = actionType == null ? "" : actionType.trim();
+            query = query == null ? "" : query.trim();
+            sources = sources == null ? List.of() : List.copyOf(sources);
+            message = message == null ? "" : message.trim();
+        }
+
+        public static ExternalSearchStreamEvent progress(
+            String status,
+            String actionType,
+            String query,
+            String message
+        ) {
+            return new ExternalSearchStreamEvent(EVENT_PROGRESS, status, actionType, query, List.of(), null, message);
+        }
+
+        public static ExternalSearchStreamEvent sources(String query, List<ExternalSearchSource> sources) {
+            return new ExternalSearchStreamEvent(EVENT_SOURCES, "", "", query, sources, null, "");
+        }
+
+        public static ExternalSearchStreamEvent completed(ExternalSearchResponse response) {
+            return new ExternalSearchStreamEvent(EVENT_COMPLETED, "completed", "", "", List.of(), response, "");
+        }
+
+        public boolean progressEvent() {
+            return EVENT_PROGRESS.equals(eventType);
+        }
+
+        public boolean sourcesEvent() {
+            return EVENT_SOURCES.equals(eventType);
+        }
+
+        public boolean completedEvent() {
+            return EVENT_COMPLETED.equals(eventType);
         }
     }
 

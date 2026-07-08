@@ -56,6 +56,8 @@ def main() -> int:
     raw_dir = run_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
     scenarios = load_scenarios(args)
+    if args.stream_events:
+        scenarios = [stream_scenario(item) for item in scenarios]
     summary_path = run_dir / "summary.json"
     records_path = run_dir / "responses.jsonl"
     report_path = run_dir / "report.md"
@@ -135,6 +137,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-id", default="", help="External search model override.")
     parser.add_argument("--max-sources", type=int, default=0, help="Default max sources override.")
     parser.add_argument("--external-timeout", default="60s", help="brainx.external-search.timeout value for provider calls.")
+    parser.add_argument("--stream-events", action="store_true", help="Capture ExternalSearchPort.searchStream events.")
     parser.add_argument("--skip-build", action="store_true", help="Skip bootJar.")
     parser.add_argument("--jar-path", help="Existing Spring Boot jar path.")
     parser.add_argument("--gradle", help="Gradle executable.")
@@ -171,6 +174,15 @@ def scenario_from_value(value: Any) -> dict[str, Any]:
     raise ValueError("Scenario must be a string or object.")
 
 
+def stream_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
+    next_scenario = dict(scenario)
+    next_scenario.setdefault("requireStreamEvents", True)
+    next_scenario.setdefault("requireProgressEvent", True)
+    next_scenario.setdefault("requireSourceEvent", True)
+    next_scenario.setdefault("requireCompletedEvent", True)
+    return next_scenario
+
+
 def child_environment() -> dict[str, str]:
     env = os.environ.copy()
     env["JAVA_TOOL_OPTIONS"] = merged_java_tool_options(env.get("JAVA_TOOL_OPTIONS"))
@@ -181,10 +193,13 @@ def child_environment() -> dict[str, str]:
 def app_args(args: argparse.Namespace, scenario: dict[str, Any]) -> list[str]:
     values = [
         f"--spring.profiles.active={args.profile}",
+        "--server.port=0",
         "--brainx.dev.external-search.enabled=true",
         f"--brainx.external-search.timeout={args.external_timeout}",
         f"--brainx.dev.external-search.query={scenario['query']}",
     ]
+    if args.stream_events:
+        values.append("--brainx.dev.external-search.stream-events=true")
     model_id = scenario.get("modelId") or args.model_id
     if model_id:
         values.append(f"--brainx.dev.external-search.model-id={model_id}")
@@ -223,6 +238,9 @@ def validate_response(scenario: dict[str, Any], response: Any) -> dict[str, Any]
     sources = response.get("sources")
     if not isinstance(sources, list):
         sources = []
+    stream_events = response.get("streamEvents")
+    if not isinstance(stream_events, list):
+        stream_events = []
     min_sources = int(scenario.get("minSourceCount") or 0)
     if len(sources) < min_sources:
         failures.append(f"source count {len(sources)} is below {min_sources}")
@@ -239,18 +257,32 @@ def validate_response(scenario: dict[str, Any], response: Any) -> dict[str, Any]
             failures.append(f"answer missing text: {expected}")
     if scenario.get("requireTokenUsage") is True and not isinstance(response.get("tokenUsage"), dict):
         failures.append("tokenUsage is missing")
+    if scenario.get("requireStreamEvents") is True and not stream_events:
+        failures.append("streamEvents is missing")
+    if scenario.get("requireProgressEvent") is True and not has_stream_event(stream_events, "progress"):
+        failures.append("progress stream event is missing")
+    if scenario.get("requireSourceEvent") is True and not has_source_signal(stream_events, sources):
+        failures.append("source stream event or completed sources are missing")
+    if scenario.get("requireCompletedEvent") is True and not has_stream_event(stream_events, "completed"):
+        failures.append("completed stream event is missing")
     return {"status": "passed" if not failures else "failed", "failures": failures}
 
 
 def compact_record(record: dict[str, Any]) -> dict[str, Any]:
     response = record.get("response")
     sources = response.get("sources") if isinstance(response, dict) else []
+    stream_events = response.get("streamEvents") if isinstance(response, dict) else []
+    if not isinstance(stream_events, list):
+        stream_events = []
     return {
         "label": record["label"],
         "query": record["query"],
         "status": record["status"],
         "failures": record["failures"],
         "sourceCount": len(sources) if isinstance(sources, list) else None,
+        "streamEventCount": len(stream_events),
+        "firstSourceEvent": first_stream_event(stream_events, "sources"),
+        "completedEvent": has_stream_event(stream_events, "completed"),
         "provider": response.get("provider") if isinstance(response, dict) else None,
         "modelId": response.get("modelId") if isinstance(response, dict) else None,
         "responseId": response.get("responseId") if isinstance(response, dict) else None,
@@ -282,6 +314,9 @@ def write_report(path: Path, summary: dict[str, Any], records: list[dict[str, An
     for record in records:
         response = record.get("response")
         sources = response.get("sources") if isinstance(response, dict) else []
+        stream_events = response.get("streamEvents") if isinstance(response, dict) else []
+        if not isinstance(stream_events, list):
+            stream_events = []
         lines.extend([
             "",
             f"## {record['label']}",
@@ -289,6 +324,9 @@ def write_report(path: Path, summary: dict[str, Any], records: list[dict[str, An
             f"- status: `{record['status']}`",
             f"- failures: `{'; '.join(record['failures']) or 'none'}`",
             f"- sourceCount: `{len(sources) if isinstance(sources, list) else 0}`",
+            f"- streamEventCount: `{len(stream_events)}`",
+            f"- firstSourceEvent: `{json.dumps(first_stream_event(stream_events, 'sources'), ensure_ascii=False)}`",
+            f"- completedEvent: `{has_stream_event(stream_events, 'completed')}`",
             f"- stderrPath: `{record['stderrPath']}`",
             "",
             record["query"],
@@ -352,6 +390,25 @@ def string_list(value: Any) -> list[str]:
 
 def domain_of(url: str) -> str:
     return urlparse(url).netloc.lower()
+
+
+def has_stream_event(stream_events: list[Any], event_type: str) -> bool:
+    return any(isinstance(event, dict) and event.get("eventType") == event_type for event in stream_events)
+
+
+def first_stream_event(stream_events: list[Any], event_type: str) -> dict[str, Any] | None:
+    for event in stream_events:
+        if isinstance(event, dict) and event.get("eventType") == event_type:
+            return {
+                "query": event.get("query"),
+                "sourceCount": event.get("sourceCount"),
+                "message": event.get("message"),
+            }
+    return None
+
+
+def has_source_signal(stream_events: list[Any], sources: list[Any]) -> bool:
+    return has_stream_event(stream_events, "sources") or bool(sources)
 
 
 def utc_now() -> str:

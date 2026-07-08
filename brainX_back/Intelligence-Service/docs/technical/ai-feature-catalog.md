@@ -111,14 +111,14 @@ LLMOps v1은 UI 없이 backend foundation만 제공한다. 자세한 기준은 `
 | 폴더 정리 | `brainx.organization.default-model`, 기본 `OPENAI_CHAT_MODEL` |
 | 징검다리 추천 | `brainx.connection.bridge.default-model`, 기본 `OPENAI_CHAT_MODEL` |
 | 자동 링크 | `brainx.note-auto-link.model`, 기본 `OPENAI_CHAT_MODEL` |
-| 외부 검색 | `BRAINX_EXTERNAL_SEARCH_PROVIDER=openai`, `OPENAI_WEB_SEARCH_MODEL`, 기본 `gpt-5.5` |
+| 외부 검색 | `BRAINX_EXTERNAL_SEARCH_PROVIDER=openai`, `OPENAI_WEB_SEARCH_MODEL`, 기본 `gpt-5.5`, `BRAINX_EXTERNAL_SEARCH_CONTEXT_SIZE=low`, `BRAINX_EXTERNAL_SEARCH_TIMEOUT=60s` |
 | embedding | `BRAINX_AI_EMBEDDING_PROVIDER=voyage`, `VOYAGE_EMBEDDING_MODEL`, 기본 `voyage-4-lite` |
 
 OpenAI chat은 Spring AI `ChatClient`를 통해 호출한다. OpenAI audio/image/moderation/embedding auto-configuration은 기본 application 설정에서 제외되어 있으며, embedding은 별도 `AiEmbeddingPort` 구현으로 관리한다.
 
 ## 외부 검색 상태
 
-`ExternalSearchPort`와 OpenAI `web_search` adapter는 구현되어 있지만, 현재 공개 Knowledge Intelligence API 목록에는 독립 외부 검색 endpoint가 없다. `brainx.dev.external-search.enabled=true`일 때 dev runner로 실행할 수 있고, 향후 RAG chat router와 결합할 수 있는 확장 지점으로 남아 있다.
+`ExternalSearchPort`와 OpenAI `web_search` adapter는 `/chat` 라우터가 최신/현재 정보 요청으로 판단한 경우 내부적으로 사용한다. 독립 external-search public endpoint는 없으며, `brainx.dev.external-search.enabled=true`일 때 dev runner로 단독 확인할 수 있다. `/chat` SSE는 검색 진행 `web_search_progress`와 출처 `web_sources`를 답변 생성 전에 보낼 수 있다.
 
 ## Usage/Event 경계
 
@@ -165,7 +165,7 @@ OpenAI chat은 Spring AI `ChatClient`를 통해 호출한다. OpenAI audio/image
 | AI link suggestions | `conversationTone` | LLM link reason 생성 prompt | 사용자가 보는 추천 이유에만 적용한다. 내부 relation verifier에는 적용하지 않는다. |
 | Bridge concepts | `conversationTone` | bridge reason 생성 prompt | 추천 개념과 이유가 사용자-facing 설명이다. |
 | Folder organization proposals | `conversationTone` | proposed folder/move reason 생성 prompt | 정리 제안의 이유 설명에 적용한다. |
-| AI clustering | `writingStyle` | cluster summary/report 생성 prompt | cluster title, summary, keyword 결과물 문체를 조정한다. |
+| AI clustering | 적용 안 함 | 없음 | noteId coverage와 구조 분석 검증이 우선인 내부 분석 prompt라 사용자 문체를 적용하지 않는다. |
 | Insight reports | `writingStyle` | report 생성 prompt | summary, gap, recommendation 결과물 문체를 조정한다. |
 | Chat router | 적용 안 함 | 없음 | 내부 라우팅 판단이며 사용자-facing 결과물이 아니다. |
 | Chat title generation | 적용 안 함 | 없음 | 짧은 thread title 생성은 별도 고정 정책을 따른다. |

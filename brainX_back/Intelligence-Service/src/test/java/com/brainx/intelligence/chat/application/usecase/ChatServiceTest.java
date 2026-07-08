@@ -18,6 +18,7 @@ import com.brainx.intelligence.chat.application.port.inbound.CreateChatThreadUse
 import com.brainx.intelligence.chat.application.port.inbound.GetChatThreadUseCase.GetChatThreadQuery;
 import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ListChatThreadsQuery;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.SendChatMessageCommand;
+import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.ChatStreamEvent;
 import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase.DeleteChatThreadCommand;
 import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase.UpdateChatThreadCommand;
 import com.brainx.intelligence.chat.application.port.outbound.ChatEventPort;
@@ -449,14 +450,15 @@ class ChatServiceTest {
             "gpt-test"
         )).collectList().block();
 
-        assertThat(events).hasSize(4);
-        assertThat(events.get(0).eventName()).isEqualTo("route");
-        assertThat(events.get(0).data()).containsEntry("route", "NOTE_QA");
-        assertThat(events.get(0).data()).containsEntry("routerModel", "gpt-5.4-nano");
-        assertThat(events.get(1).eventName()).isEqualTo("delta");
-        assertThat(events.get(1).data()).containsEntry("text", "답변 ");
-        assertThat(events.get(2).data()).containsEntry("text", "완료");
-        assertThat(events.get(3).eventName()).isEqualTo("done");
+        assertThat(events).hasSize(5);
+        assertThat(eventNames(events)).containsExactly("status", "route", "delta", "delta", "done");
+        assertThat(events.get(0).data()).containsEntry("phase", "ROUTING");
+        assertThat(events.get(1).data()).containsEntry("route", "NOTE_QA");
+        assertThat(events.get(1).data()).containsEntry("routerModel", "gpt-5.4-nano");
+        assertThat(events.get(2).eventName()).isEqualTo("delta");
+        assertThat(events.get(2).data()).containsEntry("text", "답변 ");
+        assertThat(events.get(3).data()).containsEntry("text", "완료");
+        assertThat(events.get(4).eventName()).isEqualTo("done");
         assertThat(retrievalPort.lastQuery.scope()).isEqualTo(SearchScope.DOCUMENT_GROUP);
         assertThat(retrievalPort.lastQuery.documentGroupId()).isEqualTo("group-1");
         assertThat(entitlementPort.lastRequest.capability()).isEqualTo("RAG_CHAT");
@@ -525,8 +527,8 @@ class ChatServiceTest {
             "gpt-test"
         )).collectList().block();
 
-        assertThat(events).hasSize(4);
-        assertThat(events.getFirst().eventName()).isEqualTo("route");
+        assertThat(events).hasSize(5);
+        assertThat(eventNames(events)).containsExactly("status", "route", "delta", "delta", "done");
         assertThat(retrievalPort.lastQuery).isNull();
         assertThat(aiChatPort.calls).isEqualTo(1);
         assertThat(aiChatPort.lastRequest.messages().getFirst().content())
@@ -577,11 +579,9 @@ class ChatServiceTest {
             "gpt-test"
         )).collectList().block();
 
-        assertThat(events).hasSize(3);
-        assertThat(events.getFirst().eventName()).isEqualTo("route");
-        assertThat(events.get(1).eventName()).isEqualTo("delta");
-        assertThat(events.get(1).data().get("text")).asString().contains("현재 제공된 노트 내용이 너무 짧아");
-        assertThat(events.get(2).eventName()).isEqualTo("done");
+        assertThat(events).hasSize(4);
+        assertThat(eventNames(events)).containsExactly("status", "route", "delta", "done");
+        assertThat(events.get(2).data().get("text")).asString().contains("현재 제공된 노트 내용이 너무 짧아");
         assertThat(retrievalPort.lastQuery).isNull();
         assertThat(aiChatPort.calls).isZero();
         assertThat(persistencePort.messages.get(1).content()).contains("본문이나 선택 영역을 더 제공");
@@ -644,7 +644,7 @@ class ChatServiceTest {
             "gpt-test"
         )).collectList().block();
 
-        assertThat(events.getFirst().data()).containsEntry("route", "WORKSPACE_SEARCH");
+        assertThat(firstEvent(events, "route").data()).containsEntry("route", "WORKSPACE_SEARCH");
         assertThat(retrievalPort.lastQuery.scope()).isEqualTo(SearchScope.USER);
         assertThat(retrievalPort.lastQuery.documentGroupId()).isNull();
         assertThat(aiChatPort.lastRequest.messages().getFirst().content())
@@ -671,7 +671,7 @@ class ChatServiceTest {
             "gpt-test"
         )).collectList().block();
 
-        assertThat(events.getFirst().data()).containsEntry("route", "COMPOSE");
+        assertThat(firstEvent(events, "route").data()).containsEntry("route", "COMPOSE");
         assertThat(retrievalPort.lastQuery).isNull();
         assertThat(aiChatPort.calls).isEqualTo(1);
         assertThat(aiChatPort.lastRequest.messages().getFirst().content())
@@ -724,7 +724,29 @@ class ChatServiceTest {
             "gpt-test"
         )).collectList().block();
 
-        assertThat(events.getFirst().data())
+        assertThat(eventNames(events)).containsExactly(
+            "status",
+            "route",
+            "status",
+            "web_sources",
+            "status",
+            "delta",
+            "delta",
+            "done"
+        );
+        assertThat(events.get(2).data())
+            .containsEntry("phase", "WEB_SEARCHING")
+            .containsEntry("requiresWebSearch", true)
+            .containsEntry("webSearchQuery", "홍명보호 월드컵 성적 최신");
+        assertThat(firstEvent(events, "web_sources").data())
+            .containsEntry("webSearchQuery", "홍명보호 월드컵 성적 최신");
+        Object webSources = firstEvent(events, "web_sources").data().get("sources");
+        assertThat(webSources).isInstanceOf(List.class);
+        assertThat((List<?>) webSources).hasSize(1);
+        assertThat(events.get(4).data())
+            .containsEntry("phase", "ANSWERING")
+            .containsEntry("requiresWebSearch", true);
+        assertThat(firstEvent(events, "route").data())
             .containsEntry("route", "COMPOSE")
             .containsEntry("requiresWebSearch", true)
             .containsEntry("webSearchQuery", "홍명보호 월드컵 성적 최신");
@@ -803,15 +825,16 @@ class ChatServiceTest {
             "gpt-test"
         )).collectList().block();
 
-        assertThat(events).hasSize(3);
-        assertThat(events.getFirst().data())
+        assertThat(events).hasSize(6);
+        assertThat(eventNames(events)).containsExactly("status", "route", "status", "route", "delta", "done");
+        assertThat(lastEvent(events, "route").data())
             .containsEntry("route", "OUT_OF_SCOPE")
             .containsEntry("requiresWebSearch", true);
-        assertThat(events.getFirst().data()).containsKey("webSearchQuery");
-        assertThat(events.get(1).data().get("text")).asString().isNotBlank();
+        assertThat(lastEvent(events, "route").data()).containsKey("webSearchQuery");
+        assertThat(events.get(4).data().get("text")).asString().isNotBlank();
         assertThat(externalSearchPort.calls).isEqualTo(1);
         assertThat(aiChatPort.calls).isZero();
-        assertThat(persistencePort.messages.get(1).content()).isEqualTo(events.get(1).data().get("text"));
+        assertThat(persistencePort.messages.get(1).content()).isEqualTo(events.get(4).data().get("text"));
     }
 
     @Test
@@ -835,12 +858,13 @@ class ChatServiceTest {
             "gpt-test"
         )).collectList().block();
 
-        assertThat(events).hasSize(3);
-        assertThat(events.getFirst().data())
+        assertThat(events).hasSize(6);
+        assertThat(eventNames(events)).containsExactly("status", "route", "status", "route", "delta", "done");
+        assertThat(lastEvent(events, "route").data())
             .containsEntry("route", "OUT_OF_SCOPE")
             .containsEntry("requiresWebSearch", true)
             .containsEntry("webSearchQuery", "latest roadmap");
-        assertThat(events.get(1).data().get("text")).asString().isNotBlank();
+        assertThat(events.get(4).data().get("text")).asString().isNotBlank();
         assertThat(externalSearchPort.calls).isEqualTo(1);
         assertThat(aiChatPort.calls).isZero();
     }
@@ -859,17 +883,17 @@ class ChatServiceTest {
         ChatThread thread = existingThread();
         persistencePort.saveThread(thread);
 
-        assertThatThrownBy(() -> service.sendChatMessage(new SendChatMessageCommand(
+        var events = service.sendChatMessage(new SendChatMessageCommand(
             "user-1",
             thread.threadId(),
             "latest AI news report",
             Map.of(),
             Map.of(),
             "gpt-test"
-        )).collectList().block())
-            .isInstanceOf(ChatDomainException.class)
-            .hasMessageContaining("QUOTA_EXHAUSTED");
+        )).collectList().block();
 
+        assertThat(eventNames(events)).containsExactly("status", "route", "status", "error");
+        assertThat(events.get(3).data().get("message")).asString().contains("QUOTA_EXHAUSTED");
         assertThat(entitlementPort.calls).isEqualTo(1);
         assertThat(entitlementPort.lastRequest.capability()).isEqualTo("RAG_CHAT");
         assertThat(externalSearchPort.calls).isZero();
@@ -891,7 +915,7 @@ class ChatServiceTest {
             "gpt-test"
         )).collectList().block();
 
-        assertThat(events.getFirst().data()).containsEntry("route", "NOTE_ACTION");
+        assertThat(firstEvent(events, "route").data()).containsEntry("route", "NOTE_ACTION");
         assertThat(retrievalPort.lastQuery).isNull();
         assertThat(aiChatPort.calls).isEqualTo(1);
         assertThat(aiChatPort.lastRequest.messages().getFirst().content())
@@ -961,9 +985,10 @@ class ChatServiceTest {
             "gpt-test"
         )).collectList().block();
 
-        assertThat(events).hasSize(3);
-        assertThat(events.getFirst().data()).containsEntry("route", "OUT_OF_SCOPE");
-        assertThat(events.get(1).data().get("text")).asString().contains("BrainX 본 채팅");
+        assertThat(events).hasSize(4);
+        assertThat(eventNames(events)).containsExactly("status", "route", "delta", "done");
+        assertThat(events.get(1).data()).containsEntry("route", "OUT_OF_SCOPE");
+        assertThat(events.get(2).data().get("text")).asString().contains("BrainX 본 채팅");
         assertThat(retrievalPort.lastQuery).isNull();
         assertThat(aiChatPort.calls).isZero();
         assertThat(persistencePort.messages.get(1).content()).contains("BrainX 본 채팅");
@@ -983,10 +1008,9 @@ class ChatServiceTest {
             "gpt-test"
         )).collectList().block();
 
-        assertThat(events).hasSize(3);
-        assertThat(events.getFirst().eventName()).isEqualTo("route");
-        assertThat(events.get(1).eventName()).isEqualTo("delta");
-        assertThat(events.get(1).data().get("text")).asString().contains("관련 노트 근거");
+        assertThat(events).hasSize(4);
+        assertThat(eventNames(events)).containsExactly("status", "route", "delta", "done");
+        assertThat(events.get(2).data().get("text")).asString().contains("관련 노트 근거");
         assertThat(aiChatPort.calls).isZero();
         assertThat(persistencePort.messages).hasSize(2);
         assertThat(persistencePort.messages.get(1).role()).isEqualTo(ChatRole.ASSISTANT);
@@ -1015,17 +1039,17 @@ class ChatServiceTest {
         entitlementPort.allowed = false;
         entitlementPort.reasonCode = "QUOTA_EXHAUSTED";
 
-        assertThatThrownBy(() -> service.sendChatMessage(new SendChatMessageCommand(
+        var events = service.sendChatMessage(new SendChatMessageCommand(
             "user-1",
             thread.threadId(),
             "RAG란?",
             Map.of(),
             Map.of(),
             "gpt-test"
-        )))
-            .isInstanceOf(ChatDomainException.class)
-            .hasMessageContaining("QUOTA_EXHAUSTED");
+        )).collectList().block();
 
+        assertThat(eventNames(events)).containsExactly("status", "route", "error");
+        assertThat(events.get(2).data().get("message")).asString().contains("QUOTA_EXHAUSTED");
         assertThat(aiChatPort.calls).isZero();
         assertThat(persistencePort.messages).hasSize(1);
         assertThat(chatEventPort.messageEvents).isEmpty();
@@ -1081,11 +1105,10 @@ class ChatServiceTest {
             "gpt-test"
         )).collectList().block();
 
-        assertThat(events).hasSize(3);
-        assertThat(events.getFirst().eventName()).isEqualTo("route");
-        assertThat(events.get(1).eventName()).isEqualTo("delta");
-        assertThat(events.get(2).eventName()).isEqualTo("error");
-        assertThat(events.get(2).data()).containsEntry("code", "STREAM_ERROR");
+        assertThat(events).hasSize(4);
+        assertThat(eventNames(events)).containsExactly("status", "route", "delta", "error");
+        assertThat(events.get(2).eventName()).isEqualTo("delta");
+        assertThat(events.get(3).data()).containsEntry("code", "STREAM_ERROR");
         assertThat(persistencePort.messages).hasSize(1);
         assertThat(chatEventPort.messageEvents).isEmpty();
         assertThat(tokenUsagePort.records).isEmpty();
@@ -1093,6 +1116,24 @@ class ChatServiceTest {
 
     private static ChatThread existingThread() {
         return new ChatThread("thread-1", "user-1", "group-1", "RAG 질문", "gpt-test", null);
+    }
+
+    private static List<String> eventNames(List<ChatStreamEvent> events) {
+        return events.stream().map(ChatStreamEvent::eventName).toList();
+    }
+
+    private static ChatStreamEvent firstEvent(List<ChatStreamEvent> events, String eventName) {
+        return events.stream()
+            .filter(event -> event.eventName().equals(eventName))
+            .findFirst()
+            .orElseThrow();
+    }
+
+    private static ChatStreamEvent lastEvent(List<ChatStreamEvent> events, String eventName) {
+        return events.stream()
+            .filter(event -> event.eventName().equals(eventName))
+            .reduce((previous, current) -> current)
+            .orElseThrow();
     }
 
     private static final class FakeChatPersistencePort implements ChatPersistencePort {
