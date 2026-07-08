@@ -2,13 +2,14 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { WikiLinkContext, resolveWikiLinkTitle, type WikiLinkContextValue } from "./WikiLinkContext";
-import { renameWikiLinkReferencesInContent, contentHasWikiLinkTo, ensureWikiLinkPresent } from "@/lib/wiki-links";
+import { renameWikiLinkReferencesInContent, contentHasWikiLinkTo, ensureWikiLinkPresent, wikiLinkTargetSetChanged } from "@/lib/wiki-links";
 import {
   addPendingCreatedNote,
   clearPendingCreatedNotes,
   removePendingCreatedNoteByNoteId,
   updatePendingCreatedNoteId,
   updatePendingCreatedNoteTitle,
+  findPendingCreatedNoteByNoteId,
 } from "@/lib/notes/pending-created-note-cache";
 import { AlertCircle, Check, ChevronLeft, Download, Link2, LoaderCircle, MoreHorizontal, PanelRightClose, PanelRight, RotateCcw, Save, Upload } from "lucide-react";
 import { cx } from "@/lib/utils";
@@ -126,10 +127,20 @@ async function persistNoteBestEffort(note: MockNote): Promise<boolean> {
     return true;
   }
   if (note.id.startsWith("note_")) {
-    await saveWorkspaceNoteDraft(note);
+    await saveWorkspaceNoteDraft(resolveDraftWorkspaceNote(note));
     return true;
   }
   return false;
+}
+
+function resolveDraftWorkspaceNote(note: MockNote): MockNote {
+  if (note.documentGroupId !== undefined) return note;
+  const pendingCreated = findPendingCreatedNoteByNoteId(note.id);
+  if (!pendingCreated) return note;
+  return {
+    ...note,
+    documentGroupId: pendingCreated.documentGroupId ?? null,
+  };
 }
 
 const SAVE_BUTTON_TITLE: Record<SaveStatus, string> = {
@@ -996,7 +1007,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       const persistTitle = renamedNote.persisted
         ? updateWorkspaceNoteMetadata(renamedNote)
         : renamedNote.id.startsWith("note_")
-          ? saveWorkspaceNoteDraft(renamedNote)
+          ? saveWorkspaceNoteDraft(resolveDraftWorkspaceNote(renamedNote))
           : null;
       if (persistTitle) {
         try {
@@ -1016,7 +1027,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         relinked.map(({ note: target, result }) => {
           const updated = { ...target, content: result.content };
           if (!target.persisted && target.id.startsWith("note_")) {
-            return saveWorkspaceNoteDraft(updated).then(() => {
+            return saveWorkspaceNoteDraft(resolveDraftWorkspaceNote(updated)).then(() => {
               draftDirtyNoteIdsRef.current.delete(target.id);
             });
           }
@@ -1036,15 +1047,41 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   /* 노트 본문 변경(에디터 onUpdate 디바운스) → notes 상태 갱신, 탭 전환 후에도 내용 유지 */
   const handleContentChange = useCallback((noteId: string, newContentHtml: string) => {
     let didChange = false;
+    const wikiLinkSyncTarget: { note: MockNote | null } = { note: null };
     setNotes((prev) => {
       const existing = prev.find((note) => note.id === noteId);
       if (!existing || existing.content === newContentHtml) return prev;
 
       didChange = true;
+      // 페이지 이동/탭 전환이 아니라 "위키링크 target 집합이 실제로 바뀐 순간"만 골라
+      // Graph를 즉시 동기화한다 — 모든 타이핑마다 저장하면 안 되므로 이 비교가 유일한 트리거다.
+      if (wikiLinkTargetSetChanged(existing.content, newContentHtml)) {
+        wikiLinkSyncTarget.note = { ...existing, content: newContentHtml, updatedAt: Date.now() };
+      }
       return prev.map((n) => (n.id === noteId ? { ...n, content: newContentHtml, updatedAt: Date.now() } : n));
     });
     if (didChange) {
       draftDirtyNoteIdsRef.current.add(noteId);
+    }
+    if (wikiLinkSyncTarget.note && !USE_MOCK_NOTES) {
+      const noteToSync = wikiLinkSyncTarget.note;
+      // Ctrl+S(수동 저장)를 기다리지 않고 지금 이 순간 best-effort로 반영해, [[bb]]가
+      // [[bb]로 깨지는 즉시(수동 저장 없이도) /graph가 이 변경을 반영할 수 있게 한다.
+      void persistNoteBestEffort(noteToSync)
+        .then((persisted) => {
+          if (persisted) {
+            draftDirtyNoteIdsRef.current.delete(noteToSync.id);
+            // brainx:notes-refresh가 아니라 전용 brainx:graph-refresh를 쏜다 — notes-refresh는
+            // 이 컴포넌트 자신의 handleExternalRefresh(loadFromServer)도 듣고 있어서, noteId를
+            // 실어 보내면 "그 노트를 활성 탭으로 열라"로 해석돼 방금 위키링크로 새로 만든 노트
+            // 탭으로 옮겨간 직후 활성 탭이 source 노트로 튕겨 돌아가는 롤백 버그가 있었다(noteId를
+            // 빼도 이 컴포넌트가 notes-refresh 자체를 계속 듣는 한 다른 dispatch와 겹치면 같은
+            // 위험이 남는다). notes[] state는 이미 위 setNotes로 최신이라 이 컴포넌트가 서버에서
+            // 다시 불러올 필요도 없다 — /graph만 이 신호를 듣고 자기 데이터를 재조회한다.
+            window.dispatchEvent(new CustomEvent("brainx:graph-refresh"));
+          }
+        })
+        .catch((error) => warnWikiLinkFailure("wikilink target 변경 즉시 저장 실패", error));
     }
   }, []);
 
@@ -1844,7 +1881,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     const persistMove = movedNote.persisted
       ? updateWorkspaceNoteMetadata(movedNote)
       : movedNote.id.startsWith("note_")
-        ? saveWorkspaceNoteDraft(movedNote)
+        ? saveWorkspaceNoteDraft(resolveDraftWorkspaceNote(movedNote))
         : null;
     if (persistMove) {
       void persistMove.catch((error) => {
@@ -2028,7 +2065,13 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     // 회귀가 있었다.
     function loadFromServer(openNoteId?: string, isInitialLoad = false, attachInitialTab = true) {
       setLoadError(null);
-      const targetNoteId = openNoteId ?? (attachInitialTab && initialTab.kind === "note" ? initialTab.noteId : null);
+      // initialTab(URL의 노트)로 강제 이동하는 폴백은 최초 마운트 복원에서만 쓴다 — 이후
+      // brainx:notes-refresh(예: 데스크톱 수동 동기화의 syncRefresh)가 openNoteId 없이 다시
+      // 불러올 때도 이 폴백을 계속 적용하면, 그 사이 사용자가 새 탭(+ 버튼/위키링크로 만든
+      // 노트)으로 이미 옮겨간 활성 탭을 initialTab이 가리키던 예전 노트로 도로 튕겨내는
+      // 롤백 버그가 있었다.
+      const targetNoteId =
+        openNoteId ?? (isInitialLoad && attachInitialTab && initialTab.kind === "note" ? initialTab.noteId : null);
       return Promise.all([
         shouldUseDesktopVault(),
         listNotes(),
@@ -2368,7 +2411,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     draftAutosaveTimerRef.current = window.setTimeout(() => {
       const noteSnapshot = latestSessionRef.current.notes.find((item) => item.id === activeNote.id);
       if (!noteSnapshot) return;
-      void saveWorkspaceNoteDraft(noteSnapshot)
+      void saveWorkspaceNoteDraft(resolveDraftWorkspaceNote(noteSnapshot))
         .then(() => {
           draftDirtyNoteIdsRef.current.delete(noteSnapshot.id);
           setDraftSaveStatus("saved");
@@ -2407,7 +2450,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }
 
     if (!note.persisted && note.id.startsWith("note_")) {
-      await saveWorkspaceNoteDraft(note);
+      await saveWorkspaceNoteDraft(resolveDraftWorkspaceNote(note));
       draftDirtyNoteIdsRef.current.delete(note.id);
       return;
     }

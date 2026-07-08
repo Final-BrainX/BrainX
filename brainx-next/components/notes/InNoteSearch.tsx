@@ -18,14 +18,28 @@ function findMatches(doc: import("@tiptap/pm/model").Node, query: string): Match
   const q = query.trim().toLowerCase();
   if (!q) return matches;
   doc.descendants((node, pos) => {
-    if (!node.isText || !node.text) return;
-    const text = node.text.toLowerCase();
-    let from = 0;
-    for (;;) {
-      const idx = text.indexOf(q, from);
-      if (idx === -1) break;
-      matches.push({ from: pos + idx, to: pos + idx + q.length });
-      from = idx + q.length;
+    if (node.isText && node.text) {
+      const text = node.text.toLowerCase();
+      let from = 0;
+      for (;;) {
+        const idx = text.indexOf(q, from);
+        if (idx === -1) break;
+        matches.push({ from: pos + idx, to: pos + idx + q.length });
+        from = idx + q.length;
+      }
+      return;
+    }
+    // 위키링크(WikiLinkNode.tsx)는 atom 노드라 title/alias가 PM 텍스트 노드가 아니라
+    // attrs로만 존재한다 — 그래서 위 텍스트 스캔에서는 항상 제외되고, "[[Spring Boot]]"가
+    // 렌더된(밑줄 링크) 상태에서는 "Spring"/"Boot" 어느 substring으로도 찾을 수 없었다.
+    // 검색 source(TipTap document)는 그대로 두고, atom 노드일 때만 title(+alias)을 일반
+    // 텍스트처럼 검사해 노드 전체 범위를 매치로 추가한다.
+    if (node.type.name === "wikiLink") {
+      const title = typeof node.attrs.title === "string" ? node.attrs.title : "";
+      const alias = typeof node.attrs.alias === "string" ? node.attrs.alias : "";
+      if (`${title} ${alias}`.toLowerCase().includes(q)) {
+        matches.push({ from: pos, to: pos + node.nodeSize });
+      }
     }
   });
   return matches;

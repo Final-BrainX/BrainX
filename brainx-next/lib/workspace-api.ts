@@ -659,7 +659,30 @@ export async function issueWorkspaceNoteDraftId() {
   });
 }
 
-export async function saveWorkspaceNoteDraft(note: MockNote) {
+/** 같은 noteId에 대한 draft PUT을 순서대로만 실행한다 — Redis draft(NoteDraftService.saveDraft)는
+    버전/순서 검증 없이 단순 SET이라, 두 요청이 동시에 나가면 "먼저 보낸(하지만 서버 처리는 늦게
+    끝난) 오래된 내용"이 "나중에 보낸 올바른 내용"을 덮어쓸 수 있다(예: 위키링크 자동완성 드롭다운을
+    잠깐 보는 사이 예약된 1500ms 자동저장과, 그 직후 즉시 저장이 겹치는 경우). Postgres 저장
+    (updateWorkspaceNoteContent)은 baseVersion 불일치 시 서버가 409로 거부해 이미 안전하므로 여기서는
+    다루지 않는다. noteId별로 별도 체인을 두어 다른 노트의 저장은 서로 막지 않는다. */
+const draftSaveQueues = new Map<string, Promise<void>>();
+
+function enqueueDraftSave<T>(noteId: string, run: () => Promise<T>): Promise<T> {
+  const prior = draftSaveQueues.get(noteId) ?? Promise.resolve();
+  const result = prior.then(run, run);
+  const tracked = result.then(() => undefined, () => undefined);
+  draftSaveQueues.set(noteId, tracked);
+  void tracked.finally(() => {
+    if (draftSaveQueues.get(noteId) === tracked) draftSaveQueues.delete(noteId);
+  });
+  return result;
+}
+
+export function saveWorkspaceNoteDraft(note: MockNote) {
+  return enqueueDraftSave(note.id, () => sendWorkspaceNoteDraft(note));
+}
+
+async function sendWorkspaceNoteDraft(note: MockNote) {
   if (await shouldUseDesktopVault()) {
     return {
       noteId: note.id,
