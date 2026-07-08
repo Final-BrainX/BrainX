@@ -980,6 +980,25 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       })
     );
 
+    // 제목 자체는 이 노트가 activeNote로 Ctrl+S/autosave 대상이 될 때까지 서버에 반영되지 않았다
+    // (content autosave는 activeNote만, metadata PATCH는 이동/타이포그래피 등 다른 액션에서만
+    // 호출됨) — 그 사이 다른 화면(위키링크 relink, notes-refresh 등)이 loadFromServer()를
+    // 트리거하면 Postgres에 남은 옛 제목으로 되돌아가 보이는 롤백 버그의 원인이었다.
+    // handleMoveNoteToFolder와 동일한 best-effort 패턴으로 제목 변경 즉시 반영한다.
+    if (!USE_MOCK_NOTES && newTitle !== oldTitle) {
+      const renamedNote = { ...note, title: newTitle };
+      const persistTitle = renamedNote.persisted
+        ? updateWorkspaceNoteMetadata(renamedNote)
+        : renamedNote.id.startsWith("note_")
+          ? saveWorkspaceNoteDraft(renamedNote)
+          : null;
+      if (persistTitle) {
+        void persistTitle.catch((error) => {
+          pushToast(error instanceof Error ? error.message : "제목을 저장하지 못했습니다.", "err");
+        });
+      }
+    }
+
     if (relinked.length > 0 && !USE_MOCK_NOTES) {
       // 위키링크가 갱신된 다른 노트들도 최소한 한 번은 백그라운드로 저장해야, 그래프/마인드맵처럼
       // 서버에서 새로 노트를 읽어오는 화면에서도 이름 변경이 반영된다(로컬 state만 바꾸면 이번
