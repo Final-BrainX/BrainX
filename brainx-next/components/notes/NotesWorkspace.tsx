@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { WikiLinkContext, resolveWikiLinkTitle, type WikiLinkContextValue } from "./WikiLinkContext";
-import { renameWikiLinkReferencesInContent, contentHasWikiLinkTo, ensureWikiLinkPresent } from "@/lib/wiki-links";
+import { renameWikiLinkReferencesInContent, contentHasWikiLinkTo, ensureWikiLinkPresent, wikiLinkTargetSetChanged } from "@/lib/wiki-links";
 import {
   addPendingCreatedNote,
   clearPendingCreatedNotes,
@@ -1047,15 +1047,34 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   /* 노트 본문 변경(에디터 onUpdate 디바운스) → notes 상태 갱신, 탭 전환 후에도 내용 유지 */
   const handleContentChange = useCallback((noteId: string, newContentHtml: string) => {
     let didChange = false;
+    const wikiLinkSyncTarget: { note: MockNote | null } = { note: null };
     setNotes((prev) => {
       const existing = prev.find((note) => note.id === noteId);
       if (!existing || existing.content === newContentHtml) return prev;
 
       didChange = true;
+      // 페이지 이동/탭 전환이 아니라 "위키링크 target 집합이 실제로 바뀐 순간"만 골라
+      // Graph를 즉시 동기화한다 — 모든 타이핑마다 저장하면 안 되므로 이 비교가 유일한 트리거다.
+      if (wikiLinkTargetSetChanged(existing.content, newContentHtml)) {
+        wikiLinkSyncTarget.note = { ...existing, content: newContentHtml, updatedAt: Date.now() };
+      }
       return prev.map((n) => (n.id === noteId ? { ...n, content: newContentHtml, updatedAt: Date.now() } : n));
     });
     if (didChange) {
       draftDirtyNoteIdsRef.current.add(noteId);
+    }
+    if (wikiLinkSyncTarget.note && !USE_MOCK_NOTES) {
+      const noteToSync = wikiLinkSyncTarget.note;
+      // Ctrl+S(수동 저장)를 기다리지 않고 지금 이 순간 best-effort로 반영해, [[bb]]가
+      // [[bb]로 깨지는 즉시(수동 저장 없이도) /graph가 이 변경을 반영할 수 있게 한다.
+      void persistNoteBestEffort(noteToSync)
+        .then((persisted) => {
+          if (persisted) {
+            draftDirtyNoteIdsRef.current.delete(noteToSync.id);
+            window.dispatchEvent(new CustomEvent("brainx:notes-refresh", { detail: { noteId: noteToSync.id } }));
+          }
+        })
+        .catch((error) => warnWikiLinkFailure("wikilink target 변경 즉시 저장 실패", error));
     }
   }, []);
 

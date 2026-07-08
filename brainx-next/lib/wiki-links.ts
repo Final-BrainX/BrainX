@@ -166,6 +166,24 @@ export function extractWikiLinkTargets(markdown: string) {
   return matches.map((match) => match.slice(2, -2)).filter(Boolean);
 }
 
+/** 두 시점의 본문에서 "위키링크가 가리키는 target 집합" 자체가 달라졌는지만 비교한다(추가든
+    삭제든 상관없이 집합이 달라지면 true) — Graph 즉시 동기화(NotesWorkspace의
+    handleContentChange)가 모든 타이핑마다 저장을 트리거하지 않고, `[[bb]]`가 `[[bb]`로 깨지는
+    등 실제로 연결 관계가 바뀐 순간만 골라내기 위한 기준이다. extractWikiLinkTargets는 HTML로
+    렌더된 위키링크 atom 노드의 innerHTML(`[[title]]` 또는 alias가 있으면 `[[alias]]`)도 그대로
+    문자열로 포함하므로 별도 HTML 파싱 없이 재사용할 수 있다 — alias가 있는 링크는 alias 텍스트를
+    "식별자"로 쓰게 되지만, 이전/이후 비교에 항상 같은 규칙을 적용하므로 "달라졌는지" 판단
+    자체는 정확하다. */
+export function wikiLinkTargetSetChanged(prevContent: string, nextContent: string): boolean {
+  const prevTargets = new Set(extractWikiLinkTargets(prevContent).map(normalizeWikiLinkTarget));
+  const nextTargets = new Set(extractWikiLinkTargets(nextContent).map(normalizeWikiLinkTarget));
+  if (prevTargets.size !== nextTargets.size) return true;
+  for (const target of prevTargets) {
+    if (!nextTargets.has(target)) return true;
+  }
+  return false;
+}
+
 export function resolveWikiLinkByTitle<T extends { id: string; title: string }>(
   notes: T[],
   target: string
