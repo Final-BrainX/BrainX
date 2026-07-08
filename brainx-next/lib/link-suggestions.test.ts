@@ -22,6 +22,14 @@ function suggestion(overrides: Partial<LinkSuggestion> = {}): LinkSuggestion {
   };
 }
 
+test("linkSuggestionApplyContent keeps non-text editor nodes before saved markdown", () => {
+  const editorContent = '<p><img src="/assets/diagram.png" alt="diagram"></p>';
+  assert.equal(
+    linkSuggestionApplyContent(editorContent, "saved markdown with target concept", "fallback content"),
+    editorContent
+  );
+});
+
 test("filterLinkSuggestions excludes already linked targets", () => {
   const result = filterLinkSuggestions(
     "source-1",
