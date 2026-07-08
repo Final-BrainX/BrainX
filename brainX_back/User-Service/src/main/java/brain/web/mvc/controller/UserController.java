@@ -10,6 +10,7 @@ import brain.web.mvc.dto.response.ApiResponse;
 import brain.web.mvc.dto.response.UserResponses.ConsentUpdateResponse;
 import brain.web.mvc.dto.response.UserResponses.DeletionResponse;
 import brain.web.mvc.dto.response.UserResponses.MyProfileResponse;
+import brain.web.mvc.dto.response.UserResponses.NotificationDeleteResponse;
 import brain.web.mvc.dto.response.UserResponses.NotificationItemResponse;
 import brain.web.mvc.dto.response.UserResponses.NotificationsResponse;
 import brain.web.mvc.dto.response.UserResponses.ProfileUpdateResponse;
@@ -122,5 +123,13 @@ public class UserController {
     @PostMapping("/notifications/read-all")
     public ResponseEntity<ApiResponse<NotificationsResponse>> markAllNotificationsRead(@AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.ok(ApiResponse.success(userNotificationService.markAllAsRead(userDetails.getUsername()), "모든 알림을 읽음 처리했습니다."));
+    }
+
+    @DeleteMapping("/notifications/{notificationId}")
+    public ResponseEntity<ApiResponse<NotificationDeleteResponse>> deleteNotification(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable String notificationId
+    ) {
+        return ResponseEntity.ok(ApiResponse.success(userNotificationService.deleteNotification(userDetails.getUsername(), notificationId), "알림을 삭제했습니다."));
     }
 }

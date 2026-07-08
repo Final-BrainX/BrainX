@@ -40,6 +40,7 @@ import {
 } from "@/lib/commerce-api";
 import {
   AuthRequiredError,
+  deleteMyNotification,
   getMyNotifications,
   getMyProfile,
   markAllMyNotificationsRead,
@@ -1140,6 +1141,7 @@ function TopBar({
   const [notifications, setNotifications] = useState<MyNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [markingAllRead, setMarkingAllRead] = useState(false);
+  const [deletingNotificationId, setDeletingNotificationId] = useState<string | null>(null);
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const isDemoSession = isDevAuthSession(session);
   const isGuest = !session?.accessToken || isDemoSession;
@@ -1314,6 +1316,34 @@ function TopBar({
     }
   }, [markingAllRead, notifications, unreadCount, pushToast]);
 
+  const handleDeleteNotification = useCallback(async (notification: MyNotification) => {
+    if (deletingNotificationId) return;
+
+    const previousNotifications = notifications;
+    const previousUnreadCount = unreadCount;
+    const nextUnreadCount = notification.read ? unreadCount : Math.max(0, unreadCount - 1);
+
+    setDeletingNotificationId(notification.notificationId);
+    setNotifications((current) =>
+      current.filter((item) => item.notificationId !== notification.notificationId),
+    );
+    setUnreadCount(nextUnreadCount);
+
+    try {
+      const data = await deleteMyNotification(notification.notificationId);
+      setUnreadCount((current) => Math.min(current, data.unreadCount));
+    } catch (error) {
+      setNotifications(previousNotifications);
+      setUnreadCount(previousUnreadCount);
+      pushToast(
+        error instanceof Error ? error.message : "알림을 삭제하지 못했습니다.",
+        "err",
+      );
+    } finally {
+      setDeletingNotificationId(null);
+    }
+  }, [deletingNotificationId, notifications, unreadCount, pushToast]);
+
   const displayName = isGuest
     ? "게스트"
     : profileName ||
@@ -1467,9 +1497,23 @@ function TopBar({
                                   )}
                               </div>
                             </div>
-                            {!notification.read ? (
-                              <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-accent" />
-                            ) : null}
+                            <div className="flex shrink-0 items-start gap-2">
+                              {!notification.read ? (
+                                <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-accent" />
+                              ) : null}
+                              <button
+                                type="button"
+                                aria-label="알림 삭제"
+                                disabled={deletingNotificationId === notification.notificationId}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleDeleteNotification(notification);
+                                }}
+                                className="rounded p-1 text-txt3 transition-colors hover:bg-surface2/70 hover:text-txt disabled:opacity-40"
+                              >
+                                <Icon name="x" size={12} />
+                              </button>
+                            </div>
                           </div>
                         </button>
                       ))
