@@ -1634,6 +1634,39 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
       security:
       - bearerAuth: []
+  /api/v1/users/me/notifications/read-all:
+    post:
+      operationId: markAllMyNotificationsRead
+      summary: 내 알림 일괄 읽음 처리
+      tags:
+      - Identity & Access
+      x-producer-service: identity-access
+      x-visibility: public
+      x-consumers:
+      - id: web.home
+        type: frontend
+        description: 사용자 상단 벨 알림함
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/UserNotificationsData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+      security:
+      - bearerAuth: []
   /api/v1/support/tickets:
     post:
       operationId: createSupportTicket

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { KeyboardEvent, ReactNode } from "react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useGuideStore } from "@/lib/use-guide-store";
 import { useBrainX } from "@/components/brainx-provider";
@@ -42,6 +42,7 @@ import {
   AuthRequiredError,
   getMyNotifications,
   getMyProfile,
+  markAllMyNotificationsRead,
   markMyNotificationRead,
   type MyNotification,
 } from "@/lib/user-api";
@@ -1127,7 +1128,7 @@ function TopBar({
 }: {
   onOpenSettings: (tab?: SettingsTab) => void;
 }) {
-  const { t } = useBrainX();
+  const { t, pushToast } = useBrainX();
   const router = useRouter();
   const pathname = usePathname();
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -1138,6 +1139,7 @@ function TopBar({
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [notifications, setNotifications] = useState<MyNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [markingAllRead, setMarkingAllRead] = useState(false);
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const isDemoSession = isDevAuthSession(session);
   const isGuest = !session?.accessToken || isDemoSession;
@@ -1282,6 +1284,36 @@ function TopBar({
     };
   }, [session?.accessToken, session?.userId]);
 
+  /* "모두 읽음" — 서버 응답을 기다리지 않고 먼저 화면(목록/배지)을 전부 읽음 처리해 즉시
+     반영하고(optimistic), 실패하면 직전 상태로 되돌린다. 개별 확인(markMyNotificationRead)과
+     달리 이 목록에 없는(top20 밖) 미확인 알림까지 서버에서 함께 처리되므로, 성공 후에는 서버가
+     돌려주는 최신 목록/개수로 다시 맞춘다. */
+  const handleMarkAllNotificationsRead = useCallback(async () => {
+    if (markingAllRead || unreadCount === 0) return;
+    const previousNotifications = notifications;
+    const previousUnreadCount = unreadCount;
+    setMarkingAllRead(true);
+    const now = new Date().toISOString();
+    setNotifications((current) =>
+      current.map((item) => (item.read ? item : { ...item, read: true, readAt: now })),
+    );
+    setUnreadCount(0);
+    try {
+      const data = await markAllMyNotificationsRead();
+      setNotifications(data.notifications);
+      setUnreadCount(data.unreadCount);
+    } catch (error) {
+      setNotifications(previousNotifications);
+      setUnreadCount(previousUnreadCount);
+      pushToast(
+        error instanceof Error ? error.message : "알림을 모두 읽음 처리하지 못했습니다.",
+        "err",
+      );
+    } finally {
+      setMarkingAllRead(false);
+    }
+  }, [markingAllRead, notifications, unreadCount, pushToast]);
+
   const displayName = isGuest
     ? "게스트"
     : profileName ||
@@ -1369,8 +1401,20 @@ function TopBar({
                         관리자 공지와 주요 안내를 확인할 수 있어요.
                       </div>
                     </div>
-                    <div className="text-[12px] font-semibold text-accent">
-                      {unreadCount}개 미확인
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <div className="text-[12px] font-semibold text-accent">
+                        {unreadCount}개 미확인
+                      </div>
+                      {unreadCount > 0 ? (
+                        <button
+                          type="button"
+                          onClick={handleMarkAllNotificationsRead}
+                          disabled={markingAllRead}
+                          className="text-[11px] font-medium text-txt3 transition-colors hover:text-txt disabled:opacity-50"
+                        >
+                          모두 읽음
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                   <div className="max-h-[360px] overflow-y-auto">

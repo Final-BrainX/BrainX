@@ -43,6 +43,15 @@ public class UserNotificationService {
         return toResponse(notification);
     }
 
+    /** 개별 확인(markAsRead)과 달리 bulk update 쿼리 한 번으로 처리한다 — 목록에 안 보이는(top20
+        범위 밖) 오래된 미확인 알림까지 전부 읽음 처리해야 실제 unreadCount가 0이 되기 때문에,
+        엔티티를 하나씩 로드해 markRead()를 호출하는 대신 UPDATE 쿼리로 일괄 반영한다. */
+    @Transactional
+    public NotificationsResponse markAllAsRead(String userId) {
+        userNotificationRepository.markAllAsReadByUserUserId(userId, LocalDateTime.now());
+        return getMyNotifications(userId);
+    }
+
     @Transactional
     public void createNotifications(List<String> userIds, String type, String title, String body, String sentByAdminUserId, String sentByAdminName) {
         List<User> users = userRepository.findAllById(userIds);

@@ -737,7 +737,7 @@ overview summary는 결제/사용자 지표 외에 `Workspace-Service`의 `/inte
 | 관리자 메시지 목록/전송 | GET/POST          | `/api/v1/admin/messages`                                                 | 모니터링 우측 레일 채팅창, 전체 발송/선택 발송                                                                                             |
 | 관리자 메시지 읽음      | POST              | `/api/v1/admin/messages/{messageId}/read`                                | 우측 프로필 `SMS` 건수와 `읽음` 모달                                                                                                       |
 
-사용자 알림함은 `brainx-next` 상단 종 아이콘과 연결되며, 관리자 `SEND_NOTICE` 일괄 액션이 실행되면 `GET /api/v1/users/me/notifications`, `POST /api/v1/users/me/notifications/{notificationId}/read`로 확인할 수 있습니다.
+사용자 알림함은 `brainx-next` 상단 종 아이콘과 연결되며, 관리자 `SEND_NOTICE` 일괄 액션이 실행되면 `GET /api/v1/users/me/notifications`, `POST /api/v1/users/me/notifications/{notificationId}/read`로 확인할 수 있습니다. 알림함의 "모두 읽음" 버튼은 `POST /api/v1/users/me/notifications/read-all`로 목록에 보이지 않는(top20 밖) 미확인 알림까지 한 번에 읽음 처리합니다.
 
 관리자 목록 조회(GET)는 모든 관리자에게 열려 있지만, 계정 생성/수정/삭제는 owner 역할만 가능합니다. 최고관리자가 아닌 관리자는 관리자 관리 화면 자체에 진입할 수 없습니다(사이드바 메뉴 비노출 + 화면 가드). 관리자 메시지는 모든 관리자가 조회/전송/읽음 처리할 수 있고, 선택 발송 메시지는 수신 대상과 발신자에게만 노출됩니다.
 
