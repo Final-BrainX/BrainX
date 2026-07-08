@@ -56,10 +56,12 @@ export type WorkspaceFolderItem = {
 
 export type NoteCreated = {
   noteId: string;
+  remoteNoteId?: string | null;
   title: string;
   folderId: string | null;
   version: number;
   createdAt: string;
+  storage?: "workspace" | "desktop-vault";
 };
 
 export type WorkspaceNoteCreatePayload = {
@@ -553,18 +555,20 @@ export async function deleteWorkspaceFolder(folderId: string, mode: "trash" | "p
   });
 }
 
-export async function createWorkspaceNoteFromPayload(payload: WorkspaceNoteCreatePayload) {
+export async function createWorkspaceNoteFromPayload(payload: WorkspaceNoteCreatePayload): Promise<NoteCreated> {
   if (await shouldUseDesktopVault()) {
     const created = await createDesktopVaultNote(payload);
     return {
       noteId: created.noteId,
+      remoteNoteId: created.remoteNoteId ?? null,
       title: created.title,
       folderId: created.folderId,
       version: created.version,
       createdAt: created.createdAt,
+      storage: "desktop-vault" as const,
     };
   }
-  return authedRequest<NoteCreated>("/api/v1/notes", {
+  const created = await authedRequest<NoteCreated>("/api/v1/notes", {
     method: "POST",
     body: JSON.stringify({
       // documentGroupId를 생략하면(undefined -> JSON.stringify가 키를 빼먹음) saveWorkspaceNoteDraft와
@@ -576,6 +580,11 @@ export async function createWorkspaceNoteFromPayload(payload: WorkspaceNoteCreat
       tags: payload.tags ?? []
     })
   });
+  return {
+    ...created,
+    remoteNoteId: created.remoteNoteId ?? null,
+    storage: "workspace" as const,
+  };
 }
 
 export async function createWorkspaceNote(note: MockNote) {

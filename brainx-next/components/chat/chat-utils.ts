@@ -100,6 +100,7 @@ export function messagesFromThread(
       modelId: stringValue(message.modelId),
       createdAt: stringValue(message.createdAt),
       route: chatRouteFrom(record.route ?? record.chatRoute),
+      savedDraftNoteId: stringValue(record.savedDraftNoteId) || null,
       llmRunId: stringValue(record.llmRunId) || null,
       feedbackRating:
         record.feedbackRating === "LIKE" || record.feedbackRating === "DISLIKE"

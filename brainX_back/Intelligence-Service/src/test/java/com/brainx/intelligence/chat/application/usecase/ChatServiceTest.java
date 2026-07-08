@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import com.brainx.intelligence.chat.application.port.inbound.CreateChatThreadUseCase.CreateChatThreadCommand;
 import com.brainx.intelligence.chat.application.port.inbound.GetChatThreadUseCase.GetChatThreadQuery;
 import com.brainx.intelligence.chat.application.port.inbound.ListChatThreadsUseCase.ListChatThreadsQuery;
+import com.brainx.intelligence.chat.application.port.inbound.RecordChatDraftNoteUseCase.RecordChatDraftNoteCommand;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.SendChatMessageCommand;
 import com.brainx.intelligence.chat.application.port.inbound.SendChatMessageUseCase.ChatStreamEvent;
 import com.brainx.intelligence.chat.application.port.inbound.UpdateChatThreadUseCase.DeleteChatThreadCommand;
@@ -477,6 +478,8 @@ class ChatServiceTest {
         assertThat(assistantMessage.citations()).hasSize(1);
         assertThat(assistantMessage.tokenUsage()).isNotNull();
         assertThat(assistantMessage.llmRunId()).isNotBlank();
+        assertThat(assistantMessage.route()).isEqualTo(ChatRoute.NOTE_QA);
+        assertThat(assistantMessage.savedDraftNoteId()).isNull();
 
         assertThat(chatEventPort.messageEvents).hasSize(1);
         assertThat(chatEventPort.messageEvents.getFirst().citationNoteIds()).containsExactly("note-1");
@@ -499,6 +502,8 @@ class ChatServiceTest {
         assertThat(detail.messages().get(0)).containsEntry("feedbackRating", null);
         assertThat(detail.messages().get(1))
             .containsEntry("llmRunId", assistantMessage.llmRunId())
+            .containsEntry("route", "NOTE_QA")
+            .containsEntry("savedDraftNoteId", null)
             .containsEntry("feedbackRating", "LIKE");
     }
 
@@ -688,6 +693,71 @@ class ChatServiceTest {
         assertThat(aiChatPort.lastRequest.messages().getLast().content())
             .contains("Request:")
             .contains("최신 홍명보호 월드컵 성적에 대한 문서 작성해줘");
+        assertThat(persistencePort.messages.get(1).route()).isEqualTo(ChatRoute.COMPOSE);
+    }
+
+    @Test
+    void recordChatDraftNoteStoresNoteIdAndReturnsExistingMapping() {
+        ChatThread thread = existingThread();
+        persistencePort.saveThread(thread);
+        persistencePort.saveMessage(ChatMessage.assistant(
+            "message-2",
+            thread.threadId(),
+            thread.userId(),
+            "# 초안\n\n본문",
+            "gpt-test",
+            List.of(),
+            List.of(),
+            null,
+            null,
+            ChatRoute.COMPOSE,
+            Instant.parse("2026-06-23T00:00:02Z")
+        ));
+
+        var recorded = service.recordChatDraftNote(new RecordChatDraftNoteCommand(
+            "user-1",
+            thread.threadId(),
+            "message-2",
+            "note-1"
+        ));
+        var repeated = service.recordChatDraftNote(new RecordChatDraftNoteCommand(
+            "user-1",
+            thread.threadId(),
+            "message-2",
+            "note-2"
+        ));
+
+        assertThat(recorded.noteId()).isEqualTo("note-1");
+        assertThat(repeated.noteId()).isEqualTo("note-1");
+        assertThat(persistencePort.messages.getFirst().savedDraftNoteId()).isEqualTo("note-1");
+    }
+
+    @Test
+    void recordChatDraftNoteRejectsNonDraftRoute() {
+        ChatThread thread = existingThread();
+        persistencePort.saveThread(thread);
+        persistencePort.saveMessage(ChatMessage.assistant(
+            "message-2",
+            thread.threadId(),
+            thread.userId(),
+            "답변",
+            "gpt-test",
+            List.of(),
+            List.of(),
+            null,
+            null,
+            ChatRoute.NOTE_QA,
+            Instant.parse("2026-06-23T00:00:02Z")
+        ));
+
+        assertThatThrownBy(() -> service.recordChatDraftNote(new RecordChatDraftNoteCommand(
+            "user-1",
+            thread.threadId(),
+            "message-2",
+            "note-1"
+        )))
+            .isInstanceOf(ChatConflictException.class)
+            .hasMessage("Chat message cannot be saved as a draft note.");
     }
 
     @Test
@@ -1227,6 +1297,58 @@ class ChatServiceTest {
         public ChatMessage saveMessage(ChatMessage message) {
             messages.add(message);
             return message;
+        }
+
+        @Override
+        public Optional<ChatMessage> findMessageByUserIdAndThreadIdAndMessageId(
+            String userId,
+            String threadId,
+            String messageId
+        ) {
+            return messages.stream()
+                .filter(message -> message.userId().equals(userId)
+                    && message.threadId().equals(threadId)
+                    && message.messageId().equals(messageId))
+                .findFirst();
+        }
+
+        @Override
+        public Optional<ChatMessage> recordSavedDraftNoteId(
+            String userId,
+            String threadId,
+            String messageId,
+            String noteId
+        ) {
+            for (int index = 0; index < messages.size(); index++) {
+                ChatMessage message = messages.get(index);
+                if (message.userId().equals(userId)
+                    && message.threadId().equals(threadId)
+                    && message.messageId().equals(messageId)) {
+                    if (message.savedDraftNoteId() != null && !message.savedDraftNoteId().isBlank()) {
+                        return Optional.of(message);
+                    }
+                    ChatMessage updated = new ChatMessage(
+                        message.messageId(),
+                        message.threadId(),
+                        message.userId(),
+                        message.role(),
+                        message.content(),
+                        message.modelId(),
+                        message.noteScope(),
+                        message.clientContext(),
+                        message.citations(),
+                        message.webSources(),
+                        message.tokenUsage(),
+                        message.llmRunId(),
+                        message.route(),
+                        noteId,
+                        message.createdAt()
+                    );
+                    messages.set(index, updated);
+                    return Optional.of(updated);
+                }
+            }
+            return Optional.empty();
         }
 
         @Override

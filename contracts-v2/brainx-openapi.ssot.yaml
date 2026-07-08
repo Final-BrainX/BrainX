@@ -7096,6 +7096,92 @@ paths:
       - bearerAuth: []
       - guestSessionAuth: []
       x-streaming: sse
+  /api/v1/ai/chat-threads/{threadId}/messages/{messageId}/draft-note:
+    put:
+      operationId: recordChatMessageDraftNote
+      summary: AI 채팅 메시지 초안 노트 저장 매핑 기록
+      description: Workspace 공개 노트 생성이 성공한 뒤, 해당 AI assistant 메시지가 어떤 노트로 저장됐는지 기록한다. 이미 저장된 메시지는 기존 noteId를 반환하고 덮어쓰지 않는다.
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.chat
+        type: frontend
+        description: RAG 챗봇 UI
+      x-produces-events: []
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      parameters:
+      - name: threadId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: messageId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatDraftNoteRequest'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ChatDraftNoteData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: 초안 노트로 저장할 수 없는 메시지
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/chat-threads/{threadId}:
     get:
       operationId: getChatThread
@@ -17737,6 +17823,14 @@ components:
       - message
       - modelId
       additionalProperties: false
+    ChatDraftNoteRequest:
+      type: object
+      properties:
+        noteId:
+          type: string
+      required:
+      - noteId
+      additionalProperties: false
     AiClientContext:
       type: object
       description: Frontend-selected AI context for the current task. The user message and client context are separate so the model can distinguish instructions from source material.
@@ -17810,6 +17904,14 @@ components:
       - snippet
       - rank
       additionalProperties: false
+    ChatRoute:
+      type: string
+      enum:
+      - NOTE_QA
+      - WORKSPACE_SEARCH
+      - COMPOSE
+      - NOTE_ACTION
+      - OUT_OF_SCOPE
     ChatMessageData:
       type: object
       properties:
@@ -17851,6 +17953,14 @@ components:
         llmRunId:
           type: string
           nullable: true
+        route:
+          type: string
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/ChatRoute'
+        savedDraftNoteId:
+          type: string
+          nullable: true
         feedbackRating:
           type: string
           nullable: true
@@ -17867,6 +17977,20 @@ components:
       - citations
       - webSources
       - createdAt
+      additionalProperties: false
+    ChatDraftNoteData:
+      type: object
+      properties:
+        threadId:
+          type: string
+        messageId:
+          type: string
+        noteId:
+          type: string
+      required:
+      - threadId
+      - messageId
+      - noteId
       additionalProperties: false
     ChatThreadDetailData:
       type: object
