@@ -128,6 +128,16 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
   const notesRef = useRef(notes);
   const [authIdentityKey, setAuthIdentityKey] = useState(() => getAuthIdentityKey(readAuthSession()));
 
+  const applyDesktopTopInset = useCallback((height: number, platform?: string | null) => {
+    if (typeof document === "undefined") return;
+    const isWindowsDesktop = isElectronDesktop() && platform === "win32" && height > 0;
+    document.documentElement.classList.toggle("brainx-desktop", isWindowsDesktop);
+    document.documentElement.style.setProperty(
+      "--brainx-desktop-top-inset",
+      isWindowsDesktop ? `${height}px` : "0px",
+    );
+  }, []);
+
   useEffect(() => {
     notesRef.current = notes;
   }, [notes]);
@@ -139,6 +149,10 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
       if (isElectronDesktop()) {
         try {
           const config = await getBrainxDesktopConfig();
+          applyDesktopTopInset(
+            config?.windowControlsOverlayHeight ?? 0,
+            config?.platform ?? null,
+          );
           const currentVersion = config?.appVersion?.trim();
           if (currentVersion) {
             const storedVersion = getLocalStoredValue(DESKTOP_AUTH_APP_VERSION_KEY);
@@ -148,8 +162,11 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
             setLocalStoredValue(DESKTOP_AUTH_APP_VERSION_KEY, currentVersion);
           }
         } catch {
+          applyDesktopTopInset(0, null);
           // ignore desktop config read failures during boot
         }
+      } else {
+        applyDesktopTopInset(0, null);
       }
 
       if (!active) return;
@@ -168,7 +185,7 @@ export function BrainXProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [applyDesktopTopInset]);
 
   useEffect(() => {
     if (!hydrated || !USE_MOCK_NOTES) return;
