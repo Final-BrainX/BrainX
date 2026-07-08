@@ -916,8 +916,8 @@ export function HomeScreen() {
   const noteCountLabel = headerSummary.totalNotes.toLocaleString("ko-KR");
 
   return (
-    <div data-route className="min-h-full px-3 py-4 md:px-6 lg:px-8 lg:py-8">
-      <div className="mx-auto max-w-[1360px] overflow-hidden rounded-[28px] border border-line/70 bg-surface p-5 shadow-[0_28px_90px_-56px_rgb(15_23_42_/_0.5)] md:p-8 lg:p-10">
+    <div data-route className="flex min-h-full w-full items-start justify-center px-3 py-4 md:px-6 lg:px-8 lg:py-8">
+      <div className="w-full max-w-[1360px] overflow-hidden rounded-[28px] border border-line/70 bg-surface p-5 shadow-[0_28px_90px_-56px_rgb(15_23_42_/_0.5)] md:p-8 lg:p-10">
         <div className="mb-7 grid gap-6 lg:grid-cols-[minmax(0,1fr)_370px] lg:items-start">
           <div className="min-w-0">
             <p className="mb-3 flex flex-wrap items-center gap-2 text-[12px] font-semibold text-txt3">
