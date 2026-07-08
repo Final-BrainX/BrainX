@@ -1649,6 +1649,7 @@ paths:
       x-produces-events: []
       x-internal-sync-calls: []
       x-async-boundary: false
+      x-implementation-note: Mark every unread notification whose createdAt is less than or equal to the server-side cutoff captured when the request starts. Notifications created after that cutoff must remain unread even if they arrive while the bulk-read request is being processed.
       responses:
         '200':
           description: Success

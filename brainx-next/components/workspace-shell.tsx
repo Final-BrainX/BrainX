@@ -1289,7 +1289,7 @@ function TopBar({
      달리 이 목록에 없는(top20 밖) 미확인 알림까지 서버에서 함께 처리되므로, 성공 후에는 서버가
      돌려주는 최신 목록/개수로 다시 맞춘다. */
   const handleMarkAllNotificationsRead = useCallback(async () => {
-    if (markingAllRead || unreadCount === 0) return;
+    if (markingAllRead) return;
     const previousNotifications = notifications;
     const previousUnreadCount = unreadCount;
     setMarkingAllRead(true);
@@ -1410,9 +1410,10 @@ function TopBar({
                           type="button"
                           onClick={handleMarkAllNotificationsRead}
                           disabled={markingAllRead}
+                          aria-busy={markingAllRead}
                           className="text-[11px] font-medium text-txt3 transition-colors hover:text-txt disabled:opacity-50"
                         >
-                          모두 읽음
+                          {markingAllRead ? "처리 중..." : "모두 읽음"}
                         </button>
                       ) : null}
                     </div>

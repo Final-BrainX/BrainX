@@ -16,6 +16,6 @@ public interface UserNotificationRepository extends JpaRepository<UserNotificati
     Optional<UserNotification> findByNotificationIdAndUserUserId(String notificationId, String userId);
 
     @Modifying(clearAutomatically = true)
-    @Query("UPDATE UserNotification n SET n.readAt = :now WHERE n.user.userId = :userId AND n.readAt IS NULL")
-    int markAllAsReadByUserUserId(@Param("userId") String userId, @Param("now") LocalDateTime now);
+    @Query("UPDATE UserNotification n SET n.readAt = :now WHERE n.user.userId = :userId AND n.readAt IS NULL AND n.createdAt <= :cutoff")
+    int markAllAsReadByUserUserId(@Param("userId") String userId, @Param("now") LocalDateTime now, @Param("cutoff") LocalDateTime cutoff);
 }
