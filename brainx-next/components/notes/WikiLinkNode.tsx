@@ -13,8 +13,12 @@ import { normalizeOptionalWikiLinkText, normalizeWikiLinkText, useWikiLinkContex
     변환된다. */
 function parseWikiLinkBody(raw: string) {
   const normalizedRaw = normalizeWikiLinkText(raw);
-  const [titleAndHeading, aliasPart] = normalizedRaw.split("|");
-  const [title, heading] = titleAndHeading.split("#");
+  const pipeIndex = normalizedRaw.indexOf("|");
+  const titleAndHeading = pipeIndex >= 0 ? normalizedRaw.slice(0, pipeIndex) : normalizedRaw;
+  const aliasPart = pipeIndex >= 0 ? normalizedRaw.slice(pipeIndex + 1) : undefined;
+  const headingIndex = titleAndHeading.indexOf("#");
+  const title = headingIndex >= 0 ? titleAndHeading.slice(0, headingIndex) : titleAndHeading;
+  const heading = headingIndex >= 0 ? titleAndHeading.slice(headingIndex + 1) : undefined;
   return {
     title: normalizeWikiLinkText(title).trim(),
     heading: normalizeOptionalWikiLinkText(heading),
@@ -157,7 +161,7 @@ export const WikiLink = Node.create({
   addInputRules() {
     return [
       nodeInputRule({
-        find: /\[\[([^[\]]+)\]\]$/,
+        find: /\[\[((?:(?!\[\[|\]\]).)+)\]\]$/,
         type: this.type,
         getAttributes: (match) => parseWikiLinkBody(match[1]),
       }),
@@ -172,7 +176,7 @@ function wikiLinkRawText(node: { attrs: { title: string; alias: string | null; h
   return `[[${title}${heading ? `#${heading}` : ""}${alias ? `|${alias}` : ""}]]`;
 }
 
-const WIKI_LINK_LIVE_EDIT_RE = /\[\[([^[\]]+)\]\]/g;
+const WIKI_LINK_LIVE_EDIT_RE = /\[\[((?:(?!\[\[|\]\]).)+)\]\]/g;
 
 /** Obsidian Live Preview 방식 위키링크 편집 — atom 노드(wikiLink)를 커서가 근처에 있는 동안만
     실제 편집 가능한 `[[title]]` 텍스트로 풀어준다(선택지 A). atom 노드에서 Backspace를 누르면

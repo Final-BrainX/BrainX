@@ -5,6 +5,8 @@ import {
   applyLinkSuggestionToMarkdown,
   filterLinkSuggestions,
   linkSuggestionApplyContent,
+  linkSuggestionTargetTitle,
+  suggestionWikiLink,
   type LinkSuggestion,
 } from "./link-suggestions.ts";
 
@@ -71,6 +73,39 @@ test("filterLinkSuggestions keeps one suggestion per target", () => {
 
   assert.equal(result.length, 1);
   assert.equal(result[0].suggestionId, "first");
+});
+
+test("linkSuggestionTargetTitle prefers the current target note title", () => {
+  assert.equal(
+    linkSuggestionTargetTitle(
+      suggestion({ targetTitle: "stale projection title" }),
+      { title: "[Cluster Test] 비 오는 날 제주 대체 코스" }
+    ),
+    "[Cluster Test] 비 오는 날 제주 대체 코스"
+  );
+});
+
+test("suggestionWikiLink preserves square brackets in target titles", () => {
+  assert.equal(
+    suggestionWikiLink("[Cluster Test] 비 오는 날 제주 대체 코스", "제주 여행"),
+    "[[[Cluster Test] 비 오는 날 제주 대체 코스|제주 여행]]"
+  );
+});
+
+test("applyLinkSuggestionToMarkdown preserves square brackets in accepted target titles", () => {
+  const result = applyLinkSuggestionToMarkdown(
+    "제주 여행 동선을 권역별로 나눈다.",
+    suggestion({
+      targetTitle: "[Cluster Test] 비 오는 날 제주 대체 코스",
+      anchorText: "제주 여행",
+      anchorStartOffset: 0,
+      anchorEndOffset: 5,
+    }),
+    "[Cluster Test] 비 오는 날 제주 대체 코스"
+  );
+
+  assert.equal(result.changed, true);
+  assert.equal(result.markdown, "[[[Cluster Test] 비 오는 날 제주 대체 코스|제주 여행]] 동선을 권역별로 나눈다.");
 });
 
 test("applyLinkSuggestionToMarkdown replaces every exact occurrence", () => {

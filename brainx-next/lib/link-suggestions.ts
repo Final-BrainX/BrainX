@@ -109,14 +109,29 @@ export function linkSuggestionApplyContent(
   return "";
 }
 
-function wikiLinkPart(value: string) {
+function wikiLinkTargetPart(value: string) {
+  return normalizeMarkdownText(value)
+    .replace(/\|/g, "")
+    .replace(/\[\[/g, "[")
+    .replace(/\]\]/g, "]")
+    .trim();
+}
+
+function wikiLinkAliasPart(value: string) {
   return normalizeMarkdownText(value).replace(/[\[\]|]/g, "").trim();
 }
 
 export function suggestionWikiLink(targetTitle: string, anchorText?: string | null) {
-  const title = wikiLinkPart(targetTitle) || "연결 노트";
-  const alias = wikiLinkPart(anchorText ?? "");
+  const title = wikiLinkTargetPart(targetTitle) || "연결 노트";
+  const alias = wikiLinkAliasPart(anchorText ?? "");
   return alias && alias.toLowerCase() !== title.toLowerCase() ? `[[${title}|${alias}]]` : `[[${title}]]`;
+}
+
+export function linkSuggestionTargetTitle(
+  suggestion: LinkSuggestion,
+  targetNote?: Pick<BrainXNote, "title"> | null
+) {
+  return normalizeMarkdownText(targetNote?.title || suggestion.targetTitle || "연결 노트");
 }
 
 function replaceRange(markdown: string, start: number, end: number, replacement: string) {

@@ -23,7 +23,7 @@ import {
   linkAcceptErrorMessage,
   linkSuggestionErrorMessage,
   linkSuggestionKey,
-  normalizeMarkdownText,
+  linkSuggestionTargetTitle,
   type LinkSuggestion,
   type LinkSuggestionEdge,
 } from "@/lib/link-suggestions";
@@ -815,7 +815,7 @@ export default function RightSidebar({
 
     try {
       const targetNote = allNotes.find((note) => note.id === suggestion.targetNoteId);
-      const targetTitle = normalizeMarkdownText(suggestion.targetTitle || targetNote?.title || "연결 노트");
+      const targetTitle = linkSuggestionTargetTitle(suggestion, targetNote);
       activeEditor?.flushPendingSave();
       const latestSource = await getNote(activeNote.id);
       const currentContent = linkSuggestionApplyContent(
