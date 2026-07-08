@@ -27,6 +27,7 @@ import {
   linkAcceptErrorMessage,
   linkSuggestionErrorMessage,
   linkSuggestionKey,
+  linkSuggestionTargetTitle,
   normalizeMarkdownText,
   type LinkSuggestion,
 } from "@/lib/link-suggestions";
@@ -2081,7 +2082,7 @@ function GraphScreenInner() {
       if (!sourceNote) {
         throw new Error("연결할 원본 노트를 찾을 수 없습니다.");
       }
-      const targetTitle = normalizeMarkdownText(suggestion.targetTitle || targetNote?.title || "연결 노트");
+      const targetTitle = linkSuggestionTargetTitle(suggestion, targetNote);
       const latestSource = await getNote(sourceNote.id);
       const latestMarkdown = latestSource?.markdown ?? "";
       const applied = applyLinkSuggestionToMarkdown(latestMarkdown, suggestion, targetTitle);

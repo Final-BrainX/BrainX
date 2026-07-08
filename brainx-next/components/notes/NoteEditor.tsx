@@ -72,14 +72,20 @@ function escHtml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+const WIKI_LINK_MARKDOWN_RE = /\[\[((?:(?!\[\[|\]\]).)+)\]\]/g;
+
 /** `[[제목]]` / `[[제목|별칭]]` / `[[제목#헤딩]]` / `[[제목#헤딩|별칭]]`을 WikiLinkNode가
     parseHTML로 인식하는 `span[data-wiki-link]` 구조로 변환한다. 에디터에 직접 타이핑할 때는
     nodeInputRule이 같은 일을 하지만, 마크다운을 불러와서 표시할 때는(가져오기 등) 이 경로를
     타지 않으므로 초기 로딩 변환에서도 처리해야 클릭 가능한 링크가 된다. */
 function wikiLinkHtml(text: string) {
-  return text.replace(/\[\[([^[\]]+)\]\]/g, (_match, body: string) => {
-    const [titleAndHeading, aliasPart] = body.split("|");
-    const [title, heading] = titleAndHeading.split("#");
+  return text.replace(WIKI_LINK_MARKDOWN_RE, (_match, body: string) => {
+    const pipeIndex = body.indexOf("|");
+    const titleAndHeading = pipeIndex >= 0 ? body.slice(0, pipeIndex) : body;
+    const aliasPart = pipeIndex >= 0 ? body.slice(pipeIndex + 1) : undefined;
+    const headingIndex = titleAndHeading.indexOf("#");
+    const title = headingIndex >= 0 ? titleAndHeading.slice(0, headingIndex) : titleAndHeading;
+    const heading = headingIndex >= 0 ? titleAndHeading.slice(headingIndex + 1) : undefined;
     const t = title.trim();
     const h = heading?.trim();
     const a = aliasPart?.trim();

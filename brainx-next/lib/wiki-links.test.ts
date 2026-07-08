@@ -1,10 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  contentHasWikiLinkTo,
   decodeHtmlEntities,
+  ensureWikiLinkPresent,
+  extractWikiLinkTargets,
   extractResolvedWikiLinkTargets,
   normalizeTitleForMatch,
   normalizeWikiLinkTarget,
+  renameWikiLinkReferencesInMarkdown,
   resolveWikiLinkByTitle,
 } from "./wiki-links.ts";
 
@@ -36,6 +40,17 @@ test("resolveWikiLinkByTitle matches a note whose title has a leading emoji icon
   ];
 
   const resolved = resolveWikiLinkByTitle(notes, "프로젝트 기획");
+
+  assert.equal(resolved?.id, "1");
+});
+
+test("resolveWikiLinkByTitle matches a note whose title contains square brackets", () => {
+  const notes = [
+    { id: "1", title: "[Cluster Test] 비 오는 날 제주 대체 코스" },
+    { id: "2", title: "제주 3박 4일 여행 동선" },
+  ];
+
+  const resolved = resolveWikiLinkByTitle(notes, "[Cluster Test] 비 오는 날 제주 대체 코스");
 
   assert.equal(resolved?.id, "1");
 });
@@ -91,6 +106,45 @@ test("extractResolvedWikiLinkTargets keeps both span-based and raw [[...]] targe
   const html = `<p><span data-wiki-link="true" data-title="Spring">[[Spring]]</span> and also [[Spring Security]] typed raw.</p>`;
 
   assert.deepEqual(extractResolvedWikiLinkTargets(html), ["Spring", "Spring Security"]);
+});
+
+test("extractWikiLinkTargets keeps square brackets in target titles and strips aliases", () => {
+  assert.deepEqual(
+    extractWikiLinkTargets("[[[Cluster Test] 비 오는 날 제주 대체 코스|제주 여행]]"),
+    ["[Cluster Test] 비 오는 날 제주 대체 코스"]
+  );
+});
+
+test("contentHasWikiLinkTo accepts square-bracket target titles", () => {
+  assert.equal(
+    contentHasWikiLinkTo("[[[Cluster Test] 비 오는 날 제주 대체 코스|제주 여행]]", "[Cluster Test] 비 오는 날 제주 대체 코스"),
+    true
+  );
+});
+
+test("ensureWikiLinkPresent does not close a different title with the same prefix", () => {
+  assert.equal(
+    ensureWikiLinkPresent("Read [[JavaScript", "Java"),
+    "Read [[JavaScript\n\n[[Java]]"
+  );
+});
+
+test("ensureWikiLinkPresent closes unfinished square-bracket target titles", () => {
+  assert.equal(
+    ensureWikiLinkPresent("See [[[Cluster Test] 비 오는 날 제주 대체 코스", "[Cluster Test] 비 오는 날 제주 대체 코스"),
+    "See [[[Cluster Test] 비 오는 날 제주 대체 코스]]"
+  );
+});
+
+test("renameWikiLinkReferencesInMarkdown preserves aliases for square-bracket target titles", () => {
+  const result = renameWikiLinkReferencesInMarkdown(
+    "[[[Cluster Test] 비 오는 날 제주 대체 코스|제주 여행]]",
+    "[Cluster Test] 비 오는 날 제주 대체 코스",
+    "[Cluster Test] 제주 우천 대체 코스"
+  );
+
+  assert.equal(result.changed, true);
+  assert.equal(result.markdown, "[[[Cluster Test] 제주 우천 대체 코스|제주 여행]]");
 });
 
 test("extractResolvedWikiLinkTargets de-duplicates when the same target appears in both span and raw form", () => {

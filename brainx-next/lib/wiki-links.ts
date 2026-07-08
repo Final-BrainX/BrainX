@@ -1,5 +1,6 @@
 const LEADING_EMOJI_RE = /^[\p{Extended_Pictographic}\uFE0F\u200D]+\s*/u;
 const HTML_ENTITY_RE = /&(amp|lt|gt|quot|#39|apos);/g;
+const WIKI_LINK_RE = /\[\[((?:(?!\[\[|\]\]).)+)\]\]/g;
 const HTML_ENTITY_DECODE: Record<string, string> = {
   amp: "&",
   lt: "<",
@@ -8,6 +9,20 @@ const HTML_ENTITY_DECODE: Record<string, string> = {
   "#39": "'",
   apos: "'",
 };
+
+function splitWikiLinkBody(body: string) {
+  const pipeIndex = body.indexOf("|");
+  const titleAndHeading = pipeIndex >= 0 ? body.slice(0, pipeIndex) : body;
+  const aliasPart = pipeIndex >= 0 ? body.slice(pipeIndex + 1) : undefined;
+  const headingIndex = titleAndHeading.indexOf("#");
+  const title = headingIndex >= 0 ? titleAndHeading.slice(0, headingIndex) : titleAndHeading;
+  const heading = headingIndex >= 0 ? titleAndHeading.slice(headingIndex + 1) : undefined;
+  return {
+    title: title.trim(),
+    heading: heading?.trim(),
+    alias: aliasPart?.trim(),
+  };
+}
 
 /** 제목에 `&` 같은 문자가 있으면 저장/직렬화 경로(예: 위키링크 span의 data-title 속성)를
     거치며 실수로 두 번 이스케이프되어 `&amp;amp;`처럼 남는 경우가 있다 — 노트의 실제 제목은
@@ -107,14 +122,13 @@ export function renameWikiLinkReferencesInMarkdown(
   if (!markdown || !trimmedOld || trimmedOld === trimmedNew) {
     return { markdown, changed: false };
   }
-  const needle = trimmedOld.toLowerCase();
+  const needle = normalizeTitleForMatch(trimmedOld);
   let changed = false;
-  const next = markdown.replace(/\[\[([^[\]]+)\]\]/g, (match, body: string) => {
-    const [titleAndHeading, aliasPart] = body.split("|");
-    const [title, heading] = titleAndHeading.split("#");
-    if (title.trim().toLowerCase() !== needle) return match;
+  const next = markdown.replace(WIKI_LINK_RE, (match, body: string) => {
+    const { title, heading, alias } = splitWikiLinkBody(body);
+    if (normalizeTitleForMatch(title) !== needle) return match;
     changed = true;
-    const rebuilt = `${trimmedNew}${heading ? `#${heading}` : ""}${aliasPart ? `|${aliasPart}` : ""}`;
+    const rebuilt = `${trimmedNew}${heading ? `#${heading}` : ""}${alias ? `|${alias}` : ""}`;
     return `[[${rebuilt}]]`;
   });
   return changed ? { markdown: next, changed: true } : { markdown, changed: false };
@@ -146,21 +160,10 @@ export function renameWikiLinkReferencesInContent(
 export function contentHasWikiLinkTo(content: string, title: string): boolean {
   const trimmed = title.trim();
   if (!content || !trimmed) return false;
-  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const needle = trimmed.toLowerCase();
-  if (content.includes("data-wiki-link")) {
-    const spanRe = /<span\b([^>]*)>/gi;
-    let match: RegExpExecArray | null;
-    while ((match = spanRe.exec(content))) {
-      const attrs = match[1];
-      if (!/data-wiki-link="true"/.test(attrs)) continue;
-      const titleMatch = /data-title="([^"]*)"/.exec(attrs);
-      if (titleMatch && titleMatch[1].trim().toLowerCase() === needle) return true;
-    }
-  }
+  const needle = normalizeTitleForMatch(trimmed);
   // 닫는 ]]까지 있어야만 인정한다 — [[title, [[title#heading, [[title]처럼 아직 안 닫힌 상태는
   // 여기서 걸러지고 ensureWikiLinkPresent가 보정한다.
-  return new RegExp(`\\[\\[\\s*${escaped}(?:[|#][^\\]]*)?\\]\\]`, "i").test(content);
+  return extractResolvedWikiLinkTargets(content).some((target) => normalizeWikiLinkTarget(target) === needle);
 }
 
 /** contentHasWikiLinkTo가 false를 돌려줄 때(라이브에딧 전환 타이밍 등으로 닫는 `]]`가 아직
@@ -177,7 +180,7 @@ export function ensureWikiLinkPresent(content: string, title: string): string {
 
   const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-  const openRe = new RegExp(`\\[\\[\\s*${escaped}\\b`, "i");
+  const openRe = new RegExp(`\\[\\[\\s*${escaped}(?=$|\\s|\\]|\\||#|<)`, "i");
   const openMatch = openRe.exec(content);
   if (openMatch) {
     const insertAt = openMatch.index + openMatch[0].length;
@@ -206,8 +209,9 @@ export function ensureWikiLinkAppended(content: string, title: string): string {
 }
 
 export function extractWikiLinkTargets(markdown: string) {
-  const matches = markdown.match(/\[\[([^\]]+)\]\]/g) ?? [];
-  return matches.map((match) => match.slice(2, -2)).filter(Boolean);
+  return [...markdown.matchAll(WIKI_LINK_RE)]
+    .map((match) => splitWikiLinkBody(match[1]).title)
+    .filter(Boolean);
 }
 
 /** span으로 렌더된 위키링크(`data-wiki-link` atom 노드)와, 아직 span으로 변환되지 않은
