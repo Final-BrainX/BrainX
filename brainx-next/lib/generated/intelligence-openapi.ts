@@ -766,12 +766,12 @@ export interface components {
         JobStatus: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
         SemanticSearchRequest: {
             /**
-             * @description Search scope. DOCUMENT_GROUP searches within documentGroupId (default group if omitted). USER searches all note chunks owned by the user and must not include documentGroupId.
+             * @description Search scope. DOCUMENT_GROUP searches within the required documentGroupId. USER searches all note chunks owned by the user and must not include documentGroupId.
              * @default DOCUMENT_GROUP
              * @enum {string}
              */
             scope?: "DOCUMENT_GROUP" | "USER";
-            /** @description RAG/검색 격리를 위한 논리적 문서 그룹 경계. 생략하면 Knowledge Intelligence는 default로 처리한다. */
+            /** @description RAG/검색 격리를 위한 논리적 문서 그룹 경계. scope=DOCUMENT_GROUP이면 필수이고, scope=USER이면 생략해야 한다. */
             documentGroupId?: string;
             query: string;
             filters?: {
@@ -789,12 +789,12 @@ export interface components {
         InternalSemanticSearchRequest: {
             userId: string;
             /**
-             * @description Search scope. DOCUMENT_GROUP searches within documentGroupId (default group if omitted). USER searches all note chunks owned by the user and must not include documentGroupId.
+             * @description Search scope. DOCUMENT_GROUP searches within the required documentGroupId. USER searches all note chunks owned by the user and must not include documentGroupId.
              * @default DOCUMENT_GROUP
              * @enum {string}
              */
             scope?: "DOCUMENT_GROUP" | "USER";
-            /** @description RAG/검색 격리를 위한 논리 문서 그룹 경계. 생략하면 Knowledge Intelligence가 default로 처리한다. */
+            /** @description RAG/검색 격리를 위한 논리 문서 그룹 경계. scope=DOCUMENT_GROUP이면 필수이고, scope=USER이면 생략해야 한다. */
             documentGroupId?: string;
             query: string;
             filters?: {
@@ -863,8 +863,8 @@ export interface components {
         /** @enum {string} */
         NoteSearchIndexStatus: "NOT_INDEXED" | "PROVISIONAL" | "STALE" | "INDEXED" | "FAILED" | "REMOVED";
         NoteIndexStatusesRequest: {
-            /** @description 검색 인덱스 격리를 위한 논리적 문서 그룹 경계. 생략하면 default로 처리한다. */
-            documentGroupId?: string;
+            /** @description 검색 인덱스 격리를 위한 Workspace document group 경계. */
+            documentGroupId: string;
             noteIds: string[];
         };
         NoteIndexStatusesData: {
@@ -1354,6 +1354,8 @@ export interface components {
             source: "AI" | "EXCERPT";
         };
         FolderOrganizationProposalRequest: {
+            /** @description 폴더 정리 제안을 실행할 Workspace document group. */
+            documentGroupId: string;
             /** @enum {string} */
             scope: "all" | "folder";
             folderId?: string | null;
@@ -1369,6 +1371,8 @@ export interface components {
             llmRunId?: string | null;
         };
         LinkSuggestionsRequest: {
+            /** @description AI 연결 추천을 실행할 Workspace document group. */
+            documentGroupId: string;
             noteId: string;
         };
         LinkSuggestionsData: {
@@ -1427,6 +1431,8 @@ export interface components {
             job?: components["schemas"]["ClusterJobData"] | null;
         };
         BridgeConceptsRequest: {
+            /** @description 징검다리 개념 추천을 실행할 Workspace document group. */
+            documentGroupId: string;
             noteIds: string[];
         };
         BridgeConceptsData: {
@@ -3283,8 +3289,8 @@ export interface operations {
     };
     getLatestAiClusterJob: {
         parameters: {
-            query?: {
-                documentGroupId?: string;
+            query: {
+                documentGroupId: string;
             };
             header?: never;
             path?: never;
@@ -3575,8 +3581,8 @@ export interface operations {
     };
     getLatestInsightReport: {
         parameters: {
-            query?: {
-                documentGroupId?: string;
+            query: {
+                documentGroupId: string;
             };
             header?: never;
             path?: never;

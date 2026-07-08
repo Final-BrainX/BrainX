@@ -8,6 +8,7 @@ public interface CreateBridgeConceptsUseCase {
 
     record BridgeConceptsCommand(
         String userId,
+        String documentGroupId,
         List<String> noteIds
     ) {
     }

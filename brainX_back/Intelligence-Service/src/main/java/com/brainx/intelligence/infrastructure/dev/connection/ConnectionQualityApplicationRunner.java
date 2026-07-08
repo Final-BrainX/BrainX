@@ -109,6 +109,7 @@ public class ConnectionQualityApplicationRunner implements ApplicationRunner {
         String noteId = textOrDefault(scenario.sourceNoteId(), noteIdFromPath(scenario.sourcePath()));
         var result = createLinkSuggestionsUseCase.createLinkSuggestions(new LinkSuggestionsCommand(
             textOrDefault(scenario.userId(), properties.getUserId()),
+            properties.getDocumentGroupId(),
             noteId
         ));
         List<String> failures = validateLinkSuggestions(scenario, result.suggestions());
@@ -128,6 +129,7 @@ public class ConnectionQualityApplicationRunner implements ApplicationRunner {
         List<String> noteIds = noteIds(scenario);
         var result = createBridgeConceptsUseCase.createBridgeConcepts(new BridgeConceptsCommand(
             textOrDefault(scenario.userId(), properties.getUserId()),
+            properties.getDocumentGroupId(),
             noteIds
         ));
         List<String> failures = validateBridgeConcepts(scenario, result.recommendations());

@@ -726,13 +726,11 @@ export function requestClusterJob(payload: ClusterJobCreateRequest, options?: In
 }
 
 export function getLatestClusterJob(
-  params: { documentGroupId?: string } = {},
+  params: { documentGroupId: string },
   options?: IntelligenceRequestOptions
 ) {
   const searchParams = new URLSearchParams();
-  if (params.documentGroupId) {
-    searchParams.set("documentGroupId", params.documentGroupId);
-  }
+  searchParams.set("documentGroupId", params.documentGroupId);
   const query = searchParams.toString();
   return authedRequest<ClusterJobLatestData>(
     `/api/v1/ai/clusters/latest${query ? `?${query}` : ""}`,
@@ -764,13 +762,11 @@ export function getInsightReport(reportId: string, options?: IntelligenceRequest
 }
 
 export function getLatestInsightReport(
-  params: { documentGroupId?: string } = {},
+  params: { documentGroupId: string },
   options?: IntelligenceRequestOptions
 ) {
   const searchParams = new URLSearchParams();
-  if (params.documentGroupId) {
-    searchParams.set("documentGroupId", params.documentGroupId);
-  }
+  searchParams.set("documentGroupId", params.documentGroupId);
   const query = searchParams.toString();
   return authedRequest<InsightReportLatestData>(
     `/api/v1/ai/insight-reports/latest${query ? `?${query}` : ""}`,

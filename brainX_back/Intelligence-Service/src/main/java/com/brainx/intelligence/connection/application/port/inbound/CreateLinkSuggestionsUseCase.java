@@ -8,6 +8,7 @@ public interface CreateLinkSuggestionsUseCase {
 
     record LinkSuggestionsCommand(
         String userId,
+        String documentGroupId,
         String noteId
     ) {
     }

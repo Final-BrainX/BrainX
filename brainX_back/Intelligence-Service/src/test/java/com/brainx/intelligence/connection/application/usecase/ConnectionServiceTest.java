@@ -89,10 +89,10 @@ class ConnectionServiceTest {
     );
 
     @Test
-    void createLinkSuggestionsUsesDefaultDocumentGroupAndSourceOnlyAnalysis() {
+    void createLinkSuggestionsUsesRequestedDocumentGroupAndSourceOnlyAnalysis() {
         noteSourcePort.source = Optional.of(new ConnectionNoteSource(
             "user-1",
-            "default",
+            "group-1",
             "note-1",
             "Source"
         ));
@@ -101,11 +101,11 @@ class ConnectionServiceTest {
             suggestion("suggestion-2", "other-note", "target-2", 0.95d)
         ));
 
-        var result = service.createLinkSuggestions(new LinkSuggestionsCommand("user-1", "note-1"));
+        var result = service.createLinkSuggestions(new LinkSuggestionsCommand("user-1", "group-1", "note-1"));
 
-        assertThat(noteSourcePort.lastDocumentGroupId).isEqualTo("default");
+        assertThat(noteSourcePort.lastDocumentGroupId).isEqualTo("group-1");
         assertThat(autoLinkUseCase.lastCommand).isNull();
-        assertThat(autoLinkUseCase.lastSourceCommand.documentGroupId()).isEqualTo("default");
+        assertThat(autoLinkUseCase.lastSourceCommand.documentGroupId()).isEqualTo("group-1");
         assertThat(autoLinkUseCase.lastSourceCommand.sourceNoteId()).isEqualTo("note-1");
         assertThat(autoLinkUseCase.lastSourceCommand.maxNotes()).isNull();
         assertThat(autoLinkUseCase.lastSourceCommand.modelId()).isNull();
@@ -124,7 +124,7 @@ class ConnectionServiceTest {
     }
 
     @Test
-    void createBridgeConceptsUsesDefaultGroupTitlesTagsAndPublishesUsageEvents() {
+    void createBridgeConceptsUsesRequestedGroupTitlesTagsAndPublishesUsageEvents() {
         aiModelSettingsPort.settings = Optional.of(new AiModelSettings("user-1", "gpt-user", Map.of()));
         styleProfilePort.profile = new StyleProfile(
             "user-1",
@@ -133,8 +133,8 @@ class ConnectionServiceTest {
             null
         );
         noteSourcePort.bridgeSources = List.of(
-            new ConnectionBridgeSourceNote("user-1", "default", "note-1", "Java", List.of("backend")),
-            new ConnectionBridgeSourceNote("user-1", "default", "note-2", "Database", List.of("sql", "storage"))
+            new ConnectionBridgeSourceNote("user-1", "group-1", "note-1", "Java", List.of("backend")),
+            new ConnectionBridgeSourceNote("user-1", "group-1", "note-2", "Database", List.of("sql", "storage"))
         );
         aiChatPort.response = new AiChatResponse(
             """
@@ -148,10 +148,11 @@ class ConnectionServiceTest {
 
         var result = service.createBridgeConcepts(new BridgeConceptsCommand(
             "user-1",
+            "group-1",
             List.of(" note-1 ", "note-2", "note-1")
         ));
 
-        assertThat(noteSourcePort.lastBridgeDocumentGroupId).isEqualTo("default");
+        assertThat(noteSourcePort.lastBridgeDocumentGroupId).isEqualTo("group-1");
         assertThat(noteSourcePort.lastBridgeNoteIds).containsExactly("note-1", "note-2");
         assertThat(entitlementPort.lastRequest.capability()).isEqualTo("LINK_SUGGESTIONS");
         assertThat(entitlementPort.lastRequest.requestedTokenEstimate()).isPositive();
@@ -183,6 +184,7 @@ class ConnectionServiceTest {
 
         var repeated = service.createBridgeConcepts(new BridgeConceptsCommand(
             "user-1",
+            "group-1",
             List.of("note-1", "note-2")
         ));
 
@@ -206,6 +208,7 @@ class ConnectionServiceTest {
 
         var result = service.createBridgeConcepts(new BridgeConceptsCommand(
             "user-1",
+            "group-1",
             List.of("note-1", "note-2", "note-3")
         ));
 
@@ -222,6 +225,7 @@ class ConnectionServiceTest {
     void createBridgeConceptsRejectsTooFewUniqueNoteIds() {
         assertThatThrownBy(() -> service.createBridgeConcepts(new BridgeConceptsCommand(
             "user-1",
+            "group-1",
             List.of("note-1", " note-1 ")
         )))
             .isInstanceOf(IllegalArgumentException.class)
@@ -232,6 +236,7 @@ class ConnectionServiceTest {
     void createBridgeConceptsRejectsTooManyNoteIds() {
         assertThatThrownBy(() -> service.createBridgeConcepts(new BridgeConceptsCommand(
             "user-1",
+            "group-1",
             List.of("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11")
         )))
             .isInstanceOf(IllegalArgumentException.class)
@@ -250,6 +255,7 @@ class ConnectionServiceTest {
 
         assertThatThrownBy(() -> service.createBridgeConcepts(new BridgeConceptsCommand(
             "user-1",
+            "group-1",
             List.of("note-1", "missing")
         )))
             .isInstanceOf(ConnectionNotFoundException.class)
@@ -270,6 +276,7 @@ class ConnectionServiceTest {
 
         assertThatThrownBy(() -> service.createBridgeConcepts(new BridgeConceptsCommand(
             "user-1",
+            "group-1",
             List.of("note-1", "note-2")
         )))
             .isInstanceOf(ConnectionForbiddenException.class)
@@ -292,7 +299,7 @@ class ConnectionServiceTest {
             null
         );
 
-        var result = service.createBridgeConcepts(new BridgeConceptsCommand("user-1", List.of("note-1", "note-2")));
+        var result = service.createBridgeConcepts(new BridgeConceptsCommand("user-1", "group-1", List.of("note-1", "note-2")));
 
         assertThat(aiChatPort.lastRequest.modelId()).isEqualTo("gpt-fallback");
         assertThat(result.recommendations()).hasSize(1);
@@ -307,7 +314,7 @@ class ConnectionServiceTest {
         );
         aiChatPort.response = new AiChatResponse("not-json", null);
 
-        var result = service.createBridgeConcepts(new BridgeConceptsCommand("user-1", List.of("note-1", "note-2")));
+        var result = service.createBridgeConcepts(new BridgeConceptsCommand("user-1", "group-1", List.of("note-1", "note-2")));
 
         assertThat(result.recommendations()).isEmpty();
         assertThat(connectionEventPort.bridgeEvents).isEmpty();
@@ -324,6 +331,7 @@ class ConnectionServiceTest {
 
         assertThatThrownBy(() -> service.createBridgeConcepts(new BridgeConceptsCommand(
             "user-1",
+            "group-1",
             List.of("note-1", "note-2")
         )))
             .isInstanceOf(ConnectionProviderUnavailableException.class);
@@ -333,7 +341,7 @@ class ConnectionServiceTest {
     void missingSourceNoteThrowsNotFoundBeforeEntitlement() {
         noteSourcePort.source = Optional.empty();
 
-        assertThatThrownBy(() -> service.createLinkSuggestions(new LinkSuggestionsCommand("user-1", "note-1")))
+        assertThatThrownBy(() -> service.createLinkSuggestions(new LinkSuggestionsCommand("user-1", "group-1", "note-1")))
             .isInstanceOf(ConnectionNotFoundException.class);
 
         assertThat(entitlementPort.lastRequest).isNull();
@@ -347,7 +355,7 @@ class ConnectionServiceTest {
         entitlementPort.allowed = false;
         entitlementPort.reasonCode = "QUOTA_EXHAUSTED";
 
-        assertThatThrownBy(() -> service.createLinkSuggestions(new LinkSuggestionsCommand("user-1", "note-1")))
+        assertThatThrownBy(() -> service.createLinkSuggestions(new LinkSuggestionsCommand("user-1", "group-1", "note-1")))
             .isInstanceOf(ConnectionForbiddenException.class)
             .hasMessageContaining("QUOTA_EXHAUSTED");
 
@@ -371,7 +379,7 @@ class ConnectionServiceTest {
             new AutoLinkComparison(0, 0, 0)
         );
 
-        assertThatThrownBy(() -> service.createLinkSuggestions(new LinkSuggestionsCommand("user-1", "note-1")))
+        assertThatThrownBy(() -> service.createLinkSuggestions(new LinkSuggestionsCommand("user-1", "group-1", "note-1")))
             .isInstanceOf(ConnectionConflictException.class);
     }
 
@@ -380,7 +388,7 @@ class ConnectionServiceTest {
         noteSourcePort.source = Optional.of(new ConnectionNoteSource("user-1", "default", "note-1", "Source"));
         autoLinkUseCase.result = resultWithStrategy("AI_UNAVAILABLE", List.of());
 
-        assertThatThrownBy(() -> service.createLinkSuggestions(new LinkSuggestionsCommand("user-1", "note-1")))
+        assertThatThrownBy(() -> service.createLinkSuggestions(new LinkSuggestionsCommand("user-1", "group-1", "note-1")))
             .isInstanceOf(ConnectionProviderUnavailableException.class);
     }
 

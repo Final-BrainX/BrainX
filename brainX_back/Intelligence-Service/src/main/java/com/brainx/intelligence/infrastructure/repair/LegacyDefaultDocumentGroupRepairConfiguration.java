@@ -4,6 +4,9 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-@EnableConfigurationProperties(LegacyDefaultDocumentGroupRepairProperties.class)
+@EnableConfigurationProperties({
+    LegacyDefaultDocumentGroupRepairProperties.class,
+    LegacyDefaultDocumentGroupBackfillProperties.class
+})
 class LegacyDefaultDocumentGroupRepairConfiguration {
 }

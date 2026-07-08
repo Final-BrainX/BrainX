@@ -408,6 +408,16 @@ public class NoteProjectionJpaAdapter implements NoteProjectionStore, AgentNoteS
         return repository.save(entity).toDomain();
     }
 
+    @Override
+    @Transactional
+    public void deleteByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId) {
+        repository.deleteByUserIdAndDocumentGroupIdAndNoteId(
+            userId,
+            DocumentGroups.normalize(documentGroupId),
+            noteId
+        );
+    }
+
     private static boolean canCreateLinkSuggestions(NoteProjection projection) {
         return projection.searchable()
             && !projection.contentPending()

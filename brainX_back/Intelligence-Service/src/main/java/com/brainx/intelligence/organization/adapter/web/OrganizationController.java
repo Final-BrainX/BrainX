@@ -35,6 +35,7 @@ public class OrganizationController {
     ) {
         var result = createFolderOrganizationProposalUseCase.createFolderOrganizationProposal(new FolderOrganizationProposalCommand(
             userId(principal),
+            request.documentGroupId(),
             request.scope(),
             request.folderId()
         ));
@@ -58,6 +59,7 @@ public class OrganizationController {
     }
 
     record FolderOrganizationProposalRequest(
+        @NotBlank String documentGroupId,
         @NotBlank String scope,
         String folderId
     ) {
