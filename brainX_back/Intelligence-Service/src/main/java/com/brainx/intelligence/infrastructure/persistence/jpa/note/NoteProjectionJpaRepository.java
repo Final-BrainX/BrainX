@@ -51,6 +51,26 @@ interface NoteProjectionJpaRepository extends JpaRepository<NoteProjectionJpaEnt
         from NoteProjectionJpaEntity projection
         where projection.userId = :userId
           and projection.documentGroupId = :documentGroupId
+          and projection.archived = false
+          and projection.trashed = false
+          and projection.deleted = false
+          and projection.contentPending = false
+          and projection.markdown is not null
+          and projection.searchIndexStatus <> :removedStatus
+        order by projection.updatedAt desc, projection.noteId asc
+        """)
+    List<NoteProjectionJpaEntity> findGraphAiSources(
+        @Param("userId") String userId,
+        @Param("documentGroupId") String documentGroupId,
+        @Param("removedStatus") NoteSearchIndexStatus removedStatus,
+        Pageable pageable
+    );
+
+    @Query("""
+        select projection
+        from NoteProjectionJpaEntity projection
+        where projection.userId = :userId
+          and projection.documentGroupId = :documentGroupId
           and projection.folderId = :folderId
           and projection.archived = false
           and projection.trashed = false

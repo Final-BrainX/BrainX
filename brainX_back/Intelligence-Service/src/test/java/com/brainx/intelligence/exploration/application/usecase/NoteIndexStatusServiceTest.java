@@ -37,23 +37,25 @@ class NoteIndexStatusServiceTest {
     }
 
     @Test
-    void onlyIndexedSearchableMarkdownProjectionIsAvailableForAiFeatures() {
+    void sourceReadyProjectionIsAvailableForAiFeaturesRegardlessOfIndexStatus() {
         store.projections.add(projection("indexed", "INDEXED", true));
         store.projections.add(projection("pending", "INDEXED", false));
         store.projections.add(projection("no-markdown", "INDEXED", false));
-        store.projections.add(projection("stale", "STALE", false));
+        store.projections.add(projection("stale", "STALE", true));
+        store.projections.add(projection("failed", "FAILED", true));
+        store.projections.add(projection("not-indexed", "NOT_INDEXED", true));
         store.projections.add(projection("removed", "REMOVED", false));
 
         var result = service.getNoteIndexStatuses(new NoteIndexStatusesCommand(
             "user-1",
             "group-1",
-            List.of("indexed", "pending", "no-markdown", "stale", "removed")
+            List.of("indexed", "pending", "no-markdown", "stale", "failed", "not-indexed", "removed")
         ));
 
         assertThat(result.notes()).extracting("searchIndexStatus")
-            .containsExactly("INDEXED", "INDEXED", "INDEXED", "STALE", "REMOVED");
+            .containsExactly("INDEXED", "INDEXED", "INDEXED", "STALE", "FAILED", "NOT_INDEXED", "REMOVED");
         assertThat(result.notes()).extracting("availableForAiFeatures")
-            .containsExactly(true, false, false, false, false);
+            .containsExactly(true, false, false, true, true, true, false);
     }
 
     @Test

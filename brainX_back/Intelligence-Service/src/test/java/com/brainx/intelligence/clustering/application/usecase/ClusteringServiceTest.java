@@ -20,6 +20,7 @@ import com.brainx.intelligence.clustering.application.port.outbound.ClusterJobSt
 import com.brainx.intelligence.clustering.application.port.outbound.ClusteringEventPort;
 import com.brainx.intelligence.clustering.application.port.outbound.ClusteringEventPort.ClusterJobCompletedEvent;
 import com.brainx.intelligence.clustering.application.port.outbound.ClusteringEventPort.ClusterJobRequestedEvent;
+import com.brainx.intelligence.clustering.application.port.outbound.ClusteringNoteSourcePort;
 import com.brainx.intelligence.clustering.domain.ClusterJob;
 import com.brainx.intelligence.clustering.domain.ClusterJobLatestState;
 import com.brainx.intelligence.clustering.domain.ClusterJobStatus;
@@ -39,7 +40,6 @@ import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTok
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort.EntitlementDecision;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort.EntitlementRequest;
-import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysisNoteSourcePort;
 import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysisNoteSourcePort.KnowledgeAnalysisNote;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort.TokenUsageRecord;
@@ -426,16 +426,16 @@ class ClusteringServiceTest {
         }
     }
 
-    private static class FakeNoteSource implements KnowledgeAnalysisNoteSourcePort {
+    private static class FakeNoteSource implements ClusteringNoteSourcePort {
         private List<KnowledgeAnalysisNote> notes = List.of();
 
         @Override
-        public List<KnowledgeAnalysisNote> findAnalysisNotes(String userId, String documentGroupId, int limit) {
+        public List<KnowledgeAnalysisNote> findClusteringSourceNotes(String userId, String documentGroupId, int limit) {
             return notes.stream().limit(limit).toList();
         }
 
         @Override
-        public List<KnowledgeAnalysisNote> findAnalysisNotesByIds(String userId, String documentGroupId, List<String> noteIds) {
+        public List<KnowledgeAnalysisNote> findClusteringSourceNotesByIds(String userId, String documentGroupId, List<String> noteIds) {
             return noteIds.stream()
                 .flatMap(noteId -> notes.stream().filter(note -> note.noteId().equals(noteId)))
                 .toList();

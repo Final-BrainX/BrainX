@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -117,6 +118,44 @@ class NoteProjectionJpaAdapterTest {
 
         assertThat(projections).extracting(NoteProjection::noteId).containsExactly("note-1");
         assertThat(projections.getFirst().markdown()).isEqualTo("indexed markdown");
+    }
+
+    @Test
+    void graphAiSourcesAllowActiveMarkdownWithoutIndexedStatusButSearchableStaysIndexedOnly() {
+        adapter.save(sourceProjection("indexed", "Indexed", "indexed markdown", NoteSearchIndexStatus.INDEXED, false, false, false, false, "2026-06-19T00:00:01Z")
+            .indexed(1, "hash-indexed", Instant.parse("2026-06-19T00:00:02Z")));
+        adapter.save(sourceProjection("not-indexed", "Not indexed", "not indexed markdown", NoteSearchIndexStatus.NOT_INDEXED, false, false, false, false, "2026-06-19T00:00:03Z"));
+        adapter.save(sourceProjection("stale", "Stale", "stale markdown", NoteSearchIndexStatus.STALE, false, false, false, false, "2026-06-19T00:00:04Z"));
+        adapter.save(sourceProjection("failed", "Failed", "failed markdown", NoteSearchIndexStatus.FAILED, false, false, false, false, "2026-06-19T00:00:05Z"));
+        adapter.save(sourceProjection("pending", "Pending", "pending markdown", NoteSearchIndexStatus.STALE, true, false, false, false, "2026-06-19T00:00:06Z"));
+        adapter.save(sourceProjection("no-markdown", "No markdown", null, NoteSearchIndexStatus.STALE, false, false, false, false, "2026-06-19T00:00:07Z"));
+        adapter.save(sourceProjection("archived", "Archived", "archived markdown", NoteSearchIndexStatus.STALE, false, true, false, false, "2026-06-19T00:00:08Z"));
+        adapter.save(sourceProjection("trashed", "Trashed", "trashed markdown", NoteSearchIndexStatus.STALE, false, false, true, false, "2026-06-19T00:00:09Z"));
+        adapter.save(sourceProjection("deleted", "Deleted", "deleted markdown", NoteSearchIndexStatus.STALE, false, false, false, true, "2026-06-19T00:00:10Z"));
+        adapter.save(sourceProjection("removed", "Removed", "removed markdown", NoteSearchIndexStatus.REMOVED, false, false, false, false, "2026-06-19T00:00:11Z"));
+
+        var indexedOnly = adapter.findSearchableByUserIdAndDocumentGroupId("user-1", "group-1", 20);
+        var linkSources = adapter.findGraphAiNoteSources("user-1", "group-1", 20);
+        var clusteringSources = adapter.findClusteringSourceNotes("user-1", "group-1", 20);
+        var indexStatuses = adapter.findNoteIndexStatuses(
+            "user-1",
+            "group-1",
+            List.of("indexed", "not-indexed", "stale", "failed", "pending", "no-markdown", "archived", "trashed", "deleted", "removed")
+        );
+
+        assertThat(indexedOnly).extracting(NoteProjection::noteId).containsExactly("indexed");
+        assertThat(linkSources).extracting("noteId").containsExactly("failed", "stale", "not-indexed", "indexed");
+        assertThat(clusteringSources).extracting("noteId").containsExactly("failed", "stale", "not-indexed", "indexed");
+        assertThat(indexStatuses).extracting("noteId")
+            .containsExactlyInAnyOrder("indexed", "not-indexed", "stale", "failed", "pending", "no-markdown", "archived", "trashed", "deleted", "removed");
+        assertThat(indexStatuses)
+            .filteredOn(status -> Set.of("indexed", "not-indexed", "stale", "failed").contains(status.noteId()))
+            .extracting("availableForAiFeatures")
+            .containsOnly(true);
+        assertThat(indexStatuses)
+            .filteredOn(status -> Set.of("pending", "no-markdown", "archived", "trashed", "deleted", "removed").contains(status.noteId()))
+            .extracting("availableForAiFeatures")
+            .containsOnly(false);
     }
 
     @Test
@@ -721,5 +760,39 @@ class NoteProjectionJpaAdapterTest {
         assertThat(folderNotes.getFirst().folderId()).isEqualTo("folder-a");
         assertThat(folderNotes.getFirst().headings()).containsExactly("Architecture");
         assertThat(folderNotes.getFirst().excerpt()).contains("BrainX folder organization note");
+    }
+
+    private static NoteProjection sourceProjection(
+        String noteId,
+        String title,
+        String markdown,
+        NoteSearchIndexStatus searchIndexStatus,
+        boolean contentPending,
+        boolean archived,
+        boolean trashed,
+        boolean deleted,
+        String updatedAt
+    ) {
+        return new NoteProjection(
+            "user-1",
+            "group-1",
+            noteId,
+            title,
+            null,
+            List.of(),
+            1,
+            "hash-" + noteId,
+            markdown,
+            contentPending,
+            archived,
+            trashed,
+            deleted,
+            "evt-" + noteId,
+            Instant.parse(updatedAt),
+            searchIndexStatus,
+            null,
+            null,
+            null
+        );
     }
 }
