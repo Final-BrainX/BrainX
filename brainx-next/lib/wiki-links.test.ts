@@ -147,6 +147,17 @@ test("renameWikiLinkReferencesInMarkdown preserves aliases for square-bracket ta
   assert.equal(result.markdown, "[[[Cluster Test] 제주 우천 대체 코스|제주 여행]]");
 });
 
+test("renameWikiLinkReferencesInMarkdown preserves links to plain duplicate titles", () => {
+  const result = renameWikiLinkReferencesInMarkdown(
+    "See [[Project]] and [[📄 Project]]",
+    "📄 Project",
+    "📄 Project Archive"
+  );
+
+  assert.equal(result.changed, true);
+  assert.equal(result.markdown, "See [[Project]] and [[📄 Project Archive]]");
+});
+
 test("extractResolvedWikiLinkTargets de-duplicates when the same target appears in both span and raw form", () => {
   const html = `<p><span data-wiki-link="true" data-title="Spring">[[Spring]]</span> repeated as [[Spring]] again.</p>`;
 

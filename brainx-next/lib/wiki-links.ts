@@ -56,6 +56,13 @@ export function normalizeTitleForMatch(value: string): string {
     .replace(/\s+/g, " ");
 }
 
+function normalizeTitleForRenameMatch(value: string): string {
+  return decodeHtmlEntities(value)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
 export function normalizeWikiLinkTarget(value: string) {
   const base = value.split("|")[0]?.split("#")[0] ?? "";
   return normalizeTitleForMatch(base);
@@ -88,12 +95,12 @@ export function renameWikiLinkReferencesInHtml(
     return { html, changed: false };
   }
 
-  const needle = trimmedOld.toLowerCase();
+  const needle = normalizeTitleForRenameMatch(trimmedOld);
   let next = html;
   let changed = false;
   doc.querySelectorAll('span[data-wiki-link="true"]').forEach((el) => {
     const title = (el.getAttribute("data-title") ?? "").trim();
-    if (title.toLowerCase() !== needle) return;
+    if (normalizeTitleForRenameMatch(title) !== needle) return;
     const before = el.outerHTML;
     el.setAttribute("data-title", trimmedNew);
     if (!el.getAttribute("data-alias")) {
@@ -122,11 +129,11 @@ export function renameWikiLinkReferencesInMarkdown(
   if (!markdown || !trimmedOld || trimmedOld === trimmedNew) {
     return { markdown, changed: false };
   }
-  const needle = normalizeTitleForMatch(trimmedOld);
+  const needle = normalizeTitleForRenameMatch(trimmedOld);
   let changed = false;
   const next = markdown.replace(WIKI_LINK_RE, (match, body: string) => {
     const { title, heading, alias } = splitWikiLinkBody(body);
-    if (normalizeTitleForMatch(title) !== needle) return match;
+    if (normalizeTitleForRenameMatch(title) !== needle) return match;
     changed = true;
     const rebuilt = `${trimmedNew}${heading ? `#${heading}` : ""}${alias ? `|${alias}` : ""}`;
     return `[[${rebuilt}]]`;
