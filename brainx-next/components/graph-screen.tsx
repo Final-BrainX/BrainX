@@ -1753,8 +1753,13 @@ function GraphScreenInner() {
       }
 
       if (!hasWorkspaceIdentity) {
-        setLiveNotes([]);
-        setLiveEdges([]);
+        // reset(최초 마운트/actor 전환)일 때만 미리 비운다 — 그 외(브라우저 background
+        // refresh)는 이미 화면에 떠 있는 그래프를 fetch가 끝나기도 전에 비워 "아무것도 없음"이
+        // 잠깐(또는 실패 시 계속) 보이게 만들던 원인이었다.
+        if (reset) {
+          setLiveNotes([]);
+          setLiveEdges([]);
+        }
         try {
           const data = await listWorkspaceNoteDrafts();
           if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
@@ -1774,8 +1779,12 @@ function GraphScreenInner() {
           setGraphDataVersion((version) => version + 1);
         } catch (error) {
           if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
-          setLiveNotes([]);
-          setLiveEdges([]);
+          // 배경 새로고침 하나가 일시적으로 실패했다고 이미 보여주고 있던 그래프를 비우지
+          // 않는다 — reset이면 애초에 보여줄 이전 데이터가 없어 빈 상태 그대로 둔다.
+          if (reset) {
+            setLiveNotes([]);
+            setLiveEdges([]);
+          }
           if (showError) {
             const message = error instanceof Error ? error.message : "임시 저장된 노트를 불러오지 못했습니다.";
             pushToast(message, "err");
@@ -1819,17 +1828,28 @@ function GraphScreenInner() {
         const scopedOptimisticNotes = optimisticNotes.filter((note) =>
           matchesWorkspaceScope(note.documentGroupId ?? null, currentWorkspaceId, workspaces)
         );
-        const scopedGraphNotes = graphNotes.filter((note) =>
-          matchesWorkspaceScope(docGroupByNoteId.get(note.id) ?? null, currentWorkspaceId, workspaces)
-        );
+        const scopedGraphNotes = graphNotes.filter((note) => {
+          const knownDocGroupId = docGroupByNoteId.get(note.id);
+          // mockNotes(useBrainX(), 별도로 비동기 로드되는 전역 노트 목록)가 이 그래프 응답의
+          // 노트를 아직 못 따라온 순간에는 documentGroupId를 모른다 — null(레거시/미배정)로
+          // 단정해 배제하면, 실제로는 현재 Workspace 소속인 노트가 두 소스의 로딩 타이밍 차이
+          // 때문에 "아무것도 없음"으로 보이는 문제가 있었다. 모르면 배제하지 않고 통과시킨다 —
+          // 다음 refresh에서 mockNotes가 따라잡히면 정확한 스코프로 다시 걸러진다.
+          if (knownDocGroupId === undefined) return true;
+          return matchesWorkspaceScope(knownDocGroupId, currentWorkspaceId, workspaces);
+        });
         const scopedNoteIds = new Set([...scopedGraphNotes.map((note) => note.id), ...scopedOptimisticNotes.map((note) => note.id)]);
         setLiveNotes(scopedOptimisticNotes.length > 0 ? [...scopedOptimisticNotes, ...scopedGraphNotes] : scopedGraphNotes);
         setLiveEdges(graphEdgesForFlow(graph).filter((edge) => scopedNoteIds.has(edge.source) && scopedNoteIds.has(edge.target)));
         setGraphDataVersion((version) => version + 1);
       } catch (error) {
         if (!graphMountedRef.current || requestId !== graphRequestIdRef.current) return;
-        setLiveNotes([]);
-        setLiveEdges([]);
+        // 배경 새로고침 하나의 실패로 이미 보여주고 있던 그래프를 비우지 않는다 — reset이면
+        // 애초에 보여줄 이전 데이터가 없어 빈 상태 그대로 둔다.
+        if (reset) {
+          setLiveNotes([]);
+          setLiveEdges([]);
+        }
         if (showError) {
           const message = error instanceof Error ? error.message : "Could not load graph data.";
           pushToast(message, "err");
