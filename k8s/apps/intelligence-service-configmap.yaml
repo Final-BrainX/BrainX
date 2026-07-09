@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: intelligence-service-config
+  namespace: brainx
+  labels:
+    app: intelligence-service
+data:
+  SERVER_PORT: "8086"
+  SPRING_DATASOURCE_URL: jdbc:postgresql://host.docker.internal:5432/intelligence_service
+  # Hikari pool 상한. 로컬 Compose Postgres의 max_connections 한도를
+  # 여러 서비스가 공유하므로 서비스당 낮게 고정한다.
+  SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "3"
+  SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "1"
+  SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+  REDIS_HOST: host.docker.internal
+  REDIS_PORT: "6379"
+  REDIS_TIMEOUT: 2s
+  BRAINX_REDIS_HEALTH_ENABLED: "true"
+  KAFKA_BOOTSTRAP_SERVERS: host.docker.internal:9093
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: host.docker.internal:9093
+  BRAINX_EVENTS_CONSUMER_ENABLED: "true"
+  BRAINX_EVENTS_PRODUCER_ENABLED: "true"
+  BRAINX_EVENTS_CONSUMER_GROUP_ID: intelligence-service
+  OPENAI_CHAT_MODEL: gpt-5.4-mini
+  OPENAI_WEB_SEARCH_MODEL: gpt-5.5
+  BRAINX_EXTERNAL_SEARCH_PROVIDER: openai
+  BRAINX_EXTERNAL_SEARCH_TIMEOUT: 60s
+  BRAINX_EXTERNAL_SEARCH_CONTEXT_SIZE: low
+  BRAINX_VECTOR_QDRANT_ENABLED: "true"
+  QDRANT_HOST: host.docker.internal
+  QDRANT_GRPC_PORT: "6334"
+  QDRANT_COLLECTION: brainx_note_search
+  QDRANT_USE_TLS: "false"
+  QDRANT_INITIALIZE_SCHEMA: "true"
+  QDRANT_TIMEOUT: 10s
+  BRAINX_WORKSPACE_BASE_URL: http://workspace-service:8082
+  BRAINX_WORKSPACE_TIMEOUT: 5s
+  BRAINX_COMMERCE_BASE_URL: http://host.docker.internal:8084
+  BRAINX_COMMERCE_TIMEOUT: 2s
+  BRAINX_SECURITY_DEV_AUTH_ENABLED: "false"
+  BRAINX_REPAIR_LEGACY_DEFAULT_DOCUMENT_GROUP_VECTORS_ENABLED: "false"
+  BRAINX_REPAIR_LEGACY_DEFAULT_DOCUMENT_GROUP_BACKFILL_ENABLED: "false"
+  BRAINX_REPAIR_LEGACY_DEFAULT_DOCUMENT_GROUP_BACKFILL_BATCH_SIZE: "200"
+  EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
+  EUREKA_INSTANCE_HOSTNAME: intelligence-service

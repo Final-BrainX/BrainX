@@ -47,6 +47,33 @@ $serviceConfigs = [ordered]@{
         Secrets = @('gateway-secret', 'postgres-secret', 'workspace-secret')
         ConfigMaps = @()
     }
+    ingestion = @{
+        BuildContext = 'brainX_back\Ingestion-Service'
+        Image = 'brainx-ingestion-service:local'
+        Manifest = 'k8s\apps\ingestion-service.yaml'
+        Deployment = 'ingestion-service'
+        Label = 'ingestion-service'
+        Secrets = @('gateway-secret', 'postgres-secret', 'ingestion-service-secret')
+        ConfigMaps = @('k8s\apps\ingestion-service-configmap.yaml')
+    }
+    intelligence = @{
+        BuildContext = 'brainX_back\Intelligence-Service'
+        Image = 'brainx-intelligence-service:local'
+        Manifest = 'k8s\apps\intelligence-service.yaml'
+        Deployment = 'intelligence-service'
+        Label = 'intelligence-service'
+        Secrets = @('gateway-secret', 'postgres-secret', 'intelligence-service-secret')
+        ConfigMaps = @('k8s\apps\intelligence-service-configmap.yaml')
+    }
+    commerce = @{
+        BuildContext = 'brainX_back\Commerce-Service'
+        Image = 'brainx-commerce-service:local'
+        Manifest = 'k8s\apps\commerce-service.yaml'
+        Deployment = 'commerce-service'
+        Label = 'commerce-service'
+        Secrets = @('gateway-secret', 'postgres-secret', 'commerce-service-secret')
+        ConfigMaps = @()
+    }
     admin = @{
         BuildContext = 'brainX_back\Admin-Service'
         Image = 'brainx-admin-service:local'

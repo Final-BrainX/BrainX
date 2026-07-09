@@ -1,0 +1,130 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: commerce-service-config
+  namespace: brainx
+  labels:
+    app: commerce-service
+data:
+  SERVER_PORT: "8084"
+  PUBLIC_BASE_URL: http://localhost:3000
+  POSTGRES_HOST: host.docker.internal
+  POSTGRES_PORT: "5432"
+  COMMERCE_DB_NAME: brainx_commerce
+  # Hikari pool 상한. 로컬 Compose Postgres의 max_connections 한도를
+  # 여러 서비스가 공유하므로 서비스당 낮게 고정한다.
+  SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "3"
+  SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "1"
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: host.docker.internal:9092
+  EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
+  EUREKA_INSTANCE_HOSTNAME: commerce-service
+  BRAINX_EVENTS_CONSUMER_ENABLED: "true"
+  BRAINX_EVENTS_OUTBOX_ENABLED: "true"
+  TOSS_CONFIRM_URL: https://api.tosspayments.com/v1/payments/confirm
+  TOSS_CANCEL_URL: https://api.tosspayments.com/v1/payments/%s/cancel
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: commerce-service
+  namespace: brainx
+  labels:
+    app: commerce-service
+spec:
+  replicas: 1
+  # 로컬 검증 전용: old/new Pod가 동시에 Postgres 커넥션을 잡아 too many clients가
+  # 나는 것을 줄이기 위해 surge 없이(maxSurge: 0) old Pod를 먼저 내리고 새 Pod를 올린다.
+  # 자세한 배경은 k8s/TROUBLESHOOTING.md 9번 항목 참고.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: commerce-service
+  template:
+    metadata:
+      labels:
+        app: commerce-service
+    spec:
+      containers:
+        - name: commerce-service
+          image: brainx-commerce-service:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8084
+              name: http
+          envFrom:
+            - configMapRef:
+                name: commerce-service-config
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secret
+                  key: SERVICE_TOKEN
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: commerce-service-secret
+                  key: JWT_SECRET
+            - name: TOSS_CLIENT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: commerce-service-secret
+                  key: TOSS_CLIENT_KEY
+            - name: TOSS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: commerce-service-secret
+                  key: TOSS_SECRET_KEY
+          # 현재 SecurityConfig는 /actuator/health 와 /actuator/prometheus 만 permitAll 이라
+          # /actuator/health/readiness, /liveness 는 401 이 될 수 있다.
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: commerce-service
+  namespace: brainx
+  labels:
+    app: commerce-service
+spec:
+  type: ClusterIP
+  selector:
+    app: commerce-service
+  ports:
+    - name: http
+      port: 8084
+      targetPort: http

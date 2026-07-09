@@ -52,6 +52,14 @@ data:
             labels:
               application: Workspace-Service
 
+      - job_name: commerce-service
+        metrics_path: /actuator/prometheus
+        static_configs:
+          - targets:
+              - commerce-service.brainx.svc.cluster.local:8084
+            labels:
+              application: Commerce-Service
+
       # mcp-service is intentionally NOT scraped yet: Mcp-Service currently only
       # exposes management.endpoints.web.exposure.include: health,info and its
       # SecurityConfig only permits /actuator/health and /actuator/info, so a
@@ -75,14 +83,6 @@ data:
       #         - ingestion-service.brainx.svc.cluster.local:8083
       #       labels:
       #         application: ingestion-service
-      #
-      # - job_name: commerce-service
-      #   metrics_path: /actuator/prometheus
-      #   static_configs:
-      #     - targets:
-      #         - commerce-service.brainx.svc.cluster.local:8084
-      #       labels:
-      #         application: Commerce-Service
       #
       # - job_name: intelligence-service
       #   metrics_path: /actuator/prometheus
