@@ -617,6 +617,7 @@ function mapUser(row: ApiUserRow): AdminUser {
     notes: row.noteCount,
     storage: bytesToStorage(row.storageBytes),
     lastActive: recentActiveAt ? formatShortDateTime(recentActiveAt) : "-",
+    lastActiveAt: recentActiveAt,
     location: row.lastLogin?.location ?? "-",
     device: normalizeDeviceLabel(row.lastLogin?.device),
     activities: buildActivities(row)

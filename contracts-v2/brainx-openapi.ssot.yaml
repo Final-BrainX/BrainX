@@ -10258,7 +10258,7 @@ paths:
       - id: web.admin.users
         type: frontend
         description: BrainX-Admin user management list, filters and bulk actions
-      x-implementation-note: User rows must show the same current plan as the detail drawer. Do not infer the list plan from payment history; use the current subscription snapshot returned by Commerce-Service through Admin-Service. If Commerce-Service billing reads fail, Admin-Service may return the list with `free` fallback plans instead of failing the whole screen.
+      x-implementation-note: User rows must show the same current plan as the detail drawer. Do not infer the list plan from payment history; use the current subscription snapshot returned by Commerce-Service through Admin-Service. If Commerce-Service billing reads fail, Admin-Service may return the list with `free` fallback plans instead of failing the whole screen. BrainX-Admin retains the raw `lastActiveAt` value, falling back to `lastLogin.lastSeenAt`, and sorts the currently returned rows client-side when the Recent Activity header is toggled; rows without a valid activity timestamp stay last in both directions. This consumer behavior does not add server-side sort query parameters.
       x-internal-sync-calls:
       - operationId: getUserAccountSnapshotInternal
         targetService: User-Service
