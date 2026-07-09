@@ -1108,7 +1108,11 @@ export default function RightSidebar({
 
   /* 버블 툴바의 AI 버튼(요약/다시쓰기) → 인라인 AI 채팅에 응답 추가 */
   useEffect(() => {
-    if (!pendingAiRequest || !activeNote) return;
+    if (!pendingAiRequest) return;
+    if (!activeNote || pendingAiRequest.noteId !== activeNote.id) {
+      onAiRequestHandled?.();
+      return;
+    }
     const { type, text } = pendingAiRequest;
     const selectedText = text.trim();
     const selectedMarkdown = pendingAiRequest.selectedMarkdown?.trim() || selectedText;
