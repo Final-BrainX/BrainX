@@ -52,6 +52,7 @@ class ExplorationServiceTest {
     private final AiUsageRecorder aiUsageRecorder = mock(AiUsageRecorder.class);
     private final AiRunRecorder aiRunRecorder = mock(AiRunRecorder.class);
     private final PromptRegistryService promptRegistryService = mock(PromptRegistryService.class);
+    private final SemanticSearchProperties semanticSearchProperties = new SemanticSearchProperties();
     private final NoteSummaryProperties noteSummaryProperties = new NoteSummaryProperties();
     private final ExplorationService service = new ExplorationService(
         ports,
@@ -65,6 +66,7 @@ class ExplorationServiceTest {
         aiUsageRecorder,
         aiRunRecorder,
         promptRegistryService,
+        semanticSearchProperties,
         noteSummaryProperties
     );
 
@@ -124,6 +126,29 @@ class ExplorationServiceTest {
         assertThat(ports.semanticSearchEvents.getFirst().documentGroupId()).isEqualTo("group-1");
         assertThat(ports.semanticSearchEvents.getFirst().resultCount()).isEqualTo(1);
         assertThat(ports.semanticSearchEvents.getFirst().charged()).isTrue();
+    }
+
+    @Test
+    void semanticSearchFiltersLowScoreVectorResultsAndRecordsFilteredCount() {
+        ports.searchResults = List.of(
+            new SemanticSearchResult("note-low", "Low", "unrelated", 0.34d, SearchMatchType.SEMANTIC),
+            new SemanticSearchResult("note-threshold", "Threshold", "related", 0.35d, SearchMatchType.SEMANTIC),
+            new SemanticSearchResult("note-high", "High", "related", 0.80d, SearchMatchType.SEMANTIC)
+        );
+
+        var result = service.semanticSearch(new SemanticSearchCommand(
+            "user-1",
+            "group-1",
+            "vacation",
+            Map.of(),
+            10,
+            List.of()
+        ));
+
+        assertThat(result.results())
+            .extracting(SearchResultView::noteId)
+            .containsExactly("note-high", "note-threshold");
+        assertThat(ports.semanticSearchEvents.getFirst().resultCount()).isEqualTo(2);
     }
 
     @Test
@@ -208,13 +233,22 @@ class ExplorationServiceTest {
 
     @Test
     void hybridSearchMergesSemanticAndKeywordMatches() {
-        ports.searchResults = List.of(new SemanticSearchResult(
-            "note-1",
-            "Semantic",
-            "semantic excerpt",
-            0.70d,
-            SearchMatchType.SEMANTIC
-        ));
+        ports.searchResults = List.of(
+            new SemanticSearchResult(
+                "note-1",
+                "Semantic",
+                "semantic excerpt",
+                0.70d,
+                SearchMatchType.SEMANTIC
+            ),
+            new SemanticSearchResult(
+                "note-low",
+                "Low semantic",
+                "low score semantic only",
+                0.20d,
+                SearchMatchType.SEMANTIC
+            )
+        );
         ports.keywordResults = List.of(
             new SemanticSearchResult("note-1", "Semantic", "keyword excerpt", 0.80d, SearchMatchType.KEYWORD),
             new SemanticSearchResult("note-2", "Keyword", "keyword only", 0.60d, SearchMatchType.KEYWORD)
@@ -237,6 +271,21 @@ class ExplorationServiceTest {
         assertThat(result.charged()).isTrue();
         assertThat(ports.searchRequests).isEqualTo(1);
         assertThat(ports.keywordRequests).isEqualTo(1);
+    }
+
+    @Test
+    void semanticSearchPropertiesDefaultAndValidation() {
+        var properties = new SemanticSearchProperties();
+
+        assertThat(properties.getMinScore()).isEqualTo(0.35d);
+        properties.setMinScore(0.45d);
+        assertThat(properties.getMinScore()).isEqualTo(0.45d);
+        assertThatThrownBy(() -> properties.setMinScore(1.01d))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("minScore");
+        assertThatThrownBy(() -> properties.setMinScore(Double.NaN))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("minScore");
     }
 
     @Test

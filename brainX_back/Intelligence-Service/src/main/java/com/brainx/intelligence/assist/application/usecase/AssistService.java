@@ -173,6 +173,7 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
             Never include, paraphrase, move, summarize, or rewrite Before/After in a REWRITE or TRANSLATE output.
             Return only the final text to insert or replace.
             Preserve meaningful Markdown syntax from Selected, including headings, lists, links, emphasis, inline code, and code blocks.
+            For DRAFT, if Selected is not empty, treat it as the user's selected topic or title candidate rather than text to replace.
             Do not include explanations, labels, alternatives, or wrapping markdown fences unless the selected content itself is a code block.
             """;
     }
@@ -207,6 +208,7 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
             - If Action is TRANSLATE, return only the translation of Selected.
             - If Action is CONTINUE, return only the newly continued text.
             - If Action is SUMMARIZE, return only the summary.
+            - If Action is DRAFT and Selected is not empty, use Selected as the topic/title candidate and use Before/After to understand its context.
             - If Action is DRAFT, write only a new draft near Target Length that satisfies Draft Prompt. Use Before/After only to match tone and flow, and do not repeat them.
             """.formatted(
             action.name(),
