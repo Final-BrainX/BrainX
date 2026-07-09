@@ -112,14 +112,14 @@ LLMOps v1은 UI 없이 backend foundation만 제공한다. 자세한 기준은 `
 | 징검다리 추천 | `brainx.connection.bridge.default-model`, 기본 `OPENAI_CHAT_MODEL` |
 | 자동 링크 | `brainx.note-auto-link.model`, 기본 `OPENAI_CHAT_MODEL` |
 | 노트 세줄 요약 | `BRAINX_NOTE_SUMMARY_MODEL`, 기본 `gpt-5.4-nano` |
-| 외부 검색 | `BRAINX_EXTERNAL_SEARCH_PROVIDER=openai`, `OPENAI_WEB_SEARCH_MODEL`, 기본 `gpt-5.5`, `BRAINX_EXTERNAL_SEARCH_CONTEXT_SIZE=low`, `BRAINX_EXTERNAL_SEARCH_TIMEOUT=60s` |
+| 외부 검색 | `BRAINX_EXTERNAL_SEARCH_PROVIDER=openai`, `OPENAI_WEB_SEARCH_MODEL`, 기본 `gpt-5.4-mini`, `BRAINX_EXTERNAL_SEARCH_CONTEXT_SIZE=low`, `BRAINX_EXTERNAL_SEARCH_TIMEOUT=60s` |
 | embedding | `BRAINX_AI_EMBEDDING_PROVIDER=voyage`, `VOYAGE_EMBEDDING_MODEL`, 기본 `voyage-4-lite` |
 
 OpenAI chat은 Spring AI `ChatClient`를 통해 호출한다. OpenAI audio/image/moderation/embedding auto-configuration은 기본 application 설정에서 제외되어 있으며, embedding은 별도 `AiEmbeddingPort` 구현으로 관리한다.
 
 ## 외부 검색 상태
 
-`ExternalSearchPort`와 OpenAI `web_search` adapter는 `/chat` 라우터가 최신/현재 정보 요청으로 판단한 경우 내부적으로 사용한다. 독립 external-search public endpoint는 없으며, `brainx.dev.external-search.enabled=true`일 때 dev runner로 단독 확인할 수 있다. `/chat` SSE는 검색 진행 `web_search_progress`와 출처 `web_sources`를 답변 생성 전에 보낼 수 있다.
+`ExternalSearchPort`와 OpenAI `web_search` adapter는 `/chat` 라우터가 최신/현재 정보 요청으로 판단한 경우 내부적으로 사용한다. 독립 external-search public endpoint는 없으며, `brainx.dev.external-search.enabled=true`일 때 dev runner로 단독 확인할 수 있다. 검색 결과의 `answer`와 `sources`는 최종 채팅 답변 LLM의 context로 사용되므로 기존 사용자 문체, 대화/노트/클라이언트 context, route 규칙과 assistant message 저장 흐름이 유지된다. `/chat` SSE는 검색 진행 `web_search_progress`와 출처 `web_sources`를 최종 답변 생성 전에 보낼 수 있다.
 
 ## Usage/Event 경계
 
