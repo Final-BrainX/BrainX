@@ -7,7 +7,7 @@ import { Compass, FileUp, PencilLine, Pin, PinOff, Sparkles } from "lucide-react
 import { buildAuthPath, isDevAuthSession, readAuthSession } from "@/lib/auth-api";
 import { deriveGraphEdges, noteById, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
 import { deriveDraftWikiLinkEdges, draftsToBrainXNotes, getGraph, graphEdgesForFlow, graphToBrainXNotes, pendingCreatedNoteToBrainXNote, pendingWikiLinkEntryToEdge, USE_MOCK_GRAPH, USE_MOCK_GRAPH_CLUSTERS } from "@/lib/graph-api";
-import { createBridgeConcepts, createLinkSuggestions, generateNoteSummary, getLatestClusterJob, requestClusterJob, type BridgeConceptsData, type ClusterJobLatestData, type NoteSummaryData } from "@/lib/intelligence-api";
+import { createBridgeConcepts, createLinkSuggestions, generateNoteSummary, getLatestClusterJob, inheritAiCluster, requestClusterJob, type BridgeConceptsData, type ClusterJobLatestData, type NoteSummaryData } from "@/lib/intelligence-api";
 import {
   AI_CLUSTER_MAX_CLUSTERS,
   AI_CLUSTER_MAX_NOTES,
@@ -17,6 +17,7 @@ import {
   deriveNoteClusterMeta,
   isAiFeatureReadyNote,
   resolveAiCluster,
+  UNASSIGNED_CLUSTER_ID,
   type AiClusterMeta as GraphClusterMeta,
   type AiClusterStatus,
 } from "@/lib/ai-cluster-projection";
@@ -510,15 +511,16 @@ function buildBridgeRecommendationMarkdown(recommendation: BridgeRecommendation,
 function bridgeRecommendationToGraphNote(
   recommendation: BridgeRecommendation,
   created: NoteCreated,
-  sourceNotes: BrainXNote[]
+  sourceNotes: BrainXNote[],
+  inheritedClusterId?: string | null
 ): BrainXNote {
   const now = created.createdAt || new Date().toISOString();
-  const cluster = sourceNotes[0]?.cluster ?? "proj";
+  const cluster = inheritedClusterId || UNASSIGNED_CLUSTER_ID;
   return {
     id: created.noteId,
     title: normalizeMarkdownText(created.title || recommendation.title) || "징검다리 개념 후보",
     markdown: "",
-    folderId: cluster,
+    folderId: created.folderId ?? cluster,
     cluster,
     summary:
       recommendation.bridgeReason?.trim() ||
@@ -2308,7 +2310,30 @@ function GraphScreenInner() {
         persisted: false,
         documentGroupId: currentWorkspaceId ?? undefined
       });
-      const graphNote = bridgeRecommendationToGraphNote(recommendation, created, bridgeSelectedNotes);
+      let inheritedClusterId: string | null = null;
+      const sourceNoteIds = bridgeSourceNotes(bridgeSelectedNotes).map((note) => resolveAiRequestNoteId(note.id));
+      const createdAiNoteId = created.remoteNoteId || (created.storage === "desktop-vault" ? null : created.noteId);
+      if (currentWorkspaceId && createdAiNoteId && sourceNoteIds.length === 2) {
+        try {
+          const inheritance = await inheritAiCluster({
+            documentGroupId: currentWorkspaceId,
+            noteId: createdAiNoteId,
+            sourceNoteIds
+          });
+          inheritedClusterId = inheritance.inherited ? inheritance.clusterId ?? null : null;
+          if (inheritance.inherited) {
+            await refreshClusterLatest({ showError: false });
+          }
+        } catch {
+          inheritedClusterId = null;
+        }
+      }
+      const graphNote = bridgeRecommendationToGraphNote(
+        recommendation,
+        created,
+        bridgeSelectedNotes,
+        inheritedClusterId
+      );
       optimisticGraphNotesRef.current[graphNote.id] = graphNote;
 
       setBridgeSaveStates((current) => ({

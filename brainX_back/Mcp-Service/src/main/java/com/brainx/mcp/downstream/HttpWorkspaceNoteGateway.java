@@ -98,6 +98,32 @@ public class HttpWorkspaceNoteGateway implements WorkspaceNoteGateway {
         }
     }
 
+    @Override
+    public DeletedNote deleteNote(String userId, String noteId, String mode) {
+        try {
+            ApiEnvelope<DeletedNote> response = restClient.delete()
+                .uri(uriBuilder -> uriBuilder
+                    .path("/internal/v1/workspace/users/{userId}/notes/{noteId}")
+                    .queryParam("mode", mode)
+                    .build(userId, noteId))
+                .header(SERVICE_TOKEN_HEADER, serviceProperties.getServiceToken())
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiEnvelope<DeletedNote>>() {
+                });
+            if (response == null || response.data() == null) {
+                throw new DownstreamServiceException("Workspace note deletion response did not include data.");
+            }
+            return response.data();
+        } catch (RestClientResponseException exception) {
+            throw new DownstreamServiceException(
+                "Workspace note deletion failed with status " + exception.getStatusCode().value() + ".",
+                exception
+            );
+        } catch (RestClientException exception) {
+            throw new DownstreamServiceException("Workspace note deletion failed.", exception);
+        }
+    }
+
     private static RestClient createRestClient(WorkspaceClientProperties properties) {
         var requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(properties.getTimeout());

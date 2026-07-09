@@ -172,6 +172,61 @@ class BrainxNoteToolTest {
         assertCreatedMarkdown("FastAPI", "# **FastAPI**\n\nNotes", "Notes");
     }
 
+    @Test
+    void deleteNoteRequiresWriteScope() {
+        authenticate("usr_1", List.of("notes:read"));
+
+        assertThatThrownBy(() -> tool.deleteNote("note-1", BrainxNoteTool.DeleteMode.trash))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("notes:write");
+    }
+
+    @Test
+    void deleteNoteUsesPrincipalUserAndRequiredMode() {
+        authenticate("usr_1", List.of("notes:write"));
+
+        WorkspaceNoteGateway.DeletedNote result = tool.deleteNote(
+            " note-1 ",
+            BrainxNoteTool.DeleteMode.permanent
+        );
+
+        assertThat(workspaceGateway.deleteUserId).isEqualTo("usr_1");
+        assertThat(workspaceGateway.deleteNoteId).isEqualTo("note-1");
+        assertThat(workspaceGateway.deleteMode).isEqualTo("permanent");
+        assertThat(result.noteId()).isEqualTo("note-1");
+    }
+
+    @Test
+    void deleteNoteRejectsMissingMode() {
+        authenticate("usr_1", List.of("notes:write"));
+
+        assertThatThrownBy(() -> tool.deleteNote("note-1", null))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("mode is required.");
+    }
+
+    @Test
+    void deleteNoteRejectsBlankNoteId() {
+        authenticate("usr_1", List.of("notes:write"));
+
+        assertThatThrownBy(() -> tool.deleteNote(" ", BrainxNoteTool.DeleteMode.trash))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("noteId is required.");
+    }
+
+    @Test
+    void deleteModeUsesLowercaseWireValues() {
+        assertThat(BrainxNoteTool.DeleteMode.fromValue(" TRASH "))
+            .isEqualTo(BrainxNoteTool.DeleteMode.trash);
+        assertThat(BrainxNoteTool.DeleteMode.fromValue("permanent"))
+            .isEqualTo(BrainxNoteTool.DeleteMode.permanent);
+        assertThat(BrainxNoteTool.DeleteMode.trash.wireValue()).isEqualTo("trash");
+        assertThat(BrainxNoteTool.DeleteMode.permanent.wireValue()).isEqualTo("permanent");
+        assertThatThrownBy(() -> BrainxNoteTool.DeleteMode.fromValue("archive"))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("mode must be trash or permanent.");
+    }
+
     private void assertCreatedMarkdown(String title, String markdown, String expectedMarkdown) {
         authenticate("usr_1", List.of("notes:write"));
 
@@ -194,6 +249,9 @@ class BrainxNoteToolTest {
         private String getNoteId;
         private String createUserId;
         private CreateNoteCommand createCommand;
+        private String deleteUserId;
+        private String deleteNoteId;
+        private String deleteMode;
 
         @Override
         public NoteDetail getNote(String userId, String noteId) {
@@ -221,6 +279,18 @@ class BrainxNoteToolTest {
                 command.folderId(),
                 1,
                 Instant.parse("2026-01-01T00:00:00Z")
+            );
+        }
+
+        @Override
+        public DeletedNote deleteNote(String userId, String noteId, String mode) {
+            this.deleteUserId = userId;
+            this.deleteNoteId = noteId;
+            this.deleteMode = mode;
+            return new DeletedNote(
+                noteId,
+                Instant.parse("2026-07-10T00:00:00Z"),
+                "trash".equals(mode) ? Instant.parse("2026-08-09T00:00:00Z") : null
             );
         }
     }

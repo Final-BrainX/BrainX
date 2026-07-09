@@ -81,6 +81,8 @@ brainx:
     default-model: ${OPENAI_CHAT_MODEL:gpt-5.4-mini}
     max-notes: ${BRAINX_CLUSTERING_MAX_NOTES:50}
     max-clusters: ${BRAINX_CLUSTERING_MAX_CLUSTERS:6}
+    existing-fit-min-confidence: ${BRAINX_CLUSTERING_EXISTING_FIT_MIN_CONFIDENCE:0.75}
+    incremental-max-total-clusters: ${BRAINX_CLUSTERING_INCREMENTAL_MAX_TOTAL_CLUSTERS:12}
   insight:
     default-model: ${OPENAI_CHAT_MODEL:gpt-5.4-mini}
     max-notes: ${BRAINX_INSIGHT_MAX_NOTES:50}

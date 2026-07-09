@@ -180,7 +180,8 @@ public class ExternalWorkspaceNoteAdapter implements WorkspaceNotePort {
         List<String> tags,
         String folderId,
         int version,
-        java.time.Instant updatedAt
+        java.time.Instant updatedAt,
+        String userId
     ) {
 
         NoteSnapshot toSnapshot() {
@@ -192,7 +193,8 @@ public class ExternalWorkspaceNoteAdapter implements WorkspaceNotePort {
                 tags == null ? List.of() : tags,
                 folderId,
                 version,
-                updatedAt
+                updatedAt,
+                userId
             );
         }
     }

@@ -11,6 +11,8 @@ public class ClusteringProperties {
     private String defaultModel = "gpt-5.4-mini";
     private int maxNotes = 50;
     private int maxClusters = 6;
+    private double existingFitMinConfidence = 0.75d;
+    private int incrementalMaxTotalClusters = 12;
 
     public String getDefaultModel() {
         return defaultModel;
@@ -36,5 +38,21 @@ public class ClusteringProperties {
 
     public void setMaxClusters(int maxClusters) {
         this.maxClusters = maxClusters;
+    }
+
+    public double getExistingFitMinConfidence() {
+        return Math.max(0.0d, Math.min(1.0d, existingFitMinConfidence));
+    }
+
+    public void setExistingFitMinConfidence(double existingFitMinConfidence) {
+        this.existingFitMinConfidence = existingFitMinConfidence;
+    }
+
+    public int getIncrementalMaxTotalClusters() {
+        return Math.max(1, Math.min(12, incrementalMaxTotalClusters));
+    }
+
+    public void setIncrementalMaxTotalClusters(int incrementalMaxTotalClusters) {
+        this.incrementalMaxTotalClusters = incrementalMaxTotalClusters;
     }
 }

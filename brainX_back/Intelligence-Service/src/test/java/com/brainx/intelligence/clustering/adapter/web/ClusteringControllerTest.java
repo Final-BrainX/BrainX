@@ -27,6 +27,9 @@ import com.brainx.intelligence.clustering.application.port.inbound.GetClusterJob
 import com.brainx.intelligence.clustering.application.port.inbound.GetLatestClusterJobUseCase;
 import com.brainx.intelligence.clustering.application.port.inbound.GetLatestClusterJobUseCase.GetLatestClusterJobQuery;
 import com.brainx.intelligence.clustering.application.port.inbound.GetLatestClusterJobUseCase.LatestClusterJob;
+import com.brainx.intelligence.clustering.application.port.inbound.InheritClusterUseCase;
+import com.brainx.intelligence.clustering.application.port.inbound.InheritClusterUseCase.ClusterInheritanceCommand;
+import com.brainx.intelligence.clustering.application.port.inbound.InheritClusterUseCase.ClusterInheritanceResult;
 import com.brainx.intelligence.clustering.application.port.inbound.RequestClusterJobUseCase;
 import com.brainx.intelligence.clustering.application.port.inbound.RequestClusterJobUseCase.ClusterJobCommand;
 import com.brainx.intelligence.clustering.domain.Cluster;
@@ -54,6 +57,9 @@ class ClusteringControllerTest {
 
     @MockitoBean
     private GetLatestClusterJobUseCase getLatestClusterJobUseCase;
+
+    @MockitoBean
+    private InheritClusterUseCase inheritClusterUseCase;
 
     @Test
     void requestClusterJobReturnsAcceptedWrappedJob() throws Exception {
@@ -159,6 +165,27 @@ class ClusteringControllerTest {
                     """))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void inheritClusterReturnsServerVerifiedAssignment() throws Exception {
+        when(inheritClusterUseCase.inheritCluster(any(ClusterInheritanceCommand.class)))
+            .thenReturn(new ClusterInheritanceResult(true, "bridge-1", "cluster-1", "job-2"));
+
+        mockMvc.perform(post("/api/v1/ai/cluster-inheritances")
+                .with(user("user-1"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "documentGroupId":"group-1",
+                      "noteId":"bridge-1",
+                      "sourceNoteIds":["note-1","note-2"]
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.inherited").value(true))
+            .andExpect(jsonPath("$.data.clusterId").value("cluster-1"))
+            .andExpect(jsonPath("$.data.clusterJobId").value("job-2"));
     }
 
     @Test

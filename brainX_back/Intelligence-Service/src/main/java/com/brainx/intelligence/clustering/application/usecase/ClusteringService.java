@@ -2,11 +2,13 @@ package com.brainx.intelligence.clustering.application.usecase;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -71,6 +73,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
     private final ClusteringProperties properties;
     private final ObjectMapper objectMapper;
     private final ClusterResponseParser clusterResponseParser;
+    private final ExistingClusterFitResponseParser existingClusterFitResponseParser;
     private final Clock clock;
 
     @Autowired
@@ -129,6 +132,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.clusterResponseParser = new ClusterResponseParser(objectMapper);
+        this.existingClusterFitResponseParser = new ExistingClusterFitResponseParser(objectMapper);
         this.clock = clock;
     }
 
@@ -146,11 +150,17 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
 
         ScopeSpec scope = ScopeSpec.from(command.scope(), properties.getMaxNotes());
         int maxClusters = maxClusters(command.algorithmOptions());
-        Map<String, Object> algorithmOptions = normalizedAlgorithmOptions(command.algorithmOptions(), maxClusters);
         List<KnowledgeAnalysisNote> notes = loadNotes(userId, scope);
         if (notes.isEmpty()) {
             throw new ClusteringConflictException("No searchable notes are available for clustering.");
         }
+
+        ClusterJob baseline = scope.noteIds().isEmpty() ? latestCompletedWorkspaceJob(userId, scope.documentGroupId()) : null;
+        if (baseline != null) {
+            return requestIncrementalClusterJob(command, userId, idempotencyKey, scope, notes, baseline);
+        }
+
+        Map<String, Object> algorithmOptions = normalizedAlgorithmOptions(command.algorithmOptions(), maxClusters);
 
         String modelId = resolveModelId(userId);
         PromptResolution promptResolution = promptRegistryService.resolve("clustering", systemPrompt());
@@ -229,6 +239,181 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
                 clusterJobId,
                 clusters.size()
             ));
+            return completed;
+        } catch (RuntimeException exception) {
+            return clusterJobStore.save(running.withLlmRunId(llmRunId).failed(safeFailureMessage(exception), Instant.now(clock)));
+        }
+    }
+
+    private ClusterJob requestIncrementalClusterJob(
+        ClusterJobCommand command,
+        String userId,
+        String idempotencyKey,
+        ScopeSpec scope,
+        List<KnowledgeAnalysisNote> notes,
+        ClusterJob baseline
+    ) {
+        List<Cluster> existingClusters = pruneClusters(baseline.clusters(), notes);
+        Set<String> assignedIds = assignedNoteIds(existingClusters);
+        List<KnowledgeAnalysisNote> unassignedNotes = notes.stream()
+            .filter(note -> !assignedIds.contains(note.noteId()))
+            .toList();
+        int totalCap = properties.getIncrementalMaxTotalClusters();
+        double fitThreshold = properties.getExistingFitMinConfidence();
+        Map<String, Object> algorithmOptions = normalizedAlgorithmOptions(command.algorithmOptions(), maxClusters(command.algorithmOptions()));
+        algorithmOptions.put("mode", "INCREMENTAL");
+        algorithmOptions.put("baselineClusterJobId", baseline.clusterJobId());
+        algorithmOptions.put("existingFitMinConfidence", fitThreshold);
+        algorithmOptions.put("incrementalMaxTotalClusters", totalCap);
+
+        PromptResolution fitPromptResolution = null;
+        String fitSystemPrompt = null;
+        String fitUserPrompt = null;
+        if (!unassignedNotes.isEmpty()) {
+            fitPromptResolution = promptRegistryService.resolve("clustering-existing-fit", existingFitSystemPrompt());
+            fitSystemPrompt = StylePromptCompiler.appendToSystemPrompt(
+                fitPromptResolution.template(),
+                existingFitInstructions()
+            );
+            fitUserPrompt = existingFitUserPrompt(existingClusters, notes, unassignedNotes);
+            checkEntitlement(userId, fitSystemPrompt, fitUserPrompt);
+        }
+
+        String modelId = resolveModelId(userId);
+        String clusterJobId = UUID.randomUUID().toString();
+        Instant now = Instant.now(clock);
+        ClusterJob running = clusterJobStore.save(ClusterJob.running(
+            clusterJobId,
+            userId,
+            scope.documentGroupId(),
+            scopeWithSourceSnapshot(scope.normalizedScope(), notes),
+            algorithmOptions,
+            modelId,
+            idempotencyKey,
+            now
+        ));
+        clusteringEventPort.clusterJobRequested(new ClusterJobRequestedEvent(
+            userId,
+            clusterJobId,
+            publicScope(running.scope()),
+            running.algorithmOptions()
+        ));
+
+        if (unassignedNotes.isEmpty()) {
+            ClusterJob completed = clusterJobStore.save(running.completed(existingClusters, Instant.now(clock)));
+            clusteringEventPort.clusterJobCompleted(new ClusterJobCompletedEvent(userId, clusterJobId, existingClusters.size()));
+            return completed;
+        }
+
+        String llmRunId = null;
+        try {
+            ClusteringAttempt fitAttempt = runClusteringAttempt(
+                userId,
+                modelId,
+                clusterJobId,
+                scope.documentGroupId(),
+                fitPromptResolution,
+                fitSystemPrompt,
+                fitUserPrompt,
+                "existing-fit"
+            );
+            llmRunId = fitAttempt.llmRunId();
+            List<ExistingClusterFitResponseParser.ExistingClusterFit> fits;
+            try {
+                fits = existingClusterFitResponseParser.parse(
+                    fitAttempt.content(),
+                    noteIds(unassignedNotes),
+                    existingClusters.stream().map(Cluster::clusterId).collect(java.util.stream.Collectors.toSet())
+                );
+            } catch (IllegalArgumentException validationException) {
+                String repairPrompt = existingFitRepairPrompt(
+                    existingClusters,
+                    notes,
+                    unassignedNotes,
+                    fitAttempt.content(),
+                    validationException
+                );
+                checkEntitlement(userId, fitSystemPrompt, repairPrompt);
+                ClusteringAttempt repairAttempt = runClusteringAttempt(
+                    userId,
+                    modelId,
+                    clusterJobId,
+                    scope.documentGroupId(),
+                    fitPromptResolution,
+                    fitSystemPrompt,
+                    repairPrompt,
+                    "existing-fit-repair"
+                );
+                llmRunId = repairAttempt.llmRunId();
+                fits = existingClusterFitResponseParser.parse(
+                    repairAttempt.content(),
+                    noteIds(unassignedNotes),
+                    existingClusters.stream().map(Cluster::clusterId).collect(java.util.stream.Collectors.toSet())
+                );
+            }
+
+            List<Cluster> merged = appendMatchingNotes(existingClusters, fits, fitThreshold);
+            Set<String> matchedIds = fits.stream()
+                .filter(fit -> fit.clusterId() != null && fit.confidence() >= fitThreshold)
+                .map(ExistingClusterFitResponseParser.ExistingClusterFit::noteId)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+            List<KnowledgeAnalysisNote> unmatchedNotes = unassignedNotes.stream()
+                .filter(note -> !matchedIds.contains(note.noteId()))
+                .toList();
+            int newClusterCapacity = Math.max(0, totalCap - merged.size());
+            if (!unmatchedNotes.isEmpty() && newClusterCapacity > 0) {
+                PromptResolution promptResolution = promptRegistryService.resolve("clustering", systemPrompt());
+                String systemPrompt = StylePromptCompiler.appendToSystemPrompt(
+                    StylePromptCompiler.appendToSystemPrompt(promptResolution.template(), clusteringInstructions()),
+                    runtimeInstructions(newClusterCapacity, unmatchedNotes.size())
+                );
+                String userPrompt = userPrompt(unmatchedNotes, newClusterCapacity);
+                checkEntitlement(userId, systemPrompt, userPrompt);
+                ClusteringAttempt newClusterAttempt = runClusteringAttempt(
+                    userId,
+                    modelId,
+                    clusterJobId,
+                    scope.documentGroupId(),
+                    promptResolution,
+                    systemPrompt,
+                    userPrompt,
+                    "new-clusters"
+                );
+                llmRunId = newClusterAttempt.llmRunId();
+                List<Cluster> newClusters;
+                try {
+                    newClusters = clusterResponseParser.parseClusters(
+                        clusterJobId,
+                        newClusterAttempt.content(),
+                        unmatchedNotes,
+                        newClusterCapacity
+                    );
+                } catch (IllegalArgumentException validationException) {
+                    String repairPrompt = repairPrompt(unmatchedNotes, newClusterCapacity, newClusterAttempt.content(), validationException);
+                    checkEntitlement(userId, systemPrompt, repairPrompt);
+                    ClusteringAttempt repairAttempt = runClusteringAttempt(
+                        userId,
+                        modelId,
+                        clusterJobId,
+                        scope.documentGroupId(),
+                        promptResolution,
+                        systemPrompt,
+                        repairPrompt,
+                        "new-clusters-repair"
+                    );
+                    llmRunId = repairAttempt.llmRunId();
+                    newClusters = clusterResponseParser.parseClusters(
+                        clusterJobId,
+                        repairAttempt.content(),
+                        unmatchedNotes,
+                        newClusterCapacity
+                    );
+                }
+                merged = new ArrayList<>(merged);
+                merged.addAll(newClusters);
+            }
+            ClusterJob completed = clusterJobStore.save(running.withLlmRunId(llmRunId).completed(merged, Instant.now(clock)));
+            clusteringEventPort.clusterJobCompleted(new ClusterJobCompletedEvent(userId, clusterJobId, merged.size()));
             return completed;
         } catch (RuntimeException exception) {
             return clusterJobStore.save(running.withLlmRunId(llmRunId).failed(safeFailureMessage(exception), Instant.now(clock)));
@@ -319,6 +504,182 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
             .map(settings -> settings.defaultModelId())
             .filter(StringUtils::hasText)
             .orElseGet(() -> requireText(properties.getDefaultModel(), "brainx.clustering.default-model"));
+    }
+
+    private ClusterJob latestCompletedWorkspaceJob(String userId, String documentGroupId) {
+        return clusterJobStore.findRecentByUserIdAndDocumentGroupId(userId, documentGroupId, LATEST_JOB_LOOKBACK).stream()
+            .filter(ClusteringService::isWorkspaceClusterJob)
+            .filter(job -> job.status() == ClusterJobStatus.COMPLETED)
+            .findFirst()
+            .orElse(null);
+    }
+
+    private static List<Cluster> pruneClusters(List<Cluster> clusters, List<KnowledgeAnalysisNote> notes) {
+        Set<String> currentNoteIds = notes.stream()
+            .map(KnowledgeAnalysisNote::noteId)
+            .collect(java.util.stream.Collectors.toSet());
+        return clusters.stream()
+            .map(cluster -> new Cluster(
+                cluster.clusterId(),
+                cluster.title(),
+                cluster.summary(),
+                cluster.noteIds().stream().filter(currentNoteIds::contains).toList(),
+                cluster.keywords(),
+                cluster.confidence()
+            ))
+            .filter(cluster -> !cluster.noteIds().isEmpty())
+            .toList();
+    }
+
+    private static Set<String> assignedNoteIds(List<Cluster> clusters) {
+        return clusters.stream()
+            .flatMap(cluster -> cluster.noteIds().stream())
+            .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private static List<Cluster> appendMatchingNotes(
+        List<Cluster> clusters,
+        List<ExistingClusterFitResponseParser.ExistingClusterFit> fits,
+        double threshold
+    ) {
+        Map<String, List<String>> additions = new LinkedHashMap<>();
+        fits.stream()
+            .filter(fit -> fit.clusterId() != null && fit.confidence() >= threshold)
+            .forEach(fit -> additions.computeIfAbsent(fit.clusterId(), ignored -> new ArrayList<>()).add(fit.noteId()));
+        return clusters.stream()
+            .map(cluster -> {
+                LinkedHashSet<String> noteIds = new LinkedHashSet<>(cluster.noteIds());
+                noteIds.addAll(additions.getOrDefault(cluster.clusterId(), List.of()));
+                return new Cluster(
+                    cluster.clusterId(),
+                    cluster.title(),
+                    cluster.summary(),
+                    List.copyOf(noteIds),
+                    cluster.keywords(),
+                    cluster.confidence()
+                );
+            })
+            .toList();
+    }
+
+    private String existingFitUserPrompt(
+        List<Cluster> clusters,
+        List<KnowledgeAnalysisNote> allNotes,
+        List<KnowledgeAnalysisNote> unassignedNotes
+    ) {
+        return """
+            Existing clusters:
+            %s
+
+            Unassigned note cards:
+            %s
+
+            All unassigned note IDs:
+            %s
+
+            Evaluate whether each unassigned note semantically belongs to one existing cluster.
+            Return one assignment for every unassigned note ID.
+            """.formatted(
+                toJson(existingClusterCards(clusters, allNotes)),
+                toJson(noteCards(unassignedNotes)),
+                toJson(noteIds(unassignedNotes))
+            );
+    }
+
+    private String existingFitRepairPrompt(
+        List<Cluster> clusters,
+        List<KnowledgeAnalysisNote> allNotes,
+        List<KnowledgeAnalysisNote> unassignedNotes,
+        String previousOutput,
+        RuntimeException validationException
+    ) {
+        return """
+            Your previous existing-cluster fit response failed validation.
+
+            Existing clusters:
+            %s
+
+            Unassigned note cards:
+            %s
+
+            All unassigned note IDs:
+            %s
+
+            Previous output:
+            %s
+
+            Validation errors:
+            %s
+
+            Return a corrected JSON array only. Include every unassigned note ID exactly once.
+            """.formatted(
+                toJson(existingClusterCards(clusters, allNotes)),
+                toJson(noteCards(unassignedNotes)),
+                toJson(noteIds(unassignedNotes)),
+                previousOutput == null ? "" : previousOutput,
+                validationException.getMessage()
+            );
+    }
+
+    private static List<Map<String, Object>> existingClusterCards(
+        List<Cluster> clusters,
+        List<KnowledgeAnalysisNote> notes
+    ) {
+        Map<String, KnowledgeAnalysisNote> notesById = notes.stream()
+            .collect(java.util.stream.Collectors.toMap(
+                KnowledgeAnalysisNote::noteId,
+                note -> note,
+                (left, right) -> left,
+                LinkedHashMap::new
+            ));
+        return clusters.stream().map(cluster -> {
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("clusterId", cluster.clusterId());
+            values.put("title", cluster.title());
+            values.put("summary", cluster.summary());
+            values.put("keywords", cluster.keywords());
+            values.put("representativeNotes", cluster.noteIds().stream()
+                .map(notesById::get)
+                .filter(java.util.Objects::nonNull)
+                .limit(3)
+                .map(note -> Map.of(
+                    "noteId", note.noteId(),
+                    "title", note.title(),
+                    "excerpt", note.excerpt()
+                ))
+                .toList());
+            return values;
+        }).toList();
+    }
+
+    private static String existingFitSystemPrompt() {
+        return """
+            You are BrainX existing-cluster fit gate.
+            Return only a strict JSON array. Do not return markdown or prose.
+            """;
+    }
+
+    private static String existingFitInstructions() {
+        return """
+            Each array item must contain exactly:
+            - noteId: one provided unassigned note ID
+            - clusterId: one provided existing cluster ID, or null when no cluster is a strong semantic fit
+            - confidence: number from 0 to 1
+
+            Use cluster title, summary, keywords, representative notes, and the complete unassigned note card together.
+            Do not force a weak match. Every unassigned note ID must appear exactly once.
+            """;
+    }
+
+    private void checkEntitlement(String userId, String systemPrompt, String userPrompt) {
+        var entitlement = entitlementPort.checkEntitlement(new EntitlementRequest(
+            userId,
+            AI_CLUSTERING_CAPABILITY,
+            estimateTokens(systemPrompt + "\n" + userPrompt)
+        ));
+        if (!entitlement.allowed()) {
+            throw new ClusteringForbiddenException("AI capability is not available: " + entitlement.reasonCode());
+        }
     }
 
     private String userPrompt(List<KnowledgeAnalysisNote> notes, int maxClusters) {

@@ -17,6 +17,13 @@ public class InternalWorkspaceController {
         return ApiResponse.success(workspaceService.bulkCreate(request));
     }
 
+    @DeleteMapping("/internal/v1/workspace/users/{userId}/notes/{noteId}")
+    public ApiResponse<DeleteNoteData> deleteNoteInternal(@PathVariable String userId,
+                                                           @PathVariable String noteId,
+                                                           @RequestParam String mode) {
+        return ApiResponse.success(workspaceService.deleteNote(userId, noteId, mode));
+    }
+
     @GetMapping("/internal/v1/workspace/notes/{noteId}/snapshot")
     public ApiResponse<InternalNoteSnapshotData> getNoteSnapshotInternal(@PathVariable String noteId) {
         return ApiResponse.success(workspaceService.snapshot(noteId));

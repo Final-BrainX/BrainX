@@ -436,6 +436,15 @@ components:
       properties:
         userId:
           type: string
+          nullable: true
+          description: '회원 userId. 게스트 호출은 Gateway가 발급한 gst_ 접두 게스트 id를 그대로 이 필드에 실어 보낼 수도 있다(단일 opaque actor id) — Commerce-Service가
+            접두어로 회원/게스트를 판정한다. guestId가 별도로 채워져 있으면 그 값이 우선한다.
+
+            '
+        guestId:
+          type: string
+          nullable: true
+          description: 게스트(비회원) actor id(gst_ 접두). userId와 동시에 채우지 않아도 된다.
         capability:
           type: string
           enum:
@@ -455,7 +464,6 @@ components:
           type: object
           additionalProperties: true
       required:
-      - userId
       - capability
       - quantity
       additionalProperties: false
@@ -470,6 +478,9 @@ components:
         remaining:
           type: integer
           nullable: true
+          description: '회원은 이번 달 잔여 크레딧, 게스트는 잔여 AI 호출 횟수(총 10회 한도). 무제한 플랜이면 null.
+
+            '
         entitlementSnapshotVersion:
           type: integer
       required:
@@ -559,9 +570,12 @@ components:
       properties:
         noteId:
           type: string
+        userId:
+          type: string
+          description: 이 노트의 Workspace 소유 사용자 ID.
         documentGroupId:
           type: string
-          description: 이 노트의 논리적 문서 그룹 경계. 오래된 Workspace 제공자가 생략하면 소비자는 default를 사용해야 한다.
+          description: 이 노트의 Workspace document group 경계.
         title:
           type: string
         markdown:
@@ -580,6 +594,8 @@ components:
           format: date-time
       required:
       - noteId
+      - userId
+      - documentGroupId
       - title
       - markdown
       - version
