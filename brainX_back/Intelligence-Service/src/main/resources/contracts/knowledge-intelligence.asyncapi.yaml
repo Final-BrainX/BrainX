@@ -1106,6 +1106,7 @@ components:
               $ref: '#/components/schemas/NoteTagsChangedPayload'
       x-producer-service: Workspace-Service
       x-consumer-services:
+      - Intelligence-Service
       - Admin-Service
       - Workspace-Service
       x-delivery:
@@ -1382,6 +1383,7 @@ components:
           nullable: true
         tags:
           type: array
+          nullable: true
           items:
             type: string
         archived:

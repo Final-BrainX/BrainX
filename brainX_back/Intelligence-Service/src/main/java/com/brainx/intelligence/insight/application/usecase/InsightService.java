@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +27,7 @@ import com.brainx.intelligence.insight.application.port.outbound.InsightEventPor
 import com.brainx.intelligence.insight.application.port.outbound.InsightReportStore;
 import com.brainx.intelligence.insight.domain.InsightConflictException;
 import com.brainx.intelligence.insight.domain.InsightForbiddenException;
+import com.brainx.intelligence.insight.domain.InsightIdempotencyConflictException;
 import com.brainx.intelligence.insight.domain.InsightNotFoundException;
 import com.brainx.intelligence.insight.domain.InsightReport;
 import com.brainx.intelligence.insight.domain.InsightReportLatestState;
@@ -51,6 +54,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @Service
 public class InsightService implements RequestInsightReportUseCase, GetInsightReportUseCase, GetLatestInsightReportUseCase {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(InsightService.class);
     static final String INSIGHT_REPORT_CAPABILITY = "INSIGHT_REPORT";
     static final String INSIGHT_REPORT_FEATURE_ID = "insight-report-chat";
     static final String SOURCE_SNAPSHOT_SCOPE_KEY = "_sourceSnapshot";
@@ -137,7 +141,6 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
     }
 
     @Override
-    @Transactional
     public InsightReport requestInsightReport(InsightReportCommand command) {
         String userId = requireText(command.userId(), "userId");
         String idempotencyKey = normalizeNullable(command.idempotencyKey());
@@ -178,7 +181,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
 
         String reportId = UUID.randomUUID().toString();
         Instant now = Instant.now(clock);
-        InsightReport running = insightReportStore.save(InsightReport.running(
+        InsightReport running = claimRunningReport(InsightReport.running(
             reportId,
             userId,
             scope.documentGroupId(),
@@ -188,14 +191,16 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
             idempotencyKey,
             now
         ));
-        insightEventPort.insightReportRequested(new InsightReportRequestedEvent(
-            userId,
-            reportId,
-            publicScope(running.scope()),
-            includeLearningRecommendations
-        ));
-
+        if (!running.reportId().equals(reportId)) {
+            return running;
+        }
         try {
+            insightEventPort.insightReportRequested(new InsightReportRequestedEvent(
+                userId,
+                reportId,
+                publicScope(running.scope()),
+                includeLearningRecommendations
+            ));
             List<AiChatMessage> messages = List.of(
                 new AiChatMessage(AiRole.SYSTEM, systemPrompt),
                 new AiChatMessage(AiRole.USER, userPrompt)
@@ -227,7 +232,7 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
                 parsed.recommendations(),
                 Instant.now(clock)
             ));
-            insightEventPort.insightReportCompleted(new InsightReportCompletedEvent(
+            publishCompletedEvent(new InsightReportCompletedEvent(
                 userId,
                 reportId,
                 parsed.knowledgeGaps().size(),
@@ -236,6 +241,33 @@ public class InsightService implements RequestInsightReportUseCase, GetInsightRe
             return completed;
         } catch (RuntimeException exception) {
             return insightReportStore.save(running.failed(safeFailureMessage(exception), Instant.now(clock)));
+        }
+    }
+
+    private InsightReport claimRunningReport(InsightReport candidate) {
+        try {
+            return insightReportStore.save(candidate);
+        } catch (InsightIdempotencyConflictException exception) {
+            if (candidate.idempotencyKey() == null) {
+                throw exception;
+            }
+            return insightReportStore.findByUserIdAndIdempotencyKey(
+                    candidate.userId(),
+                    candidate.idempotencyKey()
+                )
+                .orElseThrow(() -> exception);
+        }
+    }
+
+    private void publishCompletedEvent(InsightReportCompletedEvent event) {
+        try {
+            insightEventPort.insightReportCompleted(event);
+        } catch (RuntimeException exception) {
+            LOGGER.error(
+                "Insight report completed but completion event publication failed: reportId={}",
+                event.reportId(),
+                exception
+            );
         }
     }
 

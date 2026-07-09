@@ -966,6 +966,7 @@ class ChatServiceTest {
         )).collectList().block();
 
         assertThat(eventNames(events)).containsExactly("status", "route", "status", "error");
+        assertThat(events.get(3).data()).containsEntry("code", "FORBIDDEN");
         assertThat(events.get(3).data().get("message")).asString().contains("QUOTA_EXHAUSTED");
         assertThat(entitlementPort.calls).isEqualTo(1);
         assertThat(entitlementPort.lastRequest.capability()).isEqualTo("RAG_CHAT");
@@ -1122,6 +1123,7 @@ class ChatServiceTest {
         )).collectList().block();
 
         assertThat(eventNames(events)).containsExactly("status", "route", "error");
+        assertThat(events.get(2).data()).containsEntry("code", "FORBIDDEN");
         assertThat(events.get(2).data().get("message")).asString().contains("QUOTA_EXHAUSTED");
         assertThat(aiChatPort.calls).isZero();
         assertThat(persistencePort.messages).hasSize(1);

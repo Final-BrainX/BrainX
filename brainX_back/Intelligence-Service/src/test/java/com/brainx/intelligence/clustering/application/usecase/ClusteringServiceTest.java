@@ -25,6 +25,7 @@ import com.brainx.intelligence.clustering.domain.ClusterJob;
 import com.brainx.intelligence.clustering.domain.ClusterJobLatestState;
 import com.brainx.intelligence.clustering.domain.ClusterJobStatus;
 import com.brainx.intelligence.clustering.domain.ClusteringForbiddenException;
+import com.brainx.intelligence.clustering.domain.ClusteringIdempotencyConflictException;
 import com.brainx.intelligence.clustering.domain.ClusteringNotFoundException;
 import com.brainx.intelligence.llmops.LlmOpsTestSupport;
 import com.brainx.intelligence.llmops.application.port.outbound.LlmOpsStore;
@@ -141,6 +142,66 @@ class ClusteringServiceTest {
         assertThat(second.clusterJobId()).isEqualTo(first.clusterJobId());
         assertThat(chatPort.generateCalls).isEqualTo(1);
         assertThat(eventPort.requestedEvents).hasSize(1);
+    }
+
+    @Test
+    void concurrentIdempotencyClaimReturnsCommittedWinnerWithoutModelCall() {
+        noteSource.notes = List.of(note("note-1", "Java", List.of(), List.of(), "Spring"));
+        ClusterJob winner = ClusterJob.running(
+            "winner-job",
+            "user-1",
+            "default",
+            workspaceScope(),
+            Map.of(),
+            "gpt-test",
+            "same-key",
+            Instant.parse("2026-06-26T00:00:00Z")
+        );
+        store.simulateConcurrentClaim(winner);
+
+        ClusterJob returned = service.requestClusterJob(
+            new ClusterJobCommand("user-1", workspaceScope(), Map.of(), "same-key")
+        );
+
+        assertThat(returned.clusterJobId()).isEqualTo("winner-job");
+        assertThat(chatPort.generateCalls).isZero();
+        assertThat(eventPort.requestedEvents).isEmpty();
+    }
+
+    @Test
+    void synchronousRequestedEventFailureMarksClaimedJobFailed() {
+        noteSource.notes = List.of(note("note-1", "Java", List.of(), List.of(), "Spring"));
+        eventPort.failRequested = true;
+
+        ClusterJob result = service.requestClusterJob(
+            new ClusterJobCommand("user-1", workspaceScope(), Map.of(), "event-failure-key")
+        );
+
+        assertThat(result.status()).isEqualTo(ClusterJobStatus.FAILED);
+        assertThat(result.failureMessage()).contains("event publish failed");
+        assertThat(chatPort.generateCalls).isZero();
+    }
+
+    @Test
+    void completedEventFailureDoesNotOverwriteCompletedJob() {
+        noteSource.notes = List.of(note("note-1", "Java", List.of(), List.of(), "Spring"));
+        chatPort.response = new AiChatResponse(
+            """
+                [
+                  {"title":"Backend","summary":"Java notes","noteIds":["note-1"],"keywords":["Java"],"confidence":0.9}
+                ]
+                """,
+            null
+        );
+        eventPort.failCompleted = true;
+
+        ClusterJob result = service.requestClusterJob(
+            new ClusterJobCommand("user-1", workspaceScope(), Map.of(), "completed-event-failure")
+        );
+
+        assertThat(result.status()).isEqualTo(ClusterJobStatus.COMPLETED);
+        assertThat(result.clusters()).hasSize(1);
+        assertThat(store.jobsById.get(result.clusterJobId()).status()).isEqualTo(ClusterJobStatus.COMPLETED);
     }
 
     @Test
@@ -487,14 +548,26 @@ class ClusteringServiceTest {
     private static class FakeClusterJobStore implements ClusterJobStore {
         private final Map<String, ClusterJob> jobsById = new LinkedHashMap<>();
         private final Map<String, ClusterJob> jobsByIdempotency = new LinkedHashMap<>();
+        private ClusterJob concurrentWinner;
 
         @Override
         public ClusterJob save(ClusterJob job) {
+            if (concurrentWinner != null && job.idempotencyKey() != null) {
+                ClusterJob winner = concurrentWinner;
+                concurrentWinner = null;
+                jobsById.put(winner.clusterJobId(), winner);
+                jobsByIdempotency.put(winner.userId() + "::" + winner.idempotencyKey(), winner);
+                throw new ClusteringIdempotencyConflictException("Concurrent idempotency claim.");
+            }
             jobsById.put(job.clusterJobId(), job);
             if (job.idempotencyKey() != null) {
                 jobsByIdempotency.put(job.userId() + "::" + job.idempotencyKey(), job);
             }
             return job;
+        }
+
+        private void simulateConcurrentClaim(ClusterJob winner) {
+            concurrentWinner = winner;
         }
 
         @Override
@@ -602,14 +675,22 @@ class ClusteringServiceTest {
     private static class FakeClusteringEventPort implements ClusteringEventPort {
         private final List<ClusterJobRequestedEvent> requestedEvents = new ArrayList<>();
         private final List<ClusterJobCompletedEvent> completedEvents = new ArrayList<>();
+        private boolean failRequested;
+        private boolean failCompleted;
 
         @Override
         public void clusterJobRequested(ClusterJobRequestedEvent event) {
+            if (failRequested) {
+                throw new IllegalStateException("event publish failed");
+            }
             requestedEvents.add(event);
         }
 
         @Override
         public void clusterJobCompleted(ClusterJobCompletedEvent event) {
+            if (failCompleted) {
+                throw new IllegalStateException("completed event publish failed");
+            }
             completedEvents.add(event);
         }
     }

@@ -21,6 +21,7 @@ import com.brainx.intelligence.llmops.application.service.AiRunRecorder;
 import com.brainx.intelligence.llmops.application.service.PromptRegistryService;
 import com.brainx.intelligence.llmops.application.service.PromptRegistryService.PromptResolution;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
+import com.brainx.intelligence.shared.application.exception.CapabilityForbiddenException;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiRole;
@@ -100,7 +101,7 @@ public class AssistService implements CreateInlineAssistUseCase, DecideAiSuggest
             tokenEstimate
         ));
         if (!entitlement.allowed()) {
-            throw new IllegalArgumentException("AI capability is not available: " + entitlement.reasonCode());
+            throw new CapabilityForbiddenException("AI capability is not available: " + entitlement.reasonCode());
         }
 
         String suggestionId = UUID.randomUUID().toString();

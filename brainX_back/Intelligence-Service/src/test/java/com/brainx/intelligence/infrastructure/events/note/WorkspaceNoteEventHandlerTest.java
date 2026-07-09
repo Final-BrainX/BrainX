@@ -1,6 +1,7 @@
 package com.brainx.intelligence.infrastructure.events.note;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -19,6 +20,7 @@ import com.brainx.intelligence.exploration.domain.NoteSummary;
 import com.brainx.intelligence.exploration.domain.SemanticSearchResult;
 import com.brainx.intelligence.infrastructure.events.consumer.BrainxEventEnvelope;
 import com.brainx.intelligence.infrastructure.events.consumer.EventProcessingContext;
+import com.brainx.intelligence.infrastructure.events.consumer.EventProcessingException;
 import com.brainx.intelligence.shared.application.port.outbound.WorkspaceNotePort;
 import com.brainx.intelligence.shared.application.port.outbound.WorkspaceNotePort.NoteSnapshot;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -143,9 +145,42 @@ class WorkspaceNoteEventHandlerTest {
     }
 
     @Test
+    void lateNoteCreatedDoesNotResurrectDeletedProjection() {
+        NoteProjection deleted = new NoteProjection(
+            "user-1",
+            "group-1",
+            "note-1",
+            "Deleted note",
+            null,
+            List.of(),
+            1,
+            "hash-1",
+            false,
+            false,
+            false,
+            false,
+            "evt-delete",
+            Instant.parse("2026-06-19T00:00:02Z")
+        ).deleted("evt-delete", Instant.parse("2026-06-19T00:00:02Z"));
+        projectionStore.save(deleted);
+
+        handler.handle(context("evt-created-late", "NoteCreated", """
+            {"noteId":"note-1","userId":"user-1","documentGroupId":"group-1","title":"Stale title","version":1}
+            """));
+
+        NoteProjection projection = projectionStore
+            .findByUserIdAndDocumentGroupIdAndNoteId("user-1", "group-1", "note-1")
+            .orElseThrow();
+        assertThat(projection.deleted()).isTrue();
+        assertThat(projection.title()).isEqualTo("Deleted note");
+        assertThat(workspace.requests).isZero();
+    }
+
+    @Test
     void contentSavedFetchesSnapshotIndexesAndDeletesSummary() {
         workspace.snapshot = new WorkspaceNotePort.NoteSnapshot(
             "note-1",
+            "group-1",
             "Snapshot title",
             "# Workspace markdown summary source\n\n"
                 + "first paragraph\n\n"
@@ -153,7 +188,8 @@ class WorkspaceNoteEventHandlerTest {
             List.of("tag-1"),
             "folder-1",
             2,
-            Instant.parse("2026-06-19T00:00:01Z")
+            Instant.parse("2026-06-19T00:00:01Z"),
+            "user-1"
         );
 
         handler.handle(context("evt-1", "NoteContentSaved", """
@@ -213,12 +249,14 @@ class WorkspaceNoteEventHandlerTest {
     void sameContentSavedReindexesWhenIndexStateIsNotCurrent() {
         workspace.snapshot = new WorkspaceNotePort.NoteSnapshot(
             "note-1",
+            "group-1",
             "Current",
             "updated markdown",
             List.of(),
             null,
             2,
-            Instant.parse("2026-06-19T00:00:01Z")
+            Instant.parse("2026-06-19T00:00:01Z"),
+            "user-1"
         );
         projectionStore.save(new NoteProjection(
             "user-1",
@@ -286,12 +324,14 @@ class WorkspaceNoteEventHandlerTest {
         );
         workspace.snapshot = new WorkspaceNotePort.NoteSnapshot(
             "note-1",
+            "group-1",
             "Snapshot title",
             newMarkdown,
             List.of(),
             null,
             2,
-            Instant.parse("2026-06-19T00:00:02Z")
+            Instant.parse("2026-06-19T00:00:02Z"),
+            "user-1"
         );
 
         handler.handle(context("evt-1", "NoteContentSaved", """
@@ -310,7 +350,7 @@ class WorkspaceNoteEventHandlerTest {
     }
 
     @Test
-    void tagChangeUpdatesPayloadWithoutReembeddingChunks() {
+    void metadataTagChangeUpdatesPayloadWithoutReembeddingChunks() {
         String markdown = longParagraph("alpha") + "\n\n" + longParagraph("bravo");
         projectionStore.save(new NoteProjection(
             "user-1",
@@ -337,16 +377,18 @@ class WorkspaceNoteEventHandlerTest {
         );
         workspace.snapshot = new WorkspaceNotePort.NoteSnapshot(
             "note-1",
+            "group-1",
             "Snapshot title",
             markdown,
             List.of("tag-1"),
             null,
-            1,
-            Instant.parse("2026-06-19T00:00:02Z")
+            2,
+            Instant.parse("2026-06-19T00:00:02Z"),
+            "user-1"
         );
 
-        handler.handle(context("evt-1", "NoteTagsChanged", """
-            {"noteId":"note-1","userId":"user-1","documentGroupId":"group-1","tags":["tag-1"]}
+        handler.handle(context("evt-1", "NoteMetadataChanged", """
+            {"noteId":"note-1","userId":"user-1","documentGroupId":"group-1","tags":["tag-1"],"version":2}
             """));
 
         assertThat(searchIndex.deletedKeys).isEmpty();
@@ -355,6 +397,90 @@ class WorkspaceNoteEventHandlerTest {
         assertThat(searchIndex.deltas.getFirst().upsertChunks()).isEmpty();
         assertThat(searchIndex.deltas.getFirst().deleteChunkIds()).isEmpty();
         assertThat(searchIndex.deltas.getFirst().payloadOnlyChunks()).hasSize(2);
+    }
+
+    @Test
+    void nullTagsInPartialMetadataEventPreserveExistingTags() {
+        projectionStore.save(new NoteProjection(
+            "user-1",
+            "group-1",
+            "note-1",
+            "Current title",
+            null,
+            List.of("keep-tag"),
+            1,
+            "hash-1",
+            false,
+            false,
+            false,
+            false,
+            "evt-old",
+            Instant.parse("2026-06-19T00:00:00Z")
+        ));
+
+        handler.handle(context("evt-archive", "NoteMetadataChanged", """
+            {
+              "noteId":"note-1",
+              "userId":"user-1",
+              "documentGroupId":"group-1",
+              "title":"Current title",
+              "folderId":null,
+              "tags":null,
+              "archived":true,
+              "version":2
+            }
+            """));
+
+        NoteProjection projection = projectionStore
+            .findByUserIdAndDocumentGroupIdAndNoteId("user-1", "group-1", "note-1")
+            .orElseThrow();
+        assertThat(projection.tags()).containsExactly("keep-tag");
+        assertThat(projection.archived()).isTrue();
+        assertThat(workspace.requests).isZero();
+    }
+
+    @Test
+    void tagChangedUsesCurrentSnapshotInsteadOfPossiblyStaleEventTags() {
+        projectionStore.save(new NoteProjection(
+            "user-1",
+            "group-1",
+            "note-1",
+            "Current title",
+            null,
+            List.of("old-tag"),
+            2,
+            "hash-2",
+            false,
+            false,
+            false,
+            false,
+            "evt-old",
+            Instant.parse("2026-06-19T00:00:00Z")
+        ));
+        workspace.snapshot = new WorkspaceNotePort.NoteSnapshot(
+            "note-1",
+            "group-1",
+            "Current title",
+            "Current markdown",
+            List.of("current-tag"),
+            null,
+            2,
+            Instant.parse("2026-06-19T00:00:02Z"),
+            "user-1"
+        );
+
+        handler.handle(context("evt-tags", "NoteTagsChanged", """
+            {"noteId":"note-1","userId":"user-1","documentGroupId":"group-1","tags":["stale-event-tag"]}
+            """));
+
+        NoteProjection projection = projectionStore
+            .findByUserIdAndDocumentGroupIdAndNoteId("user-1", "group-1", "note-1")
+            .orElseThrow();
+        assertThat(projection.tags()).containsExactly("current-tag");
+        assertThat(workspace.requests).isEqualTo(1);
+        assertThat(searchIndex.savedDocuments)
+            .isNotEmpty()
+            .allSatisfy(document -> assertThat(document.keywordIds()).containsExactly("current-tag"));
     }
 
     @Test
@@ -385,12 +511,14 @@ class WorkspaceNoteEventHandlerTest {
         );
         workspace.snapshot = new WorkspaceNotePort.NoteSnapshot(
             "note-1",
+            "group-1",
             "New title",
             markdown,
             List.of(),
             null,
             2,
-            Instant.parse("2026-06-19T00:00:02Z")
+            Instant.parse("2026-06-19T00:00:02Z"),
+            "user-1"
         );
 
         handler.handle(context("evt-1", "NoteMetadataChanged", """
@@ -400,6 +528,30 @@ class WorkspaceNoteEventHandlerTest {
         assertThat(searchIndex.deltas).isEmpty();
         assertThat(searchIndex.deletedKeys).containsExactly("user-1::group-1::note-1");
         assertThat(searchIndex.savedDocuments).hasSize(2);
+    }
+
+    @Test
+    void snapshotScopeMismatchIsRejectedBeforeIndexMutation() {
+        workspace.snapshot = new WorkspaceNotePort.NoteSnapshot(
+            "note-1",
+            "group-1",
+            "Private title",
+            "Private markdown",
+            List.of(),
+            null,
+            2,
+            Instant.parse("2026-06-19T00:00:02Z"),
+            "user-2"
+        );
+
+        assertThatThrownBy(() -> handler.handle(context("evt-1", "NoteContentSaved", """
+            {"noteId":"note-1","userId":"user-1","documentGroupId":"group-1","version":2,"markdownHash":"hash-2","savedAt":"2026-06-19T00:00:00Z"}
+            """)))
+            .isInstanceOf(EventProcessingException.class)
+            .hasMessageContaining("does not match the event scope");
+
+        assertThat(searchIndex.savedDocuments).isEmpty();
+        assertThat(searchIndex.deltas).isEmpty();
     }
 
     @Test
@@ -446,12 +598,14 @@ class WorkspaceNoteEventHandlerTest {
     void indexFailureMarksProjectionAsFailedAndRethrows() {
         workspace.snapshot = new WorkspaceNotePort.NoteSnapshot(
             "note-1",
+            "group-1",
             "Snapshot title",
             "Snapshot markdown",
             List.of(),
             null,
             2,
-            Instant.parse("2026-06-19T00:00:01Z")
+            Instant.parse("2026-06-19T00:00:01Z"),
+            "user-1"
         );
         searchIndex.failOnReplace = true;
 
@@ -637,12 +791,14 @@ class WorkspaceNoteEventHandlerTest {
         private int requests;
         private NoteSnapshot snapshot = new NoteSnapshot(
             "note-1",
+            "group-1",
             "Snapshot title",
             "Snapshot markdown",
             List.of(),
             null,
             1,
-            Instant.parse("2026-06-19T00:00:00Z")
+            Instant.parse("2026-06-19T00:00:00Z"),
+            "user-1"
         );
 
         @Override

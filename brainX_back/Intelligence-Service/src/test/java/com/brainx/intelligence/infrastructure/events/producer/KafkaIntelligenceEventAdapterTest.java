@@ -1,11 +1,15 @@
 package com.brainx.intelligence.infrastructure.events.producer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
+import java.util.concurrent.CompletableFuture;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -32,6 +36,20 @@ class KafkaIntelligenceEventAdapterTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private final BrainxEventProducerProperties properties = properties();
+
+    @Test
+    void brokerAcknowledgementFailureIsPropagated() {
+        KafkaTemplate<String, String> kafkaTemplate = kafkaTemplate();
+        when(kafkaTemplate.send(anyString(), anyString(), anyString()))
+            .thenReturn(CompletableFuture.failedFuture(new RuntimeException("broker unavailable")));
+        var adapter = new KafkaIntelligenceEventAdapter(kafkaTemplate, objectMapper, properties);
+
+        assertThatThrownBy(() -> adapter.clusterJobRequested(
+            new ClusterJobRequestedEvent("user-1", "job-1", java.util.Map.of(), java.util.Map.of())
+        ))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("ClusterJobRequested");
+    }
 
     @Test
     void recordTokenUsagePublishesTokenUsageRecordedRequestedEnvelope() throws Exception {
@@ -454,6 +472,9 @@ class KafkaIntelligenceEventAdapterTest {
 
     @SuppressWarnings("unchecked")
     private static KafkaTemplate<String, String> kafkaTemplate() {
-        return mock(KafkaTemplate.class);
+        KafkaTemplate<String, String> template = mock(KafkaTemplate.class);
+        when(template.send(anyString(), anyString(), anyString()))
+            .thenReturn(CompletableFuture.completedFuture(null));
+        return template;
     }
 }

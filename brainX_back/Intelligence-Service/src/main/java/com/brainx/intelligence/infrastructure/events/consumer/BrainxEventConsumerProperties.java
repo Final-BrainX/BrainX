@@ -1,6 +1,7 @@
 package com.brainx.intelligence.infrastructure.events.consumer;
 
 import java.util.ArrayList;
+import java.time.Duration;
 import java.util.List;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -12,6 +13,8 @@ public class BrainxEventConsumerProperties {
 
     private boolean enabled;
     private String groupId = "intelligence-service";
+    private Duration retryInterval = Duration.ofSeconds(1);
+    private int maxAttempts = 10;
     private List<String> topics = new ArrayList<>(List.of(
         "brainx.content.ingestion.publishing.capture-received.v1",
         "brainx.knowledge.workspace.note-link-created.v1",
@@ -42,6 +45,28 @@ public class BrainxEventConsumerProperties {
 
     public void setGroupId(String groupId) {
         this.groupId = groupId;
+    }
+
+    public Duration getRetryInterval() {
+        return retryInterval;
+    }
+
+    public void setRetryInterval(Duration retryInterval) {
+        if (retryInterval == null || retryInterval.isNegative()) {
+            throw new IllegalArgumentException("retryInterval must not be negative.");
+        }
+        this.retryInterval = retryInterval;
+    }
+
+    public int getMaxAttempts() {
+        return maxAttempts;
+    }
+
+    public void setMaxAttempts(int maxAttempts) {
+        if (maxAttempts < 1) {
+            throw new IllegalArgumentException("maxAttempts must be at least 1.");
+        }
+        this.maxAttempts = maxAttempts;
     }
 
     public List<String> getTopics() {

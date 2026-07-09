@@ -21,9 +21,16 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 
 @Entity
-@Table(name = "intelligence_cluster_jobs")
+@Table(
+    name = "intelligence_cluster_jobs",
+    uniqueConstraints = @UniqueConstraint(
+        name = "uk_cluster_jobs_user_idempotency",
+        columnNames = {"user_id", "idempotency_key"}
+    )
+)
 public class ClusterJobJpaEntity {
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {

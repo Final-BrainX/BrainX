@@ -74,32 +74,18 @@ public class FolderEventHandler implements BrainxEventHandler {
         String parentFolderId = normalizeOptionalText(payload.parentFolderId());
 
         var existing = folderProjectionStore.findByFolderId(folderId);
-        if (existing.isPresent() && existing.get().sameFolder(name, parentFolderId, null, false, null, null)) {
+        if (existing.isPresent()) {
             return;
         }
 
-        FolderProjection projection = existing
-            .filter(current -> !current.deleted())
-            .map(current -> new FolderProjection(
-                folderId,
-                userId,
-                name,
-                parentFolderId,
-                current.order(),
-                false,
-                null,
-                null,
-                context.eventId(),
-                context.envelope().occurredAt()
-            ))
-            .orElseGet(() -> FolderProjection.created(
-                folderId,
-                userId,
-                name,
-                parentFolderId,
-                context.eventId(),
-                context.envelope().occurredAt()
-            ));
+        FolderProjection projection = FolderProjection.created(
+            folderId,
+            userId,
+            name,
+            parentFolderId,
+            context.eventId(),
+            context.envelope().occurredAt()
+        );
         folderProjectionStore.save(projection);
         LOGGER.info("Folder created: folderId={}, userId={}", folderId, userId);
     }
@@ -112,13 +98,45 @@ public class FolderEventHandler implements BrainxEventHandler {
         String name = normalizeOptionalText(payload.name());
         String parentFolderId = normalizeOptionalText(payload.parentFolderId());
         Integer order = payload.order();
+        boolean parentFolderSpecified = context.payload().hasNonNull("parentFolderId");
 
-        FolderProjection current = folderProjectionStore.findByFolderId(folderId)
-            .orElseGet(() -> new FolderProjection(folderId, userId, null, null, null, false, null, null, context.eventId(), context.envelope().occurredAt()));
-        if (current.sameFolder(name == null ? current.name() : name, parentFolderId == null ? current.parentFolderId() : parentFolderId, order == null ? current.order() : order, current.deleted(), current.childNoteAction(), current.targetFolderId())) {
+        var existing = folderProjectionStore.findByFolderId(folderId);
+        if (existing.isEmpty() && (name == null || !parentFolderSpecified)) {
+            throw EventProcessingException.retryable(
+                "FOLDER_PROJECTION_UNAVAILABLE",
+                "FolderChanged cannot create a complete projection before FolderCreated is consumed."
+            );
+        }
+        if (existing.isEmpty()) {
+            folderProjectionStore.save(new FolderProjection(
+                folderId,
+                userId,
+                name,
+                parentFolderId,
+                order,
+                false,
+                null,
+                null,
+                context.eventId(),
+                context.envelope().occurredAt()
+            ));
+            LOGGER.info("Folder changed before create: folderId={}, userId={}", folderId, userId);
             return;
         }
-        folderProjectionStore.save(current.withChanges(name, parentFolderId, order, context.eventId(), context.envelope().occurredAt()));
+        FolderProjection current = existing.orElseThrow();
+        String nextName = name == null ? current.name() : name;
+        String nextParentFolderId = parentFolderSpecified ? parentFolderId : current.parentFolderId();
+        Integer nextOrder = order == null ? current.order() : order;
+        if (current.sameFolder(nextName, nextParentFolderId, nextOrder, current.deleted(), current.childNoteAction(), current.targetFolderId())) {
+            return;
+        }
+        folderProjectionStore.save(current.withChanges(
+            nextName,
+            nextParentFolderId,
+            nextOrder,
+            context.eventId(),
+            context.envelope().occurredAt()
+        ));
         LOGGER.info("Folder changed: folderId={}, userId={}", folderId, userId);
     }
 
@@ -126,8 +144,8 @@ public class FolderEventHandler implements BrainxEventHandler {
         FolderDeletedPayload payload = readPayload(context, FolderDeletedPayload.class);
         String userId = requireText(payload.userId(), "userId");
         String documentGroupId = requireText(payload.documentGroupId(), "documentGroupId");
-        List<String> folderIds = requireTextList(payload.folderIds(), "folderIds");
-        List<String> noteIds = requireTextList(payload.noteIds(), "noteIds");
+        List<String> folderIds = requireTextList(payload.folderIds(), "folderIds", false);
+        List<String> noteIds = requireTextList(payload.noteIds(), "noteIds", true);
         String mode = requireDeleteMode(payload.mode());
         String childNoteAction = mode.toUpperCase(Locale.ROOT);
 
@@ -225,8 +243,8 @@ public class FolderEventHandler implements BrainxEventHandler {
         return value.trim();
     }
 
-    private static List<String> requireTextList(List<String> values, String name) {
-        if (values == null || values.isEmpty()) {
+    private static List<String> requireTextList(List<String> values, String name, boolean allowEmpty) {
+        if (values == null || (!allowEmpty && values.isEmpty())) {
             throw EventProcessingException.nonRetryable("INVALID_PAYLOAD", name + " must not be empty.");
         }
         List<String> normalized = new ArrayList<>();
@@ -236,7 +254,7 @@ public class FolderEventHandler implements BrainxEventHandler {
                 normalized.add(text);
             }
         }
-        if (normalized.isEmpty()) {
+        if (!allowEmpty && normalized.isEmpty()) {
             throw EventProcessingException.nonRetryable("INVALID_PAYLOAD", name + " must not be empty.");
         }
         return List.copyOf(normalized);

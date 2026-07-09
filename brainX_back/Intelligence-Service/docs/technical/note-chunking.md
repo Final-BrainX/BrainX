@@ -104,7 +104,7 @@ Qdrant 내부 point id는 `userId::documentGroupId::chunkId`에서 만든 determ
 - `NoteCreated`: snapshot이 있으면 snapshot markdown으로 chunk index를 만든다. snapshot이 없으면 title-only provisional chunk 1개를 만든다.
 - `NoteContentSaved`: `version + markdownHash`가 기존 projection과 같으면 재색인을 건너뛴다. 다르면 snapshot markdown을 chunk로 나누고 기존 chunk manifest와 비교한다.
 - `NoteMetadataChanged`: title이 바뀌면 full replace한다. title이 그대로인 folder/archive 변경은 필요한 projection/index 상태만 갱신한다.
-- `NoteTagsChanged`: chunk text가 그대로이면 embedding을 재사용하고 Qdrant payload의 `keywordIds`, `version`, `markdownHash`만 갱신한다.
+- `NoteTagsChanged`: version 없는 event 값을 직접 덮지 않고 최신 Workspace snapshot을 읽으며, chunk text가 그대로이면 embedding을 재사용하고 Qdrant payload의 `keywordIds`, `version`, `markdownHash`만 갱신한다.
 - `NoteTrashed`, `NoteDeleted`: note의 모든 Qdrant chunk와 DB chunk manifest를 삭제한다.
 
 Qdrant full replace는 `NoteSearchIndexPort.replaceNoteChunks(userId, documentGroupId, noteId, chunks)`를 통해 수행한다. adapter는 먼저 `userId + documentGroupId + noteId` filter로 기존 chunk를 삭제하고 새 chunk들을 추가한다.

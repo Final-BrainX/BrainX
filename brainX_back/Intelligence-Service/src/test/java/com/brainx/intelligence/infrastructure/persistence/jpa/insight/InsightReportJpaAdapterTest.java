@@ -1,6 +1,7 @@
 package com.brainx.intelligence.infrastructure.persistence.jpa.insight;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
 import java.util.List;
@@ -16,6 +17,7 @@ import org.springframework.test.context.ActiveProfiles;
 import com.brainx.intelligence.insight.domain.InsightRecommendation;
 import com.brainx.intelligence.insight.domain.InsightReport;
 import com.brainx.intelligence.insight.domain.InsightReportStatus;
+import com.brainx.intelligence.insight.domain.InsightConflictException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @DataJpaTest
@@ -71,6 +73,34 @@ class InsightReportJpaAdapterTest {
         assertThat(recent)
             .extracting(InsightReport::reportId)
             .containsExactly("report-2", "report-1");
+    }
+
+    @Test
+    void duplicateUserIdempotencyKeyIsRejectedBeforeReportExecution() {
+        adapter.save(reportWithIdempotency("report-1", "idem-duplicate"));
+
+        assertThatThrownBy(() -> adapter.save(reportWithIdempotency("report-2", "idem-duplicate")))
+            .isInstanceOf(InsightConflictException.class)
+            .hasMessageContaining("idempotency key");
+    }
+
+    private static InsightReport reportWithIdempotency(String reportId, String idempotencyKey) {
+        return new InsightReport(
+            reportId,
+            "user-1",
+            "group-1",
+            InsightReportStatus.RUNNING,
+            Map.of("documentGroupId", "group-1"),
+            false,
+            null,
+            List.of(),
+            List.of(),
+            "gpt-test",
+            idempotencyKey,
+            null,
+            Instant.parse("2026-07-10T00:00:00Z"),
+            null
+        );
     }
 
     private static InsightReport report(String reportId, String userId, String documentGroupId, Instant createdAt) {

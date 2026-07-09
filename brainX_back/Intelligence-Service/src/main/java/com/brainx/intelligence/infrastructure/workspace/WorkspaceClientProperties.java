@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "brainx.workspace")
 public class WorkspaceClientProperties {
 
-    private URI baseUrl = URI.create("http://localhost:8081");
+    private URI baseUrl = URI.create("http://localhost:8082");
     private String serviceToken = "";
     private Duration timeout = Duration.ofSeconds(5);
 

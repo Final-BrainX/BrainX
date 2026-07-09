@@ -29,6 +29,9 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
     password: ${SPRING_DATASOURCE_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:5}
+      minimum-idle: ${SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE:1}
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -43,16 +46,25 @@ spring:
     baseline-version: 0
     validate-on-migrate: true
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:validate}
-    properties:
-      hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
+  kafka:
+    producer:
+      properties:
+        delivery.timeout.ms: ${BRAINX_KAFKA_PRODUCER_DELIVERY_TIMEOUT_MS:30000}
+        request.timeout.ms: ${BRAINX_KAFKA_PRODUCER_REQUEST_TIMEOUT_MS:25000}
+
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:false}
 
 brainx:
   jwt:
-    secret: ${JWT_SECRET:replace_with_at_least_32_byte_secret}
-  service-token: ${SERVICE_TOKEN:local-service-token}
+    secret: ${JWT_SECRET:}
+  service-token: ${SERVICE_TOKEN:}
   security:
     dev-auth:
       enabled: ${BRAINX_SECURITY_DEV_AUTH_ENABLED:false}
@@ -73,6 +85,8 @@ brainx:
     consumer:
       enabled: ${BRAINX_EVENTS_CONSUMER_ENABLED:false}
       group-id: ${BRAINX_EVENTS_CONSUMER_GROUP_ID:intelligence-service}
+      retry-interval: ${BRAINX_EVENTS_CONSUMER_RETRY_INTERVAL:1s}
+      max-attempts: ${BRAINX_EVENTS_CONSUMER_MAX_ATTEMPTS:10}
   assist:
     default-model: ${OPENAI_CHAT_MODEL:gpt-5.4-mini}
   semantic-search:
@@ -169,7 +183,7 @@ brainx:
       dimensions: ${VOYAGE_EMBEDDING_DIMENSIONS:1024}
       timeout: ${QDRANT_TIMEOUT:10s}
   workspace:
-    base-url: ${BRAINX_WORKSPACE_BASE_URL:http://localhost:8081}
+    base-url: ${BRAINX_WORKSPACE_BASE_URL:http://localhost:8082}
     service-token: ${BRAINX_WORKSPACE_SERVICE_TOKEN:}
     timeout: ${BRAINX_WORKSPACE_TIMEOUT:5s}
   commerce:

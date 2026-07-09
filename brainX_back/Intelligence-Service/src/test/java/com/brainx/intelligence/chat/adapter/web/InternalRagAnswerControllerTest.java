@@ -57,7 +57,7 @@ class InternalRagAnswerControllerTest {
             ));
 
         mockMvc.perform(post("/internal/v1/intelligence/rag-answer")
-                .header("X-Service-Token", "local-service-token")
+                .header("X-Service-Token", "test_intelligence_service_token_at_least_32_bytes")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -91,7 +91,7 @@ class InternalRagAnswerControllerTest {
             .thenReturn(new AskNotesResponse("Answer", List.of(), "model", 1, true, null));
 
         mockMvc.perform(post("/internal/v1/intelligence/rag-answer")
-                .header("X-Service-Token", "local-service-token")
+                .header("X-Service-Token", "test_intelligence_service_token_at_least_32_bytes")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
