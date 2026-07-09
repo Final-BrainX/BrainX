@@ -75,7 +75,7 @@
 주요 회귀 테스트는 다음을 확인한다.
 
 - `ConnectionControllerTest`: request validation, auth required, wrapper response, domain exception HTTP mapping
-- `ConnectionServiceTest`: default document group 사용, source-only `LLM_ONLY` 호출, 결과 필터와 anchor mapping, bridge prompt/usage/event 기록
+- `ConnectionServiceTest`: 필수 `documentGroupId` 격리, source-only `LLM_ONLY` 호출, 결과 필터와 anchor mapping, bridge prompt/usage/event 기록
 - `NoteProjectionJpaAdapterTest`: connection source note 조회 조건
 - `KafkaIntelligenceEventAdapterTest`: connection 이벤트가 `AiSuggestionCreated` envelope로 publish되는지
 
@@ -84,7 +84,7 @@
 public HTTP auth 흐름은 controller test가 담당하고, LLM 품질은 dev-only CLI가 application use case를 직접 호출해 확인한다.
 
 ```powershell
-python scripts\capture_connection_cli.py --run-name 20260626-connection-quality
+uv run --no-project python scripts\capture_connection_cli.py --run-name 20260626-connection-quality
 ```
 
 이 script는 `.brainx-local.properties`와 provider 설정을 preflight로 확인한다. 통과하면 `sample_notes`를 ingest하고 `link-suggestions`, `bridge-concepts` scenario를 실행한다. sample note id는 `SampleNoteLoader`와 같은 `sample-<sha256(relativePath)[0:16]>` 규칙으로 계산한다.

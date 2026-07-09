@@ -46,7 +46,7 @@
 - `POST /api/v1/ai/link-suggestions`는 `NoteAutoLinkUseCase`의 source-only `LLM_ONLY` 경로를 호출해 요청 source note에서 나가는 suggestion만 계산한다.
 - public source-only 경로는 active, non-pending markdown projection이면 사용할 수 있고 `INDEXED`를 요구하지 않는다. `VECTOR_LLM`, semantic search, RAG는 계속 Qdrant/embedding index가 준비된 source만 사용한다.
 - public response는 `targetNoteId`, `targetTitle`, `score`, `reason`과 함께 raw markdown `anchorText`, `anchorStartOffset`, `anchorEndOffset`을 노출한다.
-- public request에는 아직 `documentGroupId`가 없어서 `ConnectionService`가 `default` group을 사용한다.
+- public request의 필수 `documentGroupId`가 source/target 범위를 격리하며, `ConnectionService`는 이 값을 source-only `LLM_ONLY` 분석에 그대로 전달한다.
 - `/graph` 클라이언트는 suggestion 수락 시 최신 source note 본문을 조회한 뒤 anchor offset을 우선 사용해 해당 구간만 `[[targetTitle|anchorText]]`로 수정하고 Workspace content save 흐름으로 wiki link projection을 생성한다. anchor 위치를 확정할 수 없으면 본문을 저장하지 않는다.
 
 ## 품질 필터와 Ranking

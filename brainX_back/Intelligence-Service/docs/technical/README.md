@@ -1,32 +1,40 @@
 # 기술 문서
 
-이 폴더에는 구현할 때 실제로 참고할 만한 서비스 로컬 문서만 남깁니다.
+이 폴더에는 구현·운영 시 실제로 참고할 서비스 로컬 문서를 둡니다. 문서마다 현재 동작을 설명하는지, 과거 품질 평가를 기록하는지 구분해서 읽습니다.
 
-## 남겨둘 문서
+## 기능과 서비스 연동
 
-- `conditional-on-bean.md`: Spring Boot `@ConditionalOnBean` 동작과 Qdrant adapter 연결 방식
-- `ai-feature-catalog.md`: Intelligence-Service AI/LLM 기능 전체 카탈로그와 공개 API/LLM 호출 경계
-- `ai-model-pricing-and-usage.md`: AI 모델 카탈로그 가격과 token usage / cost 추정 메모
-- `cross-service-integration-map.md`: Intelligence-Service 관점의 타 서비스 계약, 이벤트, port 경계 지도
-- `intelligence-operational-db-ddl.md`: 운영 PostgreSQL schema baseline DDL과 부분 적용 DB 체크리스트
-- `llmops.md`: LLM run log, PromptOps registry, eval run, 사용자 피드백 API 기준
-- `connection-api.md`: 연결 추천 공개 API와 event / usage 경계
-- `external-search.md`: OpenAI `web_search` 기반 검색 port와 품질 캡처 메모
-- `frontend-ai-context-management.md`: 프론트엔드 AI context 흐름과 chat / inline assist 전달
-- `rag-chat-api-frontend-integration.md`: `/chat` 화면과 RAG 채팅 API, thread 목록 pagination, SSE, persistence 주의점
-- `insight-reports.md`: insight report job 흐름, persistence, event 동작
-- `knowledge-structure-analysis.md`: knowledge structure analysis job 흐름과 persistence
-- `note-auto-linking.md`: note auto-linking 전략과 CLI 품질 캡처 메모
-- `note-chunking.md`: note chunking과 search/vector indexing 메모
-- `sample-notes-rag-cli.md`: 로컬 RAG 샘플 CLI 메모
-- `vectorstore-embedding-model.md`: Qdrant와 Voyage embedding 메모
-- `llm-quality-evaluation-report-2026-07-04.md`: StyleProfile LLM 품질 평가 요약
-- `llm-quality-evaluations/style-profile-quality-evaluation-2026-07-04.md`: StyleProfile 문체 설정 상세 평가 보고서
-- `consumed-event-contract-alignment.md`: Kafka 계약 정합성 포인터
-- `consumed-events-implementation-checkpoints.md`: Kafka 구현 체크리스트
+- [AI 기능 카탈로그](ai-feature-catalog.md): AI/LLM 기능 전체, public API, provider/model 경계를 빠르게 확인할 때 읽습니다.
+- [RAG 채팅 프론트엔드 연동](rag-chat-api-frontend-integration.md): `/chat` API, thread pagination, SSE, persistence 주의점을 구현하거나 점검할 때 읽습니다.
+- [외부 검색](external-search.md): OpenAI `web_search` port, stream capture, RAG chat router 결합을 확인할 때 읽습니다.
+- [프론트엔드 AI context 관리](frontend-ai-context-management.md): `clientContext`/`noteScope`, chat·inline assist context 조립을 점검할 때 읽습니다.
+- [Inline Assist SSE lifecycle](inline-assist-frontend-stream-lifecycle.md): 프론트 stream abort/state cleanup 문제를 분석하거나 재발을 막을 때 읽습니다.
+- [Connection API](connection-api.md): link suggestion·bridge concept의 public API, document group 경계, event/usage 처리를 확인할 때 읽습니다.
+- [Note Auto Linking](note-auto-linking.md): 내부 자동 연결 전략, anchor 위치, CLI 품질 capture를 확인할 때 읽습니다.
+- [Knowledge Structure Analysis](knowledge-structure-analysis.md): AI 클러스터링 job, persistence, usage/event 정책을 확인할 때 읽습니다.
+- [Insight Reports](insight-reports.md): insight report job, persistence, usage/event 정책을 확인할 때 읽습니다.
+- [LLMOps](llmops.md): LLM run log, PromptOps registry, eval run, 사용자 피드백 API 기준을 확인할 때 읽습니다.
+
+## 데이터, 검색, 운영
+
+- [AI 모델 비용과 사용량 기록](ai-model-pricing-and-usage.md): model catalog, availability, token/cost estimate와 usage event를 확인할 때 읽습니다.
+- [Note Chunking](note-chunking.md): markdown chunk, document group 격리, semantic search dedupe를 확인할 때 읽습니다.
+- [Vectorstore Embedding Model](vectorstore-embedding-model.md): Qdrant와 Voyage embedding model 설정·저장·검색 정책을 확인할 때 읽습니다.
+- [운영 DB DDL](intelligence-operational-db-ddl.md): PostgreSQL schema baseline, 부분 적용 DB 점검, 권장 index를 확인할 때 읽습니다.
+- [Sample Notes RAG CLI](sample-notes-rag-cli.md): `sample_notes` 기반 로컬 RAG 색인·질의·capture를 실행할 때 읽습니다.
+- [Conditional on Bean](conditional-on-bean.md): Spring Boot `@ConditionalOnBean`과 Qdrant adapter 등록 조건을 확인할 때 읽습니다.
+
+## 이벤트 계약
+
+- [소비 이벤트 계약 정합성](consumed-event-contract-alignment.md): AsyncAPI SSOT와 구현의 빠른 확인 지점을 찾을 때 읽습니다.
+- [소비 이벤트 구현 체크포인트](consumed-events-implementation-checkpoints.md): 현재 기본 listener가 처리하는 event와 아직 구독하지 않는 contract event를 확인할 때 읽습니다.
+
+## 품질 평가 기록
+
+- [2026-06-26 LLM 품질 평가 요약](llm-quality-evaluation-report-2026-06-26.md): RAG/chat router/external search/inline assist/connection의 당시 provider 평가 결과와 조치를 확인할 때 읽습니다. 현재 API 계약은 별도 계약 문서로 다시 확인합니다.
+- [2026-07-04 StyleProfile 품질 평가 요약](llm-quality-evaluation-report-2026-07-04.md): StyleProfile 문체 설정 평가의 결론과 후속 작업을 확인할 때 읽습니다.
+- [LLM 품질 상세 평가 인덱스](llm-quality-evaluations/README.md): 기능별 상세 시나리오·관찰을 확인할 때 읽습니다.
 
 ## Kafka 진행 요약
 
-자세한 Kafka 진행 요약은 아래 문서를 봅니다.
-
-- [brainX_back/KAFKA_IMPLEMENTATION_SUMMARY.md](../../../KAFKA_IMPLEMENTATION_SUMMARY.md)
+더 넓은 Kafka 작업 진행 상황은 [brainX_back/KAFKA_IMPLEMENTATION_SUMMARY.md](../../../KAFKA_IMPLEMENTATION_SUMMARY.md)에서 확인합니다. 이 폴더의 event 문서는 Intelligence-Service의 현재 구현과 계약 경계에 집중합니다.

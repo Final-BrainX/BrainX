@@ -22,7 +22,7 @@ OpenAI prompt caching은 API usage의 `prompt_tokens_details.cached_tokens`로 c
 
 ## TokenUsageRecord 의미
 
-`TokenUsageRecord`는 Commerce usage ledger로 전달할 event-first payload 모델이다. Intelligence Service는 billing ledger의 source of truth를 직접 소유하지 않는다. `brainx.events.producer.enabled=true`이면 `KafkaIntelligenceEventAdapter`가 `brainx.knowledge.intelligence.token-usage-recorded-requested.v1` topic으로 publish하고, 기본값 `false`에서는 local/test 실행을 위해 NoOp adapter가 사용된다.
+`TokenUsageRecord`는 Commerce usage ledger로 전달할 event-first payload 모델이다. Intelligence Service는 billing ledger의 source of truth를 직접 소유하지 않는다. `brainx.events.producer.enabled`의 기본값은 `true`이며, enabled일 때 `KafkaIntelligenceEventAdapter`가 `brainx.knowledge.intelligence.token-usage-recorded-requested.v1` topic으로 publish한다. local/test 등에서 `BRAINX_EVENTS_PRODUCER_ENABLED=false`를 명시한 경우에만 NoOp adapter가 사용된다.
 
 - `inputTokens`: provider가 보고한 전체 prompt/input token 수
 - `cachedInputTokens`: `inputTokens`에 포함된 cached input token 수

@@ -7,13 +7,13 @@
 - v1은 실제 background worker가 없다. POST 요청 안에서 분석 대상 note card 조회, entitlement 확인, LLM 호출, 결과 저장까지 수행한 뒤 `202 Accepted`와 현재 job 상태를 반환한다.
 - 성공하면 `COMPLETED`, provider 오류나 JSON parse/validation 실패는 `FAILED` job으로 저장하고 `202`로 반환한다.
 - `Idempotency-Key`가 같은 user/job type에 이미 있으면 저장된 job을 반환하고 AI를 다시 호출하지 않는다.
-- 분석 범위는 `documentGroupId` 안으로 격리된다. `scope.documentGroupId`가 없으면 `default`로 normalize한다.
+- 분석 범위는 `documentGroupId` 안으로 격리된다. 현재 구현은 `scope.documentGroupId`를 nonblank 필수값으로 검증한다.
 - `/latest`는 AI를 호출하지 않는다. 현재 graph AI source-ready note card와 최근 document-group 전체 분석 job을 비교해 화면용 상태만 반환한다.
 - 최근 완료된 document-group 전체 분석 job이 있으면 기존 cluster ID와 기존 멤버십을 보존하는 증분 모드로 동작한다. `scope.noteIds` 부분 분석은 증분 기준 snapshot으로 사용하지 않는다.
 
 ## Latest / stale 정책
 
-- `GET /api/v1/ai/clusters/latest?documentGroupId=default`는 `documentGroupId`, `searchableNoteCount`, `latestNoteUpdatedAt`, `state`, `job`을 반환한다.
+- `GET /api/v1/ai/clusters/latest?documentGroupId=<documentGroupId>`는 필수 query parameter로 범위를 지정하고 `documentGroupId`, `searchableNoteCount`, `latestNoteUpdatedAt`, `state`, `job`을 반환한다.
 - `state`는 `NO_SOURCE_NOTES`, `NOT_ANALYZED`, `FRESH`, `STALE`, `FAILED` 중 하나다.
 - latest 후보는 `scope.noteIds`가 없는 document-group 전체 분석 job만 사용한다. 부분 note 분석 job은 최신 workspace 구조로 보지 않는다.
 - POST 시 `scope_json` 내부 전용 키 `_sourceSnapshot`에 분석 대상 noteId와 updatedAt을 저장한다. public response와 `ClusterJobRequested` event scope에는 이 내부 키를 노출하지 않는다.
@@ -22,7 +22,7 @@
 
 ## 입력 정책
 
-- `scope.documentGroupId`: optional, 기본 `default`
+- `scope.documentGroupId`: required, nonblank. 분석할 Workspace document group을 지정한다.
 - `scope.noteIds`: optional. 있으면 해당 note만 분석하고, 하나라도 graph AI source-ready가 아니면 `404`
 - `scope.maxNotes`: optional. 기본/상한 `50`
 - `algorithmOptions.maxClusters`: optional. 기본 `6`, 상한 `12`

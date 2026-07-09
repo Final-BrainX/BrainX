@@ -92,12 +92,12 @@ brainx.vector.qdrant.collection-name=brainx_note_search_voyage_1024
 - Qdrant point id는 `userId::documentGroupId::chunkId`에서 만든 deterministic UUID다.
 - `chunkId`는 `noteId::sha256(chunkText)::duplicateOrdinal` 형식이다. `chunkIndex`는 point identity가 아니라 순서 metadata다.
 - Qdrant payload는 기존 metadata key를 유지하고 본문은 `doc_content`에 저장한다.
-- Qdrant payload에는 `documentGroupId`를 저장한다. 없거나 blank이면 `default`로 normalize한다.
+- Qdrant payload에는 현재 Workspace event/snapshot의 `documentGroupId`를 저장한다. group metadata가 없는 legacy point는 마이그레이션 호환성을 위해서만 `default`로 normalize한다.
 - Qdrant 검색 filter는 `userId AND documentGroupId` 기준으로 사용자와 문서 그룹을 함께 격리한다.
 - note 삭제/교체는 `userId + documentGroupId + noteId` filter로 기존 chunk를 삭제한 뒤 새 chunk를 upsert한다.
 - note 부분 갱신은 chunk manifest와 새 snapshot chunk를 비교해 변경된 chunk만 embedding/upsert하고, 사라진 stable `chunkId`의 point만 삭제한다.
 - 본문 embedding text가 같고 payload만 바뀐 chunk는 Voyage를 호출하지 않고 Qdrant `overwritePayload` mutation만 수행한다.
-- Workspace가 아직 group을 보내지 않으면 모든 note는 `default` group으로 색인된다. 향후 Workspace payload나 snapshot에 `documentGroupId`가 들어오면 Intelligence-Service는 같은 경로로 즉시 group별 격리를 적용한다.
+- 현재 Workspace event와 snapshot 계약은 `documentGroupId`를 필수로 제공하므로 새 note 색인은 항상 group별로 격리한다. legacy point가 남아 있으면 group payload를 보강하거나 해당 note를 재ingest한다.
 
 ## Usage와 비용
 

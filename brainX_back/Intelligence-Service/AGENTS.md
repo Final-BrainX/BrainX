@@ -6,7 +6,7 @@
 
 ## Context Vault
 
-세부 프로젝트 사양, task guide, workflow, worklog, durable improvement는 `vaults/INDEX.md`에서 필요한 문서만 골라 읽습니다. 루트 문서는 항상 따라야 하는 규칙과 읽기 순서만 유지합니다.
+세부 프로젝트 사양, task guide, workflow, worklog, decision note, durable improvement는 `vaults/INDEX.md`에서 필요한 문서만 골라 읽습니다. 루트 문서는 항상 따라야 하는 규칙과 읽기 순서만 유지합니다.
 
 ## Suggested Reading Order
 
@@ -30,7 +30,7 @@
 작업이 code, docs, configuration, tests, build artifacts를 실질적으로 바꾸면 final response 전에 다음을 수행합니다.
 
 1. 관련 검증을 실행하거나, 문서 전용 변경 등 합리적인 사유로 생략했음을 명시합니다.
-2. worklog workflow에 따라 작업 로그를 남깁니다.
+2. `vaults/workflows/worklog.md`에 따라 작업 로그를 남깁니다.
 3. worklog 채널이 없으면 `vaults/worklogs/YYYY-MM.md`에 `YYYY-MM-DD HH:mm - <short title>` 형식으로 기록합니다.
 4. final response에 변경 요약, 검증 결과, worklog 위치를 포함합니다.
 

@@ -107,7 +107,7 @@
 
 선택 영역 요약도 같은 chat SSE를 사용한다. 기존 `inline-assists` 요약 호출이 아니라, `buildNoteAiContext({ task: "note.summarize.selection" })`로 선택 영역 context를 만들고 우측 chat 응답으로 표시한다.
 
-현재 right sidebar는 실제 workspace/documentGroup 정보가 연결되어 있지 않아 `documentGroupId`를 `"default"`로 보낸다. workspace scope가 프론트 상태에 들어오면 이 상수는 실제 workspace/documentGroup id로 교체해야 한다.
+예시의 `"default"`는 local fixture다. 실제 연동에서는 활성 Workspace의 `documentGroupId`를 전달해야 하며, backend가 누락된 group을 `default`로 대체한다고 가정하지 않는다.
 
 ## Editor Inline Assist Flow
 
@@ -126,7 +126,7 @@
 작성 보조 LLM 품질은 public REST 계약을 바꾸지 않고 dev-only CLI로 확인한다.
 
 ```powershell
-python scripts\capture_inline_assist_cli.py --run-name 20260626-inline-assist-quality
+uv run --no-project python scripts\capture_inline_assist_cli.py --run-name 20260626-inline-assist-quality
 ```
 
 이 script는 `SUMMARIZE`, `REWRITE`, `CONTINUE`, `TRANSLATE` 기본 scenario를 `InlineAssistApplicationRunner`에 JSONL로 전달한다. 결과는 `build/inline-assist-captures/<run-id>/`에 저장되며, `text` nonblank, markdown fence 금지, 설명성 prefix 금지, action mismatch 여부를 검증한다. 실제 provider 품질 gate이므로 Gradle `check`에는 묶지 않는다.

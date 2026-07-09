@@ -13,7 +13,7 @@
 입력은 Workspace snapshot API에서 받은 note snapshot이다.
 
 - `userId`
-- `documentGroupId`: 문서 그룹/RAG 격리 키. Workspace payload나 snapshot에 없으면 `default`로 normalize한다.
+- `documentGroupId`: 문서 그룹/RAG 격리 키. 현재 Workspace payload와 snapshot은 이를 필수로 제공하며, `default` 정규화는 legacy data 호환성에만 사용한다.
 - `noteId`
 - `title`
 - `markdown`
@@ -38,9 +38,8 @@ Qdrant 내부 point id는 `userId::documentGroupId::chunkId`에서 만든 determ
 
 `documentGroupId`는 Intelligence-Service 안에서 RAG/search 범위를 나누는 논리적 격리 키다. Obsidian의 vault처럼 한 사용자의 노트라도 서로 다른 문서 그룹이면 semantic search, RAG context 조회, note 단위 index 교체/삭제가 섞이지 않아야 한다.
 
-- 기본값은 `default`다.
-- Workspace event payload나 snapshot에 `documentGroupId`가 있으면 해당 값을 사용한다.
-- Workspace가 아직 group을 보내지 않으면 모든 projection과 vector payload는 `default` group으로 처리한다.
+- 현재 Workspace event payload, snapshot, public document-group scoped API는 `documentGroupId`를 필수로 전달하며 해당 값을 사용한다.
+- `default`는 group metadata가 없던 legacy projection/Qdrant point를 정규화·마이그레이션할 때만 호환성 값으로 유지한다. 현재 inbound event/API scope의 fallback으로 사용하지 않는다.
 - `NoteProjection` 조회 key는 `userId + documentGroupId + noteId`다. 같은 `userId/noteId`라도 group이 다르면 별도 projection으로 저장한다.
 - Qdrant payload에는 `documentGroupId`를 저장하고, 검색/삭제 filter는 항상 `userId AND documentGroupId`를 포함한다. note 교체/삭제는 여기에 `noteId`를 추가한다.
 
@@ -228,7 +227,7 @@ Qdrant 검색은 chunk 단위로 수행한다. 하지만 공개 `POST /api/v1/in
 - tokenizer 기준이 아니라 문자 기준이므로 모델별 token limit과 정확히 일치하지 않는다.
 - markdown table, code block, list 구조를 별도 semantic block으로 보존하지 않는다.
 - `maxChunks=80`을 넘는 매우 긴 note의 뒤쪽 내용은 색인되지 않는다.
-- `FolderDeleted` cascade 삭제는 Workspace가 보낸 `noteIds`를 `default` document group에서 제거한다. Workspace가 `documentGroupId`를 보내기 전까지 다른 group projection은 이 이벤트만으로 정리되지 않는다.
+- `FolderDeleted` cascade 삭제는 event의 필수 `documentGroupId`와 `noteIds`를 사용해 같은 group의 projection, chunk manifest, index, summary를 정리한다.
 - identical duplicate chunk 앞에 같은 내용이 추가되면 `duplicateOrdinal`이 밀릴 수 있어 해당 duplicate 구간은 재색인될 수 있다.
 - public semantic search는 note 단위 dedupe만 제공하므로, chunk 단위 결과 디버깅 API는 없다.
 - 검색용 Qdrant chunk는 정규화된 `doc_content`를 저장하므로 raw markdown offset을 보존하지 않는다. 유사 노트 자동 연결의 anchor 위치는 `intelligence_note_projections.markdown` read model에서 계산한다.
