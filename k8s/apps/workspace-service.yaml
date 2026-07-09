@@ -1,0 +1,138 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workspace-service-config
+  namespace: brainx
+  labels:
+    app: workspace-service
+data:
+  # --- 서버 ---
+  SERVER_PORT: "8082"
+  PUBLIC_BASE_URL: http://localhost:3000
+  # --- Postgres (Compose, host.docker.internal 경유) ---
+  POSTGRES_HOST: host.docker.internal
+  POSTGRES_PORT: "5432"
+  WORKSPACE_DB_NAME: brainx_workspace
+  # Hikari pool 상한. 로컬 Compose Postgres의 max_connections 한도를
+  # 여러 서비스(Admin/User/Workspace/MCP)가 공유하므로 서비스당 낮게 고정한다.
+  SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "3"
+  SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "1"
+  # --- Redis (Compose, host.docker.internal 경유) ---
+  REDIS_HOST: host.docker.internal
+  REDIS_PORT: "6379"
+  REDIS_TIMEOUT: "2s"
+  # --- Neo4j (Compose, host.docker.internal 경유). 비밀번호만 Secret ---
+  NEO4J_ENABLED: "true"
+  NEO4J_URI: bolt://host.docker.internal:7687
+  NEO4J_USERNAME: neo4j
+  NEO4J_BACKFILL_ON_STARTUP: "false"
+  # --- Kafka (Compose, host.docker.internal 경유) ---
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: host.docker.internal:9092
+  # --- Eureka (Kubernetes discovery-service) ---
+  EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
+  EUREKA_INSTANCE_HOSTNAME: workspace-service
+  # --- 애플리케이션 동작 ---
+  SEED_DEMO_DATA: "false"
+  WORKSPACE_DEV_FALLBACK_ENABLED: "false"
+  WORKSPACE_DRAFT_TTL_SECONDS: "86400"
+  WORKSPACE_DRAFT_FLUSH_INTERVAL_SECONDS: "30"
+  WORKSPACE_DRAFT_FLUSH_IDLE_SECONDS: "10"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workspace-service
+  namespace: brainx
+  labels:
+    app: workspace-service
+spec:
+  replicas: 1
+  # 로컬 검증 전용: old/new Pod가 동시에 Postgres 커넥션을 잡아 too many clients가
+  # 나는 것을 줄이기 위해 surge 없이(maxSurge: 0) old Pod를 먼저 내리고 새 Pod를 올린다.
+  # 자세한 배경은 k8s/TROUBLESHOOTING.md 9번 항목 참고.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: workspace-service
+  template:
+    metadata:
+      labels:
+        app: workspace-service
+    spec:
+      containers:
+        - name: workspace-service
+          image: brainx-workspace-service:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8082
+              name: http
+          envFrom:
+            - configMapRef:
+                name: workspace-service-config
+          env:
+            # Postgres 계정 (기존 postgres-secret 재사용)
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            # 내부 서비스 호출 토큰 (기존 gateway-secret 재사용)
+            - name: SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secret
+                  key: SERVICE_TOKEN
+            # JWT 서명 시크릿 (신규 workspace-secret)
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: workspace-secret
+                  key: JWT_SECRET
+            # Neo4j 비밀번호 (신규 workspace-secret)
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: workspace-secret
+                  key: NEO4J_PASSWORD
+          readinessProbe:
+            # readiness 그룹은 readinessState + db + redis 를 포함한다(application.yml).
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 80
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: workspace-service
+  namespace: brainx
+  labels:
+    app: workspace-service
+spec:
+  type: ClusterIP
+  selector:
+    app: workspace-service
+  ports:
+    - name: http
+      port: 8082
+      targetPort: http

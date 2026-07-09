@@ -1,0 +1,144 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: admin-service-config
+  namespace: brainx
+  labels:
+    app: admin-service
+data:
+  SERVER_PORT: "8085"
+  POSTGRES_HOST: host.docker.internal
+  POSTGRES_PORT: "5432"
+  ADMIN_DB_NAME: brainx_admin
+  # Hikari pool 상한. 로컬 Compose Postgres의 max_connections 한도를
+  # 여러 서비스(Admin/User/Workspace/MCP)가 공유하므로 서비스당 낮게 고정한다.
+  SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "3"
+  SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "1"
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: host.docker.internal:9092
+  BRAINX_KAFKA_MONITORING_CONSUMER_GROUP_ID: intelligence-service
+  BRAINX_ADMIN_MONITORING_TIMEZONE: Asia/Seoul
+  BRAINX_ADMIN_MONITORING_DAILY_SNAPSHOT_CRON: "0 59 23 * * *"
+  EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
+  EUREKA_INSTANCE_HOSTNAME: admin-service
+  GATEWAY_SERVICE_URL: http://host.docker.internal:8088
+  USER_SERVICE_URL: http://host.docker.internal:8080
+  COMMERCE_SERVICE_URL: http://host.docker.internal:8084
+  WORKSPACE_SERVICE_URL: http://host.docker.internal:8082
+  INGESTION_SERVICE_URL: http://host.docker.internal:8083
+  INTELLIGENCE_SERVICE_URL: http://host.docker.internal:8086
+  MCP_SERVICE_URL: http://host.docker.internal:8087
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-service
+  namespace: brainx
+  labels:
+    app: admin-service
+spec:
+  replicas: 1
+  # 로컬 검증 전용: old/new Pod가 동시에 Postgres 커넥션을 잡아 too many clients가
+  # 나는 것을 줄이기 위해 surge 없이(maxSurge: 0) old Pod를 먼저 내리고 새 Pod를 올린다.
+  # 자세한 배경은 k8s/TROUBLESHOOTING.md 9번 항목 참고.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: admin-service
+  template:
+    metadata:
+      labels:
+        app: admin-service
+    spec:
+      containers:
+        - name: admin-service
+          image: brainx-admin-service:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8085
+              name: http
+          envFrom:
+            - configMapRef:
+                name: admin-service-config
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secret
+                  key: SERVICE_TOKEN
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: admin-service-secret
+                  key: JWT_SECRET
+            - name: MAIL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: admin-service-secret
+                  key: MAIL_USERNAME
+            - name: MAIL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: admin-service-secret
+                  key: MAIL_PASSWORD
+            - name: SEED_ADMIN_LOGIN_ID
+              valueFrom:
+                secretKeyRef:
+                  name: admin-service-secret
+                  key: SEED_ADMIN_LOGIN_ID
+            - name: SEED_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: admin-service-secret
+                  key: SEED_ADMIN_PASSWORD
+            - name: SEED_ADMIN_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: admin-service-secret
+                  key: SEED_ADMIN_NAME
+          readinessProbe:
+            # readiness 그룹은 readinessState + db 를 포함한다(application.yml).
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 40
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 70
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-service
+  namespace: brainx
+  labels:
+    app: admin-service
+spec:
+  type: ClusterIP
+  selector:
+    app: admin-service
+  ports:
+    - name: http
+      port: 8085
+      targetPort: http

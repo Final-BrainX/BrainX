@@ -1,0 +1,179 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: brainx
+  labels:
+    app: user-service
+spec:
+  replicas: 1
+  # 로컬 검증 전용: old/new Pod가 동시에 Postgres 커넥션을 잡아 too many clients가
+  # 나는 것을 줄이기 위해 surge 없이(maxSurge: 0) old Pod를 먼저 내리고 새 Pod를 올린다.
+  # 자세한 배경은 k8s/TROUBLESHOOTING.md 9번 항목 참고.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+        - name: user-service
+          image: brainx-user-service:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: SERVER_PORT
+              value: "8080"
+            - name: POSTGRES_HOST
+              value: host.docker.internal
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: USER_DB_NAME
+              value: "brainx_user"
+            # Hikari pool 상한. 로컬 Compose Postgres의 max_connections 한도를
+            # 여러 서비스(Admin/User/Workspace/MCP)가 공유하므로 서비스당 낮게 고정한다.
+            - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+              value: "3"
+            - name: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
+              value: "1"
+            - name: REDIS_HOST
+              value: host.docker.internal
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_TIMEOUT
+              value: "2s"
+            - name: MANAGEMENT_HEALTH_MAIL_ENABLED
+              value: "false"
+            - name: WORKSPACE_SERVICE_BASE_URL
+              value: http://host.docker.internal:8082
+            - name: SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secret
+                  key: SERVICE_TOKEN
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secret
+                  key: JWT_SECRET
+            - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+              value: http://discovery-service:8761/eureka/
+            - name: EUREKA_INSTANCE_HOSTNAME
+              value: user-service
+            # 소셜 로그인(Google/Kakao/Naver) 검증용. Secret이 없거나 값이 비어 있어도
+            # optional이라 Pod 기동은 막지 않고, 로컬에서 소셜 로그인을 쓰지 않으면
+            # user-service-oauth-secret 자체를 만들지 않아도 된다. 다만 그 경우
+            # AuthService.authorizeOAuth()는 application.yml의 placeholder 기본값으로
+            # 동작해 실제 소셜 로그인 콜백은 실패한다.
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-oauth-secret
+                  key: GOOGLE_CLIENT_ID
+                  optional: true
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-oauth-secret
+                  key: GOOGLE_CLIENT_SECRET
+                  optional: true
+            - name: GOOGLE_REDIRECT_URI
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-oauth-secret
+                  key: GOOGLE_REDIRECT_URI
+                  optional: true
+            - name: KAKAO_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-oauth-secret
+                  key: KAKAO_CLIENT_ID
+                  optional: true
+            - name: KAKAO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-oauth-secret
+                  key: KAKAO_CLIENT_SECRET
+                  optional: true
+            - name: KAKAO_REDIRECT_URI
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-oauth-secret
+                  key: KAKAO_REDIRECT_URI
+                  optional: true
+            - name: NAVER_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-oauth-secret
+                  key: NAVER_CLIENT_ID
+                  optional: true
+            - name: NAVER_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-oauth-secret
+                  key: NAVER_CLIENT_SECRET
+                  optional: true
+            - name: NAVER_REDIRECT_URI
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-oauth-secret
+                  key: NAVER_REDIRECT_URI
+                  optional: true
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 40
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 18
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 70
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: brainx
+  labels:
+    app: user-service
+spec:
+  type: ClusterIP
+  selector:
+    app: user-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
