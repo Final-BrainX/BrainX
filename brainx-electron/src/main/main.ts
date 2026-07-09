@@ -1288,8 +1288,22 @@ function reconcileVaultIndexWithFilesystem(vault: BrainxDesktopVaultSummary, ind
   const { folderIdByPath } = buildVaultFolderPathMap(index);
   let changed = false;
 
+  // fs.readdirSync/statSync/readFileSync는 파일시스템 상태(권한 거부, 클라우드 동기화
+  // placeholder, walk 도중 삭제/잠금된 파일 등)에 따라 예고 없이 throw할 수 있다. 이 함수가
+  // 조금이라도 예외를 던지면 호출자인 readVaultSnapshot() 전체가 실패하고, 그 결과 렌더러의
+  // getVaultSnapshot() IPC 호출이 reject되어 loadFromServer()의 Promise.all이 통째로 실패한다
+  // — 노트 목록뿐 아니라 "웹 동기화" 버튼(usesDesktopVault)까지 함께 사라지는 원인이었다.
+  // 디렉터리 하나, 파일 하나를 못 읽는 것이 전체 vault 스냅샷 로딩을 막으면 안 되므로, 문제가
+  // 있는 디렉터리/파일은 건너뛰고 나머지는 계속 인덱싱한다.
   const walk = (directoryPath: string) => {
-    const entries = fs.readdirSync(directoryPath, { withFileTypes: true });
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(directoryPath, { withFileTypes: true });
+    } catch (error) {
+      console.warn(`[vault] 디렉터리를 읽지 못해 건너뜀: ${directoryPath}`, error);
+      return;
+    }
+
     for (const entry of entries) {
       if (entry.name === ".brainx") continue;
       const fullPath = path.join(directoryPath, entry.name);
@@ -1301,54 +1315,58 @@ function reconcileVaultIndexWithFilesystem(vault: BrainxDesktopVaultSummary, ind
         continue;
       }
 
-      const relativePath = path.relative(vault.vaultPath, fullPath);
-      if (!relativePath || relativePath.startsWith("..")) continue;
-      const normalizedRelativePath = normalizeVaultRelativePath(relativePath);
-      if (indexedNotePaths.has(normalizedRelativePath) || indexedAssetPaths.has(normalizedRelativePath)) {
-        continue;
-      }
+      try {
+        const relativePath = path.relative(vault.vaultPath, fullPath);
+        if (!relativePath || relativePath.startsWith("..")) continue;
+        const normalizedRelativePath = normalizeVaultRelativePath(relativePath);
+        if (indexedNotePaths.has(normalizedRelativePath) || indexedAssetPaths.has(normalizedRelativePath)) {
+          continue;
+        }
 
-      const relativeSegments = relativePath.split(path.sep);
-      const parentSegments = relativeSegments.slice(0, -1);
-      const parentFolderId =
-        parentSegments.length > 0
-          ? ensureVaultFolderPath(index, folderIdByPath, parentSegments)
-          : null;
-      const stats = fs.statSync(fullPath);
-      const title = path.basename(entry.name, path.extname(entry.name)) || entry.name;
-      const createdAt = toIsoTimestamp(stats.birthtime);
-      const updatedAt = toIsoTimestamp(stats.mtime);
+        const relativeSegments = relativePath.split(path.sep);
+        const parentSegments = relativeSegments.slice(0, -1);
+        const parentFolderId =
+          parentSegments.length > 0
+            ? ensureVaultFolderPath(index, folderIdByPath, parentSegments)
+            : null;
+        const stats = fs.statSync(fullPath);
+        const title = path.basename(entry.name, path.extname(entry.name)) || entry.name;
+        const createdAt = toIsoTimestamp(stats.birthtime);
+        const updatedAt = toIsoTimestamp(stats.mtime);
 
-      if (isVaultTextLikeFile(fullPath)) {
-        const markdown = fs.readFileSync(fullPath, "utf8");
-        const note = createVaultNoteRecordForExistingFile(index, {
+        if (isVaultTextLikeFile(fullPath)) {
+          const markdown = fs.readFileSync(fullPath, "utf8");
+          const note = createVaultNoteRecordForExistingFile(index, {
+            title,
+            fileName: relativePath,
+            folderId: parentFolderId,
+            markdown,
+            createdAt,
+            updatedAt,
+          });
+          index.notes.unshift(note);
+          indexedNotePaths.add(normalizedRelativePath);
+          changed = true;
+          continue;
+        }
+
+        const asset = createVaultAssetRecordForExistingFile(index, fullPath, relativePath, stats);
+        indexedAssetPaths.add(normalizedRelativePath);
+        const note = createVaultNoteRecord(index, {
           title,
-          fileName: relativePath,
+          markdown: createImportedAssetMarkdown(asset),
           folderId: parentFolderId,
-          markdown,
-          createdAt,
-          updatedAt,
+          tags: ["imported-asset"],
         });
+        note.createdAt = createdAt;
+        note.updatedAt = updatedAt;
         index.notes.unshift(note);
-        indexedNotePaths.add(normalizedRelativePath);
+        writeVaultNoteMarkdown(vault, note.fileName, note.markdown);
+        indexedNotePaths.add(normalizeVaultRelativePath(note.fileName));
         changed = true;
-        continue;
+      } catch (error) {
+        console.warn(`[vault] 파일을 인덱싱하지 못해 건너뜀: ${fullPath}`, error);
       }
-
-      const asset = createVaultAssetRecordForExistingFile(index, fullPath, relativePath, stats);
-      indexedAssetPaths.add(normalizedRelativePath);
-      const note = createVaultNoteRecord(index, {
-        title,
-        markdown: createImportedAssetMarkdown(asset),
-        folderId: parentFolderId,
-        tags: ["imported-asset"],
-      });
-      note.createdAt = createdAt;
-      note.updatedAt = updatedAt;
-      index.notes.unshift(note);
-      writeVaultNoteMarkdown(vault, note.fileName, note.markdown);
-      indexedNotePaths.add(normalizeVaultRelativePath(note.fileName));
-      changed = true;
     }
   };
 

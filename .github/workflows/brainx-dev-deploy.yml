@@ -386,6 +386,7 @@ jobs:
               "ACME_EMAIL": os.environ.get("AWS_DEV_ACME_EMAIL", ""),
               "ARTIFACT_BUCKET": os.environ["AWS_DEV_ARTIFACT_BUCKET"],
               "ARTIFACT_KEY": os.environ["ARTIFACT_KEY"],
+              "ASSET_BUCKET": os.environ.get("AWS_DEV_ASSET_BUCKET", ""),
               "CHANGED_SERVICES": os.environ.get("CHANGED_SERVICES", ""),
               "DEPLOY_CONFIG_CHANGED": os.environ.get("DEPLOY_CONFIG_CHANGED", "false"),
               "FORCE_RUNTIME_REFRESH": os.environ.get("FORCE_RUNTIME_REFRESH", "false"),
