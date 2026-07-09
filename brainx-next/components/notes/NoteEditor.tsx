@@ -49,6 +49,10 @@ import { TagAutocomplete } from "./TagAutocomplete";
 import { TagNode } from "./TagNode";
 import { TaskListMarkdownBridge } from "./TaskListMarkdownBridge";
 import { ToggleNode } from "./ToggleNode";
+import {
+  normalizeInlineContinueTextForInsertion,
+  serializeLiveHeadingAsMarkdown,
+} from "./markdown-live-preview-utils";
 import { createInlineAssistStream, decideAiSuggestion } from "@/lib/intelligence-api";
 import {
   AI_CONTEXT_AROUND_CURSOR_CHARS,
@@ -66,7 +70,20 @@ import EditorContextMenu, { type EditorContextTarget } from "./EditorContextMenu
 import { lowlight } from "./lowlightSetup";
 
 export type EditMode = "read" | "edit";
-export type AiActionType = "summarize" | "rewrite";
+export type AiActionType = "summarize" | "rewrite" | "outline";
+export type AiSelectionRange = { from: number; to: number };
+export type AiActionPayload = {
+  type: AiActionType;
+  noteId: string;
+  text: string;
+  selectedMarkdown?: string;
+  contextBefore?: string;
+  contextAfter?: string;
+  range?: AiSelectionRange;
+};
+export type WikiLinkReplaceResult =
+  | { replaced: true }
+  | { replaced: false; reason: string };
 
 /* ── Markdown → HTML (초기 로딩) ─────────────────────────────────────── */
 function escHtml(s: string) {
@@ -330,7 +347,7 @@ function serializeNodeAsMarkdown(node: ProseMirrorNode, depth = 0): string {
       return serializeInlineContent(node);
     case "heading": {
       const level = Math.min(6, Math.max(1, Number(node.attrs.level ?? 1)));
-      return `${"#".repeat(level)} ${serializeInlineContent(node)}`;
+      return serializeLiveHeadingAsMarkdown(level, serializeInlineContent(node));
     }
     case "blockquote":
       return serializeFragmentAsMarkdown(node.content, depth)
@@ -1446,15 +1463,56 @@ function insertMarkdownContent(editor: Editor, range: RewriteRange, text: string
 }
 
 function insertInlineContinueContent(editor: Editor, range: RewriteRange, text: string) {
+  const insertPos = Math.min(Math.max(0, range.from), editor.state.doc.content.size);
+  const insideHeading = editor.state.doc.resolve(insertPos).parent.type.name === "heading";
+  const normalizedText = normalizeInlineContinueTextForInsertion(text, insideHeading);
   editor
     .chain()
     .focus()
-    .insertContentAt({ from: range.from, to: range.to }, markdownToEditorInsertionHtml(text))
+    .insertContentAt({ from: range.from, to: range.to }, markdownToEditorInsertionHtml(normalizedText))
     .command(({ tr }) => {
       tr.setMeta(InlineContinueDraftKey, { type: "clear" } satisfies InlineContinueDraftMeta);
       return true;
     })
     .run();
+}
+
+function normalizeSelectionTextForComparison(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function replaceRangeWithWikiLinkNode(
+  editor: Editor,
+  range: RewriteRange,
+  expectedText: string,
+  title: string
+): WikiLinkReplaceResult {
+  const trimmedTitle = title.trim();
+  if (!trimmedTitle) return { replaced: false, reason: "새 노트 제목이 비어 있습니다." };
+
+  const docSize = editor.state.doc.content.size;
+  const from = Math.max(0, Math.min(range.from, docSize));
+  const to = Math.max(from, Math.min(range.to, docSize));
+  if (from === to) return { replaced: false, reason: "선택 영역을 찾을 수 없습니다." };
+
+  const currentText = selectedText(editor, { from, to });
+  if (normalizeSelectionTextForComparison(currentText) !== normalizeSelectionTextForComparison(expectedText)) {
+    return { replaced: false, reason: "선택 영역이 변경되어 자동 링크를 만들지 않았습니다." };
+  }
+
+  try {
+    const inserted = editor
+      .chain()
+      .focus()
+      .insertContentAt({ from, to }, { type: "wikiLink", attrs: { title: trimmedTitle } })
+      .run();
+    if (!inserted) {
+      return { replaced: false, reason: "선택 영역을 링크로 바꾸지 못했습니다." };
+    }
+    return { replaced: true };
+  } catch {
+    return { replaced: false, reason: "선택 영역을 링크로 바꾸지 못했습니다." };
+  }
 }
 
 function messageFromUnknown(error: unknown) {
@@ -1637,13 +1695,24 @@ function BubbleToolbar({
 }: {
   editor: Editor;
   noteId: string;
-  onAiAction: (type: AiActionType, text: string) => void;
+  onAiAction: (payload: AiActionPayload) => void;
   popoverOpenRef: React.MutableRefObject<boolean>;
 }) {
-  const getSelectedText = useCallback(() => {
-    const { from, to } = editor.state.selection;
-    return editor.state.doc.textBetween(from, to, " ");
-  }, [editor]);
+  const buildSelectionActionPayload = useCallback((type: AiActionType): AiActionPayload => {
+    const range = { from: editor.state.selection.from, to: editor.state.selection.to };
+    const text = selectedText(editor, range);
+    const selectedMarkdown = serializeRangeAsMarkdown(editor, range) || text;
+    const context = inlineContext(editor, range);
+    return {
+      type,
+      noteId,
+      text,
+      selectedMarkdown,
+      contextBefore: context.contextBefore,
+      contextAfter: context.contextAfter,
+      range,
+    };
+  }, [editor, noteId]);
 
   const [rewriteSuggestion, setRewriteSuggestion] = useState<RewriteSuggestionState | null>(null);
   const rewriteRequestIdRef = useRef(0);
@@ -1923,10 +1992,17 @@ function BubbleToolbar({
 
       <BubbleBtn
         active={false}
-        onClick={() => onAiAction("summarize", getSelectedText())}
+        onClick={() => onAiAction(buildSelectionActionPayload("summarize"))}
         title="AI로 요약"
       >
         <Sparkles size={13} />
+      </BubbleBtn>
+      <BubbleBtn
+        active={false}
+        onClick={() => onAiAction(buildSelectionActionPayload("outline"))}
+        title="개요 노트 만들기"
+      >
+        <FileText size={13} />
       </BubbleBtn>
       <div className="relative">
         <BubbleBtn
@@ -2528,6 +2604,7 @@ export interface NoteEditorHandle {
   flushPendingSave: () => void;
   getHTML: () => string;
   startInlineDraftSession: () => InlineDraftSession | null;
+  replaceRangeWithWikiLink: (range: AiSelectionRange, expectedText: string, title: string) => WikiLinkReplaceResult;
   /** 패널 레벨(EditorPanel.tsx)의 항상-보이는 삽입 버튼이 호출한다 — 본문 안에 버튼을 두면
       노트 길이에 따라 스크롤해야 보이는 위치에 가는 버그가 있었음(고정 위치 버튼은 패널
       기준으로 둬야 함). */
@@ -2595,7 +2672,7 @@ function CustomBubbleMenu({
 }: {
   editor: Editor;
   noteId: string;
-  onAiAction: (type: AiActionType, text: string) => void;
+  onAiAction: (payload: AiActionPayload) => void;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [anchor, setAnchor] = useState<BubbleAnchor | null>(null);
@@ -2844,7 +2921,7 @@ interface NoteEditorProps {
       여기서 직접 호출해 패널(탭) 활성화가 빠지지 않게 한다 */
   onActivate: () => void;
   onContentChange: (noteId: string, newContentHtml: string) => void;
-  onAiAction: (type: AiActionType, text: string) => void;
+  onAiAction: (payload: AiActionPayload) => void;
   /** 탭 바와 제목 사이 공간에 렌더링할 DOM 노드(EditorPanel이 만들어 전달) — Ctrl+F 검색창을
       본문 위 플로팅이 아니라 그 자리에 우측 정렬로 꽂아 넣기 위해 InNoteSearch가 포털로 쓴다.
       없으면(예: editor-lab처럼 이 레이아웃이 없는 곳) InNoteSearch가 기존 플로팅 위치로 대체한다. */
@@ -3089,6 +3166,25 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
     };
   }, [editor, mode, rollbackInlineDraftSession]);
 
+  const replaceRangeWithWikiLink = useCallback((
+    range: AiSelectionRange,
+    expectedText: string,
+    title: string
+  ): WikiLinkReplaceResult => {
+    if (!editor || mode !== "edit" || !editor.isEditable) {
+      return { replaced: false, reason: "편집 가능한 노트를 열어 주세요." };
+    }
+    const result = replaceRangeWithWikiLinkNode(editor, range, expectedText, title);
+    if (result.replaced) {
+      if (contentSyncTimerRef.current) {
+        clearTimeout(contentSyncTimerRef.current);
+        contentSyncTimerRef.current = null;
+      }
+      onContentChange(note.id, editor.getHTML());
+    }
+    return result;
+  }, [editor, mode, note.id, onContentChange]);
+
   useImperativeHandle(ref, () => ({
     focusStart: () => {
       editor?.chain().focus("start").run();
@@ -3106,6 +3202,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
     },
     getHTML: () => editor?.getHTML() ?? "",
     startInlineDraftSession,
+    replaceRangeWithWikiLink,
     insertImageFile: (file) => {
       if (!editor) return;
       insertImageBlockFromFile(editor.view, file);
@@ -3143,7 +3240,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       // coords가 없으면(문서 완전히 바깥) 현재 selection을 그대로 두고 메뉴만 띄운다.
       setContextMenu({ x, y, inTable: false, inImage: false });
     },
-  }), [editor, mode, note.id, onActivate, onContentChange, startInlineDraftSession]);
+  }), [editor, mode, note.id, onActivate, onContentChange, replaceRangeWithWikiLink, startInlineDraftSession]);
 
   const requestInlineContinue = useCallback(async () => {
     if (!editor) return;
