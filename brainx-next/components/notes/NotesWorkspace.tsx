@@ -2715,12 +2715,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         createdNote.title
       );
       if (result.replaced) {
-        try {
-          await saveActiveNoteToBackend(activeEditorHandle.getHTML());
+        if (USE_MOCK_NOTES) {
           linked = true;
-        } catch (error) {
-          linkSkippedReason = "원본 노트의 자동 링크 저장에 실패했습니다. 수동 저장을 다시 시도해 주세요.";
-          pushToast(error instanceof Error ? error.message : linkSkippedReason, "err");
+        } else {
+          try {
+            await saveActiveNoteToBackend(activeEditorHandle.getHTML());
+            linked = true;
+          } catch (error) {
+            linkSkippedReason = "원본 노트의 자동 링크 저장에 실패했습니다. 수동 저장을 다시 시도해 주세요.";
+            pushToast(error instanceof Error ? error.message : linkSkippedReason, "err");
+          }
         }
       } else {
         linkSkippedReason = result.reason;
