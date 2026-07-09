@@ -595,7 +595,7 @@ git status --ignored
 - 실제 `commerce-service-secret.yaml` 생성 시 키 이름은 바꾸지 않고 값만 채우는지 확인
 - `commerce-service-secret.yaml`의 `JWT_SECRET`이 Gateway-Service, User-Service, Workspace-Service, Admin-Service, Mcp-Service와 공통으로 쓰는 동일 값인지 확인
 - `gateway-secret`, `postgres-secret`, `commerce-service-secret`이 모두 `brainx` namespace에 먼저 apply 되어 있는지 확인
-- Postgres(`host.docker.internal:5432`, DB `brainx_commerce`), Kafka(`host.docker.internal:9092`), Eureka(`http://discovery-service:8761/eureka/`) 연결 가능 여부를 확인
+- Postgres(`host.docker.internal:5432`, DB `brainx_commerce`), Kafka(`host.docker.internal:9093`), Eureka(`http://discovery-service:8761/eureka/`) 연결 가능 여부를 확인
 - Commerce probe 경로가 `/actuator/health` 기준이고, `SecurityConfig`가 `/actuator/health`, `/actuator/prometheus`만 `permitAll`인 현재 코드와 맞는지 확인
 - 실제 apply 직전 `kubectl -n brainx get secret commerce-service-secret`, `kubectl -n brainx get secret gateway-secret`, `kubectl -n brainx get secret postgres-secret`으로 선행 Secret 존재를 재확인
 
@@ -620,7 +620,7 @@ git status --ignored
 - 실제 `admin-service-secret.yaml` 생성 시 키 이름은 바꾸지 않고 값만 채우는지 확인
 - `gateway-secret`, `postgres-secret`, `admin-service-secret`이 모두 `brainx` namespace에 먼저 apply 되어 있는지 확인
 - Admin probe 경로가 `/actuator/health/readiness`, `/actuator/health/liveness`이고 SecurityConfig 에서 `/actuator/**`가 `permitAll`인지 확인
-- Postgres(`host.docker.internal:5432`, DB `brainx_admin`), Kafka(`host.docker.internal:9092`), Eureka(`http://discovery-service:8761/eureka/`) 연결 가능 여부를 확인
+- Postgres(`host.docker.internal:5432`, DB `brainx_admin`), Kafka(`host.docker.internal:9093`), Eureka(`http://discovery-service:8761/eureka/`) 연결 가능 여부를 확인
 - Downstream `gateway-service`, `user-service`, `commerce-service`, `workspace-service`, `ingestion-service`, `intelligence-service`, `mcp-service`가 ConfigMap URL 기준으로 접근 가능한지 확인
 - `host.docker.internal` 기반 값은 Docker Desktop 로컬 검증용 전제이므로 다른 Kubernetes 환경에서는 그대로 실패할 수 있음을 확인
 - 실제 apply 직전 `kubectl -n brainx get secret admin-service-secret`, `kubectl -n brainx get secret gateway-secret`, `kubectl -n brainx get secret postgres-secret`으로 선행 Secret 존재를 재확인

@@ -147,7 +147,7 @@ function Ensure-Namespace {
     Invoke-ExternalCommand -FilePath 'kubectl' -Arguments @('apply', '-f', $namespaceManifest)
 }
 
-function Assert-SecretsExist {
+function Ensure-Secrets {
     param(
         [string[]]$SecretNames = @()
     )
@@ -158,9 +158,27 @@ function Assert-SecretsExist {
     }
 
     foreach ($secretName in $SecretNames) {
-        if (-not (Test-KubernetesResourceExists -Arguments @('get', 'secret', $secretName, '-n', $namespace))) {
-            throw "Required secret '$secretName' was not found in namespace '$namespace'. Apply the real secret YAML before running this script."
+        $realSecretPath = Join-Path $scriptDir "k8s\secrets\$secretName.yaml"
+        $exampleSecretPath = Join-Path $scriptDir "k8s\secrets\$secretName.example.yaml"
+
+        if (Test-Path $realSecretPath) {
+            # Real secret YAML found locally: (re)apply it so edits are picked up.
+            # Never logs secret contents; kubectl apply only prints the resource name.
+            Write-Host "Applying real secret manifest for '$secretName'."
+            Invoke-ExternalCommand -FilePath 'kubectl' -Arguments @('apply', '-f', $realSecretPath)
+            continue
         }
+
+        if (Test-KubernetesResourceExists -Arguments @('get', 'secret', $secretName, '-n', $namespace)) {
+            Write-Host "Secret '$secretName' already exists in namespace '$namespace' (no local k8s\secrets\$secretName.yaml found; leaving as-is)."
+            continue
+        }
+
+        if (Test-Path $exampleSecretPath) {
+            throw "Required secret '$secretName' was not found in namespace '$namespace', and no real secret file exists. Copy k8s\secrets\$secretName.example.yaml to k8s\secrets\$secretName.yaml, fill in real values, then re-run. Example secrets are never applied automatically."
+        }
+
+        throw "Required secret '$secretName' was not found in namespace '$namespace', and no secret YAML (real or example) exists at k8s\secrets\$secretName.yaml. Create it before running this script."
     }
 }
 
@@ -208,7 +226,7 @@ foreach ($configMapPath in $configMapPaths) {
 }
 
 Ensure-Namespace
-Assert-SecretsExist -SecretNames $config.Secrets
+Ensure-Secrets -SecretNames $config.Secrets
 
 Invoke-ExternalCommand -FilePath 'docker' -Arguments @('build', '-t', $config.Image, $buildContext)
 foreach ($configMapPath in $configMapPaths) {

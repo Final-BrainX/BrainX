@@ -13,7 +13,7 @@ data:
   SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "3"
   SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "1"
   WORKSPACE_SERVICE_URL: http://host.docker.internal:8082
-  SPRING_KAFKA_BOOTSTRAP_SERVERS: host.docker.internal:9092
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: host.docker.internal:9093
   EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
   EUREKA_INSTANCE_HOSTNAME: ingestion-service
   CDN_BASE_URL: https://cdn.brainx.com

@@ -41,7 +41,7 @@
 
 - [ ] **Gateway** `k8s/apps/gateway-service.yaml` — `SPRING_APPLICATION_JSON`의 정적 discovery 인스턴스 7개
   (`User-Service`, `Workspace-Service`, `ingestion-service`, `Commerce-Service`, `Admin-Service`, `intelligence-service`, `mcp-service`)가 모두 `http://host.docker.internal:8080~8087`
-- [ ] **Workspace** `k8s/apps/workspace-service.yaml`(ConfigMap) — `POSTGRES_HOST`, `REDIS_HOST`, `NEO4J_URI(bolt://host.docker.internal:7687)`, `SPRING_KAFKA_BOOTSTRAP_SERVERS(host.docker.internal:9092)`
+- [ ] **Workspace** `k8s/apps/workspace-service.yaml`(ConfigMap) — `POSTGRES_HOST`, `REDIS_HOST`, `NEO4J_URI(bolt://host.docker.internal:7687)`, `SPRING_KAFKA_BOOTSTRAP_SERVERS(host.docker.internal:9093)`
 - [ ] **User** `k8s/apps/user-service.yaml` — Postgres/Redis/Workspace-Service 경로
 - [ ] **Admin** `k8s/apps/admin-service.yaml` — Postgres/Kafka/Gateway/다른 앱 서비스 경로
 - [ ] **MCP** `k8s/apps/mcp-service-configmap.yaml` — Postgres/Workspace/Intelligence 경로 + OAuth 공개 URL(`http://localhost:3000` 계열)

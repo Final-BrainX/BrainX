@@ -316,7 +316,7 @@ Kubernetes 준비 매니페스트의 연결 방식:
 
 - Eureka: `http://discovery-service:8761/eureka/`
 - Postgres: `host.docker.internal:5432`
-- Kafka: `host.docker.internal:9092`
+- Kafka: `host.docker.internal:9093` (k8s Pod 전용 `K8S` 리스너, EXTERNAL `localhost:9092`와 별도)
 - Gateway 및 나머지 앱 서비스: `host.docker.internal` + Compose publish 포트
 
 주의:
@@ -387,7 +387,7 @@ Kubernetes 준비 매니페스트의 연결 방식:
 - Postgres: `host.docker.internal:5432` (DB `brainx_workspace`)
 - Redis: `host.docker.internal:6379`
 - Neo4j: `bolt://host.docker.internal:7687`
-- Kafka: `host.docker.internal:9092`
+- Kafka: `host.docker.internal:9093` (k8s Pod 전용 `K8S` 리스너, EXTERNAL `localhost:9092`와 별도)
 - Postgres 계정: `postgres-secret`의 `POSTGRES_USER`, `POSTGRES_PASSWORD` (기존 Secret 재사용)
 - Service Token: `gateway-secret`의 `SERVICE_TOKEN` (기존 Secret 재사용)
 - JWT 시크릿, Neo4j 비밀번호: `workspace-secret`의 `JWT_SECRET`, `NEO4J_PASSWORD` (신규 Secret)
@@ -451,7 +451,7 @@ Kubernetes 준비 매니페스트의 연결 방식:
 - Eureka: `http://discovery-service:8761/eureka/`
 - Postgres: `host.docker.internal:5432` (DB `brainx_ingestion`)
 - Workspace-Service: `http://host.docker.internal:8082`
-- Kafka: `host.docker.internal:9092`
+- Kafka: `host.docker.internal:9093` (k8s Pod 전용 `K8S` 리스너, EXTERNAL `localhost:9092`와 별도)
 - JWT 시크릿: `gateway-secret`의 `JWT_SECRET` 재사용
 - Postgres 계정: `postgres-secret`의 `POSTGRES_USER`, `POSTGRES_PASSWORD` 재사용
 - Notion OAuth: `ingestion-service-secret`의 `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET`
@@ -571,7 +571,7 @@ Kubernetes 준비 매니페스트의 연결 방식:
 
 - Eureka: `http://discovery-service:8761/eureka/`
 - Postgres: `host.docker.internal:5432` (DB `brainx_commerce`)
-- Kafka: `host.docker.internal:9092`
+- Kafka: `host.docker.internal:9093` (k8s Pod 전용 `K8S` 리스너, EXTERNAL `localhost:9092`와 별도)
 - Postgres 계정: `postgres-secret`의 `POSTGRES_USER`, `POSTGRES_PASSWORD` 재사용
 - Service Token: `gateway-secret`의 `SERVICE_TOKEN` 재사용
 - JWT/Toss key: `commerce-service-secret`의 `JWT_SECRET`, `TOSS_CLIENT_KEY`, `TOSS_SECRET_KEY`
