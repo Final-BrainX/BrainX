@@ -1,6 +1,8 @@
 package com.brainx.intelligence.infrastructure.security;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.List;
 
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -30,7 +32,8 @@ final class ServiceTokenAuthenticationFilter extends OncePerRequestFilter {
         FilterChain filterChain
     ) throws ServletException, IOException {
         String requestedToken = request.getHeader(SERVICE_TOKEN_HEADER);
-        if (hasText(requestedToken) && requestedToken.equals(serviceToken)) {
+        if (hasText(requestedToken) && MessageDigest.isEqual(
+                requestedToken.getBytes(StandardCharsets.UTF_8), serviceToken.getBytes(StandardCharsets.UTF_8))) {
             SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
                 "internal-service",
                 null,

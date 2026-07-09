@@ -19,13 +19,19 @@
 - XSS: `dangerouslySetInnerHTML`, `innerHTML`, HTML 후처리 로직이 존재해 우선 점검 대상이다.
 - 예외/로그: 전역 예외 처리 패턴은 존재하지만, 클라이언트 응답 메시지와 서버 상세 로그의 분리가 계속 유지되는지 검증이 필요하다.
 
-우선순위가 높은 현재 점검 후보:
+우선순위가 높은 현재 점검 후보 중 아래 항목은 반영 완료되었다.
 
-- `brainx-next/components/public/share-screen.tsx`
-- `brainx-next/components/home-screen.tsx`
-- `brainx-next/components/notes/NoteEditor.tsx`
-- `brainx-next/lib/notes/exportNoteContent.ts`
-- `brainX_back/Workspace-Service/src/main/java/com/brainx/workspace/config/SecurityConfig.java`
+- [x] `brainx-next/components/public/share-screen.tsx` — 공유 노트 렌더링에 `lib/safe-html.ts` sanitizer 적용
+- [x] `brainx-next/components/home-screen.tsx` — `insight.html`(노트 제목/카테고리 라벨을 문자열 보간한 인사이트 카드)에 `sanitizeHtml()` 적용. 노트 제목에 `<img onerror=...>` 등을 넣으면 홈 대시보드에서 그대로 실행되는 저장형 XSS였다.
+- [x] `brainx-next/components/notes/NoteEditor.tsx` — AI 다시쓰기 미리보기에 `sanitizeHtml()` 적용
+- [x] `brainx-next/lib/notes/exportNoteContent.ts` — `downloadPdfFile`이 노트 HTML/제목을 이스케이프 없이 `document.body`에 append되는 컨테이너의 `innerHTML`에 넣던 경로를 `sanitizeHtml()` + `textContent` 기반 제목 렌더링으로 교체(라이브 DOM에 붙는 컨테이너라 `onerror`/`onload` 핸들러가 실제로 실행될 수 있었다)
+- [x] `brainX_back/Workspace-Service/src/main/java/com/brainx/workspace/config/SecurityConfig.java` — CORS를 `BRAINX_SECURITY_ALLOWED_ORIGINS` 환경변수 allowlist 기반으로 전환, 보안 헤더 추가
+- [x] `brainX_back/*/security/ServiceTokenFilter*.java` (Workspace/User/Commerce/Intelligence) — `X-Service-Token` 비교를 `String.equals()`에서 `MessageDigest.isEqual()` 상수시간 비교로 교체(9번 항목 타이밍 공격 방어)
+
+추가 확인 사항(수정 불필요로 판단):
+
+- Workspace-Service의 `/api/v1/workspaces/**`, `/api/v1/notes/**` 등 `permitAll()` 범위는 Guest(비로그인) CRUD를 지원하기 위한 의도된 설계다. `CurrentActor`가 `X-User-Id`/`X-Guest-Id`/JWT 중 하나도 없으면 401을 던져 애플리케이션 계층에서 인증을 강제한다.
+- `CurrentActor`가 신뢰하는 `X-User-Id` 헤더는 Gateway의 `JwtAuthenticationGlobalFilter.sanitizeInternalHeaders()`가 클라이언트가 보낸 값을 먼저 제거하고, JWT 검증에 성공한 뒤에만 다시 설정한다. Workspace-Service(8082)는 `docker-compose`에서 `expose`만 되어 있고 `ports`로 호스트/인터넷에 노출되지 않으며, Terraform 보안그룹도 80/443/5432만 연다 — 즉 이 헤더 신뢰 모델은 "요청이 반드시 Gateway를 거친다"는 네트워크 격리 전제에 의존한다. 이 전제가 깨지면(예: 배포 구성 변경으로 8082가 직접 노출) 즉시 계정 탈취로 이어지므로, 향후 네트워크 토폴로지를 바꿀 때는 Workspace-Service가 Gateway 경유 여부를 자체적으로도 검증하도록(서비스 토큰 또는 mTLS) 후속 검토가 필요하다.
 
 ## 점검 원칙
 

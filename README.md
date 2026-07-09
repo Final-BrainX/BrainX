@@ -3,9 +3,10 @@
 ## Security Checklist
 
 - Repository-wide secure coding checklist: [docs/SECURE_CODING_CHECKLIST.md](/C:/Edu/BrainX/docs/SECURE_CODING_CHECKLIST.md)
-- Shared-note HTML, imported HTML, and AI-generated rich text must be sanitized before rendering.
+- Shared-note HTML, imported HTML, and AI-generated rich text must be sanitized before rendering. This also covers the Home insight cards (`components/home-screen.tsx`) and PDF export (`lib/notes/exportNoteContent.ts`), both of which render note titles/HTML into a container that ends up attached to (or interpreted as) live DOM.
 - Workspace-Service credentialed CORS must use explicit allowlists via `BRAINX_SECURITY_ALLOWED_ORIGINS`.
 - Internal `/internal/v1/**` APIs remain service-auth-only and are not browser-target public endpoints.
+- Every service that authenticates internal calls via `X-Service-Token` (Workspace/User/Commerce/Intelligence) compares it with `MessageDigest.isEqual` rather than `String.equals`, matching the constant-time comparison already used for JWT verification.
 
 > AI 기반 지식 관리 플랫폼
 

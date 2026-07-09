@@ -4,6 +4,7 @@ import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import { saveFile, saveTextFile } from "@/lib/desktop-files";
 import { fetchImageViaProxy, getAssetFileUrl } from "@/lib/ingestion-api";
+import { sanitizeHtml } from "@/lib/safe-html";
 
 /**
  * 백엔드 POST /api/v1/exports는 SSOT 문서에도 명시된 MVP 스텁이라 실제 파일을 만들지 않고
@@ -294,7 +295,11 @@ export async function downloadPdfFile(title: string, html: string, fileName: str
   container.style.background = "#ffffff";
   container.style.color = "#111111";
   container.style.fontFamily = "-apple-system, 'Malgun Gothic', 'Segoe UI', sans-serif";
-  container.innerHTML = `<h1 style="margin:0 0 20px;font-size:24px;">${title}</h1>${html}`;
+  container.innerHTML = sanitizeHtml(html);
+  const heading = document.createElement("h1");
+  heading.style.cssText = "margin:0 0 20px;font-size:24px;";
+  heading.textContent = title;
+  container.prepend(heading);
   resolveAssetImagePlaceholders(container);
   applyColumnLayoutStyles(container);
   stripMarkdownHeadingPrefixes(container);

@@ -306,8 +306,15 @@ export default function EditorPanel({
   const titleInputRef = useRef<HTMLInputElement>(null);
 
   // note 교체 시 초기화 — 방금 생성된 빈 새 노트("새 노트", 중복 시 "새 노트1"/"새 노트2"… 자동 넘버링된
-  // 제목 + 빈 본문)는 곧바로 제목 편집 상태로 연다
+  // 제목 + 빈 본문)는 곧바로 제목 편집 상태로 연다.
+  // note.id는 노트를 만든 직후 issueWorkspaceNoteDraftId()가 로컬 id를 서버 draft id로
+  // 교체할 때도 바뀐다(같은 탭, 같은 논리적 노트) — 이 순간 사용자가 이미 제목을 입력
+  // 중이면(isEditingTitle === true) 그 입력을 지우고 처음부터 다시 전체선택 상태로
+  // 되돌리면 안 되므로, 이미 편집 중이면 이 초기화를 건너뛴다. 실제로 다른 탭으로
+  // 전환할 때는 탭 클릭이 먼저 title input의 blur(commitTitle)를 발생시켜
+  // isEditingTitle이 이미 false로 정리된 뒤 이 effect가 실행되므로 정상 동작한다.
   useEffect(() => {
+    if (isEditingTitle) return;
     setTitleDraft(note?.title ?? "");
     const isFreshNote = !!note && note.content.trim() === "" && /^새 노트\d*$/.test(note.title);
     setIsEditingTitle(isFreshNote);
