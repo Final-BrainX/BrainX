@@ -76,6 +76,11 @@ spec:
                 secretKeyRef:
                   name: intelligence-service-secret
                   key: OPENAI_API_KEY
+            - name: VOYAGE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: intelligence-service-secret
+                  key: VOYAGE_API_KEY
             - name: QDRANT_API_KEY
               valueFrom:
                 secretKeyRef:

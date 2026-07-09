@@ -43,7 +43,7 @@ Chart 루트는 `k8s/helm/brainx/`. 생성 순서는 "구조 뼈대 → 공통 h
 1. **`values.yaml`(공통 기준값)부터 완성**: `global`, `secretRefs`, `services.*`(env/config/secretEnv/probes), `monitoring.*`를 로컬 raw manifest 값 그대로 옮긴다. 이 시점의 `global.downstreamHost`는 로컬 값(`host.docker.internal`)을 기본값으로 둔다.
 2. **`values-local.yaml` 생성**: `values.yaml`과의 차이만 남긴다. 초기에는 차이가 거의 없어야 정상(로컬이 기준값이므로). 명시적으로 `downstreamHost`, `imageRegistry: ""`, `tag: local`만 명시적으로 재확인 차원에서 적는다.
 3. **`values-prod.yaml`은 뼈대만**: 키는 존재하되 실제 운영 값은 채우지 않는다(`TODO` 표시). 운영 전환은 이 계획의 범위 밖.
-4. 서비스 값 채우기 순서는 4장의 "서비스별 전환 순서"와 동일하게 진행한다(한 번에 6개를 다 채우지 않고 서비스 단위로 채우고 검증).
+4. 서비스 값 채우기 순서는 4장의 "서비스별 전환 순서"와 동일하게 진행한다(한 번에 9개를 다 채우지 않고 서비스 단위로 채우고 검증).
 
 **검증 규칙**: `values.yaml` 단독으로는 `helm template`이 완전한 형태로 나오지 않아도 되지만(오버라이드 없이 렌더 안 될 수 있음), `values.yaml + values-local.yaml` 조합은 항상 렌더 가능해야 한다.
 
@@ -54,7 +54,7 @@ Chart 루트는 `k8s/helm/brainx/`. 생성 순서는 "구조 뼈대 → 공통 h
 `HELM_DESIGN.md` 4장 원칙(Chart는 Secret을 생성하지 않고 이름으로만 참조)을 그대로 실행한다.
 
 1. Chart 작업 시작 전, `templates/`에 `kind: Secret`을 넣지 않는다는 것을 **가장 먼저 리뷰 체크리스트에 고정**한다(코드 리뷰 시 최우선 확인 항목).
-2. `values.yaml`의 `secretRefs`에 Secret **이름만** 채운다(값 아님): `postgres-secret`, `gateway-secret`, `workspace-secret`, `admin-service-secret`, `mcp-service-secret`, `grafana-secret`.
+2. `values.yaml`의 `secretRefs`에 Secret **이름만** 채운다(값 아님): `postgres-secret`, `gateway-secret`, `workspace-secret`, `admin-service-secret`, `mcp-service-secret`, `ingestion-service-secret`, `commerce-service-secret`, `intelligence-service-secret`, `grafana-secret`.
 3. 실제 Secret은 기존 절차 그대로 로컬에서 먼저 apply한다. **공유 Secret이 앱 Secret보다 먼저**:
    ```powershell
    kubectl apply -f .\k8s\secrets\postgres-secret.yaml
@@ -62,10 +62,13 @@ Chart 루트는 `k8s/helm/brainx/`. 생성 순서는 "구조 뼈대 → 공통 h
    kubectl apply -f .\k8s\secrets\workspace-secret.yaml
    kubectl apply -f .\k8s\secrets\admin-service-secret.yaml
    kubectl apply -f .\k8s\secrets\mcp-service-secret.yaml
+   kubectl apply -f .\k8s\secrets\ingestion-service-secret.yaml
+   kubectl apply -f .\k8s\secrets\commerce-service-secret.yaml
+   kubectl apply -f .\k8s\secrets\intelligence-service-secret.yaml
    kubectl apply -f .\k8s\secrets\grafana-secret.yaml
    # user-service-oauth-secret 은 선택(optional: true 키만 존재)
    ```
-4. `JWT_SECRET` 동일성 재확인: `gateway-secret`, `workspace-secret`, `admin-service-secret`, `mcp-service-secret`에 들어간 `JWT_SECRET` 값이 모두 같은지 apply 전에 diff/육안 확인한다. Helm은 이 동일성을 강제하지 않으므로 사람이 확인한다.
+4. `JWT_SECRET` 동일성 재확인: `gateway-secret`, `workspace-secret`, `admin-service-secret`, `mcp-service-secret`에 들어간 `JWT_SECRET` 값이 모두 같은지 apply 전에 diff/육안 확인한다. `ingestion-service-secret`/`commerce-service-secret`/`intelligence-service-secret`은 별도 `JWT_SECRET` 키가 없고 `gateway-secret`을 그대로 참조하므로 이 동일성 확인 대상에서 제외된다. Helm은 이 동일성을 강제하지 않으므로 사람이 확인한다.
 5. Deployment 템플릿에서 `secretEnv[].secret` → `secretRefs` lookup → `secretKeyRef.name` 매핑이 서비스별로 기존 파일과 정확히 같은 이름을 참조하는지 5장(Template 작성) 단계에서 diff로 재확인한다.
 6. **금지 재확인**: `values-*.yaml` 어디에도 실제 Secret 값 작성 금지, `helm template` 출력에 Secret 리소스나 평문 값이 나타나지 않아야 함(7.2 검증에서 게이트).
 
@@ -111,13 +114,16 @@ Chart 루트는 `k8s/helm/brainx/`. 생성 순서는 "구조 뼈대 → 공통 h
 | 2 | Gateway | Secret 1개(`gateway-secret`), `SPRING_APPLICATION_JSON` helper 검증 필요 | `secretEnv` 2건, JSON 유효성(중괄호), downstreamHost 조합 |
 | 3 | User | Secret 2개 공유(`postgres`+`gateway`) + `startupProbe` + optional Secret(`user-service-oauth-secret`) | `startupProbe` 분기 렌더, optional 키 누락 시 env 자체 생략되는지 |
 | 4 | Admin | 첫 ConfigMap 서비스 + Secret 3개(`postgres`/`gateway`/`admin`) | ConfigMap 키 목록, Kafka bootstrap 등 downstream 조합 |
-| 5 | Workspace | ConfigMap + Secret 3개(`postgres`/`gateway`/`workspace`) + Neo4j 백필 플래그 | `NEO4J_BACKFILL_ON_STARTUP` 등 config 값, readiness=db+redis 지연값 일치 |
-| 6 | MCP | ConfigMap + Secret 3개(`postgres`/`gateway`/`mcp`) + OAuth origin 4종(환경별 강제 교체 대상) + `startupProbe` | 분리 파일이던 ConfigMap 통합 결과 동일성, OAuth 4개 값이 `values-local`에서 로컬 origin으로 렌더되는지 |
-| 7 | Monitoring(Prometheus→Grafana) | 앱 6개 전환 완료 후 마지막(구조가 다름) | scrape target 목록 동일, `grafana-secret` 참조, `persistence.enabled=false` |
+| 5 | Ingestion | 분리 파일 ConfigMap + Secret 3개(`postgres`/`gateway`/`ingestion`) | ConfigMap 통합 결과 동일성, Kafka bootstrap이 `downstreamHost:9093`인지(9092 아님) |
+| 6 | Commerce | ConfigMap + Secret 3개(`postgres`/`gateway`/`commerce`) | Kafka bootstrap `downstreamHost:9093`, Prometheus 활성 scrape target(commerce는 이미 활성)과의 정합성 |
+| 7 | Intelligence | 분리 파일 ConfigMap + Secret 3개(`postgres`/`gateway`/`intelligence`) + `startupProbe` + AI/임베딩 설정 | `SPRING_AI_MODEL_CHAT=openai`, `BRAINX_AI_EMBEDDING_PROVIDER=voyage` 렌더 여부, `VOYAGE_API_KEY`/`OPENAI_API_KEY`/`QDRANT_API_KEY` secretKeyRef, Kafka bootstrap `downstreamHost:9093` |
+| 8 | Workspace | ConfigMap + Secret 3개(`postgres`/`gateway`/`workspace`) + Neo4j 백필 플래그 | `NEO4J_BACKFILL_ON_STARTUP` 등 config 값, readiness=db+redis 지연값 일치 |
+| 9 | MCP | ConfigMap + Secret 3개(`postgres`/`gateway`/`mcp`) + OAuth origin 4종(환경별 강제 교체 대상) + `startupProbe` | 분리 파일이던 ConfigMap 통합 결과 동일성, OAuth 4개 값이 `values-local`에서 로컬 origin으로 렌더되는지 |
+| 10 | Monitoring(Prometheus→Grafana) | 앱 9개 전환 완료 후 마지막(구조가 다름) | scrape target 목록 동일(현재 활성: user/gateway/admin/workspace/commerce, ingestion/intelligence는 주석 처리 상태 유지), `grafana-secret` 참조, `persistence.enabled=false` |
 
 각 서비스는 "템플릿 작성 → `helm lint` → `helm template --show-only`로 해당 서비스만 렌더 → 기존 raw manifest와 diff(7.2) → 다음 서비스"의 사이클을 반복한다. **한 서비스가 diff 동등성을 통과하기 전에는 다음 서비스로 넘어가지 않는다.**
 
-README 상 서비스 기동 의존 순서(Discovery→Gateway→User→Admin→MCP→Workspace)는 **런타임 기동 순서**이고, 위 표는 **Helm 전환/검증 순서**다. 둘은 목적이 달라 순서가 다를 수 있음을 인지하고 혼동하지 않는다(Helm은 한 릴리스로 전체를 배포하므로 검증 순서가 곧 apply 순서를 의미하지 않는다).
+README 상 서비스 기동 의존 순서(Discovery→Gateway→User→Admin→Ingestion→Commerce→Intelligence→MCP→Workspace)는 **런타임 기동 순서**이고, 위 표는 **Helm 전환/검증 순서**다. 둘은 목적이 달라 순서가 다를 수 있음을 인지하고 혼동하지 않는다(Helm은 한 릴리스로 전체를 배포하므로 검증 순서가 곧 apply 순서를 의미하지 않는다).
 
 ---
 
@@ -211,7 +217,13 @@ kubectl apply -f .\k8s\apps\discovery-service.yaml
 kubectl apply -f .\k8s\apps\gateway-service.yaml
 kubectl apply -f .\k8s\apps\user-service.yaml
 kubectl apply -f .\k8s\apps\admin-service.yaml
+kubectl apply -f .\k8s\apps\ingestion-service-configmap.yaml
+kubectl apply -f .\k8s\apps\ingestion-service.yaml
+kubectl apply -f .\k8s\apps\commerce-service.yaml
+kubectl apply -f .\k8s\apps\intelligence-service-configmap.yaml
+kubectl apply -f .\k8s\apps\intelligence-service.yaml
 kubectl apply -f .\k8s\apps\workspace-service.yaml
+kubectl apply -f .\k8s\apps\mcp-service-configmap.yaml
 kubectl apply -f .\k8s\apps\mcp-service.yaml
 kubectl apply -f .\k8s\monitoring\
 ```
@@ -233,7 +245,7 @@ Cut-over는 "Helm 릴리스를 유일한 배포 경로로 확정하고 raw manif
 
 ### 9.1 Cut-over 선행 조건 (전부 충족)
 
-- [ ] 6장의 앱 서비스 6개 + 모니터링 2개 전체가 서비스별 diff 동등성(7.2)을 통과했다.
+- [ ] 6장의 앱 서비스 9개 + 모니터링 2개 전체가 서비스별 diff 동등성(7.2)을 통과했다.
 - [ ] `values-local.yaml` 기준 `helm template` 전체 렌더 결과가 기존 `k8s/apps/*.yaml` + `k8s/monitoring/*.yaml` 전체와 의미상 100% 일치한다(포트/probe/secretKeyRef/env 누락 없음).
 - [ ] `helm install --dry-run=server` 통과(7.4).
 - [ ] 실제 `helm install brainx`로 로컬 클러스터에 설치 후, raw manifest로 띄웠을 때와 **동일한 방식으로 기능 검증**(포트포워딩 후 각 서비스 `/actuator/health`, Gateway를 통한 라우팅, Admin 시드 계정 로그인 등)을 통과했다.

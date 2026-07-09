@@ -509,11 +509,11 @@ Compose 기준 Intelligence-Service 설정 요약:
 
 - Postgres 계정: `postgres-secret`의 `POSTGRES_USER`, `POSTGRES_PASSWORD`
 - Gateway 공유 토큰/JWT: `gateway-secret`의 `SERVICE_TOKEN`, `JWT_SECRET`
-- OpenAI/Qdrant: `intelligence-service-secret`의 `OPENAI_API_KEY`, `QDRANT_API_KEY`
+- OpenAI/Qdrant/Voyage: `intelligence-service-secret`의 `OPENAI_API_KEY`, `QDRANT_API_KEY`, `VOYAGE_API_KEY`
 
 ConfigMap/Secret 분리:
 
-- 비민감 env(`SERVER_PORT`, `SPRING_DATASOURCE_URL`, Hikari 제한, `REDIS_HOST`/`REDIS_PORT`/`REDIS_TIMEOUT`, `KAFKA_BOOTSTRAP_SERVERS`/`SPRING_KAFKA_BOOTSTRAP_SERVERS`, `BRAINX_EVENTS_*`, OpenAI model 선택값, `BRAINX_EXTERNAL_SEARCH_*`, `QDRANT_HOST`/`QDRANT_GRPC_PORT`/`QDRANT_COLLECTION`, Workspace/Commerce base URL, Eureka URL/hostname, repair 플래그)는 `intelligence-service-config` ConfigMap으로 분리한다.
+- 비민감 env(`SERVER_PORT`, `SPRING_DATASOURCE_URL`, Hikari 제한, `REDIS_HOST`/`REDIS_PORT`/`REDIS_TIMEOUT`, `KAFKA_BOOTSTRAP_SERVERS`/`SPRING_KAFKA_BOOTSTRAP_SERVERS`, `BRAINX_EVENTS_*`, `SPRING_AI_MODEL_CHAT`/OpenAI model 선택값, `BRAINX_EXTERNAL_SEARCH_*`, `QDRANT_HOST`/`QDRANT_GRPC_PORT`/`QDRANT_COLLECTION`, `BRAINX_AI_EMBEDDING_PROVIDER`/`VOYAGE_EMBEDDING_MODEL`/`VOYAGE_EMBEDDING_DIMENSIONS`, Workspace/Commerce base URL, Eureka URL/hostname, repair 플래그)는 `intelligence-service-config` ConfigMap으로 분리한다.
 - 민감값은 `postgres-secret`, `gateway-secret`, `intelligence-service-secret`에서만 주입한다.
 - Workspace-Service는 이미 Kubernetes 검증이 끝났으므로 in-cluster `http://workspace-service:8082`를 사용하고, Commerce-Service와 Compose 유지 인프라(Postgres/Redis/Kafka/Qdrant)는 `host.docker.internal`로 둔다.
 
@@ -528,6 +528,7 @@ Copy-Item .\k8s\secrets\intelligence-service-secret.example.yaml .\k8s\secrets\i
 - `intelligence-service-secret.yaml`
   - `OPENAI_API_KEY`
   - `QDRANT_API_KEY` (로컬 Compose Qdrant 무인증이면 빈 문자열 가능)
+  - `VOYAGE_API_KEY` (`BRAINX_AI_EMBEDDING_PROVIDER=voyage`일 때 필수, `VoyageEmbeddingConfiguration`이 없으면 기동 실패)
 
 예상 apply 순서:
 
@@ -549,7 +550,9 @@ kubectl -n brainx port-forward svc/intelligence-service 18086:8086
 - 현재 Gateway 정적 매핑은 여전히 `intelligence-service -> http://host.docker.internal:8086`이다. 따라서 이번 단계의 정상 검증 기준은 `svc/intelligence-service` 또는 `port-forward` direct 호출이며, Gateway cutover는 별도 작업이다.
 - `OPENAI_API_KEY`가 비어 있으면 Pod는 떠도 chat/assist/search/cluster/insight 계열 기능은 런타임 실패가 날 수 있다.
 - `QDRANT_API_KEY`는 로컬 Compose Qdrant가 무인증이면 비워 둘 수 있지만, 운영형 Qdrant 인증을 쓴다면 실제 값으로 채워야 한다.
-- `.\k8s.ps1 intelligence`는 `intelligence-service-secret`과 `intelligence-service-configmap.yaml` 존재를 함께 확인한다.
+- ConfigMap의 `SPRING_AI_MODEL_CHAT`은 반드시 `openai`여야 한다(기본값 `none`이면 `ChatClient.Builder` 빈이 생성되지 않아 chat/assist/organization/note-auto-link/connection-bridge가 LLM 없이 fallback만 동작).
+- ConfigMap의 `BRAINX_AI_EMBEDDING_PROVIDER`가 `voyage`이고 `VOYAGE_API_KEY`(real secret)가 채워져 있어야 임베딩이 실제로 생성된다. `BRAINX_VECTOR_QDRANT_ENABLED: "true"`인데 embedding provider가 `none`이면 벡터 인덱싱/검색이 조용히 no-op이 되는 모순 상태가 된다.
+- `.\k8s.ps1 intelligence`는 `intelligence-service-secret`과 `intelligence-service-configmap.yaml` 존재를 함께 확인하고, real secret YAML이 로컬에 있으면 배포 전 자동으로 apply한다.
 
 ## Commerce-Service 전환 메모
 
@@ -683,18 +686,23 @@ kubectl -n brainx port-forward svc/mcp-service 18087:8087
 2. `Gateway-Service`
 3. `User-Service`
 4. `Admin-Service`
-5. `Commerce-Service`
-6. `Mcp-Service`
-7. `Workspace-Service`
+5. `Ingestion-Service`
+6. `Commerce-Service`
+7. `Intelligence-Service`
+8. `Mcp-Service`
+9. `Workspace-Service`
 
 정리:
 
 - `Gateway-Service`는 전체 진입점이지만, 정적 discovery 매핑을 쓰면 로컬 준비 자체는 가능하다. 다만 운영형 전환으로 보기는 어렵다.
 - `User-Service`는 DB 와 Redis 가 필요하지만, Workspace-Service 호출은 best-effort 이므로 로컬 Docker Desktop 환경에서는 비교적 분리된 검증이 가능하다.
 - `Admin-Service`는 DB 와 Kafka, Gateway, 다른 앱 서비스 상태를 참조하므로 완전 독립적이지 않다. 다만 로컬 Docker Desktop 환경에서는 `host.docker.internal` 경유로 준비 가능하다.
+- `Ingestion-Service`는 DB 와 Kafka, Workspace-Service(host.docker.internal 경유)가 필요하지만 비교적 단순하게 분리 검증할 수 있다.
 - `Commerce-Service`는 DB 와 Kafka 가 필요하지만, 로컬 Docker Desktop 환경에서는 `host.docker.internal` 경유로 비교적 단순하게 분리 검증할 수 있다.
+- `Intelligence-Service`는 DB/Redis/Kafka/Qdrant/OpenAI/Workspace/Commerce 의존성이 가장 많아 Ingestion·Commerce 이후에 검증하는 것이 안전하다.
 - `Mcp-Service`는 stateless 이지만 Postgres, Workspace, Intelligence, OAuth 설정 의존성이 있어 Gateway 이후가 적절하다.
 - `Workspace-Service`는 핵심 비즈니스 및 데이터 의존성이 커서 후순위가 안전하다.
+- Ingestion/Commerce/Intelligence는 Kafka bootstrap을 `host.docker.internal:9093`(k8s Pod 전용 리스너)으로 참조한다. `host.docker.internal:9092`(EXTERNAL 리스너)를 쓰면 advertised address가 `localhost:9092`로 돌아와 Pod 자기 자신으로 재접속을 시도해 consumer/producer가 실패한다.
 - 완전한 Gateway 전환은 결국 Compose 대상 서비스들의 Discovery 전략까지 함께 정리된 뒤에 진행하는 것이 안전하다.
 
 ## Monitoring 로컬 검증 메모

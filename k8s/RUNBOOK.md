@@ -3,7 +3,7 @@
 이 문서는 Docker Desktop Kubernetes + `host.docker.internal` 기반 **로컬 검증 환경**을
 실제로 운영(배포/재배포/장애 대응)할 때 그대로 따라 하는 절차서다.
 
-- 대상 범위: `Discovery-Service`, `Gateway-Service`, `User-Service`, `Workspace-Service`, `Admin-Service`, `Mcp-Service`, `Monitoring`(Prometheus/Grafana)
+- 대상 범위: `Discovery-Service`, `Gateway-Service`, `User-Service`, `Workspace-Service`, `Admin-Service`, `Mcp-Service`, `Ingestion-Service`, `Commerce-Service`, `Intelligence-Service`, `Monitoring`(Prometheus/Grafana)
 - 비대상 범위: 최초 1회성 설치([SETUP.md](SETUP.md)), 구성 배경/전환 메모([README.md](README.md)), 장애 사례의 원인 분석 서술([TROUBLESHOOTING.md](TROUBLESHOOTING.md)), 운영 전환 체크리스트([PRODUCTION_CHECKLIST.md](PRODUCTION_CHECKLIST.md))
 - 사용법: 이 문서는 "무엇을 확인하고, 어떤 명령을 실행하는가"만 다룬다. 원인 배경이 궁금하면 각 절차 끝의 참고 링크를 따라간다.
 - 전제: `namespace/brainx`, Docker Desktop Kubernetes, Compose 인프라(Postgres/Redis/Neo4j/Kafka)가 이미 떠 있다는 것을 전제로 한다.
@@ -20,6 +20,9 @@
 | Admin-Service | 적용 완료 | `admin-service` | `admin-service:8085` | `admin` |
 | Mcp-Service | 적용 완료 | `mcp-service` | `mcp-service:8087` | `mcp` |
 | Workspace-Service | 적용 완료 | `workspace-service` | `workspace-service:8082` | `workspace` |
+| Ingestion-Service | 매니페스트 준비됨(apply 검증 전) | `ingestion-service` | `ingestion-service:8083` | `ingestion` |
+| Commerce-Service | 매니페스트 준비됨(apply 검증 전) | `commerce-service` | `commerce-service:8084` | `commerce` |
+| Intelligence-Service | 적용 완료(DB 인증/Kafka listener 이슈 해결됨) | `intelligence-service` | `intelligence-service:8086` | `intelligence` |
 | Monitoring(Prometheus) | 로컬 검증용 | `prometheus` | `prometheus:9090` | 미지원(수동 apply) |
 | Monitoring(Grafana) | 로컬 검증용 | `grafana` | `grafana:3000` | 미지원(수동 apply) |
 
@@ -43,13 +46,16 @@ kubectl apply -f .\k8s\namespace.yaml
 .\k8s.ps1 gateway
 .\k8s.ps1 user
 .\k8s.ps1 admin
+.\k8s.ps1 ingestion
+.\k8s.ps1 commerce
+.\k8s.ps1 intelligence
 .\k8s.ps1 mcp
 .\k8s.ps1 workspace
 
 # 3) Monitoring (4장 참고)
 ```
 
-이 순서는 [README.md](README.md)의 "후속 전환 순서"(Discovery → Gateway → User → Admin → MCP → Workspace)와 동일하다. Admin은 Postgres/Kafka/Gateway/다른 앱 서비스, Workspace는 Postgres/Redis/Neo4j/Kafka에 의존하므로 관련 Compose 서비스가 먼저 `Up` 상태여야 한다.
+이 순서는 [README.md](README.md)의 "후속 전환 순서"(Discovery → Gateway → User → Admin → Ingestion → Commerce → Intelligence → MCP → Workspace)와 동일하다. Admin/Ingestion/Commerce/Intelligence는 Postgres/Kafka(+Intelligence는 Redis/Qdrant), Workspace는 Postgres/Redis/Neo4j/Kafka에 의존하므로 관련 Compose 서비스가 먼저 `Up` 상태여야 한다. Ingestion/Commerce/Intelligence는 Kafka bootstrap을 `host.docker.internal:9093`(k8s Pod 전용 리스너)으로 참조하므로, Compose의 `kafka` 서비스가 `K8S` 리스너까지 포함해 최신 상태로 떠 있어야 한다.
 
 ### 1-2. 서비스별 필요 Secret / ConfigMap
 
@@ -61,12 +67,17 @@ kubectl apply -f .\k8s\namespace.yaml
 | Admin | `gateway-secret`, `postgres-secret`, `admin-service-secret` | `admin-service-config`(같은 파일 내 정의) | |
 | MCP | `gateway-secret`, `postgres-secret`, `mcp-service-secret` | `mcp-service-config`(`mcp-service-configmap.yaml`, 별도 파일) | ConfigMap을 먼저/같이 apply해야 함 |
 | Workspace | `gateway-secret`, `postgres-secret`, `workspace-secret` | `workspace-service-config`(같은 파일 내 정의) | |
+| Ingestion | `gateway-secret`, `postgres-secret`, `ingestion-service-secret` | `ingestion-service-config`(`ingestion-service-configmap.yaml`, 별도 파일) | ConfigMap을 먼저/같이 apply해야 함 |
+| Commerce | `gateway-secret`, `postgres-secret`, `commerce-service-secret` | 없음(같은 파일 내 정의) | |
+| Intelligence | `gateway-secret`, `postgres-secret`, `intelligence-service-secret` | `intelligence-service-config`(`intelligence-service-configmap.yaml`, 별도 파일) | ConfigMap을 먼저/같이 apply해야 함, Kafka bootstrap은 `host.docker.internal:9093` |
 | Monitoring | `grafana-secret` | `prometheus-config`, `grafana-config` | Prometheus는 Secret 불필요 |
+
+`.\k8s.ps1 <service>`는 이제 각 서비스에 필요한 real secret YAML(`k8s\secrets\<secret-name>.yaml`)이 로컬에 있으면 배포 전 자동으로 `kubectl apply`한다. real 파일이 없고 클러스터에도 없으면 `.example.yaml`을 안내하는 에러로 중단하며, example을 대신 적용하지 않는다.
 
 ### 1-3. 단일 서비스 재배포(코드 변경 후)
 
 ```powershell
-.\k8s.ps1 <discovery|gateway|user|admin|mcp|workspace>
+.\k8s.ps1 <discovery|gateway|user|admin|ingestion|commerce|intelligence|mcp|workspace>
 ```
 
 PowerShell 실행 정책 문제로 스크립트가 막히면:
@@ -199,6 +210,9 @@ kubectl -n brainx rollout restart deployment/user-service
 kubectl -n brainx rollout restart deployment/admin-service
 kubectl -n brainx rollout restart deployment/mcp-service
 kubectl -n brainx rollout restart deployment/workspace-service
+kubectl -n brainx rollout restart deployment/ingestion-service
+kubectl -n brainx rollout restart deployment/commerce-service
+kubectl -n brainx rollout restart deployment/intelligence-service
 kubectl -n brainx rollout restart deployment/prometheus
 kubectl -n brainx rollout restart deployment/grafana
 ```
@@ -230,6 +244,9 @@ User/Admin/MCP/Workspace는 `maxSurge: 0`, `maxUnavailable: 1` 전략이 걸려 
 | Admin | `/actuator/health` | `/actuator/health/readiness` | `/actuator/health/liveness` |
 | Workspace | `/actuator/health` | `/actuator/health/readiness` | `/actuator/health/liveness` |
 | MCP | `/actuator/health` | `/actuator/health`(startup/readiness 동일 경로) | `/actuator/health` |
+| Ingestion | `/actuator/health` | `/actuator/health` | `/actuator/health` |
+| Commerce | `/actuator/health` | `/actuator/health` | `/actuator/health` |
+| Intelligence | `/actuator/health/liveness` | `/actuator/health/readiness` | `/actuator/health/liveness` |
 
 port-forward 후(7장) 확인:
 
@@ -244,6 +261,10 @@ curl.exe http://localhost:18082/actuator/health/readiness
 curl.exe http://localhost:18082/actuator/health/liveness
 curl.exe http://localhost:18087/actuator/health
 curl.exe http://localhost:18087/api/v1/mcp/whoami
+curl.exe http://localhost:18083/actuator/health
+curl.exe http://localhost:18084/actuator/health
+curl.exe http://localhost:18086/actuator/health/readiness
+curl.exe http://localhost:18086/actuator/health/liveness
 ```
 
 Monitoring은 Kubernetes probe 자체가 설정되어 있지 않으므로(현재 `prometheus.yaml`/`grafana.yaml`에 readiness/liveness probe 없음) 수동으로만 확인한다:
@@ -269,6 +290,9 @@ kubectl -n brainx port-forward svc/user-service 18080:8080
 kubectl -n brainx port-forward svc/admin-service 18085:8085
 kubectl -n brainx port-forward svc/workspace-service 18082:8082
 kubectl -n brainx port-forward svc/mcp-service 18087:8087
+kubectl -n brainx port-forward svc/ingestion-service 18083:8083
+kubectl -n brainx port-forward svc/commerce-service 18084:8084
+kubectl -n brainx port-forward svc/intelligence-service 18086:8086
 kubectl -n brainx port-forward svc/prometheus 19090:9090
 kubectl -n brainx port-forward svc/grafana 13000:3000
 ```
@@ -299,7 +323,7 @@ kubectl -n brainx logs deployment/<service-name> --previous
 kubectl -n brainx describe pod -l app=<service-name>
 ```
 
-`<service-name>`: `discovery-service`, `gateway-service`, `user-service`, `admin-service`, `mcp-service`, `workspace-service`, `prometheus`, `grafana`.
+`<service-name>`: `discovery-service`, `gateway-service`, `user-service`, `admin-service`, `mcp-service`, `workspace-service`, `ingestion-service`, `commerce-service`, `intelligence-service`, `prometheus`, `grafana`.
 
 ---
 
@@ -406,7 +430,7 @@ kubectl -n brainx describe pod -l app=<service-name>
 kubectl -n brainx logs deployment/<service-name> --previous
 ```
 
-**원인**: 현재 모든 Deployment에 `resources.limits`가 설정되어 있지 않다(`PRODUCTION_CHECKLIST.md` 0번 항목). 즉 컨테이너 자체 limit 초과가 아니라, Docker Desktop VM 전체의 메모리 한도를 여러 서비스가 동시에 소진했을 가능성이 크다. 특히 Postgres/Redis/Neo4j/Kafka(Compose) + 6개 Spring Boot Pod + Prometheus/Grafana를 한 번에 띄우면 Docker Desktop 기본 메모리 할당(예: 4~8GB)을 넘기기 쉽다.
+**원인**: 현재 모든 Deployment에 `resources.limits`가 설정되어 있지 않다(`PRODUCTION_CHECKLIST.md` 0번 항목). 즉 컨테이너 자체 limit 초과가 아니라, Docker Desktop VM 전체의 메모리 한도를 여러 서비스가 동시에 소진했을 가능성이 크다. 특히 Postgres/Redis/Neo4j/Kafka(Compose) + 9개 Spring Boot Pod + Prometheus/Grafana를 한 번에 띄우면 Docker Desktop 기본 메모리 할당(예: 4~8GB)을 넘기기 쉽다.
 
 **조치**:
 
@@ -472,8 +496,8 @@ docker exec -it brainx-postgres psql -U postgres -c "SHOW max_connections;"
 배포/재배포 작업을 끝내기 전 아래 항목을 순서대로 확인한다.
 
 - [ ] `kubectl -n brainx get namespace brainx`로 namespace 존재 확인
-- [ ] `kubectl -n brainx get secrets`로 필요한 Secret(`gateway-secret`, `postgres-secret`, `workspace-secret`, `mcp-service-secret`, `admin-service-secret`, `grafana-secret`)이 모두 존재하는지 확인
-- [ ] `kubectl -n brainx get configmaps`로 `admin-service-config`, `workspace-service-config`, `mcp-service-config`, `prometheus-config`, `grafana-config` 존재 확인
+- [ ] `kubectl -n brainx get secrets`로 필요한 Secret(`gateway-secret`, `postgres-secret`, `workspace-secret`, `mcp-service-secret`, `admin-service-secret`, `ingestion-service-secret`, `commerce-service-secret`, `intelligence-service-secret`, `grafana-secret`)이 모두 존재하는지 확인
+- [ ] `kubectl -n brainx get configmaps`로 `admin-service-config`, `workspace-service-config`, `mcp-service-config`, `ingestion-service-config`, `intelligence-service-config`, `prometheus-config`, `grafana-config` 존재 확인
 - [ ] `kubectl -n brainx get pods`에서 모든 대상 Pod의 `READY`가 `1/1`, `STATUS`가 `Running`
 - [ ] 각 서비스 `kubectl -n brainx rollout status deployment/<service-name>`이 전부 성공으로 종료
 - [ ] `kubectl -n brainx get pods`의 `RESTARTS`가 비정상적으로 증가하지 않는지(CrashLoop/OOMKilled 재발 여부) 확인
@@ -482,7 +506,7 @@ docker exec -it brainx-postgres psql -U postgres -c "SHOW max_connections;"
 - [ ] 2-2번 방식으로 `JWT_SECRET`이 `gateway-secret`/`workspace-secret`/`mcp-service-secret`/`admin-service-secret` 4곳에서 동일한지 확인
 - [ ] `docker exec -it brainx-postgres psql -U postgres -c "SELECT count(*), state FROM pg_stat_activity GROUP BY state;"`로 활성 커넥션 수가 `max_connections` 예산 안인지 확인
 - [ ] Gateway 경유 라우팅이 필요한 경우: Compose 대상 앱 서비스(`user-service`, `workspace-service`, `ingestion-service`, `commerce-service`, `admin-service`, `intelligence-service`, `mcp-service`)가 `Up` 상태인지 `docker compose -f .\brainX_back\docker-compose.yml ps`로 확인
-- [ ] Prometheus: `http://localhost:19090/targets`에서 `user-service`/`gateway-service`/`admin-service`/`workspace-service` job이 `UP`
+- [ ] Prometheus: `http://localhost:19090/targets`에서 `user-service`/`gateway-service`/`admin-service`/`workspace-service`/`commerce-service` job이 `UP` (`ingestion-service`, `intelligence-service`는 `prometheus-configmap.yaml`에 아직 주석 처리된 준비 대상)
 - [ ] Grafana: `http://localhost:13000`에 `grafana-secret` 계정으로 로그인 가능, Prometheus datasource 연결 정상
 - [ ] `git status`, `git status --ignored`로 실제 Secret 파일(`k8s/secrets/*.yaml`, example 제외)이 추적되지 않는지 확인
 

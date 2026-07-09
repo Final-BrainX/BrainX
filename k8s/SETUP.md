@@ -242,6 +242,7 @@ stringData:
 .\k8s.ps1 intelligence
 .\k8s.ps1 admin
 .\k8s.ps1 mcp
+.\k8s.ps1 workspace
 ```
 
 `k8s.ps1`는 아래 작업을 자동 수행한다.
@@ -259,7 +260,9 @@ stringData:
 `ingestion`은 `k8s\apps\ingestion-service-configmap.yaml`도 함께 apply한다. `ingestion-service.yaml` Deployment가 `envFrom`으로 이 ConfigMap을 참조하므로, ConfigMap 없이 Deployment만 apply하면 Pod가 `CreateContainerConfigError`로 멈춘다.
 `intelligence`는 `k8s\apps\intelligence-service-configmap.yaml`도 함께 apply한다. `intelligence-service.yaml` Deployment가 `envFrom`으로 이 ConfigMap을 참조하므로, ConfigMap 없이 Deployment만 apply하면 Pod가 `CreateContainerConfigError`로 멈춘다.
 
-Workspace, Ingestion, Intelligence, MCP는 현재 매니페스트 준비됨, 실제 apply 검증 전 상태다.
+`.\k8s.ps1 <service>`는 `commerce`, `ingestion`, `intelligence`를 포함해 서비스별로 필요한 real secret YAML(`k8s\secrets\<secret-name>.yaml`)이 로컬에 있으면 배포 전 자동으로 apply한다. real 파일이 없고 클러스터에도 Secret이 없으면 `.example.yaml`을 복사해 채우라는 에러로 중단한다.
+
+Intelligence-Service는 apply 검증 완료(PostgreSQL 인증, Kafka advertised listener 문제 해결 후 `1/1 Running` 확인됨). Workspace, Ingestion, Commerce, MCP는 매니페스트는 준비됐지만 아직 실제 apply 검증 전 상태다.
 
 ## 4. Docker 이미지 빌드
 
@@ -312,28 +315,41 @@ kubectl apply -f .\k8s\apps\intelligence-service-configmap.yaml
 kubectl apply -f .\k8s\apps\intelligence-service.yaml
 kubectl apply -f .\k8s\secrets\admin-service-secret.yaml
 kubectl apply -f .\k8s\apps\admin-service.yaml
+kubectl apply -f .\k8s\secrets\mcp-service-secret.yaml
+kubectl apply -f .\k8s\apps\mcp-service-configmap.yaml
+kubectl apply -f .\k8s\apps\mcp-service.yaml
+kubectl apply -f .\k8s\secrets\workspace-secret.yaml
+kubectl apply -f .\k8s\apps\workspace-service.yaml
 ```
+
+위 순서는 9개 앱 기준 [README.md](README.md)의 "후속 전환 순서"(Discovery → Gateway → User → Admin → Ingestion → Commerce → Intelligence → MCP → Workspace)와 동일하다. `.\k8s.ps1 <service>`를 쓰면 Secret apply 단계는 자동화되므로 이 목록을 수동으로 실행할 필요는 보통 없다(권장 순서 참고).
 
 권장 순서
 
 1. run.ps1
-2. Secret 생성
-3. k8s.ps1 discovery
-4. k8s.ps1 gateway
-5. k8s.ps1 user
-6. 이후 서비스
+2. `.\k8s.ps1 discovery`
+3. `.\k8s.ps1 gateway`
+4. `.\k8s.ps1 user`
+5. `.\k8s.ps1 admin`
+6. `.\k8s.ps1 ingestion`
+7. `.\k8s.ps1 commerce`
+8. `.\k8s.ps1 intelligence`
+9. `.\k8s.ps1 mcp`
+10. `.\k8s.ps1 workspace`
 
-현재 `k8s/apps/`에 있는 후속 서비스:
+현재 `k8s/apps/`에 있는 9개 앱 매니페스트:
 
+- `discovery-service.yaml`
+- `gateway-service.yaml`
+- `user-service.yaml`
 - `admin-service.yaml`
+- `ingestion-service.yaml` + `ingestion-service-configmap.yaml`
+- `commerce-service.yaml`
+- `intelligence-service.yaml` + `intelligence-service-configmap.yaml`
+- `mcp-service.yaml` + `mcp-service-configmap.yaml`
 - `workspace-service.yaml`
-- `ingestion-service.yaml`
-- `ingestion-service-configmap.yaml`
-- `intelligence-service.yaml`
-- `intelligence-service-configmap.yaml`
-- `mcp-service.yaml`
 
-`workspace-service`, `intelligence-service`, `mcp-service`는 파일은 준비되어 있지만 아직 실제 apply 검증 전 기준으로 취급한다.
+Intelligence-Service는 apply 검증 완료(1/1 Running 확인). Workspace-Service, Ingestion-Service, Commerce-Service, Mcp-Service는 매니페스트는 준비되어 있지만 아직 실제 apply 검증 전 기준으로 취급한다.
 
 ## 6. 동작 확인
 
@@ -352,8 +368,11 @@ kubectl -n brainx rollout status deployment/discovery-service
 kubectl -n brainx rollout status deployment/gateway-service
 kubectl -n brainx rollout status deployment/user-service
 kubectl -n brainx rollout status deployment/ingestion-service
+kubectl -n brainx rollout status deployment/commerce-service
 kubectl -n brainx rollout status deployment/intelligence-service
 kubectl -n brainx rollout status deployment/admin-service
+kubectl -n brainx rollout status deployment/mcp-service
+kubectl -n brainx rollout status deployment/workspace-service
 ```
 
 ### 6-3. port-forward
@@ -365,8 +384,11 @@ kubectl -n brainx port-forward svc/discovery-service 18761:8761
 kubectl -n brainx port-forward svc/gateway-service 18088:8088
 kubectl -n brainx port-forward svc/user-service 18080:8080
 kubectl -n brainx port-forward svc/ingestion-service 18083:8083
+kubectl -n brainx port-forward svc/commerce-service 18084:8084
 kubectl -n brainx port-forward svc/intelligence-service 18086:8086
 kubectl -n brainx port-forward svc/admin-service 18085:8085
+kubectl -n brainx port-forward svc/mcp-service 18087:8087
+kubectl -n brainx port-forward svc/workspace-service 18082:8082
 ```
 
 ### 6-4. actuator health 확인
@@ -378,11 +400,15 @@ curl.exe http://localhost:18080/actuator/health
 curl.exe http://localhost:18080/actuator/health/readiness
 curl.exe http://localhost:18080/actuator/health/liveness
 curl.exe http://localhost:18083/actuator/health
+curl.exe http://localhost:18084/actuator/health
 curl.exe http://localhost:18086/actuator/health/readiness
 curl.exe http://localhost:18086/actuator/health/liveness
 curl.exe http://localhost:18085/actuator/health
 curl.exe http://localhost:18085/actuator/health/readiness
 curl.exe http://localhost:18085/actuator/health/liveness
+curl.exe http://localhost:18087/actuator/health
+curl.exe http://localhost:18082/actuator/health/readiness
+curl.exe http://localhost:18082/actuator/health/liveness
 ```
 
 확인 기준:
@@ -390,8 +416,12 @@ curl.exe http://localhost:18085/actuator/health/liveness
 - Discovery: `/actuator/health`
 - Gateway: `/actuator/health`
 - User: `/actuator/health`, `/actuator/health/readiness`, `/actuator/health/liveness`
+- Ingestion: `/actuator/health`
+- Commerce: `/actuator/health`
 - Intelligence: `/actuator/health/readiness`, `/actuator/health/liveness`
 - Admin: `/actuator/health`, `/actuator/health/readiness`, `/actuator/health/liveness`
+- MCP: `/actuator/health`
+- Workspace: `/actuator/health/readiness`, `/actuator/health/liveness`
 
 ## 7. Docker Desktop에서 확인할 위치
 
@@ -587,6 +617,31 @@ git status --ignored
 실제 Secret 파일이 추적되지 않는지 확인한다.
 
 `gateway-secret.yaml`, `postgres-secret.yaml`, `workspace-secret.yaml`, `commerce-service-secret.yaml`, `mcp-service-secret.yaml`, `admin-service-secret.yaml`, `grafana-secret.yaml` 같은 실제 Secret 파일이 Git에 추가되지 않았는지 확인한다.
+
+## Ingestion-Service apply 전 체크리스트
+
+- `k8s/apps/ingestion-service.yaml`의 `secretKeyRef.name`이 `postgres-secret`, `gateway-secret`, `ingestion-service-secret`을 참조하는지 확인
+- `ingestion-service.yaml`의 `envFrom`이 참조하는 `ingestion-service-config` ConfigMap(`k8s/apps/ingestion-service-configmap.yaml`)이 먼저 apply 되어 있는지 확인. `.\k8s.ps1 ingestion`은 이 ConfigMap을 자동으로 함께 apply하지만, `kubectl apply -f .\k8s\apps\ingestion-service.yaml`을 직접 쓸 때는 ConfigMap을 빠뜨리면 Pod가 `CreateContainerConfigError`로 멈춘다
+- `k8s/secrets/ingestion-service-secret.example.yaml`의 키가 `JWT_SECRET`, `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET`으로 유지되는지 확인
+- 실제 `ingestion-service-secret.yaml` 생성 시 키 이름은 바꾸지 않고 값만 채우는지 확인
+- `ingestion-service-secret.yaml`의 `JWT_SECRET`이 Gateway-Service, User-Service, Workspace-Service, Admin-Service, Mcp-Service와 공통으로 쓰는 동일 값인지 확인
+- `gateway-secret`, `postgres-secret`, `ingestion-service-secret`이 모두 `brainx` namespace에 먼저 apply 되어 있는지 확인
+- Postgres(`host.docker.internal:5432`, DB `brainx_ingestion`), Workspace(`http://host.docker.internal:8082`), Kafka(`host.docker.internal:9093`), Eureka(`http://discovery-service:8761/eureka/`) 연결 가능 여부를 확인
+- 실제 apply 직전 `kubectl -n brainx get secret ingestion-service-secret`, `kubectl -n brainx get secret gateway-secret`, `kubectl -n brainx get secret postgres-secret`으로 선행 Secret 존재를 재확인
+
+## Intelligence-Service apply 전 체크리스트
+
+- `k8s/apps/intelligence-service.yaml`의 `secretKeyRef.name`이 `postgres-secret`, `gateway-secret`, `intelligence-service-secret`을 참조하는지 확인. `SPRING_DATASOURCE_USERNAME`/`SPRING_DATASOURCE_PASSWORD`가 `postgres-secret`의 `POSTGRES_USER`/`POSTGRES_PASSWORD`로 매핑되어 있는지 확인(누락 시 `password authentication failed for user "postgres"`로 CrashLoopBackOff)
+- `intelligence-service.yaml`의 `envFrom`이 참조하는 `intelligence-service-config` ConfigMap(`k8s/apps/intelligence-service-configmap.yaml`)이 먼저 apply 되어 있는지 확인
+- `intelligence-service-config` ConfigMap의 `KAFKA_BOOTSTRAP_SERVERS`/`SPRING_KAFKA_BOOTSTRAP_SERVERS`가 `host.docker.internal:9093`(k8s Pod 전용 `K8S` 리스너)인지 확인. `:9092`(EXTERNAL 리스너)를 쓰면 advertised address가 `localhost:9092`로 돌아와 Pod가 자기 자신으로 재접속을 시도해 Consumer가 실패한다
+- `k8s/secrets/intelligence-service-secret.example.yaml`의 키가 `OPENAI_API_KEY`, `QDRANT_API_KEY`, `VOYAGE_API_KEY`로 유지되는지 확인
+- 실제 `intelligence-service-secret.yaml` 생성 시 키 이름은 바꾸지 않고 값만 채우는지 확인
+- `intelligence-service-secret.yaml`의 `JWT_SECRET`은 `gateway-secret`에서 재사용되며 별도 값이 없다는 점을 인지
+- `gateway-secret`, `postgres-secret`, `intelligence-service-secret`이 모두 `brainx` namespace에 먼저 apply 되어 있는지 확인
+- Postgres(`host.docker.internal:5432`, DB `intelligence_service`), Redis(`host.docker.internal:6379`), Kafka(`host.docker.internal:9093`), Qdrant(`host.docker.internal:6334`), Workspace(`http://workspace-service:8082`), Commerce(`http://host.docker.internal:8084`), Eureka(`http://discovery-service:8761/eureka/`) 연결 가능 여부를 확인
+- `BRAINX_VECTOR_QDRANT_ENABLED: "true"`인데 `BRAINX_AI_EMBEDDING_PROVIDER`가 비어 있으면(기본값 `none`) 임베딩 생성이 no-op이 되어 벡터 검색/RAG 인덱싱이 조용히 동작하지 않는다. `voyage`로 켜려면 `VOYAGE_API_KEY`를 실제 Secret에 채우고 `intelligence-service-config`에 `BRAINX_AI_EMBEDDING_PROVIDER: voyage`가 설정되어 있는지 확인
+- `SPRING_AI_MODEL_CHAT`이 `openai`로 설정되어 있는지 확인(기본값 `none`이면 `ChatClient.Builder` 빈이 생성되지 않아 assist/insight/organization/note-auto-link/connection-bridge 기능이 LLM 없이 fallback 동작만 한다)
+- 실제 apply 직전 `kubectl -n brainx get secret intelligence-service-secret`, `kubectl -n brainx get secret gateway-secret`, `kubectl -n brainx get secret postgres-secret`으로 선행 Secret 존재를 재확인
 
 ## Commerce-Service apply 전 체크리스트
 
