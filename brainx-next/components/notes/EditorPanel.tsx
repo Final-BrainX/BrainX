@@ -5,7 +5,7 @@ import { cx } from "@/lib/utils";
 import { PaneLeaf, MockNote, Tab, DragPayload } from "@/lib/notes/noteTypes";
 import { DropZone } from "@/lib/notes/paneUtils";
 import TabBar from "./TabBar";
-import NoteEditor, { type EditMode, type AiActionType, type NoteEditorHandle } from "./NoteEditor";
+import NoteEditor, { type EditMode, type AiActionPayload, type NoteEditorHandle } from "./NoteEditor";
 import EmptyNoteStartPage from "./EmptyNoteStartPage";
 import PdfViewerPanel from "./PdfViewerPanel";
 import { parsePdfOnlyNote } from "./PdfBlockNode";
@@ -43,7 +43,7 @@ interface Props {
   onTabActivate: (tabId: string) => void;
   onTabClose: (tabId: string) => void;
   onNewTab: () => void;
-  onAiAction: (type: AiActionType, text: string) => void;
+  onAiAction: (payload: AiActionPayload) => void;
   onEditorHandleChange?: (paneId: string, tabId: string, handle: NoteEditorHandle | null) => void;
   onCreateNoteInTab: () => void;
   onOpenQuickSwitcher: () => void;

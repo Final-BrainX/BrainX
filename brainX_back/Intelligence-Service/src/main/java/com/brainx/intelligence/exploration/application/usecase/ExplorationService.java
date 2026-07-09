@@ -65,6 +65,7 @@ public class ExplorationService implements SemanticSearchUseCase, GetNoteSummary
     private final AiUsageRecorder aiUsageRecorder;
     private final AiRunRecorder aiRunRecorder;
     private final PromptRegistryService promptRegistryService;
+    private final SemanticSearchProperties semanticSearchProperties;
     private final NoteSummaryProperties noteSummaryProperties;
 
     public ExplorationService(
@@ -79,6 +80,7 @@ public class ExplorationService implements SemanticSearchUseCase, GetNoteSummary
         AiUsageRecorder aiUsageRecorder,
         AiRunRecorder aiRunRecorder,
         PromptRegistryService promptRegistryService,
+        SemanticSearchProperties semanticSearchProperties,
         NoteSummaryProperties noteSummaryProperties
     ) {
         this.entitlementPort = entitlementPort;
@@ -92,6 +94,7 @@ public class ExplorationService implements SemanticSearchUseCase, GetNoteSummary
         this.aiUsageRecorder = aiUsageRecorder;
         this.aiRunRecorder = aiRunRecorder;
         this.promptRegistryService = promptRegistryService;
+        this.semanticSearchProperties = semanticSearchProperties;
         this.noteSummaryProperties = noteSummaryProperties;
     }
 
@@ -140,7 +143,7 @@ public class ExplorationService implements SemanticSearchUseCase, GetNoteSummary
     private SemanticSearchResults semanticResults(SemanticSearchQuery query) {
         int tokenEstimate = estimateTokens(query.query());
         checkSemanticSearchEntitlement(query.userId(), tokenEstimate);
-        List<SemanticSearchResult> matches = noteSearchIndexPort.search(toSemanticQuery(query));
+        List<SemanticSearchResult> matches = filterSemanticMatches(noteSearchIndexPort.search(toSemanticQuery(query)));
         return new SemanticSearchResults(matches, TokenChargeDecision.charged(tokenEstimate));
     }
 
@@ -152,12 +155,19 @@ public class ExplorationService implements SemanticSearchUseCase, GetNoteSummary
     private SemanticSearchResults hybridResults(SemanticSearchQuery query) {
         int tokenEstimate = estimateTokens(query.query());
         checkSemanticSearchEntitlement(query.userId(), tokenEstimate);
-        List<SemanticSearchResult> semanticMatches = noteSearchIndexPort.search(toSemanticQuery(query));
+        List<SemanticSearchResult> semanticMatches = filterSemanticMatches(noteSearchIndexPort.search(toSemanticQuery(query)));
         List<SemanticSearchResult> keywordMatches = noteKeywordSearchPort.searchKeyword(toKeywordQuery(query));
         return new SemanticSearchResults(
             mergeHybridResults(semanticMatches, keywordMatches, query.limit()),
             TokenChargeDecision.charged(tokenEstimate)
         );
+    }
+
+    private List<SemanticSearchResult> filterSemanticMatches(List<SemanticSearchResult> matches) {
+        double minScore = semanticSearchProperties.getMinScore();
+        return nullToEmptyResults(matches).stream()
+            .filter(result -> result.score() >= minScore)
+            .toList();
     }
 
     private void checkSemanticSearchEntitlement(String userId, int tokenEstimate) {

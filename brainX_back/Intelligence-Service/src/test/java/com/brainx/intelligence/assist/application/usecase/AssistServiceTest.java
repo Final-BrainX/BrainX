@@ -322,6 +322,29 @@ class AssistServiceTest {
     }
 
     @Test
+    void draftTreatsSelectedTextAsTopicCandidateWhenPresent() {
+        service.createInlineAssist(new InlineAssistCommand(
+            "user-1",
+            "note-1",
+            "지식 그래프 자동 연결",
+            LONG_CONTEXT_BEFORE,
+            LONG_CONTEXT_AFTER,
+            InlineAssistAction.DRAFT,
+            "ko",
+            "선택 텍스트를 새 노트 제목으로 삼아 개요 문서를 작성해줘",
+            900
+        ));
+
+        assertThat(chatPort.lastRequest.messages().get(0).content())
+            .contains("For DRAFT, if Selected is not empty");
+        assertThat(chatPort.lastRequest.messages().get(1).content())
+            .contains("Action: DRAFT")
+            .contains("Selected (only this section may be replaced for REWRITE/TRANSLATE):\n지식 그래프 자동 연결")
+            .contains("If Action is DRAFT and Selected is not empty, use Selected as the topic/title candidate")
+            .contains("Target Length: about 900 characters");
+    }
+
+    @Test
     void draftTargetLengthIsClampedToAllowedRange() {
         service.createInlineAssist(new InlineAssistCommand(
             "user-1",

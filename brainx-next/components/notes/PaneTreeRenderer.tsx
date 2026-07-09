@@ -5,7 +5,7 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 import { PaneNode, MockNote, PaneTabsState, Tab, DragPayload } from "@/lib/notes/noteTypes";
 import { DropZone } from "@/lib/notes/paneUtils";
 import EditorPanel from "./EditorPanel";
-import type { EditMode, AiActionType, NoteEditorHandle } from "./NoteEditor";
+import type { EditMode, AiActionPayload, NoteEditorHandle } from "./NoteEditor";
 
 export interface QuickSwitcherTarget {
   paneId: string;
@@ -43,7 +43,7 @@ interface Props {
   onTabActivate: (paneId: string, tabId: string) => void;
   onTabClose: (paneId: string, tabId: string) => void;
   onNewTab: (paneId: string) => void;
-  onAiAction: (type: AiActionType, text: string) => void;
+  onAiAction: (payload: AiActionPayload) => void;
   onEditorHandleChange?: (paneId: string, tabId: string, handle: NoteEditorHandle | null) => void;
   onCreateNoteInTab: (paneId: string, tabId: string) => void;
   onOpenQuickSwitcher: (paneId: string, tabId: string) => void;

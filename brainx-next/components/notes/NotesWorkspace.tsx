@@ -15,11 +15,12 @@ import {
 import { AlertCircle, Check, ChevronLeft, Download, Link2, LoaderCircle, MoreHorizontal, PanelRightClose, PanelRight, RotateCcw, Save, Upload } from "lucide-react";
 import { cx } from "@/lib/utils";
 import { MockFolder, MockNote, PaneNode, PaneTabsState, Tab, NotesWorkspaceSession, DragPayload } from "@/lib/notes/noteTypes";
-import type { EditMode, AiActionType, NoteEditorHandle } from "./NoteEditor";
+import type { EditMode, AiActionPayload, NoteEditorHandle } from "./NoteEditor";
 import { MOCK_NOTES, MOCK_FOLDERS } from "@/lib/notes/mockNotes";
 import {
   USE_MOCK_NOTES,
   WorkspaceApiError,
+  createWorkspaceNoteFromPayload,
   createWorkspaceFolder,
   createWorkspaceNote,
   createWorkspaceNoteLink,
@@ -59,7 +60,11 @@ import PaneTreeRenderer, { type QuickSwitcherTarget } from "./PaneTreeRenderer";
 import EmptyNoteStartPage from "./EmptyNoteStartPage";
 import QuickSwitcher from "./QuickSwitcher";
 import NotesExplorer from "./NotesExplorer";
-import RightSidebar, { type PendingAiRequest } from "./RightSidebar";
+import RightSidebar, {
+  type AiOutlineNoteCreateRequest,
+  type AiOutlineNoteCreateResult,
+  type PendingAiRequest,
+} from "./RightSidebar";
 import { moveNoteIntoFolder, reorderNoteRelativeTo, moveFolderUnder, reorderFolderRelativeTo } from "@/lib/notes/folderDnd";
 import { exportNote, uploadAndImportFile, type ExportFormat } from "@/lib/ingestion-api";
 import { ShareLinkModal } from "./ShareLinkModal";
@@ -89,6 +94,23 @@ function makeBlankNote(folderId?: string): MockNote {
     version: 1,
     persisted: false,
   };
+}
+
+function normalizeAiOutlineNoteTitle(value: string) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= 80) return normalized;
+  return normalized.slice(0, 80).trimEnd();
+}
+
+function nextAvailableExplicitNoteTitle(notes: MockNote[], title: string, folderId: string | null | undefined) {
+  const base = title.trim() || "개요 노트";
+  let candidate = base;
+  let suffix = 2;
+  while (hasNoteTitleDuplicate(notes, candidate, folderId ?? null)) {
+    candidate = `${base} ${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
 }
 
 /** 30초 주기 draft flush(NoteDraftFlushScheduler)가 백그라운드에서 note.version을 올릴 수 있어,
@@ -2023,10 +2045,10 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setFolders((prev) => reorderFolderRelativeTo(prev, folderId, referenceFolderId, position) ?? prev);
   }, []);
 
-  /* 버블 툴바의 AI 버튼(요약/다시쓰기) → 우측 인라인 AI 패널에 mock 요청 전달 */
-  const handleAiAction = useCallback((type: AiActionType, text: string) => {
+  /* 버블 툴바의 AI 버튼(요약/개요 생성 등) → 우측 인라인 AI 패널에 요청 전달 */
+  const handleAiAction = useCallback((payload: AiActionPayload) => {
     aiNonceRef.current += 1;
-    setAiRequest({ type, text, nonce: aiNonceRef.current });
+    setAiRequest({ ...payload, nonce: aiNonceRef.current });
   }, []);
 
   const handleEditorHandleChange = useCallback((paneId: string, tabId: string, handle: NoteEditorHandle | null) => {
@@ -2626,6 +2648,112 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     window.dispatchEvent(new CustomEvent("brainx:notes-refresh", { detail: { noteId: note.id } }));
   }, [onActiveNoteChange]);
 
+  const createGeneratedNoteFromAi = useCallback(async (
+    request: AiOutlineNoteCreateRequest
+  ): Promise<AiOutlineNoteCreateResult> => {
+    const sourceNote = latestSessionRef.current.notes.find((item) => item.id === request.sourceNoteId);
+    if (!sourceNote) {
+      throw new Error("원본 노트를 찾을 수 없습니다.");
+    }
+    const requestedTitle = normalizeAiOutlineNoteTitle(request.title);
+    if (!requestedTitle) {
+      throw new Error("새 노트 제목으로 쓸 선택 텍스트가 없습니다.");
+    }
+    const markdown = request.markdown.trim();
+    if (!markdown) {
+      throw new Error("개요 작성 결과가 비어 있습니다.");
+    }
+
+    const documentGroupId = sourceNote.documentGroupId ?? currentWorkspaceId ?? null;
+    let createdNote: MockNote;
+    if (USE_MOCK_NOTES) {
+      const title = nextAvailableExplicitNoteTitle(latestSessionRef.current.notes, requestedTitle, sourceNote.folderId);
+      const now = Date.now();
+      createdNote = {
+        id: `note-${uid()}`,
+        title,
+        content: markdown,
+        tags: [],
+        category: sourceNote.category,
+        folderId: sourceNote.folderId,
+        documentGroupId,
+        createdAt: now,
+        updatedAt: now,
+        version: 1,
+        persisted: false,
+      };
+    } else {
+      const created = await createWorkspaceNoteFromPayload({
+        title: requestedTitle,
+        markdown,
+        folderId: sourceNote.folderId ?? null,
+        tags: [],
+        documentGroupId: documentGroupId ?? undefined,
+      });
+      const createdAt = Date.parse(created.createdAt) || Date.now();
+      createdNote = {
+        id: created.noteId,
+        title: created.title || requestedTitle,
+        content: markdown,
+        tags: [],
+        category: sourceNote.category,
+        folderId: created.folderId ?? sourceNote.folderId,
+        documentGroupId,
+        createdAt,
+        updatedAt: createdAt,
+        version: created.version,
+        persisted: true,
+      };
+    }
+
+    let linked = false;
+    let linkSkippedReason: string | undefined;
+    if (activeNoteId === sourceNote.id && activeEditorHandle && request.selection.range) {
+      const result = activeEditorHandle.replaceRangeWithWikiLink(
+        request.selection.range,
+        request.selection.text,
+        createdNote.title
+      );
+      if (result.replaced) {
+        try {
+          await saveActiveNoteToBackend(activeEditorHandle.getHTML());
+          linked = true;
+        } catch (error) {
+          linkSkippedReason = "원본 노트의 자동 링크 저장에 실패했습니다. 수동 저장을 다시 시도해 주세요.";
+          pushToast(error instanceof Error ? error.message : linkSkippedReason, "err");
+        }
+      } else {
+        linkSkippedReason = result.reason;
+      }
+    } else {
+      linkSkippedReason = "원본 선택 영역이 더 이상 활성 상태가 아니어서 자동 링크를 건너뛰었습니다.";
+    }
+
+    setNotes((prev) => [createdNote, ...prev.filter((item) => item.id !== createdNote.id)]);
+    handleAddNoteTab(primaryPaneId, createdNote.id);
+    prevActiveNoteIdRef.current = createdNote.id;
+    window.dispatchEvent(new CustomEvent("brainx:notes-refresh", {
+      detail: { noteId: createdNote.id, sourceNoteId: sourceNote.id },
+    }));
+    onActiveNoteChange?.(createdNote.id);
+
+    return {
+      noteId: createdNote.id,
+      title: createdNote.title,
+      linked,
+      linkSkippedReason,
+    };
+  }, [
+    activeEditorHandle,
+    activeNoteId,
+    currentWorkspaceId,
+    handleAddNoteTab,
+    onActiveNoteChange,
+    primaryPaneId,
+    pushToast,
+    saveActiveNoteToBackend,
+  ]);
+
   const handleManualSave = useCallback(() => {
     setManualSaveStatus("saving");
     setSaveSignal((n) => n + 1);
@@ -3141,6 +3269,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
                     onNoteSelect={handleNoteClick}
                     pendingAiRequest={aiRequest}
                     onAiRequestHandled={() => setAiRequest(null)}
+                    onCreateAiOutlineNote={createGeneratedNoteFromAi}
                     activeEditor={activeEditorHandle}
                     activeEditorMode={activeEditorMode}
                     saveStatus={combinedSaveStatus}
