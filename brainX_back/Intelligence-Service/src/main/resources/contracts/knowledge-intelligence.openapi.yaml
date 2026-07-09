@@ -1719,6 +1719,96 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
       security:
       - bearerAuth: []
+    post:
+      operationId: generateNoteSummary
+      summary: 노트 세줄 요약 생성 또는 갱신
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.graph
+        type: frontend
+        description: 그래프 hover tooltip의 세줄 요약 lazy 생성
+      - id: web.note-editor
+        type: frontend
+        description: 노트 컨텍스트 패널의 요약 갱신 버튼
+      x-produces-events:
+      - brainx.knowledge.intelligence.token-usage-recorded-requested.v1
+      x-internal-sync-calls:
+      - service: Workspace-Service
+        endpoint: GET /internal/v1/workspace/notes/{noteId}/snapshot
+        reason: 현재 노트 원문과 documentGroupId 확인
+      - service: Commerce-Service
+        endpoint: POST /internal/v1/commerce/entitlements/check
+        reason: capability/quota must be decided synchronously before model call
+      x-async-boundary: false
+      description: 현재 Workspace document group의 노트를 기준으로 AI 세줄 요약을 생성해 DB에 저장한다. force=false이면 같은 markdownHash의 저장된 AI 요약을
+        재사용한다.
+      parameters:
+      - name: noteId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteSummaryGenerateRequest'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/NoteSummaryData'
+        '400':
+          description: 잘못된 요청 또는 요약할 텍스트 부족
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: 권한 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: 충돌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
   /api/v1/ai/folder-organization-proposals:
     post:
       operationId: createFolderOrganizationProposal
@@ -4705,6 +4795,20 @@ components:
       required:
       - settings
       additionalProperties: false
+    NoteSummaryGenerateRequest:
+      type: object
+      properties:
+        documentGroupId:
+          type: string
+          minLength: 1
+          description: 세줄 요약을 생성할 Workspace document group.
+        force:
+          type: boolean
+          default: false
+          description: true이면 같은 markdownHash의 저장된 AI 요약이 있어도 다시 생성한다.
+      required:
+      - documentGroupId
+      additionalProperties: false
     NoteSummaryData:
       type: object
       properties:
@@ -4717,6 +4821,19 @@ components:
           enum:
           - AI
           - EXCERPT
+        documentGroupId:
+          type: string
+          nullable: true
+        markdownHash:
+          type: string
+          nullable: true
+        generatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        modelId:
+          type: string
+          nullable: true
       required:
       - noteId
       - summary

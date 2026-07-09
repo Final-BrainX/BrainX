@@ -25,6 +25,7 @@ import com.brainx.intelligence.exploration.application.port.inbound.GetNoteIndex
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteIndexStatusesUseCase.NoteIndexStatusesCommand;
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteIndexStatusesUseCase.NoteIndexStatusesResponse;
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase;
+import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase.GenerateNoteSummaryCommand;
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase.GetNoteSummaryQuery;
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase.NoteSummaryResult;
 import com.brainx.intelligence.exploration.application.port.inbound.SemanticSearchUseCase;
@@ -257,6 +258,46 @@ class ExplorationControllerTest {
 
         verify(getNoteSummaryUseCase).getNoteSummary(argThat(query ->
             query.userId().equals("user-1") && query.noteId().equals("note-1")
+        ));
+    }
+
+    @Test
+    void generateNoteSummaryMatchesOpenApiContract() throws Exception {
+        when(getNoteSummaryUseCase.generateNoteSummary(any(GenerateNoteSummaryCommand.class)))
+            .thenReturn(new NoteSummaryResult(
+                "note-1",
+                "first line\nsecond line\nthird line",
+                SummarySource.AI,
+                "group-1",
+                "hash-1",
+                java.time.Instant.parse("2026-07-09T00:00:00Z"),
+                "gpt-5.4-nano"
+            ));
+
+        mockMvc.perform(post("/api/v1/notes/note-1/summary")
+                .with(user("user-1"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "documentGroupId": "group-1",
+                      "force": true
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true))
+            .andExpect(jsonPath("$.data.noteId").value("note-1"))
+            .andExpect(jsonPath("$.data.summary").value("first line\nsecond line\nthird line"))
+            .andExpect(jsonPath("$.data.source").value("AI"))
+            .andExpect(jsonPath("$.data.documentGroupId").value("group-1"))
+            .andExpect(jsonPath("$.data.markdownHash").value("hash-1"))
+            .andExpect(jsonPath("$.data.generatedAt").value("2026-07-09T00:00:00Z"))
+            .andExpect(jsonPath("$.data.modelId").value("gpt-5.4-nano"));
+
+        verify(getNoteSummaryUseCase).generateNoteSummary(argThat(command ->
+            command.userId().equals("user-1")
+                && command.noteId().equals("note-1")
+                && command.documentGroupId().equals("group-1")
+                && command.force()
         ));
     }
 

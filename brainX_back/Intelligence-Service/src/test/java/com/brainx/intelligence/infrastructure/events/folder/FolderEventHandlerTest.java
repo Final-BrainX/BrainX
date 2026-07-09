@@ -348,6 +348,21 @@ class FolderEventHandlerTest {
         }
 
         @Override
+        public Optional<NoteSummary> findByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId) {
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<NoteSummary> findByUserIdAndDocumentGroupIdAndNoteIdAndMarkdownHash(
+            String userId,
+            String documentGroupId,
+            String noteId,
+            String markdownHash
+        ) {
+            return Optional.empty();
+        }
+
+        @Override
         public NoteSummary save(NoteSummary summary) {
             return summary;
         }

@@ -31,6 +31,7 @@ class WorkspaceNoteEventHandlerTest {
     private final FakeWorkspace workspace = new FakeWorkspace();
     private final FakeSearchIndex searchIndex = new FakeSearchIndex();
     private final FakeSummaryPort summaryPort = new FakeSummaryPort();
+    private final FakeSummaryGenerationRequester summaryGenerationRequester = new FakeSummaryGenerationRequester();
     private final FakeChunkManifestStore chunkManifestStore = new FakeChunkManifestStore();
     private final MarkdownNoteChunker noteChunker = new MarkdownNoteChunker();
     private final NoteIndexingService noteIndexingService = new NoteIndexingService(
@@ -46,7 +47,8 @@ class WorkspaceNoteEventHandlerTest {
         projectionStore,
         summaryPort,
         noteChunker,
-        noteIndexingService
+        noteIndexingService,
+        summaryGenerationRequester
     );
 
     @Test
@@ -176,6 +178,7 @@ class WorkspaceNoteEventHandlerTest {
             assertThat(document.documentGroupId()).isEqualTo("group-1"));
         assertThat(searchIndex.savedDocuments.getFirst().excerpt()).contains("Workspace markdown summary source");
         assertThat(summaryPort.deletedKeys).containsExactly("user-1::note-1");
+        assertThat(summaryGenerationRequester.requests).containsExactly("user-1::group-1::note-1");
     }
 
     @Test
@@ -719,6 +722,21 @@ class WorkspaceNoteEventHandlerTest {
         }
 
         @Override
+        public Optional<NoteSummary> findByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId) {
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<NoteSummary> findByUserIdAndDocumentGroupIdAndNoteIdAndMarkdownHash(
+            String userId,
+            String documentGroupId,
+            String noteId,
+            String markdownHash
+        ) {
+            return Optional.empty();
+        }
+
+        @Override
         public NoteSummary save(NoteSummary summary) {
             return summary;
         }
@@ -726,6 +744,16 @@ class WorkspaceNoteEventHandlerTest {
         @Override
         public void deleteByUserIdAndNoteId(String userId, String noteId) {
             deletedKeys.add(userId + "::" + noteId);
+        }
+    }
+
+    private static final class FakeSummaryGenerationRequester implements NoteSummaryGenerationRequester {
+
+        private final List<String> requests = new ArrayList<>();
+
+        @Override
+        public void requestGeneration(String userId, String documentGroupId, String noteId) {
+            requests.add(userId + "::" + documentGroupId + "::" + noteId);
         }
     }
 }

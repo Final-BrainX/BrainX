@@ -163,9 +163,13 @@ create table if not exists intelligence_note_index_chunks (
 create table if not exists exploration_note_summaries (
   summary_id varchar(240) primary key,
   user_id varchar(100) not null,
+  document_group_id varchar(120),
   note_id varchar(100) not null,
   summary text not null,
-  source varchar(20) not null
+  source varchar(20) not null,
+  markdown_hash varchar(160),
+  generated_at timestamp(6) with time zone,
+  model_id varchar(120)
 );
 
 create table if not exists intelligence_chat_threads (
@@ -449,6 +453,12 @@ create index if not exists idx_note_index_chunks_note
 
 create index if not exists idx_exploration_note_summaries_user_note
   on exploration_note_summaries (user_id, note_id);
+
+create index if not exists idx_exploration_note_summaries_user_group_note
+  on exploration_note_summaries (user_id, document_group_id, note_id);
+
+create index if not exists idx_exploration_note_summaries_user_group_note_hash
+  on exploration_note_summaries (user_id, document_group_id, note_id, markdown_hash);
 
 create index if not exists idx_chat_threads_user_thread
   on intelligence_chat_threads (user_id, thread_id);

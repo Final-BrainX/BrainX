@@ -106,6 +106,8 @@ brainx:
     min-relation-confidence: ${BRAINX_NOTE_AUTO_LINK_MIN_RELATION_CONFIDENCE:0.70}
     max-source-windows-per-note: ${BRAINX_NOTE_AUTO_LINK_MAX_SOURCE_WINDOWS_PER_NOTE:12}
     max-suggestions-per-note: ${BRAINX_NOTE_AUTO_LINK_MAX_SUGGESTIONS_PER_NOTE:5}
+  note-summary:
+    model: ${BRAINX_NOTE_SUMMARY_MODEL:gpt-5.4-nano}
   note-index:
     retry:
       enabled: ${BRAINX_NOTE_INDEX_RETRY_ENABLED:true}

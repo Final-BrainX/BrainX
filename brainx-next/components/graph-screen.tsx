@@ -7,7 +7,7 @@ import { Compass, FileUp, PencilLine, Pin, PinOff, Sparkles } from "lucide-react
 import { buildAuthPath, isDevAuthSession, readAuthSession } from "@/lib/auth-api";
 import { deriveGraphEdges, noteById, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
 import { deriveDraftWikiLinkEdges, draftsToBrainXNotes, getGraph, graphEdgesForFlow, graphToBrainXNotes, pendingCreatedNoteToBrainXNote, pendingWikiLinkEntryToEdge, USE_MOCK_GRAPH, USE_MOCK_GRAPH_CLUSTERS } from "@/lib/graph-api";
-import { createBridgeConcepts, createLinkSuggestions, getLatestClusterJob, requestClusterJob, type BridgeConceptsData, type ClusterJobLatestData } from "@/lib/intelligence-api";
+import { createBridgeConcepts, createLinkSuggestions, generateNoteSummary, getLatestClusterJob, requestClusterJob, type BridgeConceptsData, type ClusterJobLatestData, type NoteSummaryData } from "@/lib/intelligence-api";
 import {
   AI_CLUSTER_MAX_CLUSTERS,
   AI_CLUSTER_MAX_NOTES,
@@ -62,6 +62,23 @@ const GRAPH_NOTICE_TONE = {
 } as const;
 
 const GRAPH_RECOMMENDATION_BUTTON = "border-[color-mix(in_srgb,rgb(var(--primary))_35%,rgb(var(--surface)))] bg-[color-mix(in_srgb,rgb(var(--primary))_14%,rgb(var(--surface)))] text-primary hover:border-[color-mix(in_srgb,rgb(var(--primary))_48%,rgb(var(--surface)))] hover:bg-[color-mix(in_srgb,rgb(var(--primary))_20%,rgb(var(--surface)))]";
+
+type GraphNoteSummaryState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "success"; summary: NoteSummaryData }
+  | { status: "insufficient"; message: string }
+  | { status: "error"; message: string };
+
+const GRAPH_NOTE_SUMMARY_IDLE: GraphNoteSummaryState = { status: "idle" };
+
+function graphSummaryErrorState(error: unknown): GraphNoteSummaryState {
+  const message = error instanceof Error ? error.message : "요약을 불러오지 못했습니다.";
+  if (message.includes("요약할 텍스트가 부족") || message.includes("INSUFFICIENT_NOTE_CONTENT")) {
+    return { status: "insufficient", message: "요약할 텍스트가 부족합니다." };
+  }
+  return { status: "error", message: "요약을 불러오지 못했습니다." };
+}
 
 function GraphEmptyState({
   onCreateNote,
@@ -571,7 +588,9 @@ function GraphCanvasFlow({
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<PlanetFlowNode>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<OrbitFlowEdge>([]);
   const [hovered, setHovered] = useState<BrainXNote | null>(null);
+  const [noteSummaryStates, setNoteSummaryStates] = useState<Record<string, GraphNoteSummaryState>>({});
   const hoverTimeoutRef = useRef<number | null>(null);
+  const summaryInFlightRef = useRef<Set<string>>(new Set());
   const isDraggingRef = useRef(false);
   const bridgeBoxSelectingRef = useRef(false);
   const reactFlowSelectionIdsRef = useRef<Set<string>>(new Set());
@@ -583,6 +602,40 @@ function GraphCanvasFlow({
   const raf = useRef(0);
   const selectionModeActive = bridgeMode || linkMode;
   const selectionLocked = bridgeSelectionLocked || linkSelectionLocked;
+
+  useEffect(() => {
+    if (!hovered) return;
+    if ((bridgeMode || linkMode) && hovered.availableForAiFeatures !== true) return;
+    const noteId = hovered.aiSourceNoteId ?? null;
+    const documentGroupId = hovered.documentGroupId ?? null;
+    if (!noteId || !documentGroupId) return;
+    const state = noteSummaryStates[hovered.id];
+    if (state?.status === "loading" || state?.status === "success" || state?.status === "insufficient") return;
+    if (summaryInFlightRef.current.has(hovered.id)) return;
+
+    summaryInFlightRef.current.add(hovered.id);
+    setNoteSummaryStates((current) => ({
+      ...current,
+      [hovered.id]: { status: "loading" },
+    }));
+
+    generateNoteSummary(noteId, { documentGroupId, force: false })
+      .then((summary) => {
+        setNoteSummaryStates((current) => ({
+          ...current,
+          [hovered.id]: { status: "success", summary },
+        }));
+      })
+      .catch((error) => {
+        setNoteSummaryStates((current) => ({
+          ...current,
+          [hovered.id]: graphSummaryErrorState(error),
+        }));
+      })
+      .finally(() => {
+        summaryInFlightRef.current.delete(hovered.id);
+      });
+  }, [bridgeMode, hovered, linkMode, noteSummaryStates]);
 
   const clearReactFlowNodeSelection = useCallback(() => {
     store.setState({
@@ -1199,6 +1252,7 @@ function GraphCanvasFlow({
       {hovered && (!selectedId || selectionModeActive) && (
         <TooltipOverlay 
           hovered={hovered} 
+          summaryState={noteSummaryStates[hovered.id] ?? GRAPH_NOTE_SUMMARY_IDLE}
           clusterMetaById={clusterMetaById}
           bridgeMode={bridgeMode}
           linkMode={linkMode}
@@ -1218,6 +1272,7 @@ function GraphCanvasFlow({
 
 function TooltipOverlay({
   hovered,
+  summaryState,
   clusterMetaById,
   bridgeMode,
   linkMode,
@@ -1225,6 +1280,7 @@ function TooltipOverlay({
   onMouseLeave
 }: {
   hovered: BrainXNote;
+  summaryState: GraphNoteSummaryState;
   clusterMetaById: Map<string, GraphClusterMeta>;
   bridgeMode: boolean;
   linkMode: boolean;
@@ -1233,13 +1289,21 @@ function TooltipOverlay({
 }) {
   const { getNode, flowToScreenPosition } = useReactFlow();
 
-  const summaryText = (hovered.summary ?? "").trim();
+  const generatedSummaryText = summaryState.status === "success"
+    ? (summaryState.summary.summary ?? "").trim()
+    : "";
+  const fallbackSummaryText = (hovered.summary ?? "").trim();
+  const summaryText = generatedSummaryText || fallbackSummaryText;
   const unavailableForAiSelection = (bridgeMode || linkMode) && hovered.availableForAiFeatures !== true;
   const tooltipBody = unavailableForAiSelection
     ? bridgeMode
       ? "아직 AI 추천에 사용할 수 없는 노트입니다. 노트 동기화가 완료되면 징검다리 추천에 사용할 수 있어요."
       : "아직 AI 추천에 사용할 수 없는 노트입니다. 노트 동기화가 완료되면 연결 추천에 사용할 수 있어요."
-    : summaryText;
+    : summaryState.status === "loading"
+      ? "세줄 요약을 생성하는 중..."
+      : summaryState.status === "insufficient" || summaryState.status === "error"
+        ? summaryState.message
+        : summaryText;
   if (!tooltipBody) return null;
 
   const node = getNode(hovered.id);
@@ -1257,7 +1321,11 @@ function TooltipOverlay({
   const cluster = resolveAiCluster(hovered.cluster, clusterMetaById);
   const clusterColor = `rgb(${cluster.color})`;
   const title = (hovered.title ?? "").trim() || "제목 없음";
-  const tooltipLabel = unavailableForAiSelection ? "AI 추천 준비 전" : `${cluster.label} · AI 요약`;
+  const tooltipLabel = unavailableForAiSelection
+    ? "AI 추천 준비 전"
+    : summaryState.status === "loading"
+      ? "AI 요약 생성 중"
+      : `${cluster.label} · 세줄 요약`;
 
   // createPortal: [data-route]의 transform 애니메이션이 position:fixed를
   // 깨므로, transform이 없는 document.body에 직접 렌더링
@@ -1296,7 +1364,7 @@ function TooltipOverlay({
           </span>
         </div>
         <div className="mb-1 break-words text-[15px] font-semibold leading-snug text-txt">{title}</div>
-        <p className="line-clamp-3 break-words text-[13.5px] leading-relaxed text-txt3">{tooltipBody}</p>
+        <p className="line-clamp-3 whitespace-pre-line break-words text-[13.5px] leading-relaxed text-txt3">{tooltipBody}</p>
 
         {/* 역삼각형 말풍선 화살표 */}
         <div

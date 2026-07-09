@@ -28,6 +28,7 @@ import com.brainx.intelligence.connection.domain.ConnectionForbiddenException;
 import com.brainx.intelligence.connection.domain.ConnectionNotFoundException;
 import com.brainx.intelligence.connection.domain.ConnectionProviderUnavailableException;
 import com.brainx.intelligence.exploration.domain.ExplorationDomainException;
+import com.brainx.intelligence.exploration.domain.ExplorationInsufficientContentException;
 import com.brainx.intelligence.insight.domain.InsightConflictException;
 import com.brainx.intelligence.insight.domain.InsightDomainException;
 import com.brainx.intelligence.insight.domain.InsightForbiddenException;
@@ -75,6 +76,11 @@ public class GlobalApiExceptionHandler {
     })
     public void handleBadRequest(Exception exception, HttpServletResponse response) throws IOException {
         writeError(response, HttpStatus.BAD_REQUEST, "BAD_REQUEST", safeMessage(exception));
+    }
+
+    @ExceptionHandler(ExplorationInsufficientContentException.class)
+    public void handleInsufficientContent(Exception exception, HttpServletResponse response) throws IOException {
+        writeError(response, HttpStatus.BAD_REQUEST, "INSUFFICIENT_NOTE_CONTENT", safeMessage(exception));
     }
 
     @ExceptionHandler({

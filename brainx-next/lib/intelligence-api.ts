@@ -49,6 +49,7 @@ export type InsightReportLatestData = Schemas["InsightReportLatestData"];
 export type AiModelsData = Schemas["AiModelsData"];
 export type AiModelSettingsPutRequest = Schemas["AiModelSettingsPutRequest"];
 export type AiModelSettingsData = Schemas["AiModelSettingsData"];
+export type NoteSummaryGenerateRequest = Schemas["NoteSummaryGenerateRequest"];
 export type NoteSummaryData = Schemas["NoteSummaryData"];
 export type StyleProfileData = Schemas["StyleProfileData"];
 export type StyleProfilePutRequest = Schemas["StyleProfilePutRequest"];
@@ -796,6 +797,24 @@ export function getNoteSummary(noteId: string, options?: IntelligenceRequestOpti
     undefined,
     options
   );
+}
+
+export function generateNoteSummary(
+  noteId: string,
+  payload: NoteSummaryGenerateRequest,
+  options?: IntelligenceRequestOptions
+) {
+  return authedRequest<NoteSummaryData>(
+    `/api/v1/notes/${encodeURIComponent(noteId)}/summary`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    options
+  ).then((data) => {
+    notifyTokenUsageChanged();
+    return data;
+  });
 }
 
 export function getStyleProfile(options?: IntelligenceRequestOptions) {

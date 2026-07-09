@@ -311,7 +311,11 @@ export interface paths {
          */
         get: operations["getNoteSummary"];
         put?: never;
-        post?: never;
+        /**
+         * 노트 세줄 요약 생성 또는 갱신
+         * @description 현재 Workspace document group의 노트를 기준으로 AI 세줄 요약을 생성해 DB에 저장한다. force=false이면 같은 markdownHash의 저장된 AI 요약을 재사용한다.
+         */
+        post: operations["generateNoteSummary"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1347,11 +1351,25 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        NoteSummaryGenerateRequest: {
+            /** @description 세줄 요약을 생성할 Workspace document group. */
+            documentGroupId: string;
+            /**
+             * @description true이면 같은 markdownHash의 저장된 AI 요약이 있어도 다시 생성한다.
+             * @default false
+             */
+            force?: boolean;
+        };
         NoteSummaryData: {
             noteId: string;
             summary: string;
             /** @enum {string} */
             source: "AI" | "EXCERPT";
+            documentGroupId?: string | null;
+            markdownHash?: string | null;
+            /** Format: date-time */
+            generatedAt?: string | null;
+            modelId?: string | null;
         };
         FolderOrganizationProposalRequest: {
             /** @description 폴더 정리 제안을 실행할 Workspace document group. */
@@ -2989,6 +3007,88 @@ export interface operations {
                 };
             };
             /** @description 잘못된 요청 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 인증 필요 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 권한 없음 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 찾을 수 없음 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 충돌 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 서버 내부 오류 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    generateNoteSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                noteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NoteSummaryGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description 성공 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["NoteSummaryData"];
+                    };
+                };
+            };
+            /** @description 잘못된 요청 또는 요약할 텍스트 부족 */
             400: {
                 headers: {
                     [name: string]: unknown;

@@ -31,19 +31,22 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
     private final NoteSummaryPort noteSummaryPort;
     private final MarkdownNoteChunker noteChunker;
     private final NoteIndexingService noteIndexingService;
+    private final NoteSummaryGenerationRequester noteSummaryGenerationRequester;
 
     public WorkspaceNoteEventHandler(
         ObjectMapper objectMapper,
         NoteProjectionStore noteProjectionStore,
         NoteSummaryPort noteSummaryPort,
         MarkdownNoteChunker noteChunker,
-        NoteIndexingService noteIndexingService
+        NoteIndexingService noteIndexingService,
+        NoteSummaryGenerationRequester noteSummaryGenerationRequester
     ) {
         this.objectMapper = objectMapper;
         this.noteProjectionStore = noteProjectionStore;
         this.noteSummaryPort = noteSummaryPort;
         this.noteChunker = noteChunker;
         this.noteIndexingService = noteIndexingService;
+        this.noteSummaryGenerationRequester = noteSummaryGenerationRequester;
     }
 
     @Override
@@ -155,6 +158,7 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
             context.envelope().occurredAt()
         ));
         noteIndexingService.indexFromSnapshot(base, version, payload.markdownHash(), context.eventId(), true, false);
+        noteSummaryGenerationRequester.requestGeneration(payload.userId(), documentGroupId, payload.noteId());
     }
 
     private void handleNoteMetadataChanged(EventProcessingContext context) {

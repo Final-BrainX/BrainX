@@ -51,7 +51,7 @@ import {
   setNoteOnLeaf,
   DropZone,
 } from "@/lib/notes/paneUtils";
-import { hasNoteTitleDuplicate, mergeInFlightNotes, nextDefaultNoteTitle } from "@/lib/notes/noteCreationState";
+import { hasNoteTitleDuplicate, mergeInFlightNotes, nextDefaultNoteTitle, upsertResolvedCreatedNote } from "@/lib/notes/noteCreationState";
 import { AUTO_THEME } from "./theme";
 import { SplitThemeContext } from "./SplitThemeContext";
 import PaneTreeRenderer, { type QuickSwitcherTarget } from "./PaneTreeRenderer";
@@ -1383,17 +1383,18 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
           }
 
           setNotes((prev) =>
-            prev.map((item) =>
-              item.id === localNoteId
-                ? {
-                    ...item,
-                    id: savedId,
-                    title: finalTitle,
-                    version: nextVersion,
-                    persisted: true,
-                    updatedAt: Date.parse(created.createdAt) || Date.now(),
-                  }
-                : item
+            upsertResolvedCreatedNote(
+              prev,
+              localNoteId,
+              {
+                ...newNote,
+                id: savedId,
+                title: finalTitle,
+                version: nextVersion,
+                persisted: true,
+                updatedAt: Date.parse(created.createdAt) || Date.now(),
+              },
+              noteTitle
             )
           );
           replaceInFlightCreatedNoteId(localNoteId, savedId);
@@ -1432,10 +1433,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         .then((draft) => {
           replaceInFlightCreatedNoteId(localNoteId, draft.noteId);
           setNotes((prev) =>
-            prev.map((item) =>
-              item.id === localNoteId
-                ? { ...item, id: draft.noteId, updatedAt: Date.now() }
-                : item
+            upsertResolvedCreatedNote(
+              prev,
+              localNoteId,
+              {
+                ...newNote,
+                id: draft.noteId,
+                title: noteTitle,
+                updatedAt: Date.now(),
+              },
+              noteTitle
             )
           );
           setState((prev) => ({ ...prev, root: replaceNoteIdInNode(prev.root, localNoteId, draft.noteId) }));

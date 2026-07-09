@@ -8,6 +8,15 @@ public interface NoteSummaryPort {
 
     Optional<NoteSummary> findByUserIdAndNoteId(String userId, String noteId);
 
+    Optional<NoteSummary> findByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId);
+
+    Optional<NoteSummary> findByUserIdAndDocumentGroupIdAndNoteIdAndMarkdownHash(
+        String userId,
+        String documentGroupId,
+        String noteId,
+        String markdownHash
+    );
+
     NoteSummary save(NoteSummary summary);
 
     void deleteByUserIdAndNoteId(String userId, String noteId);

@@ -44,3 +44,37 @@ export function mergeInFlightNotes(
   }
   return [...preserved, ...loadedNotes];
 }
+
+export function upsertResolvedCreatedNote(
+  notes: MockNote[],
+  localNoteId: string,
+  resolvedNote: MockNote,
+  fallbackTitle: string
+) {
+  let foundLocal = false;
+  let foundResolved = false;
+  const resolvedTitle = resolvedNote.title.trim() || fallbackTitle;
+  const mergeResolved = (note: MockNote) => ({
+    ...resolvedNote,
+    ...note,
+    id: resolvedNote.id,
+    title: note.title.trim() || resolvedTitle,
+    version: resolvedNote.version,
+    persisted: resolvedNote.persisted,
+    updatedAt: Math.max(note.updatedAt, resolvedNote.updatedAt),
+  });
+  const next = notes.map((note) => {
+    if (note.id === resolvedNote.id) {
+      foundResolved = true;
+      return mergeResolved(note);
+    }
+    if (note.id === localNoteId) {
+      foundLocal = true;
+      return mergeResolved(note);
+    }
+    return note;
+  });
+
+  if (foundLocal || foundResolved) return next;
+  return [{ ...resolvedNote, title: resolvedTitle }, ...next];
+}

@@ -2,6 +2,8 @@ package com.brainx.intelligence.infrastructure.persistence.jpa.exploration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Instant;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -33,6 +35,28 @@ class ExplorationJpaAdapterTest {
 
         assertThat(summary.summary()).isEqualTo("AI summary");
         assertThat(summary.source()).isEqualTo(SummarySource.AI);
+    }
+
+    @Test
+    void findSummaryByUserAndNoteHandlesLegacyAndDocumentGroupRows() {
+        explorationJpaAdapter.save(NoteSummary.ai("user-1", "note-1", "Legacy AI summary"));
+        explorationJpaAdapter.save(NoteSummary.ai(
+            "user-1",
+            "group-1",
+            "note-1",
+            "Fresh AI summary",
+            "hash-1",
+            "gpt-5.4-nano",
+            Instant.parse("2026-07-09T03:00:00Z")
+        ));
+        entityManager.flush();
+        entityManager.clear();
+
+        var summary = explorationJpaAdapter.findByUserIdAndNoteId("user-1", "note-1").orElseThrow();
+
+        assertThat(summary.summary()).isEqualTo("Fresh AI summary");
+        assertThat(summary.documentGroupId()).isEqualTo("group-1");
+        assertThat(summary.generatedAt()).isEqualTo(Instant.parse("2026-07-09T03:00:00Z"));
     }
 
     @Test
