@@ -2,7 +2,7 @@
 
 이 문서는 `Intelligence-Service` 운영 PostgreSQL schema의 기준서다. 기본 profile에서는 Flyway가 `src/main/resources/db/migration`의 migration을 적용하고, Hibernate는 `spring.jpa.hibernate.ddl-auto=validate`로 schema/entity 불일치만 검증한다. 아래 DDL은 migration 작성 기준과 장애 시 수동 점검/복구용 reference로 유지한다.
 
-기준 시점: 2026-07-03
+기준 시점: 2026-07-10
 
 ## 적용 원칙
 
@@ -264,7 +264,8 @@ create table if not exists intelligence_cluster_jobs (
   idempotency_key varchar(200),
   failure_message varchar(1000),
   created_at timestamp(6) with time zone not null,
-  completed_at timestamp(6) with time zone
+  completed_at timestamp(6) with time zone,
+  constraint uk_cluster_jobs_user_idempotency unique (user_id, idempotency_key)
 );
 
 create table if not exists intelligence_insight_reports (
@@ -282,7 +283,8 @@ create table if not exists intelligence_insight_reports (
   idempotency_key varchar(200),
   failure_message varchar(1000),
   created_at timestamp(6) with time zone not null,
-  completed_at timestamp(6) with time zone
+  completed_at timestamp(6) with time zone,
+  constraint uk_insight_reports_user_idempotency unique (user_id, idempotency_key)
 );
 
 create table if not exists intelligence_llm_runs (
@@ -484,19 +486,11 @@ create index if not exists idx_agent_actions_user_status_created
 create index if not exists idx_cluster_jobs_user_job
   on intelligence_cluster_jobs (user_id, cluster_job_id);
 
-create index if not exists idx_cluster_jobs_user_idempotency
-  on intelligence_cluster_jobs (user_id, idempotency_key)
-  where idempotency_key is not null;
-
 create index if not exists idx_insight_reports_user_report
   on intelligence_insight_reports (user_id, report_id);
 
 create index if not exists idx_insight_reports_user_group_created
   on intelligence_insight_reports (user_id, document_group_id, created_at desc, report_id desc);
-
-create index if not exists idx_insight_reports_user_idempotency
-  on intelligence_insight_reports (user_id, idempotency_key)
-  where idempotency_key is not null;
 
 create index if not exists idx_llm_runs_user_started
   on intelligence_llm_runs (user_id, started_at desc, llm_run_id desc);
@@ -521,6 +515,8 @@ create index if not exists idx_eval_results_run_created
 ```
 
 ## 부분 적용 DB 체크리스트
+
+`V20260710_01__enforce_ai_job_idempotency.sql`은 기존 중복 key가 있으면 완료된 최신 결과를 우선 survivor로 남기고 나머지 row의 `idempotency_key`만 `NULL`로 바꾼 뒤 위 unique constraint를 추가한다. 분석 결과 row 자체는 삭제하지 않는다. 운영 적용 전에는 `(user_id, idempotency_key)` 중복 건수를 확인하고, 적용 후 `uk_cluster_jobs_user_idempotency`, `uk_insight_reports_user_idempotency` constraint 존재 여부를 확인한다.
 
 `V20260703_01__baseline_and_repair_intelligence_schema.sql`는 아래 보강 항목을 idempotent하게 포함한다. 운영 장애 대응 중 수동 확인이 필요할 때만 이 체크리스트를 사용한다.
 

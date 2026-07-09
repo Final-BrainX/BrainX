@@ -59,6 +59,7 @@ import com.brainx.intelligence.exploration.application.port.outbound.NoteChunkRe
 import com.brainx.intelligence.exploration.domain.NoteChunkSearchResult;
 import com.brainx.intelligence.exploration.domain.SearchScope;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
+import com.brainx.intelligence.shared.application.exception.CapabilityForbiddenException;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiExecutionMetadata;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
@@ -263,7 +264,7 @@ public class ChatService implements
                 hasClientContext,
                 noteScope
             ))
-        ).onErrorResume(exception -> Flux.just(ChatStreamEvent.error("STREAM_ERROR", safeMessage(exception))));
+        ).onErrorResume(exception -> Flux.just(ChatStreamEvent.error(streamErrorCode(exception), safeMessage(exception))));
     }
 
     private Flux<ChatStreamEvent> routedMessageStream(
@@ -1306,6 +1307,10 @@ public class ChatService implements
     private static String safeMessage(Throwable exception) {
         String message = exception.getMessage();
         return message == null || message.isBlank() ? "RAG chat stream failed." : message;
+    }
+
+    private static String streamErrorCode(Throwable exception) {
+        return exception instanceof CapabilityForbiddenException ? "FORBIDDEN" : "STREAM_ERROR";
     }
 
     private record RagContext(ChatCitation citation, String text) {

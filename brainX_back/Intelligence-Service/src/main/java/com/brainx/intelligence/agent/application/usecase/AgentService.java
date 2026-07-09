@@ -28,6 +28,7 @@ import com.brainx.intelligence.llmops.application.service.AiRunRecorder;
 import com.brainx.intelligence.llmops.application.service.PromptRegistryService;
 import com.brainx.intelligence.llmops.application.service.PromptRegistryService.PromptResolution;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
+import com.brainx.intelligence.shared.application.exception.CapabilityForbiddenException;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatResponse;
@@ -155,6 +156,10 @@ public class AgentService {
             throw new AgentDomainException("modelId must match the Agent thread modelId.");
         }
 
+        List<AgentMessage> history = persistencePort.findMessagesByUserIdAndThreadId(userId, threadId);
+        PromptResolution promptResolution = promptRegistryService.resolve("agent.planner", SYSTEM_PROMPT);
+        checkEntitlement(userId, modelId, history, message, promptResolution.content());
+
         AgentMessage userMessage = persistencePort.saveMessage(AgentMessage.user(
             UUID.randomUUID().toString(),
             thread.threadId(),
@@ -164,11 +169,6 @@ public class AgentService {
             command.clientContext(),
             Instant.now()
         ));
-        List<AgentMessage> history = persistencePort.findMessagesByUserIdAndThreadId(userId, threadId).stream()
-            .filter(item -> !item.messageId().equals(userMessage.messageId()))
-            .toList();
-        PromptResolution promptResolution = promptRegistryService.resolve("agent.planner", SYSTEM_PROMPT);
-        checkEntitlement(userId, modelId, history, message, promptResolution.content());
 
         try {
             String agentMessageId = UUID.randomUUID().toString();
@@ -270,7 +270,7 @@ public class AgentService {
         int estimate = estimateTokens(systemPrompt + historyPrompt(history) + message);
         var entitlement = entitlementPort.checkEntitlement(new EntitlementRequest(userId, AGENT_CAPABILITY, estimate));
         if (!entitlement.allowed()) {
-            throw new AgentDomainException("AI capability is not available: " + entitlement.reasonCode());
+            throw new CapabilityForbiddenException("AI capability is not available: " + entitlement.reasonCode());
         }
     }
 
@@ -348,6 +348,12 @@ public class AgentService {
             .findSearchableAgentNoteSource(action.userId(), action.documentGroupId(), noteId)
             .orElseThrow(() -> new AgentNotFoundException("Target note is not available: " + noteId));
         var snapshot = workspaceNotePort.getNoteSnapshot(target.noteId());
+        if (snapshot == null
+            || !target.noteId().equals(snapshot.noteId())
+            || !action.userId().equals(snapshot.userId())
+            || !action.documentGroupId().equals(snapshot.documentGroupId())) {
+            throw new AgentNotFoundException("Target note is not available: " + noteId);
+        }
         var patched = workspaceNotePort.appendNoteContentFromAgent(new AppendNoteContentCommand(
             action.userId(),
             action.documentGroupId(),

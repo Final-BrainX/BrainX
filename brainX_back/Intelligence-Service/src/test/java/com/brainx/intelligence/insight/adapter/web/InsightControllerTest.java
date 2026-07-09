@@ -186,6 +186,19 @@ class InsightControllerTest {
     }
 
     @Test
+    void requestInsightReportRejectsOversizedIdempotencyKey() throws Exception {
+        mockMvc.perform(post("/api/v1/ai/insight-reports")
+                .with(user("user-1"))
+                .header("Idempotency-Key", "x".repeat(201))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"scope": {"documentGroupId": "group-1"}}
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code").value("BAD_REQUEST"));
+    }
+
+    @Test
     void requestInsightReportMapsDomainErrors() throws Exception {
         when(requestInsightReportUseCase.requestInsightReport(any(InsightReportCommand.class)))
             .thenThrow(new InsightForbiddenException("denied"));

@@ -201,6 +201,19 @@ class ClusteringControllerTest {
     }
 
     @Test
+    void requestClusterJobRejectsOversizedIdempotencyKey() throws Exception {
+        mockMvc.perform(post("/api/v1/ai/clusters")
+                .with(user("user-1"))
+                .header("Idempotency-Key", "x".repeat(201))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"scope": {"documentGroupId": "group-1"}}
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code").value("BAD_REQUEST"));
+    }
+
+    @Test
     void requestClusterJobMapsDomainErrors() throws Exception {
         when(requestClusterJobUseCase.requestClusterJob(any(ClusterJobCommand.class)))
             .thenThrow(new ClusteringForbiddenException("denied"));

@@ -6,11 +6,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.BindException;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.validation.ConstraintViolationException;
 import jakarta.servlet.http.HttpServletResponse;
 
 import com.brainx.intelligence.agent.domain.AgentConflictException;
@@ -29,6 +31,7 @@ import com.brainx.intelligence.connection.domain.ConnectionNotFoundException;
 import com.brainx.intelligence.connection.domain.ConnectionProviderUnavailableException;
 import com.brainx.intelligence.exploration.domain.ExplorationDomainException;
 import com.brainx.intelligence.exploration.domain.ExplorationInsufficientContentException;
+import com.brainx.intelligence.exploration.domain.ExplorationNotFoundException;
 import com.brainx.intelligence.insight.domain.InsightConflictException;
 import com.brainx.intelligence.insight.domain.InsightDomainException;
 import com.brainx.intelligence.insight.domain.InsightForbiddenException;
@@ -40,6 +43,7 @@ import com.brainx.intelligence.organization.domain.OrganizationForbiddenExceptio
 import com.brainx.intelligence.organization.domain.OrganizationNotFoundException;
 import com.brainx.intelligence.organization.domain.OrganizationProviderUnavailableException;
 import com.brainx.intelligence.settings.domain.SettingsDomainException;
+import com.brainx.intelligence.shared.application.exception.CapabilityForbiddenException;
 
 /**
  * Public REST API 오류를 OpenAPI 공통 오류 wrapper로 변환합니다.
@@ -63,6 +67,8 @@ public class GlobalApiExceptionHandler {
 
     @ExceptionHandler({
         MethodArgumentNotValidException.class,
+        HandlerMethodValidationException.class,
+        ConstraintViolationException.class,
         BindException.class,
         HttpMessageNotReadableException.class,
         AgentDomainException.class,
@@ -84,6 +90,7 @@ public class GlobalApiExceptionHandler {
     }
 
     @ExceptionHandler({
+        CapabilityForbiddenException.class,
         ClusteringForbiddenException.class,
         ConnectionForbiddenException.class,
         InsightForbiddenException.class,
@@ -98,6 +105,7 @@ public class GlobalApiExceptionHandler {
         ChatNotFoundException.class,
         ClusteringNotFoundException.class,
         ConnectionNotFoundException.class,
+        ExplorationNotFoundException.class,
         InsightNotFoundException.class,
         LlmOpsNotFoundException.class,
         OrganizationNotFoundException.class

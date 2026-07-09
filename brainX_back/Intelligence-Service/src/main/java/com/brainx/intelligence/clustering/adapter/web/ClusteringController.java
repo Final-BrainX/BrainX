@@ -83,7 +83,7 @@ public class ClusteringController {
     @PostMapping("/api/v1/ai/clusters")
     public ResponseEntity<ApiSuccessResponse<ClusterJobData>> requestClusterJob(
         Principal principal,
-        @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
+        @RequestHeader(name = "Idempotency-Key", required = false) @Size(max = 200) String idempotencyKey,
         @Valid @RequestBody ClusterJobCreateRequest request
     ) {
         ClusterJob job = requestClusterJobUseCase.requestClusterJob(new ClusterJobCommand(

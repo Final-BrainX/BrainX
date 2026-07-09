@@ -5,8 +5,11 @@ import java.util.Optional;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import com.brainx.intelligence.insight.application.port.outbound.InsightReportStore;
+import com.brainx.intelligence.infrastructure.persistence.jpa.JpaConstraintViolations;
+import com.brainx.intelligence.insight.domain.InsightIdempotencyConflictException;
 import com.brainx.intelligence.insight.domain.InsightReport;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -23,8 +26,15 @@ public class InsightReportJpaAdapter implements InsightReportStore {
 
     @Override
     public InsightReport save(InsightReport report) {
-        return repository.save(InsightReportJpaEntity.fromDomain(report, objectMapper))
-            .toDomain(objectMapper);
+        try {
+            return repository.saveAndFlush(InsightReportJpaEntity.fromDomain(report, objectMapper))
+                .toDomain(objectMapper);
+        } catch (DataIntegrityViolationException exception) {
+            if (JpaConstraintViolations.causedBy(exception, "uk_insight_reports_user_idempotency")) {
+                throw new InsightIdempotencyConflictException("The insight idempotency key is already in use.");
+            }
+            throw exception;
+        }
     }
 
     @Override

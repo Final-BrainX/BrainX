@@ -9,6 +9,7 @@
 - `ai-model-pricing-and-usage.md`: AI 모델 카탈로그 가격과 token usage / cost 추정 메모
 - `cross-service-integration-map.md`: Intelligence-Service 관점의 타 서비스 계약, 이벤트, port 경계 지도
 - `intelligence-operational-db-ddl.md`: 운영 PostgreSQL schema baseline DDL과 부분 적용 DB 체크리스트
+- `aws-production-risk-audit-2026-07-10.md`: AWS 운영 환경의 IAM, 이벤트 유실, RDS, 단일 EC2, 관측성 위험과 후속 조치
 - `llmops.md`: LLM run log, PromptOps registry, eval run, 사용자 피드백 API 기준
 - `connection-api.md`: 연결 추천 공개 API와 event / usage 경계
 - `external-search.md`: OpenAI `web_search` 기반 검색 port와 품질 캡처 메모

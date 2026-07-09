@@ -30,6 +30,7 @@ import com.brainx.intelligence.llmops.application.port.outbound.LlmOpsStore;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
 import com.brainx.intelligence.settings.domain.AiModel;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
+import com.brainx.intelligence.shared.application.exception.CapabilityForbiddenException;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatChunk;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatResponse;
@@ -92,6 +93,37 @@ class AgentServiceTest {
         assertThat(persistence.actions).hasSize(1);
         assertThat(persistence.actions.getFirst().status()).isEqualTo(AgentActionStatus.PENDING_APPROVAL);
         assertThat(workspace.createdCommands).isEmpty();
+    }
+
+    @Test
+    void entitlementDeniedDoesNotPersistUserMessage() {
+        AgentService.AgentThreadView thread = createThread();
+        LlmOpsStore llmOpsStore = LlmOpsTestSupport.store();
+        service = new AgentService(
+            persistence,
+            aiChat,
+            request -> new EntitlementDecision(false, "QUOTA_EXHAUSTED", 0),
+            new AiUsageRecorder(record -> {
+            }, new AiTokenUsageCostEstimator(new EmptyAiModelCatalog())),
+            LlmOpsTestSupport.runRecorder(llmOpsStore),
+            LlmOpsTestSupport.promptRegistry(llmOpsStore),
+            workspace,
+            notes,
+            new ObjectMapper()
+        );
+
+        assertThatThrownBy(() -> service.sendMessage(new SendAgentMessageCommand(
+            "user-1",
+            thread.threadId(),
+            "새 노트를 만들어줘",
+            Map.of(),
+            "gpt-test"
+        )))
+            .isInstanceOf(CapabilityForbiddenException.class)
+            .hasMessageContaining("QUOTA_EXHAUSTED");
+
+        assertThat(persistence.messages).isEmpty();
+        assertThat(aiChat.calls).isZero();
     }
 
     @Test
@@ -160,7 +192,8 @@ class AgentServiceTest {
             List.of(),
             null,
             7,
-            Instant.parse("2026-07-06T00:01:00Z")
+            Instant.parse("2026-07-06T00:01:00Z"),
+            "user-1"
         );
 
         AgentService.AgentActionView result = service.approveAction(new AgentActionDecisionCommand("user-1", action.actionId()));
@@ -169,6 +202,21 @@ class AgentServiceTest {
         assertThat(workspace.appendCommands).hasSize(1);
         assertThat(workspace.appendCommands.getFirst().baseVersion()).isEqualTo(7);
         assertThat(workspace.appendCommands.getFirst().appendMarkdown()).contains("추가 내용");
+    }
+
+    @Test
+    void approveAppendNoteFailsWithoutMutatingWhenWorkspaceSnapshotIsMissing() {
+        AgentAction action = pendingAppendAction();
+        persistence.saveAction(action);
+        notes.saved = new AgentNoteSource("note-1", "대상 노트");
+        workspace.snapshot = null;
+
+        AgentService.AgentActionView result = service.approveAction(
+            new AgentActionDecisionCommand("user-1", action.actionId())
+        );
+
+        assertThat(result.status()).isEqualTo(AgentActionStatus.FAILED);
+        assertThat(workspace.appendCommands).isEmpty();
     }
 
     @Test
@@ -355,9 +403,11 @@ class AgentServiceTest {
     private static final class FakeAiChat implements AiChatPort {
 
         private String response = "{\"reply\":\"확인했습니다.\",\"action\":null}";
+        private int calls;
 
         @Override
         public AiChatResponse generate(AiChatRequest request) {
+            calls++;
             return new AiChatResponse(response, new AiTokenUsage(10, 4, 14));
         }
 
@@ -371,7 +421,17 @@ class AgentServiceTest {
 
         private final List<CreateNoteCommand> createdCommands = new ArrayList<>();
         private final List<AppendNoteContentCommand> appendCommands = new ArrayList<>();
-        private NoteSnapshot snapshot = new NoteSnapshot("note-1", "대상 노트", "기존 내용", Instant.now());
+        private NoteSnapshot snapshot = new NoteSnapshot(
+            "note-1",
+            DocumentGroups.DEFAULT_DOCUMENT_GROUP_ID,
+            "대상 노트",
+            "기존 내용",
+            List.of(),
+            null,
+            1,
+            Instant.now(),
+            "user-1"
+        );
 
         @Override
         public NoteSnapshot getNoteSnapshot(String noteId) {

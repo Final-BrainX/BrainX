@@ -1,6 +1,7 @@
 package com.brainx.intelligence.clustering.application.usecase;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -19,6 +20,7 @@ import com.brainx.intelligence.clustering.application.port.outbound.ClusteringNo
 import com.brainx.intelligence.clustering.domain.Cluster;
 import com.brainx.intelligence.clustering.domain.ClusterJob;
 import com.brainx.intelligence.clustering.domain.ClusterJobStatus;
+import com.brainx.intelligence.clustering.domain.ClusteringNotFoundException;
 import com.brainx.intelligence.shared.application.port.outbound.KnowledgeAnalysisNoteSourcePort.KnowledgeAnalysisNote;
 import com.brainx.intelligence.shared.application.port.outbound.WorkspaceNotePort;
 
@@ -135,6 +137,36 @@ class ClusterInheritanceServiceTest {
         ));
 
         assertThat(result.inherited()).isFalse();
+        assertThat(store.jobs).hasSize(1);
+    }
+
+    @Test
+    void missingBridgeSnapshotIsReportedAsNotFound() {
+        FakeStore store = new FakeStore();
+        store.jobs.add(baseline());
+        WorkspaceNotePort workspace = new WorkspaceNotePort() {
+            @Override
+            public NoteSnapshot getNoteSnapshot(String noteId) {
+                return null;
+            }
+
+            @Override
+            public void applyAcceptedSuggestion(ApplyAcceptedSuggestionCommand command) {
+            }
+        };
+        ClusterInheritanceService service = new ClusterInheritanceService(
+            store,
+            emptyNotes(),
+            workspace,
+            new FakeEvents(),
+            new ClusteringProperties(),
+            Clock.systemUTC()
+        );
+
+        assertThatThrownBy(() -> service.inheritCluster(new ClusterInheritanceCommand(
+            "user-1", "group-1", "bridge-1", List.of("note-1", "note-2")
+        )))
+            .isInstanceOf(ClusteringNotFoundException.class);
         assertThat(store.jobs).hasSize(1);
     }
 

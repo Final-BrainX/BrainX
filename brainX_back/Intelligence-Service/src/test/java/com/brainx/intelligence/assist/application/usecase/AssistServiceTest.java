@@ -32,6 +32,7 @@ import com.brainx.intelligence.settings.domain.StyleProfile;
 import com.brainx.intelligence.settings.domain.VendorTokenCost;
 import com.brainx.intelligence.settings.domain.WritingStyle;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
+import com.brainx.intelligence.shared.application.exception.CapabilityForbiddenException;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatChunk;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatResponse;
@@ -412,7 +413,7 @@ class AssistServiceTest {
             InlineAssistAction.REWRITE,
             null
         )))
-            .isInstanceOf(IllegalArgumentException.class)
+            .isInstanceOf(CapabilityForbiddenException.class)
             .hasMessageContaining("QUOTA_EXHAUSTED");
 
         assertThat(chatPort.calls).isZero();

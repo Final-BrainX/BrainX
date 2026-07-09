@@ -6,6 +6,7 @@ import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
@@ -52,6 +53,9 @@ public class ExternalWorkspaceNoteAdapter implements WorkspaceNotePort {
             }
             return response.data().toSnapshot();
         } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode() == HttpStatus.NOT_FOUND) {
+                return null;
+            }
             throw new WorkspaceNoteAdapterException(
                 "Workspace snapshot call failed with status " + exception.getStatusCode().value() + ".",
                 exception
@@ -185,6 +189,11 @@ public class ExternalWorkspaceNoteAdapter implements WorkspaceNotePort {
     ) {
 
         NoteSnapshot toSnapshot() {
+            if (!StringUtils.hasText(noteId)
+                || !StringUtils.hasText(documentGroupId)
+                || !StringUtils.hasText(userId)) {
+                throw new WorkspaceNoteAdapterException("Workspace snapshot response did not include its ownership scope.");
+            }
             return new NoteSnapshot(
                 noteId,
                 documentGroupId,

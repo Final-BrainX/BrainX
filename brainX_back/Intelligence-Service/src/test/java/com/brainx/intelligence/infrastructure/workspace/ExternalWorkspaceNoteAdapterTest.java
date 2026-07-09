@@ -6,6 +6,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
 import java.net.URI;
 import java.time.Duration;
@@ -13,6 +14,7 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
@@ -57,6 +59,19 @@ class ExternalWorkspaceNoteAdapterTest {
         assertThat(snapshot.tags()).containsExactly("tag-1");
         assertThat(snapshot.folderId()).isEqualTo("folder-1");
         assertThat(snapshot.version()).isEqualTo(3);
+        server.verify();
+    }
+
+    @Test
+    void getNoteSnapshotReturnsNullWhenWorkspaceReportsNotFound() {
+        WorkspaceClientProperties properties = properties("service-token");
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://workspace.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ExternalWorkspaceNoteAdapter adapter = new ExternalWorkspaceNoteAdapter(builder.build(), properties);
+        server.expect(requestTo("https://workspace.test/internal/v1/workspace/notes/missing-note/snapshot"))
+            .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        assertThat(adapter.getNoteSnapshot("missing-note")).isNull();
         server.verify();
     }
 

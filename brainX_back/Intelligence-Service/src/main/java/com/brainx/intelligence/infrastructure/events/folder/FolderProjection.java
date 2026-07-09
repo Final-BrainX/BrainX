@@ -47,9 +47,9 @@ public record FolderProjection(
         return new FolderProjection(
             folderId,
             userId,
-            name == null ? this.name : name,
-            parentFolderId == null ? this.parentFolderId : parentFolderId,
-            order == null ? this.order : order,
+            name,
+            parentFolderId,
+            order,
             deleted,
             childNoteAction,
             targetFolderId,
