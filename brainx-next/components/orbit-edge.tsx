@@ -22,6 +22,8 @@ export function OrbitEdge({
   const theme = data?.theme as '2d' | 'universe' | undefined;
   const sourceColor = data?.sourceColor as string | null | undefined;
   const activeColor = data?.activeColor as string | null | undefined;
+  const timeFadeOpacity = data?.timeFadeOpacity as number | undefined;
+  const safeTimeFadeOpacity = Math.min(1, Math.max(0.2, timeFadeOpacity ?? 1));
   const is2D = theme === '2d';
 
   // 2D 라이트: border가 너무 밝아 잘 안 보이므로 더 진한 중간 회색 사용
@@ -51,9 +53,10 @@ export function OrbitEdge({
   const finalFilter = isBridgeHighlight
     ? 'none'
     : (isSelected && !is2D ? `drop-shadow(0 0 8px ${color})` : 'none');
-  const finalOpacity = isDimmed
+  const baseOpacity = isDimmed
     ? (isBridgeHighlight ? 0.4 : (is2D ? 0.22 : 0.3))
     : 1;
+  const finalOpacity = isDimmed ? baseOpacity : baseOpacity * safeTimeFadeOpacity;
 
   return (
     <>

@@ -33,6 +33,7 @@ import {
 } from "@/lib/link-suggestions";
 import { readPendingCreatedNotes, removePendingCreatedNoteByNoteId } from "@/lib/notes/pending-created-note-cache";
 import { createWorkspaceNote, getNote, hasWorkspaceUserIdentity, listWorkspaceNoteDrafts, matchesWorkspaceScope, updateWorkspaceNoteContent, WorkspaceApiError, type NoteCreated } from "@/lib/workspace-api";
+import { graphTimeEffectOpacityByNoteId, isGraphNoteOutsideTimeFilter } from "@/lib/graph-time-effect";
 import { useBrainX } from "@/components/brainx-provider";
 import { useWorkspace } from "@/components/workspace-provider";
 import { Avatar, Badge, Btn, Card, Icon } from "@/components/brainx-ui";
@@ -227,6 +228,7 @@ type PlanetFlowNode = Node<{
   bridgeSelected: boolean;
   bridgeSelectionOrder: number | null;
   dimmed: boolean;
+  timeFadeOpacity: number;
   isDirect: boolean;
   layer: "front" | "middle" | "back";
   theme: "2d" | "universe";
@@ -261,6 +263,7 @@ type OrbitFlowEdge = Edge<{
   isBridge: boolean;
   isSelected: boolean;
   isDimmed: boolean;
+  timeFadeOpacity: number;
   theme: "2d" | "universe";
 }>;
 
@@ -326,31 +329,16 @@ function settleLayout(notes: BrainXNote[], iterations = 260) {
 const nodeTypes = { planet: PlanetNode };
 const edgeTypes = { orbit: OrbitEdge };
 
-const ageRank: Record<string, number> = {
-  오늘: 0,
-  "2시간 전": 0,
-  "4시간 전": 0,
-  어제: 1,
-  "1일 전": 1,
-  "2일 전": 2,
-  "3일 전": 3,
-  "4일 전": 4,
-  "5일 전": 5,
-  "6일 전": 6,
-  "1주 전": 7
-};
-
 const BRIDGE_MIN_NOTE_COUNT = 2;
 const BRIDGE_MAX_NOTE_COUNT = 10;
 const BRIDGE_RECOMMENDATION_TAGS = ["bridge", "ai-suggestion"];
 const LINK_MIN_NOTE_COUNT = 1;
 const LINK_MAX_NOTE_COUNT = 10;
 const AI_BOX_SELECTION_MIN_SIZE = 4;
+const TIME_EFFECT_DEFAULT_STRENGTH = 60;
 
 function isFilteredOutByTime(note: BrainXNote, timeFilter: string) {
-  if (timeFilter === "전체") return false;
-  const limit = timeFilter === "최근 1일" ? 1 : timeFilter === "최근 1주" ? 7 : 99;
-  return (ageRank[note.updated] ?? 0) > limit;
+  return isGraphNoteOutsideTimeFilter(note, timeFilter);
 }
 
 function isBridgeSelectableNote(
@@ -539,6 +527,7 @@ function GraphCanvasFlow({
   layoutMode,
   clusterOn,
   timeFilter,
+  timeFadeOpacityById,
   hiddenClusters,
   clusterMetaById,
   controls,
@@ -561,6 +550,7 @@ function GraphCanvasFlow({
   layoutMode: LayoutMode;
   clusterOn: boolean;
   timeFilter: string;
+  timeFadeOpacityById: ReadonlyMap<string, number>;
   hiddenClusters: Partial<Record<ClusterId, boolean>>;
   clusterMetaById: Map<string, GraphClusterMeta>;
   controls: MutableRefObject<GraphControls | null>;
@@ -985,6 +975,7 @@ function GraphCanvasFlow({
       const isDirect = activeId ? direct.has(note.id) : false;
       const radius = selected || bridgeSelected ? baseRadius + 4 : (isDirect ? baseRadius + 1.5 : baseRadius);
       const dimmed = isFilteredOutByTime(note, timeFilter);
+      const timeFadeOpacity = selected || bridgeSelected || isDirect ? 1 : (timeFadeOpacityById.get(note.id) ?? 1);
       const hidden = hiddenClusters[note.cluster] ? true : false;
       
       let layer: 'front' | 'middle' | 'back' = 'middle';
@@ -1017,6 +1008,7 @@ function GraphCanvasFlow({
           bridgeSelected,
           bridgeSelectionOrder: aiSelectionOrder.get(note.id) ?? null,
           dimmed,
+          timeFadeOpacity,
           isDirect,
           layer,
           theme
@@ -1034,6 +1026,8 @@ function GraphCanvasFlow({
       
       const sourceDimmed = sourceNote ? isFilteredOutByTime(sourceNote, timeFilter) : false;
       const targetDimmed = targetNote ? isFilteredOutByTime(targetNote, timeFilter) : false;
+      const sourceTimeFadeOpacity = sourceNote ? (timeFadeOpacityById.get(sourceNote.id) ?? 1) : 1;
+      const targetTimeFadeOpacity = targetNote ? (timeFadeOpacityById.get(targetNote.id) ?? 1) : 1;
 
       const isSelected = activeId && (edge.source === activeId || edge.target === activeId);
       // bridgeMode: bridge 아닌 엣지는 흐리게, bridge 엣지는 강조
@@ -1055,6 +1049,7 @@ function GraphCanvasFlow({
           isBridgeHighlight: !!(bridgeMode && edge.bridge),
           isSelected: !!isSelected,
           isDimmed,
+          timeFadeOpacity: isSelected || (bridgeMode && edge.bridge) ? 1 : Math.min(sourceTimeFadeOpacity, targetTimeFadeOpacity),
           theme,
           sourceColor,
           activeColor
@@ -1078,7 +1073,7 @@ function GraphCanvasFlow({
       });
     });
     setRfEdges(newEdges);
-  }, [notes, edges, selectedId, hovered, draggingNodeId, timeFilter, hiddenClusters, clusterMetaById, setRfNodes, setRfEdges, theme, bridgeMode, bridgeSelectedIds, bridgeSelectionLocked, linkMode, linkSelectedIds, selectionModeActive, selectionLocked]);
+  }, [notes, edges, selectedId, hovered, draggingNodeId, timeFilter, timeFadeOpacityById, hiddenClusters, clusterMetaById, setRfNodes, setRfEdges, theme, bridgeMode, bridgeSelectedIds, bridgeSelectionLocked, linkMode, linkSelectedIds, selectionModeActive, selectionLocked]);
 
   // Camera zoom on select
   useEffect(() => {
@@ -1372,6 +1367,8 @@ function GraphScreenInner() {
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('force');
   const [clusterOn, setClusterOn] = useState(false);
   const [timeFilter, setTimeFilter] = useState("전체");
+  const [timeEffectEnabled, setTimeEffectEnabled] = useState(false);
+  const [timeEffectStrength, setTimeEffectStrength] = useState(TIME_EFFECT_DEFAULT_STRENGTH);
   const [hiddenClusters, setHiddenClusters] = useState<Partial<Record<ClusterId, boolean>>>({});
   const [bridgeMode, setBridgeMode] = useState(false);
   const [bridgeSelectedIds, setBridgeSelectedIds] = useState<string[]>([]);
@@ -1414,6 +1411,10 @@ function GraphScreenInner() {
     [aiClusterProjection]
   );
   const notes = graphClusterProjection.notes;
+  const timeFadeOpacityById = useMemo(
+    () => timeEffectEnabled ? graphTimeEffectOpacityByNoteId(notes, timeEffectStrength) : new Map<string, number>(),
+    [notes, timeEffectEnabled, timeEffectStrength]
+  );
   // liveEdges가 없으면(게스트, 또는 서버 그래프 자체를 안 쓰는 경로) 지금까지와 동일하게 전부
   // markdown/제목 기반으로 파생한다. liveEdges가 있으면(로그인, 서버 projection) 그 값을 그대로
   // 신뢰하되, 방금 위키링크로 새로 연결한 노트처럼 서버 NoteLink 생성/재조회가 아직 따라오지
@@ -2354,6 +2355,7 @@ function GraphScreenInner() {
           layoutMode={layoutMode}
           clusterOn={clusterOn}
           timeFilter={timeFilter}
+          timeFadeOpacityById={timeFadeOpacityById}
           hiddenClusters={hiddenClusters}
           clusterMetaById={clusterMetaById}
           controls={controls}
@@ -2625,6 +2627,21 @@ function GraphScreenInner() {
                 <div className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt" style={{ zIndex: -1 }} />
               </span>
             </button>
+            <button
+              type="button"
+              aria-pressed={timeEffectEnabled}
+              onClick={() => setTimeEffectEnabled((current) => !current)}
+              className={cx(
+                "group relative grid h-9 w-9 place-items-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-primary/60",
+                timeEffectEnabled ? "bg-primary text-white" : "text-txt3 hover:bg-txt/10 hover:text-txt"
+              )}
+            >
+              <Icon name="clock" size={17} />
+              <span className="pointer-events-none absolute top-[calc(100%+12px)] z-50 whitespace-nowrap rounded-[6px] px-2.5 py-1.5 text-[12px] font-medium bg-txt text-bg2 shadow-md opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                {timeEffectEnabled ? "시간 효과 끄기" : "시간 효과 켜기"}
+                <div className="absolute left-1/2 top-[-4px] h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-txt" style={{ zIndex: -1 }} />
+              </span>
+            </button>
             <button type="button" onClick={() => controls.current?.reheat()} className="group relative grid h-9 w-9 place-items-center rounded-lg transition-colors text-txt3 hover:bg-txt/10 hover:text-txt">
               <Icon name="refresh" size={17} />
               <span className="pointer-events-none absolute top-[calc(100%+12px)] z-50 whitespace-nowrap rounded-[6px] px-2.5 py-1.5 text-[12px] font-medium bg-txt text-bg2 shadow-md opacity-0 transition-opacity duration-200 group-hover:opacity-100">
@@ -2633,6 +2650,26 @@ function GraphScreenInner() {
               </span>
             </button>
           </div>
+
+          {timeEffectEnabled ? (
+            <div className="glass relative z-10 flex w-[min(280px,calc(100vw-40px))] items-center gap-3 rounded-xl px-3 py-2 backdrop-blur-md shadow-sm">
+              <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-txt2">
+                <Icon name="clock" size={13} />
+                <span className="whitespace-nowrap">흐림 강도</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={timeEffectStrength}
+                aria-label="시간 효과 흐림 강도"
+                onChange={(event) => setTimeEffectStrength(Number(event.currentTarget.value))}
+                className="h-1.5 min-w-0 flex-1 cursor-pointer accent-primary focus-visible:ring-2 focus-visible:ring-primary/60"
+              />
+              <span className="w-7 shrink-0 text-right font-mono text-[11px] text-txt3">{timeEffectStrength}</span>
+            </div>
+          ) : null}
 
           <div className="glass relative z-10 flex items-center gap-0.5 rounded-xl p-1 backdrop-blur-md shadow-sm">
             {["전체", "최근 1일", "최근 1주"].map((item) => (

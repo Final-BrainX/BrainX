@@ -7,6 +7,7 @@ import { useBrainX } from "@/components/brainx-provider";
 import { Icon } from "@/components/brainx-ui";
 import { useWorkspace } from "@/components/workspace-provider";
 import { isDevAuthSession, readAuthSession } from "@/lib/auth-api";
+import { getMyTokenUsage, type TokenUsageData } from "@/lib/commerce-api";
 import { DEV_USER_ID } from "@/lib/dev-user";
 import { getMyProfile } from "@/lib/user-api";
 import { sanitizeHtml } from "@/lib/safe-html";
@@ -31,6 +32,7 @@ import {
 } from "@/lib/intelligence-api";
 import { getMyWorkspaceStats, getWorkspaceDisplayName, type WorkspaceUserStatsData } from "@/lib/workspace-api";
 import { summarizeWorkspaceNotes } from "@/lib/workspace-note-stats";
+import { formatCreditCount, formatTokenPercent } from "@/lib/token-usage";
 import { cx } from "@/lib/utils";
 
 const HOME_LIGHT_CANVAS_STYLE = {
@@ -76,6 +78,11 @@ function recommendationText(value: unknown) {
   return title || reason;
 }
 
+function clampPercent(value: number | null | undefined) {
+  const numeric = typeof value === "number" && Number.isFinite(value) ? value : 0;
+  return Math.min(100, Math.max(0, numeric));
+}
+
 function UserInsightDashboard({
   notes,
   currentWorkspaceId,
@@ -94,6 +101,10 @@ function UserInsightDashboard({
   const [insightStatus, setInsightStatus] = useState<AiInsightStatus>("idle");
   const [insightError, setInsightError] = useState<string | null>(null);
   const insightRequestIdRef = useRef(0);
+  const [tokenUsage, setTokenUsage] = useState<TokenUsageData | null>(null);
+  const [tokenUsageLoading, setTokenUsageLoading] = useState(false);
+  const [tokenUsageError, setTokenUsageError] = useState<string | null>(null);
+  const tokenUsageRequestIdRef = useRef(0);
   // notes(HomeScreen이 currentWorkspaceId 기준으로 이미 필터링해 넘긴 값)에서 직접 계산한다 —
   // getMyWorkspaceStats()(workspaceStats)는 SSOT상 "계정 전체 Workspace 합산" 전용이라 여기서
   // 쓰면 Workspace를 바꿔도 항상 같은 숫자가 나온다.
@@ -109,6 +120,7 @@ function UserInsightDashboard({
   const aiClusterPanelEnabled = !!currentSession?.accessToken && !isDevAuthSession(currentSession) && !!currentWorkspaceId;
   const aiInsightPanelEnabled =
     ((!!currentSession?.accessToken && !isDevAuthSession(currentSession)) || Boolean(DEV_USER_ID)) && !!currentWorkspaceId;
+  const tokenUsageEnabled = !!currentSession?.accessToken && !isDevAuthSession(currentSession);
   const aiClusterProjection = useMemo(
     () => aiClusterPanelEnabled ? applyAiClustersToNotes(notes, clusterLatest) : { notes, clusters: null },
     [aiClusterPanelEnabled, clusterLatest, notes]
@@ -397,6 +409,55 @@ function UserInsightDashboard({
     };
   }, [refreshInsightLatest]);
 
+  useEffect(() => {
+    let active = true;
+
+    const refreshTokenUsage = () => {
+      const session = readAuthSession();
+      if (!session?.accessToken || isDevAuthSession(session)) {
+        if (!active) return;
+        tokenUsageRequestIdRef.current += 1;
+        setTokenUsage(null);
+        setTokenUsageError(null);
+        setTokenUsageLoading(false);
+        return;
+      }
+
+      const requestId = tokenUsageRequestIdRef.current + 1;
+      tokenUsageRequestIdRef.current = requestId;
+      setTokenUsageLoading(true);
+
+      getMyTokenUsage()
+        .then((data) => {
+          if (!active || requestId !== tokenUsageRequestIdRef.current) return;
+          setTokenUsage(data);
+          setTokenUsageError(null);
+        })
+        .catch((error) => {
+          if (!active || requestId !== tokenUsageRequestIdRef.current) return;
+          setTokenUsage(null);
+          setTokenUsageError(error instanceof Error ? error.message : "크레딧 사용량을 불러오지 못했어요");
+        })
+        .finally(() => {
+          if (!active || requestId !== tokenUsageRequestIdRef.current) return;
+          setTokenUsageLoading(false);
+        });
+    };
+
+    refreshTokenUsage();
+    window.addEventListener("brainx-token-usage-changed", refreshTokenUsage);
+    window.addEventListener("brainx-auth-session-changed", refreshTokenUsage);
+    window.addEventListener("brainx-subscription-changed", refreshTokenUsage);
+
+    return () => {
+      active = false;
+      tokenUsageRequestIdRef.current += 1;
+      window.removeEventListener("brainx-token-usage-changed", refreshTokenUsage);
+      window.removeEventListener("brainx-auth-session-changed", refreshTokenUsage);
+      window.removeEventListener("brainx-subscription-changed", refreshTokenUsage);
+    };
+  }, []);
+
   const bubbles = topClusters.map((cluster, index) => ({
     ...cluster,
     size: Math.min(84, 40 + cluster.count * 10 + cluster.links * 2),
@@ -421,6 +482,47 @@ function UserInsightDashboard({
 
     return { ...cluster, values, points };
   });
+
+  const tokenUsageKpi = (() => {
+    if (!tokenUsageEnabled) {
+      return {
+        value: "-",
+        sub: "로그인 후 크레딧 사용량 확인",
+        fill: 0,
+      };
+    }
+    if (tokenUsageLoading) {
+      return {
+        value: "-",
+        sub: "크레딧 사용량을 불러오는 중",
+        fill: 0,
+      };
+    }
+    if (tokenUsageError || !tokenUsage) {
+      return {
+        value: "-",
+        sub: "크레딧 사용량을 불러오지 못했어요",
+        fill: 0,
+      };
+    }
+
+    const usedCredits = Math.max(0, tokenUsage.usedCredits);
+    const usagePercent = Number.isFinite(tokenUsage.usagePercent) ? tokenUsage.usagePercent : 0;
+    const usageFill = clampPercent(usagePercent);
+    if (tokenUsage.monthlyCreditLimit == null) {
+      return {
+        value: formatCreditCount(usedCredits),
+        sub: `무제한 플랜 · ${formatCreditCount(usedCredits)} 크레딧 사용`,
+        fill: 0,
+      };
+    }
+
+    return {
+      value: formatCreditCount(usedCredits),
+      sub: `월 ${formatCreditCount(tokenUsage.monthlyCreditLimit)} 크레딧 중 ${formatTokenPercent(usagePercent)} 사용`,
+      fill: usageFill,
+    };
+  })();
 
   const kpis = [
     {
@@ -447,7 +549,14 @@ function UserInsightDashboard({
       color: "249 115 22",
       fill: Math.min(100, (summary.writingStreak / 14) * 100)
     },
-    { icon: "bolt" as const, label: "이번 달 토큰", value: `12.8K`, sub: "AI 분석량", color: "var(--primary)", fill: 85 }
+    {
+      icon: "bolt" as const,
+      label: "이번 달 크레딧",
+      value: tokenUsageKpi.value,
+      sub: tokenUsageKpi.sub,
+      color: "var(--primary)",
+      fill: tokenUsageKpi.fill
+    }
   ];
 
   const insights = [

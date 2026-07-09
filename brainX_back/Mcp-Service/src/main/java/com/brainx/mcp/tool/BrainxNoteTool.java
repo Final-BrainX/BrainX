@@ -23,7 +23,7 @@ public class BrainxNoteTool {
     private static final String DEFAULT_SEARCH_MODE = "SEMANTIC";
     private static final int DEFAULT_SEARCH_LIMIT = 10;
     private static final Pattern LEADING_MARKDOWN_HEADING = Pattern.compile(
-        "\\A(?:[ \\t]*(?:\\r?\\n))*[ \\t]{0,3}#{1,6}[ \\t]+(.+?)[ \\t#]*(?:\\r?\\n|\\z)"
+        "\\A(?:[ \\t]*(?:\\r?\\n))*[ \\t]{0,3}#{1,6}[ \\t]+(.+?)(?:[ \\t]+#+[ \\t]*)?(?:\\r?\\n|\\z)"
     );
     private static final Pattern LEADING_HTML_H1 = Pattern.compile(
         "\\A\\s*<h1\\b[^>]*>(.*?)</h1>",
@@ -153,18 +153,52 @@ public class BrainxNoteTool {
     }
 
     private static String normalizeHeadingText(String value) {
-        return value
+        return stripMarkdownFormattingWrapper(value
             .replaceAll("<[^>]+>", " ")
             .replace("&nbsp;", " ")
             .replace("&amp;", "&")
             .replace("&lt;", "<")
             .replace("&gt;", ">")
             .replace("&quot;", "\"")
-            .replace("&#39;", "'")
-            .replaceAll("[#>*_`~\\[\\]()]", " ")
+            .replace("&#39;", "'"))
             .replaceAll("\\s+", " ")
             .trim()
             .toLowerCase(Locale.ROOT);
+    }
+
+    private static String stripMarkdownFormattingWrapper(String value) {
+        String current = value.strip();
+        boolean changed;
+        do {
+            changed = false;
+            String next = stripWrapper(current, "**");
+            next = stripWrapper(next, "__");
+            next = stripWrapper(next, "~~");
+            next = stripWrapper(next, "`");
+            next = stripSingleWrapper(next, "*");
+            next = stripSingleWrapper(next, "_");
+            next = next.strip();
+            if (!next.equals(current)) {
+                current = next;
+                changed = true;
+            }
+        } while (changed);
+        return current;
+    }
+
+    private static String stripWrapper(String value, String marker) {
+        if (value.length() <= marker.length() * 2 || !value.startsWith(marker) || !value.endsWith(marker)) {
+            return value;
+        }
+        String inner = value.substring(marker.length(), value.length() - marker.length()).strip();
+        return inner.isEmpty() ? value : inner;
+    }
+
+    private static String stripSingleWrapper(String value, String marker) {
+        if (value.startsWith(marker + marker) || value.endsWith(marker + marker)) {
+            return value;
+        }
+        return stripWrapper(value, marker);
     }
 
     private static String stripLeadingBlankLines(String value) {
