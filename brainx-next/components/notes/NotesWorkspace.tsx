@@ -2738,6 +2738,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
           } catch (error) {
             linkSkippedReason = "원본 노트의 자동 링크 저장에 실패했습니다. 수동 저장을 다시 시도해 주세요.";
             console.warn("Failed to save the generated outline wiki link.", error);
+            pushToast(error instanceof Error ? error.message : linkSkippedReason, "err");
           }
         }
       } else {
