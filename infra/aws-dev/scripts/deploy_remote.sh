@@ -168,6 +168,10 @@ NOTION_CLIENT_SECRET="$(get_parameter NOTION_CLIENT_SECRET)"
 NOTION_REDIRECT_URI="$(get_parameter NOTION_REDIRECT_URI "${PUBLIC_BASE_URL}/notion-callback")"
 CDN_BASE_URL="$(get_parameter CDN_BASE_URL "$PUBLIC_BASE_URL")"
 ASSET_STORAGE_DIR="$(get_parameter ASSET_STORAGE_DIR "/app/asset-storage")"
+# 데스크톱 설치 파일 다운로드 버튼(/download/windows)이 S3에서 직접 스트리밍하도록 쓰는 값.
+# 비어 있으면 프론트엔드가 로컬 public/downloads 폴백으로 동작한다(desktop-installer 배포를
+# 아직 안 쓰는 환경에서도 배포가 깨지지 않도록 optional로 둔다).
+ASSET_BUCKET="${ASSET_BUCKET:-}"
 SEED_ADMIN_LOGIN_ID="$(get_parameter SEED_ADMIN_LOGIN_ID admin)"
 SEED_ADMIN_NAME="$(get_parameter SEED_ADMIN_NAME 'BrainX Admin')"
 
@@ -368,6 +372,7 @@ fi
   write_env NOTION_REDIRECT_URI "$NOTION_REDIRECT_URI"
   write_env CDN_BASE_URL "$CDN_BASE_URL"
   write_env ASSET_STORAGE_DIR "$ASSET_STORAGE_DIR"
+  write_env ASSET_BUCKET "$ASSET_BUCKET"
   cat "$TAG_STATE"
 } > "$RUNTIME_ENV"
 chmod 600 "$RUNTIME_ENV"
