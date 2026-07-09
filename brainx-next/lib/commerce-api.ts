@@ -2,6 +2,7 @@
 
 import { getPublicApiBaseUrl } from "@/lib/api-base";
 import { clearAuthSession, readAuthSession, refreshAuthSessionOnce, type ApiResponse } from "@/lib/auth-api";
+import { isAuthSessionFailureStatus } from "@/lib/auth-http-status";
 import { requestDesktopApiJson } from "@/lib/desktop-api-request";
 
 export const PAYMENT_RESULT_MESSAGE_TYPE = "brainx-payment-result";
@@ -79,7 +80,7 @@ async function authedRequest<T>(path: string, init?: RequestInit, retried = fals
   const payload = desktopResponse
     ? desktopResponse.payload
     : ((await (response as Response).json().catch(() => null)) as ApiResponse<T> | null);
-  if (response.status === 401 || response.status === 403) {
+  if (isAuthSessionFailureStatus(response.status)) {
     // 액세스 토큰이 만료된 흔한 정상 케이스도 여기 걸리므로, 바로 로그아웃시키기 전에
     // refreshToken으로 한 번 갱신을 시도하고 새 토큰으로 같은 요청을 한 번만 재시도한다
     // (retried 플래그로 재귀를 1회로 제한해 갱신도 실패하는 경우 무한 루프를 막는다).

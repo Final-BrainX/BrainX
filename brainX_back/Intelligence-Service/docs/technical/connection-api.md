@@ -13,7 +13,7 @@
 
 `POST /api/v1/ai/link-suggestions`
 
-- 요청은 `noteId`만 받는다.
+- 요청은 `documentGroupId`, `noteId`를 받는다.
 - 응답은 요청 source note에서 연결할 만한 target note 후보 목록이다.
 - 각 suggestion은 `suggestionId`, `targetNoteId`, `targetTitle`, `score`, `reason`, `anchorText`, `anchorStartOffset`, `anchorEndOffset`을 반환한다.
 - 현재 구현은 `NoteAutoLinkUseCase`의 source-only `LLM_ONLY` 분석 경로를 사용해 요청한 `noteId`에서 다른 후보 노트로 나가는 suggestion만 계산한다.
@@ -30,20 +30,9 @@
 
 ## Document Group Boundary
 
-현재 public connection API 계약에는 `documentGroupId`가 없다.
-
-- `ConnectionService`는 `DocumentGroups.DEFAULT_DOCUMENT_GROUP_ID`를 사용한다.
-- 따라서 현재 public `link-suggestions`와 `bridge-concepts`는 `default` group 안의 projection만 대상으로 한다.
-- Workspace가 document group을 보내고 Intelligence projection/vector에는 group 격리 구조가 들어가 있지만, 이 API는 아직 요청별 group 선택을 받지 않는다.
-
-후속으로 실제 노트 그룹별 연결 추천을 지원하려면 다음을 함께 바꿔야 한다.
-
-- SSOT의 `LinkSuggestionsRequest`, `BridgeConceptsRequest`에 `documentGroupId` 추가
-- local OpenAPI slice 재생성
-- frontend generated client 갱신
-- `CreateLinkSuggestionsUseCase`, `CreateBridgeConceptsUseCase` command에 group 전달
-- `ConnectionService`의 `default` 고정 제거
-- controller/usecase/persistence test에서 group 격리 검증
+- public connection API는 요청의 필수 `documentGroupId`로 대상 Workspace projection을 한정한다.
+- `link-suggestions`의 source/target과 `bridge-concepts`의 입력 note는 같은 document group 안에서 조회한다.
+- frontend는 현재 활성 note의 Workspace document group을 요청에 전달한다.
 
 ## Source Note Eligibility
 

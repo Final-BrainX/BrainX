@@ -687,7 +687,7 @@ export function ChatScreen() {
       return;
     }
 
-    const title = noteTitleFromAiMessage(message.text, activeThread?.title);
+    const title = noteTitleFromAiMessage(message.text);
     const draftMarkdown = buildChatDraftMarkdown(message);
     if (!draftMarkdown.trim()) return;
     const markdown = stripDuplicateDraftTitleHeading(draftMarkdown, title);

@@ -2,6 +2,7 @@
 
 import { getPublicApiBaseUrl } from "@/lib/api-base";
 import { clearAuthSession, readAuthSession, refreshAuthSessionOnce, type ApiResponse } from "@/lib/auth-api";
+import { isAuthSessionFailureStatus } from "@/lib/auth-http-status";
 
 export type McpOAuthAuthorizationRequest = {
   clientId: string;
@@ -48,7 +49,7 @@ export async function createMcpOAuthAuthorization(
   });
 
   const body = (await response.json().catch(() => null)) as ApiResponse<McpOAuthAuthorizationData> | null;
-  if (response.status === 401 || response.status === 403) {
+  if (isAuthSessionFailureStatus(response.status)) {
     if (!retried && session.refreshToken && (await refreshAuthSessionOnce())) {
       return createMcpOAuthAuthorization(payload, true);
     }

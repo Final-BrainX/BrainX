@@ -3,6 +3,7 @@
 import { getPublicApiBaseUrl } from "@/lib/api-base";
 import { getLocalStoredValue } from "@/lib/client-storage";
 import { clearAuthSession, isDevAuthSession, readAuthSession, saveAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { isAuthSessionFailureStatus } from "@/lib/auth-http-status";
 import { requestDesktopApiJson } from "@/lib/desktop-api-request";
 import type { ThemeMode } from "@/components/brainx-provider";
 import type { LanguageCode } from "@/lib/i18n";
@@ -112,7 +113,7 @@ async function authedRequest<T>(path: string, init?: RequestInit) {
   const payload = desktopResponse
     ? desktopResponse.payload
     : ((await (response as Response).json().catch(() => null)) as ApiResponse<T> | null);
-  if (response.status === 401 || response.status === 403) {
+  if (isAuthSessionFailureStatus(response.status)) {
     clearAuthSession();
     throw new AuthRequiredError();
   }

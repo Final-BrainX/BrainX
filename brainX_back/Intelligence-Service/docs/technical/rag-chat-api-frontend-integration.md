@@ -94,6 +94,8 @@ Thread list item은 다음 값을 포함한다.
 9. thread 재조회 시 `ChatMessageData.route`로 초안 저장 가능 여부를 복원하고, `savedDraftNoteId`가 있으면 해당 메시지를 "노트로 이동" 상태로 렌더링한다.
 10. "초안을 노트로 저장" 클릭 시 Workspace note를 먼저 생성하고, 성공 후 Intelligence-Service에 draft-note mapping을 기록한다. mapping 기록만 실패하면 현재 세션에서는 생성된 noteId를 local saved state로 유지하고 동기화 실패 toast를 보여준다.
 
+초안 노트 제목은 AI 응답의 Markdown heading 중 첫 비질문형 제목을 사용한다. heading이 모두 질문형이거나 없으면 첫 의미 있는 비질문형 본문 줄을 사용하고, 적합한 후보가 없으면 `AI 초안`으로 저장한다. 채팅 thread 제목은 사용자 질문 fallback일 수 있으므로 초안 노트 제목 후보로 재사용하지 않는다. AI prompt도 첫 heading을 2~8어절의 주제형 명사구로 작성하고 질문·요청을 반복하지 않도록 제한한다.
+
 Composer textarea는 `scrollHeight` 기준으로 자동 확장된다. 최소 1줄에서 시작하고, 최대 `min(240px, 32svh)`를 넘으면 textarea 내부 스크롤을 사용한다. `Enter` 전송과 `Shift+Enter` 줄바꿈 동작은 유지한다.
 
 Workspace-level `/chat`는 명시 source context가 없으므로 message payload의 `clientContext`는 다음 shape를 보낸다.

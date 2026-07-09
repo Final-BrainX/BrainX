@@ -1,4 +1,8 @@
 import { messageFromError } from "@/components/chat/chat-utils";
+export {
+  noteTitleFromAiMessage,
+  stripDuplicateDraftTitleHeading,
+} from "@/components/chat/chat-draft-title";
 import type {
   ChatCitation,
   ChatMessageView,
@@ -51,31 +55,6 @@ function markdownTitleText(value: string) {
     .replace(/\[([^\]\n]+)\]\([^)]+\)/g, "$1")
     .replace(/[#>*_`~]/g, "")
     .trim();
-}
-
-function truncateNoteTitle(value: string) {
-  const title = markdownTitleText(value) || "AI 초안";
-  if (title.length <= 80) return title;
-  return `${title.slice(0, 77).trimEnd()}...`;
-}
-
-export function noteTitleFromAiMessage(
-  text: string,
-  fallbackTitle?: string | null,
-) {
-  const heading = /^\s{0,3}#{1,6}\s+(.+)$/m.exec(text);
-  return truncateNoteTitle(heading?.[1] ?? fallbackTitle ?? "AI 초안");
-}
-
-export function stripDuplicateDraftTitleHeading(
-  markdown: string,
-  title: string,
-) {
-  const heading = /^(\s{0,3}#{1,6}\s+(.+?)[ \t]*)(?:\r?\n|$)/.exec(markdown);
-  if (!heading) return markdown;
-  if (truncateNoteTitle(heading[2]) !== truncateNoteTitle(title))
-    return markdown;
-  return markdown.slice(heading[0].length).replace(/^(?:[ \t]*(?:\r?\n))+/, "");
 }
 
 function markdownLinkLabel(value: string, fallback = "참고 노트") {

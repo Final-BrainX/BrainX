@@ -10,6 +10,7 @@ import {
   setSessionStoredValue,
 } from "@/lib/client-storage";
 import { clearAuthSession, readAuthSession, refreshAuthSessionOnce, type ApiResponse } from "@/lib/auth-api";
+import { isAuthSessionFailureStatus } from "@/lib/auth-http-status";
 import { requestDesktopApiJson } from "@/lib/desktop-api-request";
 import { getBrainxDesktopConfig, isElectronDesktop } from "@/lib/desktop-bridge";
 import { createDesktopVaultNote, importDesktopVaultZip, writeDesktopVaultAsset } from "@/lib/desktop-vault";
@@ -227,7 +228,7 @@ async function authedRequest<T>(path: string, init?: RequestInit, retried = fals
   const payload = desktopResponse
     ? desktopResponse.payload
     : ((await (response as Response).json().catch(() => null)) as ApiResponse<T> | null);
-  if (response.status === 401 || response.status === 403) {
+  if (isAuthSessionFailureStatus(response.status)) {
     // 액세스 토큰이 만료된 흔한 정상 케이스도 여기 걸리므로, 바로 로그아웃시키기 전에
     // refreshToken으로 한 번 갱신을 시도하고 새 토큰으로 같은 요청을 한 번만 재시도한다.
     if (!retried && session?.refreshToken && (await refreshAuthSessionOnce())) {
@@ -258,7 +259,7 @@ async function authedUpload(path: string, file: File, retried = false): Promise<
   });
 
   const payload = (await response.json().catch(() => null)) as ApiResponse<unknown> | null;
-  if (response.status === 401 || response.status === 403) {
+  if (isAuthSessionFailureStatus(response.status)) {
     if (!retried && session?.refreshToken && (await refreshAuthSessionOnce())) {
       return authedUpload(path, file, true);
     }

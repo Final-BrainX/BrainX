@@ -1,6 +1,7 @@
 "use client";
 
 import { clearAuthSession, isDevAuthSession, readAuthSession, refreshAuthSessionOnce, type ApiResponse } from "@/lib/auth-api";
+import { isAuthSessionFailureStatus } from "@/lib/auth-http-status";
 import { getWorkspaceApiBaseUrl } from "@/lib/api-base";
 import { CLUSTERS, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
 import { requestDesktopApiJson } from "@/lib/desktop-api-request";
@@ -76,7 +77,7 @@ async function workspaceRequest<T>(path: string, init?: RequestInit, retried = f
   const payload = desktopResponse
     ? desktopResponse.payload
     : ((await (response as Response).json().catch(() => null)) as ApiResponse<T> | null);
-  if (response.status === 401 || response.status === 403) {
+  if (isAuthSessionFailureStatus(response.status)) {
     if (!retried && session?.refreshToken && (await refreshAuthSessionOnce())) {
       return workspaceRequest<T>(path, init, true);
     }

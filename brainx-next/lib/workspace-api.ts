@@ -1,5 +1,6 @@
 "use client";
 import { clearAuthSession, isDevAuthSession, readAuthSession, type ApiResponse } from "@/lib/auth-api";
+import { isAuthSessionFailureStatus } from "@/lib/auth-http-status";
 import { getWorkspaceApiBaseUrl } from "@/lib/api-base";
 import { getLocalStoredValue, setLocalStoredValue } from "@/lib/client-storage";
 import { requestDesktopApiJson } from "@/lib/desktop-api-request";
@@ -345,7 +346,7 @@ async function authedRequest<T>(path: string, init?: RequestInit): Promise<T> {
 
   const payload = response.payload;
   const shouldClearSession = useAuthenticatedSession && Boolean(session?.accessToken);
-  if (response.status === 401 || response.status === 403) {
+  if (isAuthSessionFailureStatus(response.status)) {
     if (shouldClearSession) {
       clearAuthSession();
       throw new Error("로그인이 만료되었습니다. 다시 로그인해 주세요.");

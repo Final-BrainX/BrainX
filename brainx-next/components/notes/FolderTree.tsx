@@ -79,13 +79,14 @@ function buildTree(
   parentId: string | null,
   sortBy: SortOption,
   favorites: Set<string>,
-  direction: SortDirection
+  direction: SortDirection,
+  modifiedAtByNoteId?: ReadonlyMap<string, number>
 ): FolderTreeItem[] {
   const siblingFolders = sortFolders(folders.filter((f) => f.parentFolderId === parentId), sortBy, favorites, direction);
   return siblingFolders.map((folder) => ({
     folder,
-    notes: sortNotes(notes.filter((n) => n.folderId === folder.id), sortBy, favorites, direction),
-    children: buildTree(folders, notes, folder.id, sortBy, favorites, direction),
+    notes: sortNotes(notes.filter((n) => n.folderId === folder.id), sortBy, favorites, direction, modifiedAtByNoteId),
+    children: buildTree(folders, notes, folder.id, sortBy, favorites, direction, modifiedAtByNoteId),
   }));
 }
 
@@ -119,6 +120,8 @@ interface FolderTreeProps {
   /** NotesExplorer 상단 정렬 드롭다운의 현재 값 — 폴더트리도 같은 기준으로 정렬한다. */
   sortBy?: SortOption;
   sortDirection?: SortDirection;
+  /** 편집 중인 활성 노트가 실제 updatedAt 갱신 때문에 탐색기에서 즉시 이동하지 않도록 쓰는 정렬 전용 값. */
+  modifiedAtByNoteId?: ReadonlyMap<string, number>;
   onToggleNoteFavorite?: (noteId: string) => void;
   onRenameNote?: (noteId: string, newTitle: string) => void;
   onDragStart: (noteId: string) => void;
@@ -156,6 +159,7 @@ export default function FolderTree({
   favorites = EMPTY_FAVORITES,
   sortBy = "modified",
   sortDirection = "desc",
+  modifiedAtByNoteId,
   onToggleNoteFavorite,
   onRenameNote,
   onDragStart,
@@ -170,13 +174,19 @@ export default function FolderTree({
   onMoveItems,
 }: FolderTreeProps) {
   const tree = useMemo(
-    () => buildTree(folders, notes, null, sortBy, favorites, sortDirection),
-    [folders, notes, sortBy, favorites, sortDirection]
+    () => buildTree(folders, notes, null, sortBy, favorites, sortDirection, modifiedAtByNoteId),
+    [folders, notes, sortBy, favorites, sortDirection, modifiedAtByNoteId]
   );
   const folderIds = useMemo(() => new Set(folders.map((folder) => folder.id)), [folders]);
   const rootNotes = useMemo(
-    () => sortNotes(notes.filter((note) => !note.folderId || !folderIds.has(note.folderId)), sortBy, favorites, sortDirection),
-    [notes, folderIds, sortBy, favorites, sortDirection]
+    () => sortNotes(
+      notes.filter((note) => !note.folderId || !folderIds.has(note.folderId)),
+      sortBy,
+      favorites,
+      sortDirection,
+      modifiedAtByNoteId
+    ),
+    [notes, folderIds, sortBy, favorites, sortDirection, modifiedAtByNoteId]
   );
 
   /* DnD */

@@ -408,24 +408,6 @@ export interface PendingAiRequest extends AiActionPayload {
   nonce: number;
 }
 
-export type AiOutlineNoteCreateRequest = {
-  sourceNoteId: string;
-  title: string;
-  markdown: string;
-  selection: {
-    text: string;
-    selectedMarkdown?: string;
-    range?: { from: number; to: number };
-  };
-};
-
-export type AiOutlineNoteCreateResult = {
-  noteId: string;
-  title: string;
-  linked: boolean;
-  linkSkippedReason?: string;
-};
-
 type NoteLinkSuggestionStatus = "idle" | "loading" | "success" | "error";
 type NoteLinkAcceptStatus = "saving" | "saved" | "error";
 type NoteSummaryStatus = "idle" | "loading" | "refreshing" | "success" | "insufficient" | "error";
@@ -436,8 +418,6 @@ type NoteLinkAcceptState = {
 };
 
 const DEFAULT_CHAT_MODEL_ID = "gpt-5.4-mini";
-const OUTLINE_NOTE_TARGET_LENGTH = 900;
-const MIN_OUTLINE_TITLE_CHARS = 2;
 const INLINE_AI_HEIGHT_KEY = "brainx_notes_inline_ai_height_v1";
 const INLINE_AI_DEFAULT_HEIGHT = 260;
 const INLINE_AI_MIN_HEIGHT = 180;
@@ -468,25 +448,13 @@ function noteSummaryErrorMessage(error: unknown) {
   return message || "세줄 요약을 불러오지 못했습니다.";
 }
 
-function outlineDraftPrompt(title: string, selectedMarkdown: string, sourceTitle: string) {
-  return [
-    `선택 텍스트 "${title}"를 새 노트 제목으로 삼아 개요 문서를 작성해줘.`,
-    `원본 노트 제목: ${sourceTitle || "(제목 없음)"}`,
-    "작성 규칙:",
-    "- 결과는 새 노트 본문에 바로 저장될 Markdown이어야 한다.",
-    "- 본문 맨 앞에 H1 제목을 다시 쓰지 않는다. 새 노트 제목은 별도 필드로 저장된다.",
-    "- 선택 텍스트와 앞뒤 문맥에서 확인되는 내용만 근거로 삼고, 없는 사실은 추측하지 않는다.",
-    "- 핵심 맥락, 세부 개요, 확장 질문 또는 다음 작업을 자연스러운 섹션으로 정리한다.",
-    "- 너무 짧은 단문 나열이 아니라 읽을 수 있는 개요 문서로 작성한다.",
-    "",
-    "선택 원문:",
-    selectedMarkdown || title,
-  ].join("\n");
-}
-
 function selectedTextEmptyMessage(type: PendingAiRequest["type"]) {
   if (type === "outline") return "개요 노트 제목으로 쓸 텍스트를 먼저 선택해 주세요.";
   return type === "summarize" ? "요약할 텍스트를 먼저 선택해 주세요." : "다시 쓸 텍스트를 먼저 선택해 주세요.";
+}
+
+function isWorkspaceHandledOutline(request: PendingAiRequest) {
+  return request.type === "outline";
 }
 
 interface Props {
@@ -497,7 +465,6 @@ interface Props {
   onNoteSelect?: (noteId: string) => void;
   pendingAiRequest?: PendingAiRequest | null;
   onAiRequestHandled?: () => void;
-  onCreateAiOutlineNote?: (request: AiOutlineNoteCreateRequest) => Promise<AiOutlineNoteCreateResult>;
   activeEditor?: NoteEditorHandle | null;
   activeEditorMode?: EditMode;
   saveStatus?: SaveStatus;
@@ -514,7 +481,6 @@ export default function RightSidebar({
   onNoteSelect,
   pendingAiRequest,
   onAiRequestHandled,
-  onCreateAiOutlineNote,
   activeEditor,
   activeEditorMode = "edit",
   saveStatus = "idle",
@@ -1113,16 +1079,14 @@ export default function RightSidebar({
       onAiRequestHandled?.();
       return;
     }
+    if (isWorkspaceHandledOutline(pendingAiRequest)) {
+      onAiRequestHandled?.();
+      return;
+    }
     const { type, text } = pendingAiRequest;
     const selectedText = text.trim();
-    const selectedMarkdown = pendingAiRequest.selectedMarkdown?.trim() || selectedText;
     const preview = selectedText ? (selectedText.length > 60 ? `${selectedText.slice(0, 60)}…` : selectedText) : "(선택된 텍스트 없음)";
-    const label =
-      type === "outline"
-        ? "선택 텍스트 개요 노트 생성 요청"
-        : type === "summarize"
-          ? "선택한 텍스트 요약 요청"
-          : "선택한 텍스트 다시쓰기 요청";
+    const label = type === "summarize" ? "선택한 텍스트 요약 요청" : "선택한 텍스트 다시쓰기 요청";
 
     cancelActiveAiRequest();
 
@@ -1142,119 +1106,6 @@ export default function RightSidebar({
         return next;
       });
       chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      onAiRequestHandled?.();
-      return;
-    }
-
-    if (type === "outline") {
-      if (selectedText.length < MIN_OUTLINE_TITLE_CHARS) {
-        setAiMessages((m) => {
-          const next = [...m];
-          next[next.length - 1] = {
-            role: "ai",
-            text: "개요 노트 제목으로 쓰기에는 선택 텍스트가 너무 짧습니다.",
-            streaming: false,
-          };
-          return next;
-        });
-        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-        onAiRequestHandled?.();
-        return;
-      }
-      if (!onCreateAiOutlineNote) {
-        setAiMessages((m) => {
-          const next = [...m];
-          next[next.length - 1] = {
-            role: "ai",
-            text: "개요 노트를 저장할 수 있는 화면 상태가 아닙니다.",
-            streaming: false,
-          };
-          return next;
-        });
-        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-        onAiRequestHandled?.();
-        return;
-      }
-
-      const controller = new AbortController();
-      aiRequestAbortRef.current = controller;
-      let streamedText = "";
-
-      createInlineAssistStream(
-        {
-          noteId: activeNote.id,
-          selectedText,
-          contextBefore: pendingAiRequest.contextBefore ?? "",
-          contextAfter: pendingAiRequest.contextAfter ?? "",
-          action: "DRAFT",
-          draftPrompt: outlineDraftPrompt(selectedText, selectedMarkdown, activeNote.title),
-          targetLength: OUTLINE_NOTE_TARGET_LENGTH,
-          language: "ko",
-        },
-        {
-          signal: controller.signal,
-          onDelta: (delta) => {
-            streamedText += delta;
-            setAiMessages((m) => {
-              const next = [...m];
-              next[next.length - 1] = { role: "ai", text: streamedText || "개요 노트를 작성 중입니다.", streaming: true };
-              return next;
-            });
-          },
-        }
-      )
-        .then(async (done) => {
-          if (!done) throw new Error("AI 개요 작성 완료 이벤트를 받지 못했습니다.");
-          if (!streamedText.trim()) {
-            decideAiSuggestion(done.suggestionId, { decision: "REJECTED" }).catch((error) => {
-              console.warn("Failed to record rejected AI outline suggestion.", error);
-            });
-            throw new Error("개요 작성 결과가 비어 있습니다.");
-          }
-
-          const created = await onCreateAiOutlineNote({
-            sourceNoteId: activeNote.id,
-            title: selectedText,
-            markdown: streamedText,
-            selection: {
-              text: selectedText,
-              selectedMarkdown,
-              range: pendingAiRequest.range,
-            },
-          });
-          decideAiSuggestion(done.suggestionId, { decision: "ACCEPTED" }).catch((error) => {
-            console.warn("Failed to record accepted AI outline suggestion.", error);
-          });
-          if (aiRequestAbortRef.current === controller) aiRequestAbortRef.current = null;
-          setAiMessages((m) => {
-            const next = [...m];
-            const linkMessage = created.linked
-              ? "원본 선택 텍스트도 위키링크로 바꿨어요."
-              : created.linkSkippedReason ?? "원본 선택 텍스트는 자동 링크로 바꾸지 못했습니다.";
-            next[next.length - 1] = {
-              role: "ai",
-              text: `개요 노트 "${created.title}"를 만들었습니다. ${linkMessage}`,
-              streaming: false,
-            };
-            return next;
-          });
-          pushToast("개요 노트를 만들었어요.", "ok");
-          chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-        })
-        .catch((error) => {
-          if (controller.signal.aborted) return;
-          if (aiRequestAbortRef.current === controller) aiRequestAbortRef.current = null;
-          const message = error instanceof Error ? error.message : "개요 노트 생성에 실패했습니다.";
-          setAiMessages((m) => {
-            const next = [...m];
-            next[next.length - 1] = { role: "ai", text: message, streaming: false };
-            return next;
-          });
-          if (error instanceof AiUsageLimitExceededError) {
-            openAiUsageLimitModal(error.reason);
-          }
-        });
-
       onAiRequestHandled?.();
       return;
     }

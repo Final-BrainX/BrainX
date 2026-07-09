@@ -965,11 +965,44 @@ export default function NotesExplorer({
   const isFileDrag = (e: DragEvent) => Array.from(e.dataTransfer.types).includes("Files");
   const [sortBy, setSortByRaw] = useState<SortOption>("modified");
   const [sortDirection, setSortDirection] = useState<SortDirection>(DEFAULT_SORT_DIRECTION.modified);
+  const activeNote = notes.find((note) => note.id === activeNoteId);
+  const [modifiedSortAnchor, setModifiedSortAnchor] = useState<{ noteId: string; updatedAt: number } | null>(() =>
+    activeNote ? { noteId: activeNote.id, updatedAt: activeNote.updatedAt } : null
+  );
+
+  /* 본문 입력/AI 연결 수락은 실제 updatedAt을 정상 갱신하되, 활성 노트가 편집 도중 같은 폴더
+     안에서 갑자기 재배치되지 않도록 "열었을 때의 수정 시각"만 정렬용으로 고정한다. 다른 노트를
+     열거나 사용자가 정렬 기준/방향을 명시적으로 바꾸면 현재 시각으로 다시 잡아 최신 정렬을
+     반영한다. notes 변경은 의도적으로 dependency에 넣지 않는다 — 저장 refresh가 고정값을
+     덮어쓰면 원래 문제(타이핑할 때마다 행 이동)가 되살아난다. */
+  useEffect(() => {
+    const nextActive = notes.find((note) => note.id === activeNoteId);
+    setModifiedSortAnchor(nextActive ? { noteId: nextActive.id, updatedAt: nextActive.updatedAt } : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeNoteId]);
+
+  const modifiedAtByNoteId = useMemo<ReadonlyMap<string, number>>(
+    () => modifiedSortAnchor
+      ? new Map([[modifiedSortAnchor.noteId, modifiedSortAnchor.updatedAt]])
+      : new Map(),
+    [modifiedSortAnchor]
+  );
+
+  const resetModifiedSortAnchor = () => {
+    const nextActive = notes.find((note) => note.id === activeNoteId);
+    setModifiedSortAnchor(nextActive ? { noteId: nextActive.id, updatedAt: nextActive.updatedAt } : null);
+  };
   /* 정렬 "옵션"을 바꾸면 방향은 그 옵션의 자연스러운 기본값으로 리셋한다(예: 수정일순 desc →
      제목순으로 바꾸면 asc) — 같은 옵션에서 방향만 토글하는 것과는 별개 동작이다. */
   const setSortBy = (next: SortOption) => {
     setSortByRaw(next);
     setSortDirection(DEFAULT_SORT_DIRECTION[next]);
+    resetModifiedSortAnchor();
+  };
+
+  const changeSortDirection = (next: SortDirection) => {
+    setSortDirection(next);
+    resetModifiedSortAnchor();
   };
   // 즐겨찾기 여부는 이제 notes[].favorite(백엔드 PUT /api/v1/favorites/NOTE/{id}로 저장됨)에서
   // 파생한다 — 이 컴포넌트가 자체적으로 들고 있던 하드코딩 시드 상태는 새로고침하면 항상
@@ -1295,12 +1328,12 @@ export default function NotesExplorer({
 
   const favNotes = useMemo(() => {
     const favSet = filtered.filter((n) => favorites.has(n.id) && !isNoteCoveredByFavoritedFolder(n));
-    if (!favoriteOrder) return sortNotes(favSet, sortBy, favorites, sortDirection);
+    if (!favoriteOrder) return sortNotes(favSet, sortBy, favorites, sortDirection, modifiedAtByNoteId);
     const idx = new Map(favoriteOrder.map((id, i) => [id, i]));
     return [...favSet].sort(
       (a, b) => (idx.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (idx.get(b.id) ?? Number.MAX_SAFE_INTEGER)
     );
-  }, [filtered, sortBy, favorites, sortDirection, favoriteOrder, isNoteCoveredByFavoritedFolder]);
+  }, [filtered, sortBy, favorites, sortDirection, favoriteOrder, isNoteCoveredByFavoritedFolder, modifiedAtByNoteId]);
 
   const handleFavDragStart = useCallback((event: DragStartEvent) => {
     setActiveFavDragId((event.active.data.current?.id as string | undefined) ?? null);
@@ -1371,8 +1404,8 @@ export default function NotesExplorer({
   }, [activeFavDragId]);
 
   const searchResults = useMemo(
-    () => sortNotes(filtered, sortBy, favorites, sortDirection),
-    [filtered, sortBy, favorites, sortDirection]
+    () => sortNotes(filtered, sortBy, favorites, sortDirection, modifiedAtByNoteId),
+    [filtered, sortBy, favorites, sortDirection, modifiedAtByNoteId]
   );
 
   /* 선택된 항목 중 노트/폴더 구분 */
@@ -1495,7 +1528,7 @@ export default function NotesExplorer({
         <div className="flex items-center gap-2 px-0.5">
           <span className="text-[10px] font-medium text-txt3">정렬</span>
           <SortDropdown value={sortBy} onChange={setSortBy} />
-          <SortDirectionToggle sortBy={sortBy} direction={sortDirection} onChange={setSortDirection} />
+          <SortDirectionToggle sortBy={sortBy} direction={sortDirection} onChange={changeSortDirection} />
         </div>
       </div>
 
@@ -1695,6 +1728,7 @@ export default function NotesExplorer({
               favorites={favorites}
               sortBy={sortBy}
               sortDirection={sortDirection}
+              modifiedAtByNoteId={modifiedAtByNoteId}
               onToggleNoteFavorite={toggleFavorite}
               onRenameNote={onRenameNote}
               onDragStart={onDragStart}

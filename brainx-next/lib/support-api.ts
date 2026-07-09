@@ -2,6 +2,7 @@
 
 import { getPublicApiBaseUrl } from "@/lib/api-base";
 import { clearAuthSession, readAuthSession, refreshAuthSessionOnce, type ApiResponse } from "@/lib/auth-api";
+import { isAuthSessionFailureStatus } from "@/lib/auth-http-status";
 
 export type SupportTicket = {
   ticketId: string;
@@ -56,7 +57,7 @@ async function authedRequest<T>(path: string, init?: RequestInit, retried = fals
   });
 
   const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
-  if (response.status === 401 || response.status === 403) {
+  if (isAuthSessionFailureStatus(response.status)) {
     if (!retried && session.refreshToken && (await refreshAuthSessionOnce())) {
       return authedRequest<T>(path, init, true);
     }
