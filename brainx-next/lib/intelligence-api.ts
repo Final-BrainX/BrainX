@@ -43,6 +43,8 @@ export type BridgeConceptsData = Schemas["BridgeConceptsData"];
 export type ClusterJobCreateRequest = Schemas["ClusterJobCreateRequest"];
 export type ClusterJobData = Schemas["ClusterJobData"];
 export type ClusterJobLatestData = Schemas["ClusterJobLatestData"];
+export type ClusterInheritanceRequest = Schemas["ClusterInheritanceRequest"];
+export type ClusterInheritanceData = Schemas["ClusterInheritanceData"];
 export type InsightReportCreateRequest = Schemas["InsightReportCreateRequest"];
 export type InsightReportData = Schemas["InsightReportData"];
 export type InsightReportLatestData = Schemas["InsightReportLatestData"];
@@ -696,6 +698,17 @@ export function createBridgeConcepts(payload: BridgeConceptsRequest, options?: I
     notifyTokenUsageChanged();
     return data;
   });
+}
+
+export function inheritAiCluster(payload: ClusterInheritanceRequest, options?: IntelligenceRequestOptions) {
+  return authedRequest<ClusterInheritanceData>(
+    "/api/v1/ai/cluster-inheritances",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    options
+  );
 }
 
 export function createLinkSuggestions(payload: LinkSuggestionsRequest, options?: IntelligenceRequestOptions) {

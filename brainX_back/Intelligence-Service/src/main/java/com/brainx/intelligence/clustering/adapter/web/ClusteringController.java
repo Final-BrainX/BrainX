@@ -24,6 +24,9 @@ import com.brainx.intelligence.clustering.application.port.inbound.GetClusterJob
 import com.brainx.intelligence.clustering.application.port.inbound.GetLatestClusterJobUseCase;
 import com.brainx.intelligence.clustering.application.port.inbound.GetLatestClusterJobUseCase.GetLatestClusterJobQuery;
 import com.brainx.intelligence.clustering.application.port.inbound.GetLatestClusterJobUseCase.LatestClusterJob;
+import com.brainx.intelligence.clustering.application.port.inbound.InheritClusterUseCase;
+import com.brainx.intelligence.clustering.application.port.inbound.InheritClusterUseCase.ClusterInheritanceCommand;
+import com.brainx.intelligence.clustering.application.port.inbound.InheritClusterUseCase.ClusterInheritanceResult;
 import com.brainx.intelligence.clustering.application.port.inbound.RequestClusterJobUseCase;
 import com.brainx.intelligence.clustering.application.port.inbound.RequestClusterJobUseCase.ClusterJobCommand;
 import com.brainx.intelligence.clustering.domain.Cluster;
@@ -35,6 +38,7 @@ import com.brainx.intelligence.infrastructure.web.ApiSuccessResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 @RestController
 @Validated
@@ -43,15 +47,37 @@ public class ClusteringController {
     private final RequestClusterJobUseCase requestClusterJobUseCase;
     private final GetClusterJobUseCase getClusterJobUseCase;
     private final GetLatestClusterJobUseCase getLatestClusterJobUseCase;
+    private final InheritClusterUseCase inheritClusterUseCase;
 
     public ClusteringController(
         RequestClusterJobUseCase requestClusterJobUseCase,
         GetClusterJobUseCase getClusterJobUseCase,
-        GetLatestClusterJobUseCase getLatestClusterJobUseCase
+        GetLatestClusterJobUseCase getLatestClusterJobUseCase,
+        InheritClusterUseCase inheritClusterUseCase
     ) {
         this.requestClusterJobUseCase = requestClusterJobUseCase;
         this.getClusterJobUseCase = getClusterJobUseCase;
         this.getLatestClusterJobUseCase = getLatestClusterJobUseCase;
+        this.inheritClusterUseCase = inheritClusterUseCase;
+    }
+
+    @PostMapping("/api/v1/ai/cluster-inheritances")
+    public ApiSuccessResponse<ClusterInheritanceData> inheritCluster(
+        Principal principal,
+        @Valid @RequestBody ClusterInheritanceRequest request
+    ) {
+        ClusterInheritanceResult result = inheritClusterUseCase.inheritCluster(new ClusterInheritanceCommand(
+            userId(principal),
+            request.documentGroupId(),
+            request.noteId(),
+            request.sourceNoteIds()
+        ));
+        return ApiSuccessResponse.ok(new ClusterInheritanceData(
+            result.inherited(),
+            result.noteId(),
+            result.clusterId(),
+            result.clusterJobId()
+        ));
     }
 
     @PostMapping("/api/v1/ai/clusters")
@@ -144,6 +170,21 @@ public class ClusteringController {
     record ClusterJobCreateRequest(
         @NotNull Map<String, Object> scope,
         Map<String, Object> algorithmOptions
+    ) {
+    }
+
+    record ClusterInheritanceRequest(
+        @NotBlank String documentGroupId,
+        @NotBlank String noteId,
+        @NotNull @Size(min = 2, max = 2) List<@NotBlank String> sourceNoteIds
+    ) {
+    }
+
+    record ClusterInheritanceData(
+        boolean inherited,
+        String noteId,
+        String clusterId,
+        String clusterJobId
     ) {
     }
 

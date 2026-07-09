@@ -9,6 +9,8 @@ public interface WorkspaceNoteGateway {
 
     CreatedNote createNote(String userId, CreateNoteCommand command);
 
+    DeletedNote deleteNote(String userId, String noteId, String mode);
+
     record CreateNoteCommand(
         String title,
         String markdown,
@@ -23,6 +25,13 @@ public interface WorkspaceNoteGateway {
         String folderId,
         int version,
         Instant createdAt
+    ) {
+    }
+
+    record DeletedNote(
+        String noteId,
+        Instant deletedAt,
+        Instant purgeAt
     ) {
     }
 

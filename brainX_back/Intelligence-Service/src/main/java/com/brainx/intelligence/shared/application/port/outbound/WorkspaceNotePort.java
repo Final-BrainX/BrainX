@@ -30,11 +30,12 @@ public interface WorkspaceNotePort {
         List<String> tags,
         String folderId,
         int version,
-        Instant updatedAt
+        Instant updatedAt,
+        String userId
     ) {
 
         public NoteSnapshot(String noteId, String title, String markdown, Instant capturedAt) {
-            this(noteId, DocumentGroups.DEFAULT_DOCUMENT_GROUP_ID, title, markdown, List.of(), null, 0, capturedAt);
+            this(noteId, DocumentGroups.DEFAULT_DOCUMENT_GROUP_ID, title, markdown, List.of(), null, 0, capturedAt, "");
         }
 
         public NoteSnapshot(
@@ -46,11 +47,25 @@ public interface WorkspaceNotePort {
             int version,
             Instant updatedAt
         ) {
-            this(noteId, DocumentGroups.DEFAULT_DOCUMENT_GROUP_ID, title, markdown, tags, folderId, version, updatedAt);
+            this(noteId, DocumentGroups.DEFAULT_DOCUMENT_GROUP_ID, title, markdown, tags, folderId, version, updatedAt, "");
+        }
+
+        public NoteSnapshot(
+            String noteId,
+            String documentGroupId,
+            String title,
+            String markdown,
+            List<String> tags,
+            String folderId,
+            int version,
+            Instant updatedAt
+        ) {
+            this(noteId, documentGroupId, title, markdown, tags, folderId, version, updatedAt, "");
         }
 
         public NoteSnapshot {
             documentGroupId = DocumentGroups.normalize(documentGroupId);
+            userId = userId == null ? "" : userId.trim();
         }
     }
 

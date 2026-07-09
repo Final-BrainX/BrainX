@@ -8611,6 +8611,80 @@ paths:
       security:
       - bearerAuth: []
       - guestSessionAuth: []
+  /api/v1/ai/cluster-inheritances:
+    post:
+      operationId: inheritAiCluster
+      summary: 새 노트에 기존 AI 클러스터 상속
+      tags:
+      - Knowledge Intelligence
+      x-producer-service: knowledge-intelligence
+      x-visibility: public
+      x-consumers:
+      - id: web.graph
+        type: frontend
+        description: 동일 클러스터의 두 원본으로 생성한 징검다리 노트의 소속을 영구 반영한다.
+      x-produces-events:
+      - ClusterJobRequested
+      - ClusterJobCompleted
+      x-internal-sync-calls:
+      - targetService: knowledge-workspace
+        operationId: getNoteSnapshotInternal
+        reason: 생성된 노트의 소유자와 document group을 검증하고 projection 지연 시 source snapshot을 보완한다.
+        required: true
+      x-async-boundary: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClusterInheritanceRequest'
+      responses:
+        '200':
+          description: 상속 판단 완료
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ClusterInheritanceData'
+        '400':
+          description: 잘못된 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: 생성 노트 또는 Workspace를 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: 생성 노트가 이미 다른 클러스터에 속함
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - bearerAuth: []
+      - guestSessionAuth: []
   /api/v1/ai/bridge-concepts:
     post:
       operationId: createBridgeConcepts
@@ -12839,6 +12913,95 @@ paths:
                 $ref: '#/components/schemas/ApiErrorResponse'
         '500':
           description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      security:
+      - serviceTokenAuth: []
+  /internal/v1/workspace/users/{userId}/notes/{noteId}:
+    delete:
+      operationId: deleteNoteInternal
+      summary: '[Internal] Delete a persisted user note'
+      tags:
+      - Internal Service APIs
+      x-producer-service: knowledge-workspace
+      x-visibility: internal
+      x-consumers:
+      - id: internal.mcp-service
+        type: internal-service
+        description: Mcp-Service deletes a user-scoped note after enforcing the notes:write tool scope.
+      x-produces-events:
+      - NoteTrashed
+      - NoteDeleted
+      x-internal-sync-calls: []
+      x-async-boundary: false
+      x-implementation-note: This service-token endpoint operates on persisted notes and delegates ownership checks and deletion events to the Workspace ledger. Redis draft-only cleanup remains on the public actor-aware delete endpoint.
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: noteId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: mode
+        in: query
+        required: true
+        schema:
+          type: string
+          enum:
+          - trash
+          - permanent
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiSuccessBase'
+                - type: object
+                  required:
+                  - data
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/DeleteNoteData'
+        '400':
+          description: Invalid delete mode
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '403':
+          description: Service token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: Note not found for the requested user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '409':
+          description: Delete conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -18874,6 +19037,45 @@ components:
       - searchableNoteCount
       - state
       additionalProperties: false
+    ClusterInheritanceRequest:
+      type: object
+      properties:
+        documentGroupId:
+          type: string
+          minLength: 1
+        noteId:
+          type: string
+          minLength: 1
+        sourceNoteIds:
+          type: array
+          minItems: 2
+          maxItems: 2
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+      required:
+      - documentGroupId
+      - noteId
+      - sourceNoteIds
+      additionalProperties: false
+    ClusterInheritanceData:
+      type: object
+      properties:
+        inherited:
+          type: boolean
+        noteId:
+          type: string
+        clusterId:
+          type: string
+          nullable: true
+        clusterJobId:
+          type: string
+          nullable: true
+      required:
+      - inherited
+      - noteId
+      additionalProperties: false
     BridgeConceptsRequest:
       type: object
       properties:
@@ -20677,6 +20879,9 @@ components:
       properties:
         noteId:
           type: string
+        userId:
+          type: string
+          description: 이 노트의 Workspace 소유 사용자 ID.
         documentGroupId:
           type: string
           description: 이 노트의 Workspace document group 경계.
@@ -20698,6 +20903,7 @@ components:
           format: date-time
       required:
       - noteId
+      - userId
       - documentGroupId
       - title
       - markdown

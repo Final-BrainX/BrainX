@@ -27,7 +27,24 @@ class McpToolConfigTest {
                 "brainx_search_notes",
                 "brainx_ask_notes",
                 "brainx_get_note",
-                "brainx_create_note"
+                "brainx_create_note",
+                "brainx_delete_note"
             );
+    }
+
+    @Test
+    void deleteToolSchemaRequiresLowercaseDeleteMode() {
+        String inputSchema = Arrays.stream(toolCallbackProvider.getToolCallbacks())
+            .filter(callback -> callback.getToolDefinition().name().equals("brainx_delete_note"))
+            .findFirst()
+            .orElseThrow()
+            .getToolDefinition()
+            .inputSchema();
+
+        assertThat(inputSchema)
+            .contains("\"noteId\"")
+            .contains("\"mode\"")
+            .contains("\"trash\"")
+            .contains("\"permanent\"");
     }
 }

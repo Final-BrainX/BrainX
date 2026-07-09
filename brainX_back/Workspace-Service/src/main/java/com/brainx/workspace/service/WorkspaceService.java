@@ -908,7 +908,7 @@ public class WorkspaceService {
         List<String> tags = new ArrayList<>(note.getTags());
         return new InternalNoteSnapshotData(note.getNoteId(), note.getDocumentGroupId(), note.getTitle(), note.getMarkdown(), tags,
                 note.getFolderId(),
-                note.getVersion(), note.getUpdatedAt());
+                note.getVersion(), note.getUpdatedAt(), note.getUserId());
     }
 
     @Transactional(readOnly = true)

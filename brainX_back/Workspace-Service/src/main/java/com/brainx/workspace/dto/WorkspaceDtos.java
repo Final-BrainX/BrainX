@@ -232,7 +232,8 @@ public final class WorkspaceDtos {
     }
 
     public record InternalNoteSnapshotData(String noteId, String documentGroupId, String title, String markdown,
-                                           List<String> tags, String folderId, int version, Instant updatedAt) {
+                                           List<String> tags, String folderId, int version, Instant updatedAt,
+                                           String userId) {
     }
 
     public record InternalUserWorkspaceStatsData(int noteCount, long storageBytes, List<InternalUserActivityDto> activities) {

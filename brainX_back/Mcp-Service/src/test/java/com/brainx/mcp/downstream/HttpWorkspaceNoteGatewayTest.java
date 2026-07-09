@@ -1,15 +1,18 @@
 package com.brainx.mcp.downstream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.ExpectedCount.once;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -69,6 +72,62 @@ class HttpWorkspaceNoteGatewayTest {
         );
 
         assertThat(result.title()).isEqualTo("FastAPI Draft 2");
+        server.verify();
+    }
+
+    @Test
+    void deleteNoteUsesServiceTokenAndReturnsWorkspaceResult() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://workspace");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        BrainxServiceProperties serviceProperties = new BrainxServiceProperties();
+        serviceProperties.setServiceToken("service-token");
+        HttpWorkspaceNoteGateway gateway = new HttpWorkspaceNoteGateway(builder.build(), serviceProperties);
+
+        server.expect(once(), requestTo(
+                "http://workspace/internal/v1/workspace/users/usr_1/notes/note-1?mode=trash"
+            ))
+            .andExpect(method(HttpMethod.DELETE))
+            .andExpect(header("X-Service-Token", "service-token"))
+            .andRespond(withSuccess("""
+                {
+                  "success": true,
+                  "data": {
+                    "noteId": "note-1",
+                    "deletedAt": "2026-07-10T00:00:00Z",
+                    "purgeAt": "2026-08-09T00:00:00Z"
+                  },
+                  "message": "ok"
+                }
+                """, MediaType.APPLICATION_JSON));
+
+        WorkspaceNoteGateway.DeletedNote result = gateway.deleteNote("usr_1", "note-1", "trash");
+
+        assertThat(result.noteId()).isEqualTo("note-1");
+        assertThat(result.deletedAt()).hasToString("2026-07-10T00:00:00Z");
+        assertThat(result.purgeAt()).hasToString("2026-08-09T00:00:00Z");
+        server.verify();
+    }
+
+    @Test
+    void deleteNoteDoesNotExposeDownstreamResponseBody() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://workspace");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        BrainxServiceProperties serviceProperties = new BrainxServiceProperties();
+        serviceProperties.setServiceToken("service-token");
+        HttpWorkspaceNoteGateway gateway = new HttpWorkspaceNoteGateway(builder.build(), serviceProperties);
+
+        server.expect(once(), requestTo(
+                "http://workspace/internal/v1/workspace/users/usr_1/notes/missing?mode=permanent"
+            ))
+            .andRespond(withStatus(HttpStatus.NOT_FOUND)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"message\":\"private downstream detail\"}"));
+
+        assertThatThrownBy(() -> gateway.deleteNote("usr_1", "missing", "permanent"))
+            .isInstanceOf(DownstreamServiceException.class)
+            .hasMessage("Workspace note deletion failed with status 404.")
+            .hasMessageNotContaining("private downstream detail");
+
         server.verify();
     }
 }

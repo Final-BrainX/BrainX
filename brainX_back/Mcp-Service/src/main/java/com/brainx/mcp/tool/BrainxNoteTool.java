@@ -5,6 +5,8 @@ import com.brainx.mcp.downstream.WorkspaceNoteGateway;
 import com.brainx.mcp.downstream.WorkspaceNoteGateway.CreateNoteCommand;
 import com.brainx.mcp.security.McpPrincipal;
 import com.brainx.mcp.security.McpSecurity;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -121,6 +123,22 @@ public class BrainxNoteTool {
             blankToNull(folderId),
             normalizeTags(tags)
         ));
+    }
+
+    @Tool(name = "brainx_delete_note", description = "Delete one BrainX workspace note by moving it to trash or deleting it permanently.")
+    public WorkspaceNoteGateway.DeletedNote deleteNote(
+        @ToolParam(description = "BrainX workspace note id.") String noteId,
+        @ToolParam(description = "Required delete mode: trash or permanent.") DeleteMode mode
+    ) {
+        McpPrincipal principal = McpSecurity.currentApiClient(NOTES_WRITE);
+        if (mode == null) {
+            throw new IllegalArgumentException("mode is required.");
+        }
+        return workspaceNoteGateway.deleteNote(
+            principal.userId(),
+            requireText(noteId, "noteId"),
+            mode.wireValue()
+        );
     }
 
     private static String requireText(String value, String fieldName) {
@@ -243,5 +261,35 @@ public class BrainxNoteTool {
         boolean charged,
         IntelligenceSearchGateway.AskNotesTokenUsage tokenUsage
     ) {
+    }
+
+    public enum DeleteMode {
+        trash("trash"),
+        permanent("permanent");
+
+        private final String wireValue;
+
+        DeleteMode(String wireValue) {
+            this.wireValue = wireValue;
+        }
+
+        @JsonValue
+        public String wireValue() {
+            return wireValue;
+        }
+
+        @JsonCreator
+        public static DeleteMode fromValue(String value) {
+            if (!hasText(value)) {
+                throw new IllegalArgumentException("mode is required.");
+            }
+            String normalized = value.trim().toLowerCase(Locale.ROOT);
+            for (DeleteMode mode : values()) {
+                if (mode.wireValue.equals(normalized)) {
+                    return mode;
+                }
+            }
+            throw new IllegalArgumentException("mode must be trash or permanent.");
+        }
     }
 }

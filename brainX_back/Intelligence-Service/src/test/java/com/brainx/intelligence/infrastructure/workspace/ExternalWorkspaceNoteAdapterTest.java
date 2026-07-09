@@ -35,6 +35,8 @@ class ExternalWorkspaceNoteAdapterTest {
                   "message": "ok",
                   "data": {
                     "noteId": "note-1",
+                    "userId": "user-1",
+                    "documentGroupId": "group-1",
                     "title": "Snapshot title",
                     "markdown": "# Snapshot markdown",
                     "tags": ["tag-1"],
@@ -48,6 +50,8 @@ class ExternalWorkspaceNoteAdapterTest {
         var snapshot = adapter.getNoteSnapshot("note-1");
 
         assertThat(snapshot.noteId()).isEqualTo("note-1");
+        assertThat(snapshot.userId()).isEqualTo("user-1");
+        assertThat(snapshot.documentGroupId()).isEqualTo("group-1");
         assertThat(snapshot.title()).isEqualTo("Snapshot title");
         assertThat(snapshot.markdown()).contains("Snapshot markdown");
         assertThat(snapshot.tags()).containsExactly("tag-1");

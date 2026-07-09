@@ -410,6 +410,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai/cluster-inheritances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 새 노트에 기존 AI 클러스터 상속 */
+        post: operations["inheritAiCluster"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ai/bridge-concepts": {
         parameters: {
             query?: never;
@@ -1447,6 +1464,17 @@ export interface components {
             latestNoteUpdatedAt?: string | null;
             state: components["schemas"]["ClusterJobLatestState"];
             job?: components["schemas"]["ClusterJobData"] | null;
+        };
+        ClusterInheritanceRequest: {
+            documentGroupId: string;
+            noteId: string;
+            sourceNoteIds: string[];
+        };
+        ClusterInheritanceData: {
+            inherited: boolean;
+            noteId: string;
+            clusterId?: string | null;
+            clusterJobId?: string | null;
         };
         BridgeConceptsRequest: {
             /** @description 징검다리 개념 추천을 실행할 Workspace document group. */
@@ -3497,6 +3525,77 @@ export interface operations {
                 };
             };
             /** @description 충돌 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 서버 내부 오류 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    inheritAiCluster: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClusterInheritanceRequest"];
+            };
+        };
+        responses: {
+            /** @description 상속 판단 완료 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiSuccessBase"] & {
+                        data: components["schemas"]["ClusterInheritanceData"];
+                    };
+                };
+            };
+            /** @description 잘못된 요청 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 인증 필요 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 생성 노트 또는 Workspace를 찾을 수 없음 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description 생성 노트가 이미 다른 클러스터에 속함 */
             409: {
                 headers: {
                     [name: string]: unknown;

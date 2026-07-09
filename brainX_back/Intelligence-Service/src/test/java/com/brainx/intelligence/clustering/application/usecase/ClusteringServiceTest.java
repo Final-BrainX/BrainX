@@ -359,6 +359,97 @@ class ClusteringServiceTest {
         assertThat(latest.job().clusterJobId()).isEqualTo(failed.clusterJobId());
     }
 
+    @Test
+    void incrementalClusteringAppendsStrongFitsAndClustersOnlyUnmatchedNotes() {
+        noteSource.notes = List.of(note("note-1", "Spring", List.of(), List.of(), "Spring services"));
+        chatPort.response = new AiChatResponse(
+            """
+                [{"title":"Backend","summary":"backend","noteIds":["note-1"],"keywords":["Spring"],"confidence":0.9}]
+                """,
+            null
+        );
+        ClusterJob baseline = service.requestClusterJob(new ClusterJobCommand("user-1", workspaceScope(), Map.of(), null));
+
+        noteSource.notes = List.of(
+            note("note-1", "Spring", List.of(), List.of(), "Spring services"),
+            note("note-2", "JPA", List.of(), List.of(), "Spring persistence"),
+            note("note-3", "Painting", List.of(), List.of(), "Oil painting")
+        );
+        chatPort.responses.add(new AiChatResponse(
+            """
+                [
+                  {"noteId":"note-2","clusterId":"%s","confidence":0.75},
+                  {"noteId":"note-3","clusterId":null,"confidence":0.2}
+                ]
+                """.formatted(baseline.clusters().getFirst().clusterId()),
+            null
+        ));
+        chatPort.responses.add(new AiChatResponse(
+            """
+                [{"title":"Art","summary":"art","noteIds":["note-3"],"keywords":["painting"],"confidence":0.91}]
+                """,
+            null
+        ));
+
+        ClusterJob incremental = service.requestClusterJob(new ClusterJobCommand("user-1", workspaceScope(), Map.of(), null));
+
+        assertThat(incremental.status()).isEqualTo(ClusterJobStatus.COMPLETED);
+        assertThat(incremental.algorithmOptions()).containsEntry("mode", "INCREMENTAL")
+            .containsEntry("existingFitMinConfidence", 0.75d);
+        assertThat(incremental.clusters()).hasSize(2);
+        assertThat(incremental.clusters().getFirst().clusterId()).isEqualTo(baseline.clusters().getFirst().clusterId());
+        assertThat(incremental.clusters().getFirst().noteIds()).containsExactly("note-1", "note-2");
+        assertThat(incremental.clusters().get(1).noteIds()).containsExactly("note-3");
+        assertThat(chatPort.requests.get(1).messages().get(1).content()).contains("Unassigned note cards");
+        assertThat(chatPort.requests.get(2).messages().get(1).content()).contains("note-3").doesNotContain("note-2\"");
+    }
+
+    @Test
+    void incrementalClusteringCarriesForwardSnapshotWithoutAiWhenNothingIsUnassigned() {
+        noteSource.notes = List.of(note("note-1", "Spring", List.of(), List.of(), "Spring services"));
+        chatPort.response = new AiChatResponse(
+            """
+                [{"title":"Backend","summary":"backend","noteIds":["note-1"],"keywords":["Spring"],"confidence":0.9}]
+                """,
+            null
+        );
+        ClusterJob baseline = service.requestClusterJob(new ClusterJobCommand("user-1", workspaceScope(), Map.of(), null));
+
+        ClusterJob carried = service.requestClusterJob(new ClusterJobCommand("user-1", workspaceScope(), Map.of(), null));
+
+        assertThat(carried.status()).isEqualTo(ClusterJobStatus.COMPLETED);
+        assertThat(carried.clusters()).isEqualTo(baseline.clusters());
+        assertThat(chatPort.generateCalls).isEqualTo(1);
+    }
+
+    @Test
+    void incrementalEntitlementDenialStopsBeforeJobAndEvent() {
+        noteSource.notes = List.of(note("note-1", "Spring", List.of(), List.of(), "Spring services"));
+        chatPort.response = new AiChatResponse(
+            """
+                [{"title":"Backend","summary":"backend","noteIds":["note-1"],"keywords":["Spring"],"confidence":0.9}]
+                """,
+            null
+        );
+        service.requestClusterJob(new ClusterJobCommand("user-1", workspaceScope(), Map.of(), null));
+
+        noteSource.notes = List.of(
+            note("note-1", "Spring", List.of(), List.of(), "Spring services"),
+            note("note-2", "JPA", List.of(), List.of(), "Spring persistence")
+        );
+        entitlementPort.allowed = false;
+        entitlementPort.reasonCode = "QUOTA_EXHAUSTED";
+
+        assertThatThrownBy(() -> service.requestClusterJob(new ClusterJobCommand("user-1", workspaceScope(), Map.of(), null)))
+            .isInstanceOf(ClusteringForbiddenException.class)
+            .hasMessageContaining("QUOTA_EXHAUSTED");
+
+        assertThat(store.jobsById).hasSize(1);
+        assertThat(chatPort.generateCalls).isEqualTo(1);
+        assertThat(eventPort.requestedEvents).hasSize(1);
+        assertThat(eventPort.completedEvents).hasSize(1);
+    }
+
     private static KnowledgeAnalysisNote note(
         String noteId,
         String title,
