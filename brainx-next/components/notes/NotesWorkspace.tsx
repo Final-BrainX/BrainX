@@ -73,7 +73,7 @@ import { useWorkspace } from "@/components/workspace-provider";
 import { consumePendingNoteClaim, readAuthSession } from "@/lib/auth-api";
 import { isElectronDesktop, type BrainxDesktopVaultSyncPolicy } from "@/lib/desktop-bridge";
 import { getDesktopVaultSyncPolicy, requestDesktopVaultManualSync } from "@/lib/desktop-vault";
-import { createInlineAssistStream, decideAiSuggestion } from "@/lib/intelligence-api";
+import { AiUsageLimitExceededError, createInlineAssistStream, decideAiSuggestion } from "@/lib/intelligence-api";
 import {
   AI_OUTLINE_NOTE_TARGET_LENGTH,
   buildAiOutlineNotePrompt,
@@ -463,7 +463,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   if (!initRef.current) initRef.current = createInitialPaneState(initialTab);
   const init = initRef.current;
 
-  const { pushToast } = useBrainX();
+  const { openAiUsageLimitModal, pushToast } = useBrainX();
 
   // 툴바 "···" 메뉴
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
@@ -2844,12 +2844,15 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
           console.warn("Failed to record rejected AI outline suggestion.", decisionError);
         });
       }
+      if (error instanceof AiUsageLimitExceededError) {
+        openAiUsageLimitModal(error.reason);
+      }
       setOutlineDialogError(error instanceof Error ? error.message : "개요 노트 생성에 실패했습니다. 다시 시도해 주세요.");
     } finally {
       if (outlineRequestAbortRef.current === controller) outlineRequestAbortRef.current = null;
       setOutlineDialogSubmitting(false);
     }
-  }, [createGeneratedNoteFromAi, outlineDialogRequest, outlineDialogSubmitting, pushToast]);
+  }, [createGeneratedNoteFromAi, openAiUsageLimitModal, outlineDialogRequest, outlineDialogSubmitting, pushToast]);
 
   useEffect(() => () => outlineRequestAbortRef.current?.abort(), []);
 
