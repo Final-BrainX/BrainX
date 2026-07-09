@@ -1,6 +1,8 @@
 ﻿"use client";
 
 import {
+  ArrowDown,
+  ArrowUp,
   Bell,
   Ban,
   Download,
@@ -3140,6 +3142,9 @@ function UsersPanel({
   onReload: () => Promise<void>;
   onToast: (message: string) => void;
 }) {
+  const [recentActivitySort, setRecentActivitySort] = useState<"desc" | "asc">(
+    "desc",
+  );
   const [userSearch, setUserSearch] = useState("");
   const [plan, setPlan] = useState<Plan | "all">("all");
   const [status, setStatus] = useState<UserStatus | "all">("all");
@@ -3154,15 +3159,35 @@ function UsersPanel({
   const years = Array.from(
     new Set(users.map((user) => user.joined.slice(0, 4))),
   ).sort((a, b) => b.localeCompare(a));
-  const rows = users.filter((user) => {
-    const matchesText = `${user.name} ${user.email}`
-      .toLowerCase()
-      .includes(userSearch.toLowerCase());
-    const matchesPlan = plan === "all" || user.plan === plan;
-    const matchesStatus = status === "all" || user.status === status;
-    const matchesYear = year === "all" || user.joined.startsWith(year);
-    return matchesText && matchesPlan && matchesStatus && matchesYear;
-  });
+  const rows = users
+    .filter((user) => {
+      const matchesText = `${user.name} ${user.email}`
+        .toLowerCase()
+        .includes(userSearch.toLowerCase());
+      const matchesPlan = plan === "all" || user.plan === plan;
+      const matchesStatus = status === "all" || user.status === status;
+      const matchesYear = year === "all" || user.joined.startsWith(year);
+      return matchesText && matchesPlan && matchesStatus && matchesYear;
+    })
+    .sort((left, right) => {
+      const leftTime = left.lastActiveAt
+        ? Date.parse(left.lastActiveAt)
+        : Number.NaN;
+      const rightTime = right.lastActiveAt
+        ? Date.parse(right.lastActiveAt)
+        : Number.NaN;
+      const leftMissing = Number.isNaN(leftTime);
+      const rightMissing = Number.isNaN(rightTime);
+
+      if (leftMissing !== rightMissing) return leftMissing ? 1 : -1;
+      if (leftMissing && rightMissing) return left.id.localeCompare(right.id);
+      if (leftTime === rightTime) return left.id.localeCompare(right.id);
+      return recentActivitySort === "desc"
+        ? rightTime - leftTime
+        : leftTime - rightTime;
+    });
+  const nextRecentActivitySortLabel =
+    recentActivitySort === "desc" ? "오래된순" : "최신순";
   const allVisibleSelected =
     rows.length > 0 && rows.every((user) => selectedIds.includes(user.id));
   const selectedUsers = users.filter((user) => selectedIds.includes(user.id));
@@ -3310,7 +3335,30 @@ function UsersPanel({
               <th>상태</th>
               <th>메모 수</th>
               <th>가입일</th>
-              <th>최근 활동</th>
+              <th
+                aria-sort={
+                  recentActivitySort === "desc" ? "descending" : "ascending"
+                }
+              >
+                <button
+                  type="button"
+                  className="table-sort-button"
+                  aria-label={`최근 활동을 ${nextRecentActivitySortLabel}으로 정렬`}
+                  title={`${nextRecentActivitySortLabel}으로 정렬`}
+                  onClick={() =>
+                    setRecentActivitySort((current) =>
+                      current === "desc" ? "asc" : "desc",
+                    )
+                  }
+                >
+                  최근 활동
+                  {recentActivitySort === "desc" ? (
+                    <ArrowDown size={14} aria-hidden="true" />
+                  ) : (
+                    <ArrowUp size={14} aria-hidden="true" />
+                  )}
+                </button>
+              </th>
               <th style={{ textAlign: "right" }}>관리</th>
             </tr>
           </thead>

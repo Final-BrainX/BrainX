@@ -15,6 +15,7 @@ export type AdminUser = {
   notes: number;
   storage: string;
   lastActive: string;
+  lastActiveAt: string | null;
   location: string;
   device: string;
   activities: Array<{ text: string; time: string }>;
@@ -111,6 +112,7 @@ export const users = [
     notes: 842,
     storage: "8.2GB",
     lastActive: "5분 전",
+    lastActiveAt: "2026-06-25T09:09:00+09:00",
     location: "서울",
     device: "Chrome / macOS",
     activities: ["노트 12개 생성 · 워크스페이스 리서치", "AI 요약 실행 x3, AI 대화 x8", "새 워크스페이스 제품 기획 생성", "Max 플랜으로 업그레이드", "로그인 (서울, Chrome / macOS)"].map((text, i) => ({ text, time: ["5분 전", "1시간 전", "어제", "3일 전", "2주 전"][i] }))
@@ -125,6 +127,7 @@ export const users = [
     notes: 317,
     storage: "3.7GB",
     lastActive: "1시간 전",
+    lastActiveAt: "2026-06-25T08:14:00+09:00",
     location: "부산",
     device: "Edge / Windows",
     activities: ["PDF 가져오기 4건", "Pro 플랜 결제 성공", "그래프 뷰 탐색", "노트 링크 8개 생성"].map((text, i) => ({ text, time: ["1시간 전", "어제", "3일 전", "1주 전"][i] }))
@@ -139,6 +142,7 @@ export const users = [
     notes: 48,
     storage: "420MB",
     lastActive: "어제",
+    lastActiveAt: "2026-06-24T14:00:00+09:00",
     location: "대전",
     device: "Safari / iOS",
     activities: ["첫 노트 작성", "온보딩 완료", "메일 인증 완료"].map((text, i) => ({ text, time: ["어제", "1주 전", "1주 전"][i] }))
@@ -153,6 +157,7 @@ export const users = [
     notes: 521,
     storage: "5.1GB",
     lastActive: "3일 전",
+    lastActiveAt: "2026-06-22T14:00:00+09:00",
     location: "인천",
     device: "Chrome / Windows",
     activities: ["결제 실패 알림 발송", "계정 정지 처리", "AI 채팅 사용량 한도 초과"].map((text, i) => ({ text, time: ["3일 전", "3일 전", "4일 전"][i] }))
@@ -167,6 +172,7 @@ export const users = [
     notes: 12,
     storage: "92MB",
     lastActive: "방금",
+    lastActiveAt: "2026-06-25T09:14:00+09:00",
     location: "서울",
     device: "Chrome / Android",
     activities: ["모바일 로그인", "노트 2개 수정"].map((text, i) => ({ text, time: ["방금", "10분 전"][i] }))
@@ -181,6 +187,7 @@ export const users = [
     notes: 1204,
     storage: "11.4GB",
     lastActive: "2분 전",
+    lastActiveAt: "2026-06-25T09:12:00+09:00",
     location: "서울",
     device: "Chrome / macOS",
     activities: ["팀 멤버 3명 초대", "워크스페이스 권한 변경", "월간 리포트 다운로드"].map((text, i) => ({ text, time: ["2분 전", "오늘", "어제"][i] }))
@@ -195,6 +202,7 @@ export const users = [
     notes: 0,
     storage: "0MB",
     lastActive: "탈퇴",
+    lastActiveAt: null,
     location: "광주",
     device: "Firefox / Windows",
     activities: ["탈퇴 처리", "데이터 내보내기 완료"].map((text, i) => ({ text, time: ["1개월 전", "1개월 전"][i] }))
@@ -209,6 +217,7 @@ export const users = [
     notes: 73,
     storage: "730MB",
     lastActive: "오늘",
+    lastActiveAt: "2026-06-25T07:30:00+09:00",
     location: "수원",
     device: "Chrome / Windows",
     activities: ["Obsidian 가져오기", "Pro 결제 완료", "태그 5개 생성"].map((text, i) => ({ text, time: ["오늘", "오늘", "오늘"][i] }))
@@ -223,6 +232,7 @@ export const users = [
     notes: 289,
     storage: "2.9GB",
     lastActive: "30분 전",
+    lastActiveAt: "2026-06-25T08:44:00+09:00",
     location: "대구",
     device: "Whale / Windows",
     activities: ["AI 인사이트 리포트 생성", "Pro 갱신 결제"].map((text, i) => ({ text, time: ["30분 전", "2일 전"][i] }))
@@ -237,6 +247,7 @@ export const users = [
     notes: 956,
     storage: "9.6GB",
     lastActive: "12분 전",
+    lastActiveAt: "2026-06-25T09:02:00+09:00",
     location: "서울",
     device: "Safari / macOS",
     activities: ["팀 워크스페이스 백업", "공유 링크 생성"].map((text, i) => ({ text, time: ["12분 전", "어제"][i] }))
@@ -251,6 +262,7 @@ export const users = [
     notes: 34,
     storage: "380MB",
     lastActive: "4일 전",
+    lastActiveAt: "2026-06-21T14:00:00+09:00",
     location: "울산",
     device: "Chrome / Windows",
     activities: ["신고 누적 검토", "계정 정지 처리"].map((text, i) => ({ text, time: ["4일 전", "4일 전"][i] }))
@@ -265,6 +277,7 @@ export const users = [
     notes: 411,
     storage: "4.4GB",
     lastActive: "오늘",
+    lastActiveAt: "2026-06-25T06:30:00+09:00",
     location: "제주",
     device: "Chrome / macOS",
     activities: ["노트 버전 복구", "AI 링크 추천 수락"].map((text, i) => ({ text, time: ["오늘", "어제"][i] }))
@@ -279,6 +292,7 @@ export const users = [
     notes: 777,
     storage: "7.8GB",
     lastActive: "어제",
+    lastActiveAt: "2026-06-24T13:00:00+09:00",
     location: "성남",
     device: "Edge / Windows",
     activities: ["팀 결제 수단 변경", "폴더 권한 수정"].map((text, i) => ({ text, time: ["어제", "2일 전"][i] }))
@@ -293,6 +307,7 @@ export const users = [
     notes: 9,
     storage: "64MB",
     lastActive: "방금",
+    lastActiveAt: "2026-06-25T09:14:00+09:00",
     location: "서울",
     device: "Chrome / Android",
     activities: ["가입 완료", "첫 워크스페이스 생성"].map((text, i) => ({ text, time: ["방금", "방금"][i] }))
