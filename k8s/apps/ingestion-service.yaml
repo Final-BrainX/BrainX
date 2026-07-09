@@ -84,7 +84,22 @@ spec:
             failureThreshold: 3
       volumes:
         - name: asset-storage
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: ingestion-service-asset-storage
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ingestion-service-asset-storage
+  namespace: brainx
+  labels:
+    app: ingestion-service
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
 ---
 apiVersion: v1
 kind: Service
