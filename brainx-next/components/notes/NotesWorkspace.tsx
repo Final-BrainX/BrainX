@@ -51,7 +51,8 @@ import {
   setNoteOnLeaf,
   DropZone,
 } from "@/lib/notes/paneUtils";
-import { hasNoteTitleDuplicate, mergeInFlightNotes, nextDefaultNoteTitle } from "@/lib/notes/noteCreationState";
+import { hasNoteTitleDuplicate, mergeInFlightNotes, nextDefaultNoteTitle, upsertResolvedCreatedNote } from "@/lib/notes/noteCreationState";
+import { recordNoteViewed } from "@/lib/notes/note-view-history";
 import { AUTO_THEME } from "./theme";
 import { SplitThemeContext } from "./SplitThemeContext";
 import PaneTreeRenderer, { type QuickSwitcherTarget } from "./PaneTreeRenderer";
@@ -580,6 +581,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const hydratedRef = useRef(false);
   const initialServerLoadDoneRef = useRef(USE_MOCK_NOTES);
   const prevActiveNoteIdRef = useRef<string | null>(null);
+  const viewedNoteSignatureRef = useRef("");
   const prevInitialKeyRef = useRef<string>(initialTab.kind === "note" ? initialTab.noteId : "start");
   const manualSaveStatusTimerRef = useRef<number | null>(null);
   const draftSaveStatusTimerRef = useRef<number | null>(null);
@@ -1383,17 +1385,18 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
           }
 
           setNotes((prev) =>
-            prev.map((item) =>
-              item.id === localNoteId
-                ? {
-                    ...item,
-                    id: savedId,
-                    title: finalTitle,
-                    version: nextVersion,
-                    persisted: true,
-                    updatedAt: Date.parse(created.createdAt) || Date.now(),
-                  }
-                : item
+            upsertResolvedCreatedNote(
+              prev,
+              localNoteId,
+              {
+                ...newNote,
+                id: savedId,
+                title: finalTitle,
+                version: nextVersion,
+                persisted: true,
+                updatedAt: Date.parse(created.createdAt) || Date.now(),
+              },
+              noteTitle
             )
           );
           replaceInFlightCreatedNoteId(localNoteId, savedId);
@@ -1432,10 +1435,16 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         .then((draft) => {
           replaceInFlightCreatedNoteId(localNoteId, draft.noteId);
           setNotes((prev) =>
-            prev.map((item) =>
-              item.id === localNoteId
-                ? { ...item, id: draft.noteId, updatedAt: Date.now() }
-                : item
+            upsertResolvedCreatedNote(
+              prev,
+              localNoteId,
+              {
+                ...newNote,
+                id: draft.noteId,
+                title: noteTitle,
+                updatedAt: Date.now(),
+              },
+              noteTitle
             )
           );
           setState((prev) => ({ ...prev, root: replaceNoteIdInNode(prev.root, localNoteId, draft.noteId) }));
@@ -2534,9 +2543,20 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     onActiveNoteChange?.(activeNoteId ?? null);
   }, [activeNoteId, onActiveNoteChange]);
 
+  useEffect(() => {
+    if (!activeNote) return;
+    const session = readAuthSession();
+    const documentGroupId = activeNote.documentGroupId ?? currentWorkspaceId ?? "local";
+    const userId = session?.userId ?? null;
+    const signature = `${userId ?? "guest"}:${documentGroupId}:${activeNote.id}`;
+    if (viewedNoteSignatureRef.current === signature) return;
+    viewedNoteSignatureRef.current = signature;
+    recordNoteViewed(activeNote.id, { userId, documentGroupId });
+  }, [activeNote?.id, activeNote?.documentGroupId, currentWorkspaceId]);
+
   /* Ctrl+S 수동 저장 — 활성 에디터에 디바운스 중인 본문/제목을 즉시 반영하도록 신호를 보낸 뒤,
      약간의 지연 후 최신 세션 스냅샷을 즉시 localStorage에 기록한다. */
-  const saveActiveNoteToBackend = useCallback(async () => {
+  const saveActiveNoteToBackend = useCallback(async (contentOverride?: string) => {
     const noteId = latestSessionRef.current.paneTabs[latestSessionRef.current.activeId]?.tabs.find(
       (tab) => tab.id === latestSessionRef.current.paneTabs[latestSessionRef.current.activeId]?.activeTabId
     );
@@ -2544,7 +2564,12 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       return;
     }
 
-    const note = latestSessionRef.current.notes.find((item) => item.id === noteId.noteId);
+    const currentNote = latestSessionRef.current.notes.find((item) => item.id === noteId.noteId);
+    const note = contentOverride === undefined
+      ? currentNote
+      : currentNote
+        ? { ...currentNote, content: contentOverride, updatedAt: Date.now() }
+        : undefined;
     if (!note) {
       return;
     }
@@ -2570,7 +2595,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       setNotes((prev) =>
         prev.map((item) =>
           item.id === note.id
-            ? { ...item, id: savedId, title: finalTitle, version: nextVersion, persisted: true, updatedAt: Date.now() }
+            ? { ...item, id: savedId, content: note.content, title: finalTitle, version: nextVersion, persisted: true, updatedAt: Date.now() }
             : item
         )
       );
@@ -2587,7 +2612,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setNotes((prev) =>
       prev.map((item) =>
         item.id === note.id
-          ? { ...item, title: metadata.title, version: metadata.version, persisted: true, updatedAt: Date.parse(content.savedAt) || Date.now() }
+          ? { ...item, content: note.content, title: metadata.title, version: metadata.version, persisted: true, updatedAt: Date.parse(content.savedAt) || Date.now() }
           : item
       )
     );
@@ -3111,6 +3136,8 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
                     onAiRequestHandled={() => setAiRequest(null)}
                     activeEditor={activeEditorHandle}
                     activeEditorMode={activeEditorMode}
+                    saveStatus={combinedSaveStatus}
+                    onSaveActiveNote={saveActiveNoteToBackend}
                     onHeadingSelect={handleHeadingSelect}
                   />
                 </div>

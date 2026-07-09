@@ -11,10 +11,13 @@ import { extractResolvedWikiLinkTargets, resolveWikiLinkByTitle } from "@/lib/wi
 import {
   AiUsageLimitExceededError,
   createChatThread,
+  generateNoteSummary,
   createInlineAssistStream,
   createLinkSuggestions,
   decideAiSuggestion,
+  getNoteSummary,
   sendChatMessageStream,
+  type NoteSummaryData,
 } from "@/lib/intelligence-api";
 import {
   applyLinkSuggestionToMarkdown,
@@ -409,6 +412,8 @@ export interface PendingAiRequest {
 
 type NoteLinkSuggestionStatus = "idle" | "loading" | "success" | "error";
 type NoteLinkAcceptStatus = "saving" | "saved" | "error";
+type NoteSummaryStatus = "idle" | "loading" | "refreshing" | "success" | "insufficient" | "error";
+type SaveStatus = "idle" | "saving" | "saved" | "error";
 type NoteLinkAcceptState = {
   status: NoteLinkAcceptStatus;
   error?: string;
@@ -420,11 +425,29 @@ const INLINE_AI_DEFAULT_HEIGHT = 260;
 const INLINE_AI_MIN_HEIGHT = 180;
 const INLINE_AI_MAX_HEIGHT = 640;
 const INLINE_AI_TOP_RESERVE = 140;
+const NOTE_SUMMARY_MIN_CHARS = 80;
 
 function clampInlineAiHeight(height: number, sidebarHeight: number) {
   const measuredMax = sidebarHeight > 0 ? sidebarHeight - INLINE_AI_TOP_RESERVE : INLINE_AI_MAX_HEIGHT;
   const max = Math.max(INLINE_AI_MIN_HEIGHT, Math.min(INLINE_AI_MAX_HEIGHT, measuredMax));
   return Math.max(INLINE_AI_MIN_HEIGHT, Math.min(max, height));
+}
+
+function notePlainText(content: string) {
+  return content
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\[([^\]]+)]\([^)]+\)/g, "$1")
+    .replace(/[#>*_~`()\[\]-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function noteSummaryErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "세줄 요약을 불러오지 못했습니다.";
+  if (message.includes("요약할 텍스트가 부족") || message.includes("INSUFFICIENT_NOTE_CONTENT")) {
+    return "요약할 텍스트가 부족합니다.";
+  }
+  return message || "세줄 요약을 불러오지 못했습니다.";
 }
 
 interface Props {
@@ -437,6 +460,8 @@ interface Props {
   onAiRequestHandled?: () => void;
   activeEditor?: NoteEditorHandle | null;
   activeEditorMode?: EditMode;
+  saveStatus?: SaveStatus;
+  onSaveActiveNote?: (contentOverride?: string) => Promise<void>;
   /** 목차 항목 클릭 → 현재 활성 패널의 에디터를 해당 heading으로 스크롤(NotesWorkspace.tsx). */
   onHeadingSelect?: (index: number) => void;
 }
@@ -451,6 +476,8 @@ export default function RightSidebar({
   onAiRequestHandled,
   activeEditor,
   activeEditorMode = "edit",
+  saveStatus = "idle",
+  onSaveActiveNote,
   onHeadingSelect,
 }: Props) {
   const [activeTocId, setActiveTocId] = useState<string | null>(null);
@@ -464,6 +491,9 @@ export default function RightSidebar({
   const [linkSuggestions, setLinkSuggestions] = useState<LinkSuggestion[]>([]);
   const [linkSuggestionError, setLinkSuggestionError] = useState<string | null>(null);
   const [linkAcceptStates, setLinkAcceptStates] = useState<Record<string, NoteLinkAcceptState>>({});
+  const [noteSummaryStatus, setNoteSummaryStatus] = useState<NoteSummaryStatus>("idle");
+  const [noteSummary, setNoteSummary] = useState<NoteSummaryData | null>(null);
+  const [noteSummaryError, setNoteSummaryError] = useState<string | null>(null);
   const [hasAuthenticatedSession, setHasAuthenticatedSession] = useState(false);
   const [chatOpen, setChatOpen] = useState(true);
   const [inlineAiHeight, setInlineAiHeight] = useState<number>(() => {
@@ -651,6 +681,24 @@ export default function RightSidebar({
 
   const activeNoteDocumentGroupIdForLinks = activeNote ? resolveNoteDocumentGroupId(activeNote) : undefined;
   const activeNoteHasServerSource = Boolean(activeNote && activeNote.persisted === true && activeNoteDocumentGroupIdForLinks);
+  const activeNotePlainTextLength = activeNote ? notePlainText(activeNote.content).length : 0;
+  const isSavingActiveNote = saveStatus === "saving";
+  const canRefreshNoteSummary = Boolean(activeNote && !USE_MOCK_NOTES && hasAuthenticatedSession && activeNoteHasServerSource && !isSavingActiveNote);
+  const noteSummaryDisabledReason = !activeNote
+    ? "노트를 먼저 열어 주세요."
+    : USE_MOCK_NOTES
+      ? "데모 노트에서는 실제 세줄 요약을 생성하지 않습니다."
+      : !hasAuthenticatedSession
+        ? "로그인 후 세줄 요약을 생성할 수 있습니다."
+        : !activeNote.persisted
+          ? "노트가 서버에 저장된 뒤 세줄 요약을 생성할 수 있습니다."
+          : !activeNoteDocumentGroupIdForLinks
+            ? "Workspace 정보가 동기화된 뒤 세줄 요약을 생성할 수 있습니다."
+            : isSavingActiveNote
+              ? "노트를 저장한 뒤 세줄 요약을 갱신합니다."
+              : activeNotePlainTextLength < NOTE_SUMMARY_MIN_CHARS
+                ? "요약할 텍스트가 부족합니다."
+                : null;
   const canRequestLinkSuggestions = Boolean(activeNote && !USE_MOCK_NOTES && hasAuthenticatedSession && activeNoteHasServerSource);
   const linkSuggestionDisabledReason = !activeNote
     ? "노트를 먼저 열어 주세요."
@@ -663,6 +711,83 @@ export default function RightSidebar({
           : !activeNoteDocumentGroupIdForLinks
             ? "Workspace 정보가 동기화된 뒤 AI 연결 추천을 실행할 수 있습니다."
             : null;
+
+  useEffect(() => {
+    setNoteSummary(null);
+    setNoteSummaryError(null);
+    if (!activeNote || !hasAuthenticatedSession || !activeNoteHasServerSource || USE_MOCK_NOTES) {
+      setNoteSummaryStatus("idle");
+      return;
+    }
+
+    let cancelled = false;
+    setNoteSummaryStatus("loading");
+    getNoteSummary(activeNote.id)
+      .then((summary) => {
+        if (cancelled) return;
+        setNoteSummary(summary);
+        setNoteSummaryStatus("success");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setNoteSummaryError(noteSummaryErrorMessage(error));
+        setNoteSummaryStatus("error");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeNote?.id, activeNoteHasServerSource, hasAuthenticatedSession]);
+
+  const handleRefreshNoteSummary = async () => {
+    if (!activeNote || !activeNoteDocumentGroupIdForLinks) return;
+    const currentContent = activeEditor?.getHTML() ?? activeNote.content;
+    const currentPlainTextLength = notePlainText(currentContent).length;
+    if (!canRefreshNoteSummary) {
+      pushToast(noteSummaryDisabledReason ?? "세줄 요약을 생성할 수 없습니다.", "info");
+      if (currentPlainTextLength < NOTE_SUMMARY_MIN_CHARS) {
+        setNoteSummaryStatus("insufficient");
+        setNoteSummaryError("요약할 텍스트가 부족합니다.");
+      }
+      return;
+    }
+    if (currentPlainTextLength < NOTE_SUMMARY_MIN_CHARS) {
+      setNoteSummaryStatus("insufficient");
+      setNoteSummaryError("요약할 텍스트가 부족합니다.");
+      pushToast("요약할 텍스트가 부족합니다.", "info");
+      return;
+    }
+
+    setNoteSummaryStatus("refreshing");
+    setNoteSummaryError(null);
+    try {
+      activeEditor?.flushPendingSave();
+      await onSaveActiveNote?.(currentContent);
+    } catch {
+      const message = "노트 저장에 실패해 세줄 요약을 갱신하지 못했습니다.";
+      setNoteSummaryStatus("error");
+      setNoteSummaryError(message);
+      pushToast(message, "err");
+      return;
+    }
+
+    try {
+      const summary = await generateNoteSummary(activeNote.id, {
+        documentGroupId: activeNoteDocumentGroupIdForLinks,
+        force: true,
+      });
+      setNoteSummary(summary);
+      setNoteSummaryStatus("success");
+      pushToast("세줄 요약을 갱신했습니다.", "ok");
+    } catch (error) {
+      const message = noteSummaryErrorMessage(error);
+      setNoteSummaryStatus(message.includes("부족") ? "insufficient" : "error");
+      setNoteSummaryError(message);
+      if (error instanceof AiUsageLimitExceededError) {
+        openAiUsageLimitModal(error.reason);
+      }
+    }
+  };
 
   const existingLinkSuggestionEdges = useMemo<LinkSuggestionEdge[]>(() => {
     if (!activeNote) return [];
@@ -1143,7 +1268,49 @@ export default function RightSidebar({
           )}
         </SideCard>
 
-        {/* 2. 연결 · 백링크 */}
+        {/* 2. 세줄 요약 */}
+        <SideCard
+          title="세줄 요약"
+          icon="sparkle"
+          defaultOpen
+        >
+          <div className="space-y-2.5" aria-live="polite">
+            <div className="rounded-lg border border-line/60 bg-surface2/40 px-3 py-2.5">
+              {noteSummaryStatus === "loading" ? (
+                <p className="text-[12px] leading-5 text-txt3">저장된 세줄 요약을 확인하는 중...</p>
+              ) : noteSummaryStatus === "refreshing" ? (
+                <p className="text-[12px] leading-5 text-txt3">세줄 요약을 갱신하는 중...</p>
+              ) : noteSummaryStatus === "success" && noteSummary?.summary ? (
+                <p className="whitespace-pre-line break-words text-[12px] leading-5 text-txt2">{noteSummary.summary}</p>
+              ) : noteSummaryStatus === "insufficient" ? (
+                <p className="text-[12px] leading-5 text-txt3">요약할 텍스트가 부족합니다.</p>
+              ) : noteSummaryStatus === "error" ? (
+                <p className="text-[12px] leading-5 text-txt3">{noteSummaryError ?? "세줄 요약을 불러오지 못했습니다."}</p>
+              ) : (
+                <p className="text-[12px] leading-5 text-txt3">요약이 아직 없습니다.</p>
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={!canRefreshNoteSummary || noteSummaryStatus === "refreshing"}
+              onClick={handleRefreshNoteSummary}
+              className={cx(
+                "flex h-8 w-full items-center justify-center gap-1.5 rounded-lg text-[12px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-55",
+                canRefreshNoteSummary && noteSummaryStatus !== "refreshing"
+                  ? "bg-primary text-white hover:bg-primary/90"
+                  : "border border-line/60 bg-surface2/60 text-txt3"
+              )}
+            >
+              <Icon name={noteSummaryStatus === "refreshing" ? "refresh" : "summarize"} size={12} className={noteSummaryStatus === "refreshing" ? "animate-spin" : undefined} />
+              {noteSummaryStatus === "refreshing" ? "갱신 중" : "요약 갱신"}
+            </button>
+            {noteSummaryDisabledReason ? (
+              <p className="text-[11px] leading-5 text-txt3">{noteSummaryDisabledReason}</p>
+            ) : null}
+          </div>
+        </SideCard>
+
+        {/* 3. 연결 · 백링크 */}
         <SideCard
           title="연결 · 백링크"
           icon="link"
@@ -1179,7 +1346,7 @@ export default function RightSidebar({
           )}
         </SideCard>
 
-        {/* 3. AI 연결 제안 */}
+        {/* 4. AI 연결 제안 */}
         <SideCard
           title="AI 연결 제안"
           icon="sparkle"

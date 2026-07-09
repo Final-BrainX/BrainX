@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase;
+import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase.GenerateNoteSummaryCommand;
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase.GetNoteSummaryQuery;
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteIndexStatusesUseCase;
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteIndexStatusesUseCase.NoteIndexStatusesCommand;
@@ -123,7 +124,35 @@ public class ExplorationController {
         return ApiSuccessResponse.ok(new NoteSummaryData(
             result.noteId(),
             result.summary(),
-            result.source()
+            result.source(),
+            result.documentGroupId(),
+            result.markdownHash(),
+            result.generatedAt(),
+            result.modelId()
+        ));
+    }
+
+    @PostMapping("/api/v1/notes/{noteId}/summary")
+    public ApiSuccessResponse<NoteSummaryData> generateNoteSummary(
+        Principal principal,
+        @PathVariable @NotBlank String noteId,
+        @Valid @RequestBody NoteSummaryGenerateRequest request
+    ) {
+        var result = getNoteSummaryUseCase.generateNoteSummary(new GenerateNoteSummaryCommand(
+            userId(principal),
+            noteId,
+            request.documentGroupId(),
+            Boolean.TRUE.equals(request.force())
+        ));
+
+        return ApiSuccessResponse.ok(new NoteSummaryData(
+            result.noteId(),
+            result.summary(),
+            result.source(),
+            result.documentGroupId(),
+            result.markdownHash(),
+            result.generatedAt(),
+            result.modelId()
         ));
     }
 
@@ -211,7 +240,17 @@ public class ExplorationController {
     record NoteSummaryData(
         String noteId,
         String summary,
-        SummarySource source
+        SummarySource source,
+        String documentGroupId,
+        String markdownHash,
+        java.time.Instant generatedAt,
+        String modelId
+    ) {
+    }
+
+    record NoteSummaryGenerateRequest(
+        @NotBlank String documentGroupId,
+        Boolean force
     ) {
     }
 }

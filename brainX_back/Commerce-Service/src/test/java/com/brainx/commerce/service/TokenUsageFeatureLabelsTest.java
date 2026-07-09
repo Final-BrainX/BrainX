@@ -9,9 +9,10 @@ class TokenUsageFeatureLabelsTest {
     void mapsKnownFeatureIdsToUiCategories() {
         Assertions.assertThat(TokenUsageFeatureLabels.labelFor("inline-assist-chat"))
                 .isEqualTo(TokenUsageFeatureLabels.AI_WRITING_ASSIST);
-        // 자동 요약은 제품 UI에서 별도 화면 없이 챗봇으로 연결되므로 AI_CHATBOT으로 합산된다.
         Assertions.assertThat(TokenUsageFeatureLabels.labelFor("insight-report-chat"))
                 .isEqualTo(TokenUsageFeatureLabels.AI_CHATBOT);
+        Assertions.assertThat(TokenUsageFeatureLabels.labelFor("note-summary-chat"))
+                .isEqualTo(TokenUsageFeatureLabels.AUTO_SUMMARY);
         Assertions.assertThat(TokenUsageFeatureLabels.labelFor("rag-chat"))
                 .isEqualTo(TokenUsageFeatureLabels.AI_CHATBOT);
         Assertions.assertThat(TokenUsageFeatureLabels.labelFor("chat-router-classifier"))

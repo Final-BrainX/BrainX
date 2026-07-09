@@ -5,6 +5,11 @@ const MIN_OPACITY_AT_ZERO_STRENGTH = 0.75;
 const MIN_OPACITY_AT_FULL_STRENGTH = 0.25;
 
 type TimeNote = Pick<BrainXNote, "id" | "updated" | "updatedAt">;
+type ViewedAtSource = ReadonlyMap<string, number> | Record<string, number>;
+type GraphTimeEffectOptions = {
+  now?: number;
+  viewedAtByNoteId?: ViewedAtSource | null;
+};
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -67,7 +72,67 @@ function resolveTimestamp(note: TimeNote, useRelativeFallback: boolean, now: num
   return absoluteTimestamp ?? relativeTimestamp;
 }
 
-export function graphTimeEffectOpacityByNoteId(notes: TimeNote[], strength: number, now = Date.now()) {
+function normalizeGraphTimeEffectOptions(optionsOrNow: number | GraphTimeEffectOptions | undefined): Required<Pick<GraphTimeEffectOptions, "now">> & Pick<GraphTimeEffectOptions, "viewedAtByNoteId"> {
+  if (typeof optionsOrNow === "number") {
+    return { now: optionsOrNow, viewedAtByNoteId: null };
+  }
+  return {
+    now: optionsOrNow?.now ?? Date.now(),
+    viewedAtByNoteId: optionsOrNow?.viewedAtByNoteId ?? null,
+  };
+}
+
+function isViewedAtMap(source: ViewedAtSource): source is ReadonlyMap<string, number> {
+  return typeof (source as ReadonlyMap<string, number>).get === "function";
+}
+
+function viewedAtTimestamp(viewedAtByNoteId: ViewedAtSource | null | undefined, noteId: string) {
+  if (!viewedAtByNoteId) return null;
+  const value = isViewedAtMap(viewedAtByNoteId) ? viewedAtByNoteId.get(noteId) : viewedAtByNoteId[noteId];
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function viewedAtOpacityByNoteId(notes: TimeNote[], strength: number, viewedAtByNoteId: ViewedAtSource) {
+  const minimumOpacity = graphTimeEffectMinimumOpacity(strength);
+  const timestampsById = new Map<string, number>();
+  for (const note of notes) {
+    const timestamp = viewedAtTimestamp(viewedAtByNoteId, note.id);
+    if (timestamp !== null) timestampsById.set(note.id, timestamp);
+  }
+
+  if (timestampsById.size === 0) return null;
+  const timestamps = Array.from(timestampsById.values());
+  const minTimestamp = Math.min(...timestamps);
+  const maxTimestamp = Math.max(...timestamps);
+  const result = new Map<string, number>();
+
+  for (const note of notes) {
+    const timestamp = timestampsById.get(note.id);
+    if (timestamp === undefined) {
+      result.set(note.id, minimumOpacity);
+      continue;
+    }
+    if (minTimestamp === maxTimestamp) {
+      result.set(note.id, 1);
+      continue;
+    }
+    const recencyRatio = (timestamp - minTimestamp) / (maxTimestamp - minTimestamp);
+    result.set(note.id, minimumOpacity + recencyRatio * (1 - minimumOpacity));
+  }
+  return result;
+}
+
+export function graphTimeEffectOpacityByNoteId(
+  notes: TimeNote[],
+  strength: number,
+  optionsOrNow?: number | GraphTimeEffectOptions
+) {
+  const { now, viewedAtByNoteId } = normalizeGraphTimeEffectOptions(optionsOrNow);
+  if (viewedAtByNoteId) {
+    const viewedOpacity = viewedAtOpacityByNoteId(notes, strength, viewedAtByNoteId);
+    if (viewedOpacity) return viewedOpacity;
+  }
+
   const absoluteTimestamps = notes
     .map((note) => parseDateTimestamp(note.updatedAt))
     .filter((timestamp): timestamp is number => timestamp !== null);

@@ -7,7 +7,7 @@ import { Compass, FileUp, PencilLine, Pin, PinOff, Sparkles } from "lucide-react
 import { buildAuthPath, isDevAuthSession, readAuthSession } from "@/lib/auth-api";
 import { deriveGraphEdges, noteById, type BrainXNote, type ClusterId } from "@/lib/brainx-data";
 import { deriveDraftWikiLinkEdges, draftsToBrainXNotes, getGraph, graphEdgesForFlow, graphToBrainXNotes, pendingCreatedNoteToBrainXNote, pendingWikiLinkEntryToEdge, USE_MOCK_GRAPH, USE_MOCK_GRAPH_CLUSTERS } from "@/lib/graph-api";
-import { createBridgeConcepts, createLinkSuggestions, getLatestClusterJob, requestClusterJob, type BridgeConceptsData, type ClusterJobLatestData } from "@/lib/intelligence-api";
+import { createBridgeConcepts, createLinkSuggestions, generateNoteSummary, getLatestClusterJob, requestClusterJob, type BridgeConceptsData, type ClusterJobLatestData, type NoteSummaryData } from "@/lib/intelligence-api";
 import {
   AI_CLUSTER_MAX_CLUSTERS,
   AI_CLUSTER_MAX_NOTES,
@@ -32,6 +32,7 @@ import {
   type LinkSuggestion,
 } from "@/lib/link-suggestions";
 import { readPendingCreatedNotes, removePendingCreatedNoteByNoteId } from "@/lib/notes/pending-created-note-cache";
+import { NOTE_VIEW_HISTORY_CHANGED_EVENT, noteViewHistoryStorageKey, readNoteViewHistory } from "@/lib/notes/note-view-history";
 import { createWorkspaceNote, getNote, hasWorkspaceUserIdentity, listWorkspaceNoteDrafts, matchesWorkspaceScope, updateWorkspaceNoteContent, WorkspaceApiError, type NoteCreated } from "@/lib/workspace-api";
 import { graphTimeEffectOpacityByNoteId, isGraphNoteOutsideTimeFilter } from "@/lib/graph-time-effect";
 import { useBrainX } from "@/components/brainx-provider";
@@ -62,6 +63,23 @@ const GRAPH_NOTICE_TONE = {
 } as const;
 
 const GRAPH_RECOMMENDATION_BUTTON = "border-[color-mix(in_srgb,rgb(var(--primary))_35%,rgb(var(--surface)))] bg-[color-mix(in_srgb,rgb(var(--primary))_14%,rgb(var(--surface)))] text-primary hover:border-[color-mix(in_srgb,rgb(var(--primary))_48%,rgb(var(--surface)))] hover:bg-[color-mix(in_srgb,rgb(var(--primary))_20%,rgb(var(--surface)))]";
+
+type GraphNoteSummaryState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "success"; summary: NoteSummaryData }
+  | { status: "insufficient"; message: string }
+  | { status: "error"; message: string };
+
+const GRAPH_NOTE_SUMMARY_IDLE: GraphNoteSummaryState = { status: "idle" };
+
+function graphSummaryErrorState(error: unknown): GraphNoteSummaryState {
+  const message = error instanceof Error ? error.message : "요약을 불러오지 못했습니다.";
+  if (message.includes("요약할 텍스트가 부족") || message.includes("INSUFFICIENT_NOTE_CONTENT")) {
+    return { status: "insufficient", message: "요약할 텍스트가 부족합니다." };
+  }
+  return { status: "error", message: "요약을 불러오지 못했습니다." };
+}
 
 function GraphEmptyState({
   onCreateNote,
@@ -571,7 +589,11 @@ function GraphCanvasFlow({
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<PlanetFlowNode>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<OrbitFlowEdge>([]);
   const [hovered, setHovered] = useState<BrainXNote | null>(null);
+  const [noteSummaryStates, setNoteSummaryStates] = useState<Record<string, GraphNoteSummaryState>>({});
   const hoverTimeoutRef = useRef<number | null>(null);
+  const summaryInFlightRef = useRef<Set<string>>(new Set());
+  const summaryAttemptedHoverIdsRef = useRef<Set<string>>(new Set());
+  const activeHoverNodeIdRef = useRef<string | null>(null);
   const isDraggingRef = useRef(false);
   const bridgeBoxSelectingRef = useRef(false);
   const reactFlowSelectionIdsRef = useRef<Set<string>>(new Set());
@@ -583,6 +605,54 @@ function GraphCanvasFlow({
   const raf = useRef(0);
   const selectionModeActive = bridgeMode || linkMode;
   const selectionLocked = bridgeSelectionLocked || linkSelectionLocked;
+
+  useEffect(() => {
+    const nextHoverId = hovered?.id ?? null;
+    const previousHoverId = activeHoverNodeIdRef.current;
+    if (previousHoverId && previousHoverId !== nextHoverId) {
+      summaryAttemptedHoverIdsRef.current.delete(previousHoverId);
+    }
+    if (!nextHoverId) {
+      summaryAttemptedHoverIdsRef.current.clear();
+    }
+    activeHoverNodeIdRef.current = nextHoverId;
+  }, [hovered?.id]);
+
+  useEffect(() => {
+    if (!hovered) return;
+    if ((bridgeMode || linkMode) && hovered.availableForAiFeatures !== true) return;
+    const noteId = hovered.aiSourceNoteId ?? null;
+    const documentGroupId = hovered.documentGroupId ?? null;
+    if (!noteId || !documentGroupId) return;
+    const state = noteSummaryStates[hovered.id];
+    if (state?.status === "loading" || state?.status === "success" || state?.status === "insufficient") return;
+    if (summaryAttemptedHoverIdsRef.current.has(hovered.id)) return;
+    if (summaryInFlightRef.current.has(hovered.id)) return;
+
+    summaryAttemptedHoverIdsRef.current.add(hovered.id);
+    summaryInFlightRef.current.add(hovered.id);
+    setNoteSummaryStates((current) => ({
+      ...current,
+      [hovered.id]: { status: "loading" },
+    }));
+
+    generateNoteSummary(noteId, { documentGroupId, force: false })
+      .then((summary) => {
+        setNoteSummaryStates((current) => ({
+          ...current,
+          [hovered.id]: { status: "success", summary },
+        }));
+      })
+      .catch((error) => {
+        setNoteSummaryStates((current) => ({
+          ...current,
+          [hovered.id]: graphSummaryErrorState(error),
+        }));
+      })
+      .finally(() => {
+        summaryInFlightRef.current.delete(hovered.id);
+      });
+  }, [bridgeMode, hovered, linkMode, noteSummaryStates]);
 
   const clearReactFlowNodeSelection = useCallback(() => {
     store.setState({
@@ -1199,6 +1269,7 @@ function GraphCanvasFlow({
       {hovered && (!selectedId || selectionModeActive) && (
         <TooltipOverlay 
           hovered={hovered} 
+          summaryState={noteSummaryStates[hovered.id] ?? GRAPH_NOTE_SUMMARY_IDLE}
           clusterMetaById={clusterMetaById}
           bridgeMode={bridgeMode}
           linkMode={linkMode}
@@ -1218,6 +1289,7 @@ function GraphCanvasFlow({
 
 function TooltipOverlay({
   hovered,
+  summaryState,
   clusterMetaById,
   bridgeMode,
   linkMode,
@@ -1225,6 +1297,7 @@ function TooltipOverlay({
   onMouseLeave
 }: {
   hovered: BrainXNote;
+  summaryState: GraphNoteSummaryState;
   clusterMetaById: Map<string, GraphClusterMeta>;
   bridgeMode: boolean;
   linkMode: boolean;
@@ -1233,13 +1306,21 @@ function TooltipOverlay({
 }) {
   const { getNode, flowToScreenPosition } = useReactFlow();
 
-  const summaryText = (hovered.summary ?? "").trim();
+  const generatedSummaryText = summaryState.status === "success"
+    ? (summaryState.summary.summary ?? "").trim()
+    : "";
+  const fallbackSummaryText = (hovered.summary ?? "").trim();
+  const summaryText = generatedSummaryText || fallbackSummaryText;
   const unavailableForAiSelection = (bridgeMode || linkMode) && hovered.availableForAiFeatures !== true;
   const tooltipBody = unavailableForAiSelection
     ? bridgeMode
       ? "아직 AI 추천에 사용할 수 없는 노트입니다. 노트 동기화가 완료되면 징검다리 추천에 사용할 수 있어요."
       : "아직 AI 추천에 사용할 수 없는 노트입니다. 노트 동기화가 완료되면 연결 추천에 사용할 수 있어요."
-    : summaryText;
+    : summaryState.status === "loading"
+      ? "세줄 요약을 생성하는 중..."
+      : summaryState.status === "insufficient" || summaryState.status === "error"
+        ? summaryState.message
+        : summaryText;
   if (!tooltipBody) return null;
 
   const node = getNode(hovered.id);
@@ -1257,7 +1338,11 @@ function TooltipOverlay({
   const cluster = resolveAiCluster(hovered.cluster, clusterMetaById);
   const clusterColor = `rgb(${cluster.color})`;
   const title = (hovered.title ?? "").trim() || "제목 없음";
-  const tooltipLabel = unavailableForAiSelection ? "AI 추천 준비 전" : `${cluster.label} · AI 요약`;
+  const tooltipLabel = unavailableForAiSelection
+    ? "AI 추천 준비 전"
+    : summaryState.status === "loading"
+      ? "AI 요약 생성 중"
+      : `${cluster.label} · 세줄 요약`;
 
   // createPortal: [data-route]의 transform 애니메이션이 position:fixed를
   // 깨므로, transform이 없는 document.body에 직접 렌더링
@@ -1296,7 +1381,7 @@ function TooltipOverlay({
           </span>
         </div>
         <div className="mb-1 break-words text-[15px] font-semibold leading-snug text-txt">{title}</div>
-        <p className="line-clamp-3 break-words text-[13.5px] leading-relaxed text-txt3">{tooltipBody}</p>
+        <p className="line-clamp-3 whitespace-pre-line break-words text-[13.5px] leading-relaxed text-txt3">{tooltipBody}</p>
 
         {/* 역삼각형 말풍선 화살표 */}
         <div
@@ -1369,6 +1454,7 @@ function GraphScreenInner() {
   const [timeFilter, setTimeFilter] = useState("전체");
   const [timeEffectEnabled, setTimeEffectEnabled] = useState(false);
   const [timeEffectStrength, setTimeEffectStrength] = useState(TIME_EFFECT_DEFAULT_STRENGTH);
+  const [noteViewHistory, setNoteViewHistory] = useState<Record<string, number>>({});
   const [hiddenClusters, setHiddenClusters] = useState<Partial<Record<ClusterId, boolean>>>({});
   const [bridgeMode, setBridgeMode] = useState(false);
   const [bridgeSelectedIds, setBridgeSelectedIds] = useState<string[]>([]);
@@ -1395,6 +1481,16 @@ function GraphScreenInner() {
   const currentSession = readAuthSession();
   const hasRealLogin = !!currentSession?.accessToken && !isDevAuthSession(currentSession);
   const { currentWorkspaceId, workspaces } = useWorkspace();
+  const noteViewHistoryScope = useMemo(
+    () => ({
+      userId: currentSession?.userId ?? null,
+      documentGroupId: currentWorkspaceId ?? "local",
+    }),
+    [currentSession?.userId, currentWorkspaceId]
+  );
+  const refreshNoteViewHistory = useCallback(() => {
+    setNoteViewHistory(readNoteViewHistory(noteViewHistoryScope));
+  }, [noteViewHistoryScope]);
   // Ticket16: "default" 문자열 대신 현재 선택된 Workspace의 실제 documentGroupId가 있을 때만
   // AI 클러스터링을 활성화한다. 게스트는 AI 기능 호출 자체(10회 한도)는 허용되지만, 실제
   // documentGroupId를 가진 Workspace가 없어 이 요청을 만들 수 없다 — 여기서 막지 않으면
@@ -1411,9 +1507,12 @@ function GraphScreenInner() {
     [aiClusterProjection]
   );
   const notes = graphClusterProjection.notes;
+  const viewedAtByNoteId = useMemo(() => new Map(Object.entries(noteViewHistory)), [noteViewHistory]);
   const timeFadeOpacityById = useMemo(
-    () => timeEffectEnabled ? graphTimeEffectOpacityByNoteId(notes, timeEffectStrength) : new Map<string, number>(),
-    [notes, timeEffectEnabled, timeEffectStrength]
+    () => timeEffectEnabled
+      ? graphTimeEffectOpacityByNoteId(notes, timeEffectStrength, { viewedAtByNoteId })
+      : new Map<string, number>(),
+    [notes, timeEffectEnabled, timeEffectStrength, viewedAtByNoteId]
   );
   // liveEdges가 없으면(게스트, 또는 서버 그래프 자체를 안 쓰는 경로) 지금까지와 동일하게 전부
   // markdown/제목 기반으로 파생한다. liveEdges가 있으면(로그인, 서버 projection) 그 값을 그대로
@@ -1568,6 +1667,26 @@ function GraphScreenInner() {
   useEffect(() => {
     setLinkSelectedIds((current) => current.filter((id) => linkSelectableIdSet.has(id)));
   }, [linkSelectableIdSet]);
+
+  useEffect(() => {
+    refreshNoteViewHistory();
+    const storageKey = noteViewHistoryStorageKey(noteViewHistoryScope);
+    const handleHistoryChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ storageKey?: string }>).detail;
+      if (detail?.storageKey && detail.storageKey !== storageKey) return;
+      refreshNoteViewHistory();
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === storageKey) refreshNoteViewHistory();
+    };
+
+    window.addEventListener(NOTE_VIEW_HISTORY_CHANGED_EVENT, handleHistoryChanged);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener(NOTE_VIEW_HISTORY_CHANGED_EVENT, handleHistoryChanged);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [noteViewHistoryScope, refreshNoteViewHistory]);
 
   const refreshGraph = useCallback(
     async ({

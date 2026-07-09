@@ -197,7 +197,7 @@ public class FolderEventHandler implements BrainxEventHandler {
 
         boolean removed = noteSearchIndexPort.deleteByUserIdAndDocumentGroupIdAndNoteId(userId, documentGroupId, noteId);
         noteChunkManifestStore.deleteByUserIdAndDocumentGroupIdAndNoteId(userId, documentGroupId, noteId);
-        noteSummaryPort.deleteByUserIdAndNoteId(userId, noteId);
+        noteSummaryPort.deleteByUserIdAndDocumentGroupIdAndNoteId(userId, documentGroupId, noteId);
         if (removed) {
             noteProjectionStore.save(updated.indexRemoved(context.eventId(), context.envelope().occurredAt()));
         }

@@ -37,6 +37,51 @@ test("graphTimeEffectOpacityByNoteId linearly interpolates middle notes", () => 
   assert.equal(opacityById.get("middle"), 0.625);
 });
 
+test("graphTimeEffectOpacityByNoteId uses note view history when available", () => {
+  const opacityById = graphTimeEffectOpacityByNoteId(
+    [note("oldest-view", 1), note("latest-view", 10)],
+    100,
+    {
+      now: NOW,
+      viewedAtByNoteId: new Map([
+        ["oldest-view", NOW - 10_000],
+        ["latest-view", NOW],
+      ]),
+    }
+  );
+
+  assert.equal(opacityById.get("latest-view"), 1);
+  assert.equal(opacityById.get("oldest-view"), graphTimeEffectMinimumOpacity(100));
+});
+
+test("graphTimeEffectOpacityByNoteId dims unviewed notes when any view history exists", () => {
+  const opacityById = graphTimeEffectOpacityByNoteId(
+    [note("viewed", 20), note("unviewed", 0)],
+    60,
+    {
+      now: NOW,
+      viewedAtByNoteId: { viewed: NOW },
+    }
+  );
+
+  assert.equal(opacityById.get("viewed"), 1);
+  assert.equal(opacityById.get("unviewed"), graphTimeEffectMinimumOpacity(60));
+});
+
+test("graphTimeEffectOpacityByNoteId falls back to updatedAt when view history is empty", () => {
+  const opacityById = graphTimeEffectOpacityByNoteId(
+    [note("latest", 0), note("oldest", 10)],
+    100,
+    {
+      now: NOW,
+      viewedAtByNoteId: {},
+    }
+  );
+
+  assert.equal(opacityById.get("latest"), 1);
+  assert.equal(opacityById.get("oldest"), graphTimeEffectMinimumOpacity(100));
+});
+
 test("graphTimeEffectOpacityByNoteId returns full opacity when all timestamps are equal", () => {
   const sameTime = new Date(NOW).toISOString();
   const opacityById = graphTimeEffectOpacityByNoteId(

@@ -44,3 +44,48 @@ export function mergeInFlightNotes(
   }
   return [...preserved, ...loadedNotes];
 }
+export function upsertResolvedCreatedNote(
+  notes: MockNote[],
+  localNoteId: string,
+  resolvedNote: MockNote,
+  fallbackTitle: string
+) {
+  let foundLocal = false;
+  let foundResolved = false;
+  const resolvedTitle = resolvedNote.title.trim() || fallbackTitle;
+  const mergeResolved = (note: MockNote) => ({
+    ...resolvedNote,
+    ...note,
+    id: resolvedNote.id,
+    title: note.title.trim() || resolvedTitle,
+    version: resolvedNote.version,
+    persisted: resolvedNote.persisted,
+    updatedAt: Math.max(note.updatedAt, resolvedNote.updatedAt),
+  });
+  const localNote = notes.find((note) => note.id === localNoteId);
+  const noteToMerge = localNote ?? notes.find((note) => note.id === resolvedNote.id);
+  let insertedResolved = false;
+  const next: MockNote[] = [];
+  for (const note of notes) {
+    if (note.id === resolvedNote.id) {
+      foundResolved = true;
+      if (!insertedResolved) {
+        next.push(mergeResolved(noteToMerge ?? note));
+        insertedResolved = true;
+      }
+      continue;
+    }
+    if (note.id === localNoteId) {
+      foundLocal = true;
+      if (!insertedResolved) {
+        next.push(mergeResolved(noteToMerge ?? note));
+        insertedResolved = true;
+      }
+      continue;
+    }
+    next.push(note);
+  }
+
+  if (foundLocal || foundResolved) return next;
+  return [{ ...resolvedNote, title: resolvedTitle }, ...next];
+}

@@ -2,6 +2,10 @@ package com.brainx.intelligence.exploration.application.usecase;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -13,13 +17,16 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase.GetNoteSummaryQuery;
+import com.brainx.intelligence.exploration.application.port.inbound.GetNoteSummaryUseCase.GenerateNoteSummaryCommand;
 import com.brainx.intelligence.exploration.application.port.inbound.SemanticSearchUseCase.SearchResultView;
 import com.brainx.intelligence.exploration.application.port.inbound.SemanticSearchUseCase.SemanticSearchCommand;
 import com.brainx.intelligence.exploration.application.port.outbound.ExplorationEventPort;
+import com.brainx.intelligence.exploration.application.port.outbound.NoteIndexStatusPort;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteKeywordSearchPort;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteSearchIndexPort;
 import com.brainx.intelligence.exploration.application.port.outbound.NoteSummaryPort;
 import com.brainx.intelligence.exploration.domain.ExplorationDomainException;
+import com.brainx.intelligence.exploration.domain.ExplorationInsufficientContentException;
 import com.brainx.intelligence.exploration.domain.NoteSearchDocument;
 import com.brainx.intelligence.exploration.domain.NoteSummary;
 import com.brainx.intelligence.exploration.domain.SearchMatchType;
@@ -27,15 +34,39 @@ import com.brainx.intelligence.exploration.domain.SearchMode;
 import com.brainx.intelligence.exploration.domain.SearchScope;
 import com.brainx.intelligence.exploration.domain.SemanticSearchResult;
 import com.brainx.intelligence.exploration.domain.SummarySource;
+import com.brainx.intelligence.llmops.application.service.AiRunRecorder;
+import com.brainx.intelligence.llmops.application.service.PromptRegistryService;
+import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
+import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatResponse;
+import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTokenUsage;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort;
 import com.brainx.intelligence.shared.application.port.outbound.TokenUsagePort;
 import com.brainx.intelligence.shared.application.port.outbound.WorkspaceNotePort;
+import com.brainx.intelligence.shared.application.service.AiUsageRecorder;
 
 class ExplorationServiceTest {
 
     private final FakePorts ports = new FakePorts();
     private final FakeSummaryPort summaryPort = new FakeSummaryPort();
-    private final ExplorationService service = new ExplorationService(ports, ports, ports, ports, summaryPort, ports);
+    private final AiChatPort aiChatPort = mock(AiChatPort.class);
+    private final AiUsageRecorder aiUsageRecorder = mock(AiUsageRecorder.class);
+    private final AiRunRecorder aiRunRecorder = mock(AiRunRecorder.class);
+    private final PromptRegistryService promptRegistryService = mock(PromptRegistryService.class);
+    private final NoteSummaryProperties noteSummaryProperties = new NoteSummaryProperties();
+    private final ExplorationService service = new ExplorationService(
+        ports,
+        ports,
+        ports,
+        ports,
+        ports,
+        summaryPort,
+        ports,
+        aiChatPort,
+        aiUsageRecorder,
+        aiRunRecorder,
+        promptRegistryService,
+        noteSummaryProperties
+    );
 
     @Test
     void semanticSearchStopsBeforeVectorSearchWhenEntitlementDenied() {
@@ -237,8 +268,85 @@ class ExplorationServiceTest {
         assertThat(ports.workspaceSnapshotRequests).isEqualTo(1);
     }
 
+    @Test
+    void generateNoteSummaryUsesNanoModelAndPersistsHashScopedSummary() {
+        ports.indexStatuses = List.of(new NoteIndexStatusPort.NoteIndexStatusProjection(
+            "note-1",
+            "INDEXED",
+            true,
+            Instant.parse("2026-07-09T00:00:00Z")
+        ));
+        ports.workspaceSnapshot = new WorkspaceNotePort.NoteSnapshot(
+            "note-1",
+            "group-1",
+            "회의록",
+            "이번 회의에서는 그래프 마인드맵 hover 요약과 노트 컨텍스트 패널 갱신 버튼을 논의했다. 저장 시점 선생성과 hover lazy 생성을 함께 사용하기로 했다.",
+            List.of(),
+            null,
+            3,
+            Instant.parse("2026-07-09T01:00:00Z")
+        );
+        when(promptRegistryService.resolve(any(), any()))
+            .thenReturn(new PromptRegistryService.PromptResolution("note-summary", "code", "system"));
+        when(aiRunRecorder.recordChatGenerateWithRun(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+            .thenReturn(new AiRunRecorder.RecordedChatResponse(
+                "run-1",
+                new AiChatResponse(
+                    "그래프 hover 요약을 제공한다\n저장과 hover에서 생성한다\n컨텍스트 버튼으로 갱신한다",
+                    new AiTokenUsage(20, 10, 30)
+                )
+            ));
+
+        var result = service.generateNoteSummary(new GenerateNoteSummaryCommand(
+            "user-1",
+            "note-1",
+            "group-1",
+            false
+        ));
+
+        assertThat(result.source()).isEqualTo(SummarySource.AI);
+        assertThat(result.documentGroupId()).isEqualTo("group-1");
+        assertThat(result.markdownHash()).hasSize(64);
+        assertThat(result.modelId()).isEqualTo("gpt-5.4-nano");
+        assertThat(summaryPort.summaries.values()).singleElement()
+            .satisfies(summary -> {
+                assertThat(summary.documentGroupId()).isEqualTo("group-1");
+                assertThat(summary.modelId()).isEqualTo("gpt-5.4-nano");
+            });
+        verify(aiUsageRecorder).recordChatUsage(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void generateNoteSummaryRejectsShortContentBeforeModelCall() {
+        ports.indexStatuses = List.of(new NoteIndexStatusPort.NoteIndexStatusProjection(
+            "note-1",
+            "INDEXED",
+            true,
+            Instant.parse("2026-07-09T00:00:00Z")
+        ));
+        ports.workspaceSnapshot = new WorkspaceNotePort.NoteSnapshot(
+            "note-1",
+            "group-1",
+            "짧음",
+            "짧은 본문",
+            List.of(),
+            null,
+            1,
+            Instant.parse("2026-07-09T01:00:00Z")
+        );
+
+        assertThatThrownBy(() -> service.generateNoteSummary(new GenerateNoteSummaryCommand(
+            "user-1",
+            "note-1",
+            "group-1",
+            false
+        )))
+            .isInstanceOf(ExplorationInsufficientContentException.class)
+            .hasMessageContaining("요약할 텍스트가 부족");
+    }
+
     private static final class FakePorts
-        implements EntitlementPort, TokenUsagePort, WorkspaceNotePort, NoteSearchIndexPort,
+        implements EntitlementPort, TokenUsagePort, WorkspaceNotePort, NoteSearchIndexPort, NoteIndexStatusPort,
         NoteKeywordSearchPort, ExplorationEventPort {
 
         private boolean allowed = true;
@@ -249,6 +357,7 @@ class ExplorationServiceTest {
         private KeywordSearchQuery lastKeywordQuery;
         private List<SemanticSearchResult> searchResults = List.of();
         private List<SemanticSearchResult> keywordResults = List.of();
+        private List<NoteIndexStatusProjection> indexStatuses = List.of();
         private WorkspaceNotePort.NoteSnapshot workspaceSnapshot = new WorkspaceNotePort.NoteSnapshot(
             "note-1",
             "",
@@ -293,6 +402,11 @@ class ExplorationServiceTest {
         }
 
         @Override
+        public List<NoteIndexStatusProjection> findNoteIndexStatuses(String userId, String documentGroupId, List<String> noteIds) {
+            return indexStatuses;
+        }
+
+        @Override
         public NoteSearchDocument save(NoteSearchDocument document) {
             return document;
         }
@@ -324,18 +438,54 @@ class ExplorationServiceTest {
 
         @Override
         public Optional<NoteSummary> findByUserIdAndNoteId(String userId, String noteId) {
-            return Optional.ofNullable(summaries.get(userId + "::" + noteId));
+            return summaries.values().stream()
+                .filter(summary -> summary.userId().equals(userId) && summary.noteId().equals(noteId))
+                .findFirst();
+        }
+
+        @Override
+        public Optional<NoteSummary> findByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId) {
+            return summaries.values().stream()
+                .filter(summary -> summary.userId().equals(userId)
+                    && summary.documentGroupId().equals(documentGroupId)
+                    && summary.noteId().equals(noteId))
+                .findFirst();
+        }
+
+        @Override
+        public Optional<NoteSummary> findByUserIdAndDocumentGroupIdAndNoteIdAndMarkdownHash(
+            String userId,
+            String documentGroupId,
+            String noteId,
+            String markdownHash
+        ) {
+            return summaries.values().stream()
+                .filter(summary -> summary.userId().equals(userId)
+                    && summary.documentGroupId().equals(documentGroupId)
+                    && summary.noteId().equals(noteId)
+                    && summary.markdownHash().equals(markdownHash))
+                .findFirst();
         }
 
         @Override
         public NoteSummary save(NoteSummary summary) {
-            summaries.put(summary.userId() + "::" + summary.noteId(), summary);
+            summaries.put(key(summary.userId(), summary.documentGroupId(), summary.noteId()), summary);
             return summary;
         }
 
         @Override
+        public void deleteByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId) {
+            summaries.remove(key(userId, documentGroupId, noteId));
+        }
+
+        @Override
         public void deleteByUserIdAndNoteId(String userId, String noteId) {
-            summaries.remove(userId + "::" + noteId);
+            summaries.entrySet().removeIf(entry -> entry.getValue().userId().equals(userId)
+                && entry.getValue().noteId().equals(noteId));
+        }
+
+        private static String key(String userId, String documentGroupId, String noteId) {
+            return userId + "::" + documentGroupId + "::" + noteId;
         }
     }
 }

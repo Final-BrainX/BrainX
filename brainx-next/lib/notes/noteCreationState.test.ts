@@ -5,6 +5,7 @@ import {
   hasNoteTitleDuplicate,
   mergeInFlightNotes,
   nextDefaultNoteTitle,
+  upsertResolvedCreatedNote,
 } from "./noteCreationState.ts";
 import type { MockNote } from "./noteTypes.ts";
 
@@ -64,5 +65,72 @@ test("mergeInFlightNotes does not duplicate a note already returned by the serve
   assert.deepEqual(
     mergeInFlightNotes(loaded, [local], new Set(["note_1"])).map((item) => item.id),
     ["note_1"]
+  );
+});
+test("upsertResolvedCreatedNote replaces a local note and keeps the numbered title", () => {
+  const local = note("local-new", "새 노트7");
+  const resolved = { ...local, id: "note_7", title: "새 노트7", updatedAt: 2 };
+
+  assert.deepEqual(
+    upsertResolvedCreatedNote([local], "local-new", resolved, "새 노트7").map((item) => ({
+      id: item.id,
+      title: item.title,
+    })),
+    [{ id: "note_7", title: "새 노트7" }]
+  );
+});
+
+test("upsertResolvedCreatedNote preserves local edits made before id resolution", () => {
+  const local = { ...note("local-new", "사용자 제목"), content: "빠르게 입력한 본문", updatedAt: 3 };
+  const resolved = note("note_7", "새 노트7");
+
+  const [updated] = upsertResolvedCreatedNote([local], "local-new", resolved, "새 노트7");
+
+  assert.equal(updated.id, "note_7");
+  assert.equal(updated.title, "사용자 제목");
+  assert.equal(updated.content, "빠르게 입력한 본문");
+});
+
+test("upsertResolvedCreatedNote inserts the resolved note when a refresh already dropped the local note", () => {
+  const existing = note("note_1", "기존 노트");
+  const resolved = note("note_7", "", undefined);
+
+  assert.deepEqual(
+    upsertResolvedCreatedNote([existing], "local-new", resolved, "새 노트7").map((item) => ({
+      id: item.id,
+      title: item.title,
+    })),
+    [
+      { id: "note_7", title: "새 노트7" },
+      { id: "note_1", title: "기존 노트" },
+    ]
+  );
+});
+
+test("upsertResolvedCreatedNote does not duplicate an already resolved note", () => {
+  const resolved = note("note_7", "사용자 제목");
+
+  assert.deepEqual(
+    upsertResolvedCreatedNote([resolved], "local-new", { ...resolved, title: "" }, "새 노트7").map((item) => ({
+      id: item.id,
+      title: item.title,
+    })),
+    [{ id: "note_7", title: "사용자 제목" }]
+  );
+});
+
+test("upsertResolvedCreatedNote collapses local and resolved copies into one note", () => {
+  const local = { ...note("local-new", "사용자 제목"), content: "아직 반영 전 본문", updatedAt: 5 };
+  const resolved = { ...note("note_7", "서버 제목"), persisted: true, version: 3, updatedAt: 3 };
+  const existing = note("note_1", "기존 노트");
+
+  const result = upsertResolvedCreatedNote([existing, resolved, local], "local-new", resolved, "새 노트7");
+
+  assert.deepEqual(
+    result.map((item) => ({ id: item.id, title: item.title, content: item.content, version: item.version })),
+    [
+      { id: "note_1", title: "기존 노트", content: "", version: 1 },
+      { id: "note_7", title: "사용자 제목", content: "아직 반영 전 본문", version: 3 },
+    ]
   );
 });

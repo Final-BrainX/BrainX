@@ -105,7 +105,7 @@ class FolderEventHandlerTest {
         assertThat(note1.searchIndexStatus()).isEqualTo(NoteSearchIndexStatus.REMOVED);
         assertThat(searchIndex.deletedKeys).containsExactly("user-1::group-1::note-1", "user-1::group-1::note-2");
         assertThat(chunkManifestStore.deletedKeys).containsExactly("user-1::group-1::note-1", "user-1::group-1::note-2");
-        assertThat(summaryPort.deletedKeys).containsExactly("user-1::note-1", "user-1::note-2");
+        assertThat(summaryPort.deletedKeys).containsExactly("user-1::group-1::note-1", "user-1::group-1::note-2");
     }
 
     @Test
@@ -148,7 +148,7 @@ class FolderEventHandlerTest {
         assertThat(projection.trashed()).isTrue();
         assertThat(projection.searchIndexStatus()).isEqualTo(NoteSearchIndexStatus.STALE);
         assertThat(chunkManifestStore.deletedKeys).containsExactly("user-1::group-1::note-1");
-        assertThat(summaryPort.deletedKeys).containsExactly("user-1::note-1");
+        assertThat(summaryPort.deletedKeys).containsExactly("user-1::group-1::note-1");
     }
 
     @Test
@@ -348,8 +348,28 @@ class FolderEventHandlerTest {
         }
 
         @Override
+        public Optional<NoteSummary> findByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId) {
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<NoteSummary> findByUserIdAndDocumentGroupIdAndNoteIdAndMarkdownHash(
+            String userId,
+            String documentGroupId,
+            String noteId,
+            String markdownHash
+        ) {
+            return Optional.empty();
+        }
+
+        @Override
         public NoteSummary save(NoteSummary summary) {
             return summary;
+        }
+
+        @Override
+        public void deleteByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId) {
+            deletedKeys.add(userId + "::" + documentGroupId + "::" + noteId);
         }
 
         @Override

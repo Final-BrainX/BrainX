@@ -111,6 +111,7 @@ LLMOps v1은 UI 없이 backend foundation만 제공한다. 자세한 기준은 `
 | 폴더 정리 | `brainx.organization.default-model`, 기본 `OPENAI_CHAT_MODEL` |
 | 징검다리 추천 | `brainx.connection.bridge.default-model`, 기본 `OPENAI_CHAT_MODEL` |
 | 자동 링크 | `brainx.note-auto-link.model`, 기본 `OPENAI_CHAT_MODEL` |
+| 노트 세줄 요약 | `BRAINX_NOTE_SUMMARY_MODEL`, 기본 `gpt-5.4-nano` |
 | 외부 검색 | `BRAINX_EXTERNAL_SEARCH_PROVIDER=openai`, `OPENAI_WEB_SEARCH_MODEL`, 기본 `gpt-5.5`, `BRAINX_EXTERNAL_SEARCH_CONTEXT_SIZE=low`, `BRAINX_EXTERNAL_SEARCH_TIMEOUT=60s` |
 | embedding | `BRAINX_AI_EMBEDDING_PROVIDER=voyage`, `VOYAGE_EMBEDDING_MODEL`, 기본 `voyage-4-lite` |
 
