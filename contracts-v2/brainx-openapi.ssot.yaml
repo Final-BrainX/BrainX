@@ -10979,6 +10979,11 @@ paths:
     post:
       operationId: runAdminUserBulkAction
       summary: Run bulk user action from admin console
+      description: >-
+        `SEND_NOTICE` 관리자 UI는 202 성공 응답 직후 모달을 닫고 사용자 선택을
+        해제하며, 사용자 행 데이터가 바뀌지 않으므로 목록을 재조회하지 않는다. 발송 전
+        backdrop 닫기는 작성값을 폐기하고, 발송 중에는 backdrop·취소·중복 발송을
+        차단하며, 요청 실패 시에는 모달과 작성값을 유지해 재시도할 수 있게 한다.
       tags:
       - Admin
       x-producer-service: admin-service
