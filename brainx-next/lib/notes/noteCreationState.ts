@@ -44,7 +44,6 @@ export function mergeInFlightNotes(
   }
   return [...preserved, ...loadedNotes];
 }
-
 export function upsertResolvedCreatedNote(
   notes: MockNote[],
   localNoteId: string,

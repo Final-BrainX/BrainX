@@ -67,7 +67,6 @@ test("mergeInFlightNotes does not duplicate a note already returned by the serve
     ["note_1"]
   );
 });
-
 test("upsertResolvedCreatedNote replaces a local note and keeps the numbered title", () => {
   const local = note("local-new", "새 노트7");
   const resolved = { ...local, id: "note_7", title: "새 노트7", updatedAt: 2 };
