@@ -152,6 +152,26 @@ class BrainxNoteToolTest {
         assertCreatedMarkdown("FastAPI", "\n\n# FastAPI\n\nNotes", "Notes");
     }
 
+    @Test
+    void createNoteKeepsHeadingWhenOnlyPunctuationDiffers() {
+        assertCreatedMarkdown("C basics", "# C# basics\n\nNotes", "# C# basics\n\nNotes");
+    }
+
+    @Test
+    void createNoteStripsDuplicateHeadingWithLiteralPunctuation() {
+        assertCreatedMarkdown("C# basics", "# C# basics\n\nNotes", "Notes");
+    }
+
+    @Test
+    void createNoteStripsDuplicateHeadingWhenTitleEndsWithHash() {
+        assertCreatedMarkdown("C#", "# C#\n\nNotes", "Notes");
+    }
+
+    @Test
+    void createNoteStripsDuplicateHeadingWithMarkdownFormattingWrapper() {
+        assertCreatedMarkdown("FastAPI", "# **FastAPI**\n\nNotes", "Notes");
+    }
+
     private void assertCreatedMarkdown(String title, String markdown, String expectedMarkdown) {
         authenticate("usr_1", List.of("notes:write"));
 

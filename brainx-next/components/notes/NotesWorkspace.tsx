@@ -7,6 +7,7 @@ import {
   addPendingCreatedNote,
   clearPendingCreatedNotes,
   removePendingCreatedNoteByNoteId,
+  readPendingCreatedNotes,
   updatePendingCreatedNoteId,
   updatePendingCreatedNoteTitle,
   findPendingCreatedNoteByNoteId,
@@ -50,6 +51,7 @@ import {
   setNoteOnLeaf,
   DropZone,
 } from "@/lib/notes/paneUtils";
+import { hasNoteTitleDuplicate, mergeInFlightNotes, nextDefaultNoteTitle } from "@/lib/notes/noteCreationState";
 import { AUTO_THEME } from "./theme";
 import { SplitThemeContext } from "./SplitThemeContext";
 import PaneTreeRenderer, { type QuickSwitcherTarget } from "./PaneTreeRenderer";
@@ -583,6 +585,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const draftSaveStatusTimerRef = useRef<number | null>(null);
   const draftAutosaveTimerRef = useRef<number | null>(null);
   const draftDirtyNoteIdsRef = useRef<Set<string>>(new Set());
+  const inFlightCreatedNotesRef = useRef<Map<string, MockNote>>(new Map());
   /* 위키링크로 새 노트를 만들 때, 소스 노트가 아직 draft id 발급 전(local id)이라 그 자리에서
      바로 저장하지 못한 경우 여기(local id 기준)에 표시해둔다 — createNote의 draft id 확정
      시점(.then)에서 이 목록을 확인해 그때 다시 한번 저장을 시도한다. */
@@ -700,6 +703,68 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       (f) => f.id !== excludeId && (f.parentFolderId ?? null) === (parentFolderId ?? null) && f.name.trim() === name.trim()
     );
   }, [visibleFolders]);
+
+  const inFlightNoteIdSet = useCallback(() => {
+    const ids = new Set(draftDirtyNoteIdsRef.current);
+    for (const id of inFlightCreatedNotesRef.current.keys()) ids.add(id);
+    for (const entry of readPendingCreatedNotes()) {
+      ids.add(entry.localKey);
+      ids.add(entry.noteId);
+    }
+    return ids;
+  }, []);
+
+  const inFlightMergeCandidates = useCallback(() => {
+    return [
+      ...latestSessionRef.current.notes,
+      ...inFlightCreatedNotesRef.current.values(),
+    ];
+  }, []);
+
+  const currentNoteTitleCandidates = useCallback(() => {
+    const byId = new Map<string, MockNote>();
+    for (const note of latestSessionRef.current.notes) byId.set(note.id, note);
+    for (const note of notes) if (!byId.has(note.id)) byId.set(note.id, note);
+    for (const note of inFlightCreatedNotesRef.current.values()) if (!byId.has(note.id)) byId.set(note.id, note);
+    return Array.from(byId.values()).filter((note) => matchesCurrentWorkspace(note.documentGroupId));
+  }, [notes, matchesCurrentWorkspace]);
+
+  const rememberInFlightCreatedNote = useCallback((note: MockNote) => {
+    inFlightCreatedNotesRef.current.set(note.id, note);
+  }, []);
+
+  const replaceInFlightCreatedNoteId = useCallback((oldId: string, newId: string) => {
+    const note = inFlightCreatedNotesRef.current.get(oldId);
+    if (!note) return;
+    inFlightCreatedNotesRef.current.delete(oldId);
+    inFlightCreatedNotesRef.current.set(newId, { ...note, id: newId, updatedAt: Date.now() });
+  }, []);
+
+  const updateInFlightCreatedNote = useCallback((noteId: string, patch: Partial<MockNote>) => {
+    const note = inFlightCreatedNotesRef.current.get(noteId);
+    if (!note) return;
+    inFlightCreatedNotesRef.current.set(noteId, { ...note, ...patch });
+  }, []);
+
+  const mergeLoadedNotesWithInFlight = useCallback((loadedNotes: MockNote[]) => {
+    const loadedIds = new Set(loadedNotes.map((note) => note.id));
+    const resolvedLocalIds = new Set<string>();
+    for (const entry of readPendingCreatedNotes()) {
+      if (entry.localKey !== entry.noteId && loadedIds.has(entry.noteId)) {
+        resolvedLocalIds.add(entry.localKey);
+      }
+    }
+    for (const id of inFlightCreatedNotesRef.current.keys()) {
+      if (loadedIds.has(id)) inFlightCreatedNotesRef.current.delete(id);
+    }
+    const inFlightIds = inFlightNoteIdSet();
+    for (const id of resolvedLocalIds) inFlightIds.delete(id);
+    return mergeInFlightNotes(
+      loadedNotes,
+      inFlightMergeCandidates().filter((note) => !resolvedLocalIds.has(note.id)),
+      inFlightIds
+    );
+  }, [inFlightMergeCandidates, inFlightNoteIdSet]);
 
   const panelCount = countLeaves(state.root);
   const hasSplitPanels = panelCount > 1;
@@ -977,6 +1042,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     if (!USE_MOCK_NOTES && newTitle !== oldTitle) {
       updatePendingCreatedNoteTitle(noteId, newTitle);
     }
+    updateInFlightCreatedNote(noteId, { title: newTitle, updatedAt: Date.now() });
 
     // 제목이 실제로 바뀐 경우에만, 그 이름을 가리키던 다른 노트의 위키링크를 새 제목으로
     // 갱신한다 — 그래야 노트1에 남은 `[[이전제목]]`이 이름 변경 뒤에도 그대로 A를
@@ -1048,7 +1114,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         window.dispatchEvent(new CustomEvent("brainx:notes-refresh", { detail: { noteId } }));
       });
     }
-  }, [notes, checkNoteDuplicate, pushToast]);
+  }, [notes, checkNoteDuplicate, pushToast, updateInFlightCreatedNote]);
 
   /* 노트 본문 변경(에디터 onUpdate 디바운스) → notes 상태 갱신, 탭 전환 후에도 내용 유지 */
   const handleContentChange = useCallback((noteId: string, newContentHtml: string) => {
@@ -1068,6 +1134,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     });
     if (didChange) {
       draftDirtyNoteIdsRef.current.add(noteId);
+      updateInFlightCreatedNote(noteId, { content: newContentHtml, updatedAt: Date.now() });
     }
     if (wikiLinkSyncTarget.note && !USE_MOCK_NOTES) {
       const noteToSync = wikiLinkSyncTarget.note;
@@ -1089,7 +1156,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         })
         .catch((error) => warnWikiLinkFailure("wikilink target 변경 즉시 저장 실패", error));
     }
-  }, []);
+  }, [updateInFlightCreatedNote]);
 
   /* 노트 전체 타이포그래피(기본 글꼴 크기 배율/레벨별 개별 크기/문서 기본 글꼴) 변경 — 선택
      텍스트 전용 BubbleToolbar 설정과 별개로 노트 단위로 저장한다. undefined면 커스터마이징
@@ -1240,19 +1307,15 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
        막는다. 반면 기본값("새 노트")은 자동 생성값이라 막는 대신 자동 넘버링한다:
        새 노트 → 새 노트1 → 새 노트2 … 처럼 같은 위치에서 비어있는 이름을 찾아 사용한다. */
     let noteTitle: string;
+    const titleCandidates = currentNoteTitleCandidates();
     if (title) {
-      if (checkNoteDuplicate(title, folderId ?? null)) {
+      if (hasNoteTitleDuplicate(titleCandidates, title, folderId ?? null)) {
         pushToast("같은 위치에 동일한 이름의 노트가 이미 있습니다.", "err");
         return "";
       }
       noteTitle = title;
     } else {
-      noteTitle = "새 노트";
-      let suffix = 1;
-      while (checkNoteDuplicate(noteTitle, folderId ?? null)) {
-        noteTitle = `새 노트${suffix}`;
-        suffix += 1;
-      }
+      noteTitle = nextDefaultNoteTitle(titleCandidates, folderId ?? null);
     }
     const newNote = makeBlankNote(folderId);
     newNote.title = noteTitle;
@@ -1278,10 +1341,11 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         title: noteTitle,
         documentGroupId: newNote.documentGroupId ?? null,
         sourceNoteId: linkFromNoteId,
-        sourceTitle: linkFromNoteId ? notes.find((n) => n.id === linkFromNoteId)?.title : undefined,
+        sourceTitle: linkFromNoteId ? titleCandidates.find((n) => n.id === linkFromNoteId)?.title : undefined,
         createdAt: Date.now(),
       });
     }
+    rememberInFlightCreatedNote(newNote);
 
     setNotes((prev) => [newNote, ...prev]);
     setPaneTabs((prev) => {
@@ -1293,7 +1357,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       // 그대로 남던 문제가 있었다.
       const activeTab = current?.tabs.find((t) => t.id === current.activeTabId);
       const activeIsEmptyOrBroken =
-        !activeTab || (activeTab.kind === "note" && !notes.some((n) => n.id === activeTab.noteId));
+        !activeTab || (activeTab.kind === "note" && !titleCandidates.some((n) => n.id === activeTab.noteId));
       if (current && activeIsEmptyOrBroken) {
         const replacedTabs = current.tabs.map((t) => (t.id === current.activeTabId ? newTab : t));
         const newTabs = activeTab ? replacedTabs : [...current.tabs, newTab];
@@ -1332,6 +1396,13 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
                 : item
             )
           );
+          replaceInFlightCreatedNoteId(localNoteId, savedId);
+          updateInFlightCreatedNote(savedId, {
+            title: finalTitle,
+            version: nextVersion,
+            persisted: true,
+            updatedAt: Date.parse(created.createdAt) || Date.now(),
+          });
           setState((prev) => ({ ...prev, root: replaceNoteIdInNode(prev.root, localNoteId, savedId) }));
           setPaneTabs((prev) => replaceNoteIdInTabs(prev, localNoteId, savedId));
           draftDirtyNoteIdsRef.current.delete(localNoteId);
@@ -1359,6 +1430,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     } else if (!USE_MOCK_NOTES) {
       void issueWorkspaceNoteDraftId()
         .then((draft) => {
+          replaceInFlightCreatedNoteId(localNoteId, draft.noteId);
           setNotes((prev) =>
             prev.map((item) =>
               item.id === localNoteId
@@ -1461,7 +1533,18 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }
 
     return newNote.id;
-  }, [isGuest, notes, checkNoteDuplicate, pushToast, onActiveNoteChange, currentWorkspaceId, usesDesktopVault]);
+  }, [
+    isGuest,
+    notes.length,
+    currentNoteTitleCandidates,
+    pushToast,
+    rememberInFlightCreatedNote,
+    replaceInFlightCreatedNoteId,
+    updateInFlightCreatedNote,
+    onActiveNoteChange,
+    currentWorkspaceId,
+    usesDesktopVault,
+  ]);
 
   /* 사이드바 "+ 새 노트" 버튼 → 현재 선택된 폴더 안에, 활성 패널의 새 탭으로 생성.
      favorite=true는 즐겨찾기 영역의 루트 생성 버튼에서만 쓴다(정책: 즐겨찾기 영역에서 직접
@@ -1691,6 +1774,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
      집합 전체를 한 번에 받아 한 번의 일관된 계산으로 처리한다. */
   const applyLocalNotesDeletion = useCallback((noteIds: Set<string>) => {
     if (noteIds.size === 0) return;
+    for (const noteId of noteIds) inFlightCreatedNotesRef.current.delete(noteId);
     setNotes((prev) => prev.filter((n) => !noteIds.has(n.id)));
 
     const affectedPaneIds = Object.keys(paneTabs).filter((paneId) =>
@@ -1954,6 +2038,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setPaneTabs(fresh.paneTabs);
     setTabMode({});
     setPaneFontScale({});
+    inFlightCreatedNotesRef.current.clear();
     editorHandlesRef.current = {};
     setEditorHandleRevision((current) => current + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2124,7 +2209,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
           const draftOnlyNotes = Array.from(draftsById.values())
             .filter((draft) => !persistedNoteIds.has(draft.noteId))
             .map(workspaceDraftToMock);
-          const nextNotes = [...draftOnlyNotes, ...persistedNotes];
+          const nextNotes = mergeLoadedNotesWithInFlight([...draftOnlyNotes, ...persistedNotes]);
           const nextFolders = folderData.folders.map(workspaceFolderToMock);
           setNotes(nextNotes);
           setFolders(nextFolders);
@@ -2203,6 +2288,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
         applyHydration(nextKey, false);
         setTabMode({});
         draftDirtyNoteIdsRef.current.clear();
+        inFlightCreatedNotesRef.current.clear();
         // actor(guest/user)가 바뀌면 이전 actor의 local id는 더 이상 어떤 노트로도 확정되지
         // 않으므로, 그 id를 key로 건 pending 표시도 함께 비운다(그대로 둬도 다시 매치될 일은
         // 없지만, 다음 actor 세션에서 우연히 같은 값이 재사용될 여지를 만들지 않기 위함).
@@ -2265,6 +2351,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   useEffect(() => {
     if (isInitialWorkspaceLoading || !hydratedRef.current) return;
     const noteIds = new Set(notes.map((n) => n.id));
+    for (const id of inFlightNoteIdSet()) noteIds.add(id);
     setPaneTabs((prev) => {
       let changed = false;
       const next: typeof prev = {};
@@ -2283,7 +2370,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       }
       return changed ? next : prev;
     });
-  }, [notes, isInitialWorkspaceLoading]);
+  }, [notes, isInitialWorkspaceLoading, inFlightNoteIdSet]);
 
   // 변경 사항을 디바운스 저장 (백그라운드 자동저장 — 실패해도 조용히 무시, 수동 저장이 실패 상태를 노출).
   // 다만 "모든 탭을 닫아 Welcome으로 돌아간" 전환만은 디바운스 없이 즉시 기록한다 — 350ms 안에

@@ -10,20 +10,22 @@ export type PlanetNodeData = {
   bridgeSelected?: boolean;
   bridgeSelectionOrder?: number | null;
   dimmed: boolean;
+  timeFadeOpacity?: number;
   isDirect: boolean;
   layer: 'front' | 'middle' | 'back';
 };
 
 export function PlanetNode({ data }: NodeProps) {
-  const { label, color, radius, selected, bridgeSelected, bridgeSelectionOrder, dimmed, isDirect, layer, theme } = data as PlanetNodeData & { theme?: '2d' | 'universe' };
+  const { label, color, radius, selected, bridgeSelected, bridgeSelectionOrder, dimmed, timeFadeOpacity = 1, isDirect, layer, theme } = data as PlanetNodeData & { theme?: '2d' | 'universe' };
 
   const is2D = theme === '2d';
   const r = radius;
+  const safeTimeFadeOpacity = Math.min(1, Math.max(0.2, timeFadeOpacity));
 
   // visual adjustments based on layer
   const isDimmedBySelection = layer === 'back';
   const blur = is2D ? 'none' : (layer === 'back' ? 'blur(2px)' : 'none');
-  const opacity = dimmed ? 0.2 : isDimmedBySelection ? (is2D ? 0.26 : 0.58) : 1;
+  const opacity = dimmed ? 0.2 : (isDimmedBySelection ? (is2D ? 0.26 : 0.58) : 1) * safeTimeFadeOpacity;
   const grayscale = is2D && isDimmedBySelection ? 'grayscale(100%) brightness(72%)' : 'none';
 
   // Selected glow
