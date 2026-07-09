@@ -782,6 +782,8 @@ overview summary는 결제/사용자 지표 외에 `Workspace-Service`의 `/inte
 
 사용자 알림함은 `brainx-next` 상단 종 아이콘과 연결되며, 관리자 `SEND_NOTICE` 일괄 액션이 실행되면 `GET /api/v1/users/me/notifications`, `POST /api/v1/users/me/notifications/{notificationId}/read`, `DELETE /api/v1/users/me/notifications/{notificationId}`로 확인/정리할 수 있습니다. 알림함의 "모두 읽음" 버튼은 `POST /api/v1/users/me/notifications/read-all`로 목록에 보이지 않는(top20 밖) 미확인 알림까지 한 번에 읽음 처리합니다. 이때 서버는 요청 시작 시 cutoff 시각을 고정하고 `createdAt <= cutoff` 인 unread 알림만 읽음 처리하므로, 처리 중 새로 생성된 알림은 unread로 남습니다.
 
+`brainx-admin-next`의 공지 발송 모달은 발송 전 backdrop 클릭이나 취소로 닫으면 작성값을 폐기합니다. 발송 중에는 backdrop·취소·중복 발송을 막고, `SEND_NOTICE` 요청이 성공하면 사용자 목록을 재조회하지 않고 즉시 모달을 닫아 선택을 해제한 뒤 보존한 수신 인원으로 성공 안내를 표시합니다. 요청이 실패하면 모달과 작성값을 유지해 다시 발송할 수 있습니다.
+
 관리자 목록 조회(GET)는 모든 관리자에게 열려 있지만, 계정 생성/수정/삭제는 owner 역할만 가능합니다. 최고관리자가 아닌 관리자는 관리자 관리 화면 자체에 진입할 수 없습니다(사이드바 메뉴 비노출 + 화면 가드). 관리자 메시지는 모든 관리자가 조회/전송/읽음 처리할 수 있고, 선택 발송 메시지는 수신 대상과 발신자에게만 노출됩니다.
 
 AsyncAPI에는 Admin 화면에서 새로 필요한 `PaymentRefunded`, `PlanPriceChanged`, `SupportTicketUpdated` 이벤트를 추가했습니다. 결제/플랜 이벤트는 Commerce-Service가 발행하고, 문의 상태 변경 이벤트는 Admin-Service가 발행합니다.

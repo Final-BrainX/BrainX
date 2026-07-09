@@ -3513,13 +3513,13 @@ function UsersPanel({
           count={selectedUsers.length}
           onClose={() => setBulkNoticeModalOpen(false)}
           onApply={async ({ type, title, body }) => {
+            const recipientCount = selectedIds.length;
             await adminApi.runUserBulkAction(selectedIds, "SEND_NOTICE", {
               notice: { title: `[${type}] ${title}`, body },
             });
             setBulkNoticeModalOpen(false);
             setSelectedIds([]);
-            await onReload();
-            onToast(`${selectedIds.length}명에게 공지를 발송했어요`);
+            onToast(`${recipientCount}명에게 공지를 발송했어요`);
           }}
         />
       ) : null}
@@ -4026,10 +4026,16 @@ function SendNoticeModal({
   const stackStyle = { display: "grid", gap: 12 };
 
   return (
-    <div className="modal-backdrop">
+    <div
+      className="modal-backdrop"
+      onClick={() => {
+        if (!submitting) onClose();
+      }}
+    >
       <div
         className="price-modal plan-change-modal"
         style={{ width: "min(560px, calc(100vw - 32px))" }}
+        onClick={(event) => event.stopPropagation()}
       >
         <div className="modal-icon">
           <Megaphone size={22} />
