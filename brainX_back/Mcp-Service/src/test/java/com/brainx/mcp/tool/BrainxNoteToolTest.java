@@ -127,6 +127,39 @@ class BrainxNoteToolTest {
         assertThat(result.noteId()).isEqualTo("created-note-1");
     }
 
+    @Test
+    void createNoteStripsDuplicateMarkdownH1Heading() {
+        assertCreatedMarkdown("FastAPI", "# FastAPI\n\nNotes", "Notes");
+    }
+
+    @Test
+    void createNoteStripsDuplicateMarkdownH2Heading() {
+        assertCreatedMarkdown("FastAPI", "## FastAPI\n\nNotes", "Notes");
+    }
+
+    @Test
+    void createNoteStripsDuplicateHtmlH1Heading() {
+        assertCreatedMarkdown("FastAPI", "<h1>FastAPI</h1><p>Notes</p>", "<p>Notes</p>");
+    }
+
+    @Test
+    void createNoteKeepsDifferentLeadingHeading() {
+        assertCreatedMarkdown("FastAPI Draft", "# FastAPI\n\nNotes", "# FastAPI\n\nNotes");
+    }
+
+    @Test
+    void createNoteStripsDuplicateHeadingAfterLeadingBlankLines() {
+        assertCreatedMarkdown("FastAPI", "\n\n# FastAPI\n\nNotes", "Notes");
+    }
+
+    private void assertCreatedMarkdown(String title, String markdown, String expectedMarkdown) {
+        authenticate("usr_1", List.of("notes:write"));
+
+        tool.createNote(title, markdown, null, null);
+
+        assertThat(workspaceGateway.createCommand.markdown()).isEqualTo(expectedMarkdown);
+    }
+
     private static void authenticate(String userId, List<String> scopes) {
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
             new McpPrincipal(userId, "mcp_1", scopes),

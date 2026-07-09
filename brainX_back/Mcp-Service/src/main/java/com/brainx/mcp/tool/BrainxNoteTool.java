@@ -7,6 +7,8 @@ import com.brainx.mcp.security.McpPrincipal;
 import com.brainx.mcp.security.McpSecurity;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -20,6 +22,17 @@ public class BrainxNoteTool {
     private static final String DEFAULT_SEARCH_SCOPE = "USER";
     private static final String DEFAULT_SEARCH_MODE = "SEMANTIC";
     private static final int DEFAULT_SEARCH_LIMIT = 10;
+    private static final Pattern LEADING_MARKDOWN_HEADING = Pattern.compile(
+        "\\A(?:[ \\t]*(?:\\r?\\n))*[ \\t]{0,3}#{1,6}[ \\t]+(.+?)[ \\t#]*(?:\\r?\\n|\\z)"
+    );
+    private static final Pattern LEADING_HTML_H1 = Pattern.compile(
+        "\\A\\s*<h1\\b[^>]*>(.*?)</h1>",
+        Pattern.CASE_INSENSITIVE | Pattern.DOTALL
+    );
+    private static final Pattern LEADING_EMPTY_HTML_PARAGRAPHS = Pattern.compile(
+        "\\A(?:\\s*<p\\b[^>]*>\\s*</p>)+",
+        Pattern.CASE_INSENSITIVE
+    );
 
     private final WorkspaceNoteGateway workspaceNoteGateway;
     private final IntelligenceSearchGateway intelligenceSearchGateway;
@@ -101,9 +114,10 @@ public class BrainxNoteTool {
         if (markdown == null) {
             throw new IllegalArgumentException("markdown is required.");
         }
+        String normalizedTitle = requireText(title, "title");
         return workspaceNoteGateway.createNote(principal.userId(), new CreateNoteCommand(
-            requireText(title, "title"),
-            markdown,
+            normalizedTitle,
+            stripDuplicateTitleHeading(markdown, normalizedTitle),
             blankToNull(folderId),
             normalizeTags(tags)
         ));
@@ -118,6 +132,47 @@ public class BrainxNoteTool {
 
     private static String blankToNull(String value) {
         return hasText(value) ? value.trim() : null;
+    }
+
+    private static String stripDuplicateTitleHeading(String markdown, String title) {
+        Matcher markdownHeading = LEADING_MARKDOWN_HEADING.matcher(markdown);
+        if (markdownHeading.find() && headingMatchesTitle(markdownHeading.group(1), title)) {
+            return stripLeadingBlankLines(markdown.substring(markdownHeading.end()));
+        }
+
+        Matcher htmlHeading = LEADING_HTML_H1.matcher(markdown);
+        if (htmlHeading.find() && headingMatchesTitle(htmlHeading.group(1), title)) {
+            return stripLeadingBlankHtmlBlocks(markdown.substring(htmlHeading.end()));
+        }
+
+        return markdown;
+    }
+
+    private static boolean headingMatchesTitle(String heading, String title) {
+        return normalizeHeadingText(heading).equals(normalizeHeadingText(title));
+    }
+
+    private static String normalizeHeadingText(String value) {
+        return value
+            .replaceAll("<[^>]+>", " ")
+            .replace("&nbsp;", " ")
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replaceAll("[#>*_`~\\[\\]()]", " ")
+            .replaceAll("\\s+", " ")
+            .trim()
+            .toLowerCase(Locale.ROOT);
+    }
+
+    private static String stripLeadingBlankLines(String value) {
+        return value.replaceFirst("\\A(?:[ \\t]*(?:\\r?\\n))+", "");
+    }
+
+    private static String stripLeadingBlankHtmlBlocks(String value) {
+        return LEADING_EMPTY_HTML_PARAGRAPHS.matcher(value).replaceFirst("").stripLeading();
     }
 
     private static List<String> normalizeTags(List<String> tags) {
