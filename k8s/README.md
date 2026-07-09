@@ -4,7 +4,7 @@
 
 - Namespace: `brainx`
 - 적용 완료 기준 서비스: `Discovery-Service`, `Gateway-Service`
-- 준비 완료 매니페스트: `Discovery-Service`, `Admin-Service`, `Gateway-Service`, `User-Service`
+- 준비 완료 매니페스트: `Discovery-Service`, `Admin-Service`, `Gateway-Service`, `User-Service`, `Workspace-Service`, `Mcp-Service`
 - 목적: 기존 Docker Compose 개발 환경을 유지한 채, Kubernetes 리소스 추가와 로컬 검증 절차를 분리해서 준비
 
 ## 선정 이유
@@ -42,7 +42,9 @@ k8s/
 │  ├─ discovery-service.yaml
 │  ├─ admin-service.yaml
 │  ├─ gateway-service.yaml
-│  └─ user-service.yaml
+│  ├─ user-service.yaml
+│  ├─ workspace-service.yaml
+│  └─ mcp-service.yaml
 ├─ monitoring/
 ├─ configs/
 └─ secrets/
@@ -305,8 +307,136 @@ Kubernetes 준비 매니페스트의 연결 방식:
 - 이번 매니페스트는 Eureka 기반 운영 전환이 아니라, Gateway Pod 를 Kubernetes 에서 띄운 뒤 Compose 앱 서비스로 프록시 가능한지 확인하는 로컬 준비 단계다.
 - [brainX_back/Gateway-Service/src/main/resources/application.yml](/C:/Edu/Final_Project/BrainX/brainX_back/Gateway-Service/src/main/resources/application.yml) 의 `lb://서비스명`과 `k8s/apps/gateway-service.yaml` 의 Spring Simple Discovery `instances` key 는 대소문자까지 100% 일치해야 한다.
 - `SERVICE_TOKEN`은 더 이상 매니페스트에 평문으로 두지 않고 `gateway-secret` 에서 주입한다.
+- `mcp-service`를 Kubernetes에 먼저 올려도 Gateway가 즉시 그 Pod를 쓰는 것은 아니다. 현재 Gateway 정적 매핑은 여전히 `http://host.docker.internal:8087` 을 바라보므로, Gateway cutover 전까지는 direct `port-forward` 또는 `svc/mcp-service` 기준으로 따로 검증해야 한다.
 - `host.docker.internal` 경로는 Docker Desktop 에서는 유효하지만 모든 Kubernetes 환경에서 동일하게 동작하지 않는다.
 - Compose 의 대상 앱 서비스 중 하나라도 내려가 있으면 해당 라우트만 5xx/fallback 으로 보일 수 있다.
+
+## Workspace-Service 전환 메모
+
+Compose 기준 Workspace-Service 설정 요약:
+
+- build context: `./Workspace-Service`
+- port: `8082:8082`
+- depends_on: `discovery-service`, `postgres`, `redis`, `neo4j`, `kafka`
+- healthcheck: 없음
+
+구성 분석:
+
+- [brainX_back/Workspace-Service/src/main/resources/application.yml](/C:/Edu/Final_Project/BrainX/brainX_back/Workspace-Service/src/main/resources/application.yml) 기준으로 Postgres, Redis, Neo4j, Kafka, Eureka 주소를 모두 환경 변수로 주입할 수 있다.
+- 같은 `application.yml`에서 `management.endpoint.health.probes.enabled=true`이며 readiness 그룹은 `readinessState, db, redis`, liveness 그룹은 `livenessState`로 구성되어 있다. 즉 readiness는 Postgres와 Redis 상태에 직접 영향받고, Neo4j/Kafka는 readiness 그룹에 포함되지 않는다.
+- `Neo4jAutoConfiguration`은 `spring.autoconfigure.exclude`로 비활성화되어 있고, 그래프 연동은 `brainx.graph.neo4j.*`(기본 `enabled=true`, `backfill-on-startup=true`)로 별도 제어된다.
+- Postgres 계정, `SERVICE_TOKEN`, `JWT_SECRET`, `NEO4J_PASSWORD`는 모두 환경 변수로 외부화할 수 있어 평문으로 매니페스트에 둘 필요가 없다.
+
+Kubernetes 준비 매니페스트의 연결 방식:
+
+- Eureka: `http://discovery-service:8761/eureka/`
+- Postgres: `host.docker.internal:5432` (DB `brainx_workspace`)
+- Redis: `host.docker.internal:6379`
+- Neo4j: `bolt://host.docker.internal:7687`
+- Kafka: `host.docker.internal:9092`
+- Postgres 계정: `postgres-secret`의 `POSTGRES_USER`, `POSTGRES_PASSWORD` (기존 Secret 재사용)
+- Service Token: `gateway-secret`의 `SERVICE_TOKEN` (기존 Secret 재사용)
+- JWT 시크릿, Neo4j 비밀번호: `workspace-secret`의 `JWT_SECRET`, `NEO4J_PASSWORD` (신규 Secret)
+
+ConfigMap 분리:
+
+- 비민감 env(`SERVER_PORT`, `PUBLIC_BASE_URL`, `POSTGRES_HOST`/`POSTGRES_PORT`/`WORKSPACE_DB_NAME`, `REDIS_HOST`/`REDIS_PORT`/`REDIS_TIMEOUT`, `NEO4J_ENABLED`/`NEO4J_URI`/`NEO4J_USERNAME`/`NEO4J_BACKFILL_ON_STARTUP`, `SPRING_KAFKA_BOOTSTRAP_SERVERS`, Eureka URL/hostname, `SEED_DEMO_DATA`, `WORKSPACE_DEV_FALLBACK_ENABLED`, draft 관련 값)는 `workspace-service-config` ConfigMap으로 분리해 `envFrom`으로 주입한다.
+- 민감값(Postgres 계정, `SERVICE_TOKEN`, `JWT_SECRET`, `NEO4J_PASSWORD`)만 `secretKeyRef`로 주입한다.
+- Workspace-Service부터 ConfigMap 분리를 처음 도입했고, 기존 Discovery/Gateway/User/Admin 매니페스트의 inline env 방식은 이번 작업에서 변경하지 않았다.
+
+Secret 준비:
+
+```powershell
+Copy-Item .\k8s\secrets\workspace-secret.example.yaml .\k8s\secrets\workspace-secret.yaml
+```
+
+- `workspace-secret.yaml`
+  - `JWT_SECRET`: 32바이트 이상 실제 서명 시크릿 (User/Workspace/Admin/MCP 공통 값)
+  - `NEO4J_PASSWORD`: Compose Neo4j 실제 비밀번호
+- example 파일만 Git 추적 대상이며 실제 `workspace-secret.yaml`은 `.gitignore`(`k8s/secrets/*.yaml`)로 제외된다.
+
+적용/검증(참고):
+
+```powershell
+kubectl apply -f .\k8s\secrets\workspace-secret.yaml
+kubectl apply -f .\k8s\apps\workspace-service.yaml
+kubectl -n brainx port-forward svc/workspace-service 18082:8082
+```
+
+- Workspace Health: `http://localhost:18082/actuator/health`
+- Workspace Readiness: `http://localhost:18082/actuator/health/readiness`
+- Workspace Liveness: `http://localhost:18082/actuator/health/liveness`
+
+주의:
+
+- Workspace-Service는 stateless 애플리케이션이 아니며, readiness는 Postgres와 Redis 상태에 직접 의존한다. 둘 중 하나라도 Compose에서 내려가 있으면 readiness probe가 실패한다.
+- 로컬 apply 전 검증 기본값은 `PUBLIC_BASE_URL=http://localhost:3000`, `SEED_DEMO_DATA=false`, `NEO4J_BACKFILL_ON_STARTUP=false`로 둔다. share URL을 명시적으로 로컬 web origin에 맞추고, 불필요한 demo data 쓰기와 기동 시 대량 graph backfill을 피하기 위함이다.
+- Neo4j projection 자체는 `NEO4J_ENABLED=true`로 유지하므로, 기동 이후 실제 note 이벤트는 계속 Neo4j로 반영된다. 전체 ledger backfill만 startup에서 생략한다.
+- `host.docker.internal` 경로는 Docker Desktop Kubernetes 로컬 검증에서만 유효하며 다른 Kubernetes 환경에서는 그대로 동작하지 않는다.
+- Postgres 계정과 `SERVICE_TOKEN`은 기존 `postgres-secret`, `gateway-secret`에서 그대로 주입하므로 Workspace 검증 전에 두 Secret이 먼저 apply되어 있어야 한다.
+- `k8s.ps1 workspace`는 이제 `workspace-secret` 존재도 함께 검사하므로, helper로 재배포할 때 Secret 누락을 apply 전에 바로 잡을 수 있다.
+
+## Mcp-Service 전환 메모
+
+Compose 기준 Mcp-Service 설정 요약:
+
+- build context: `./Mcp-Service`
+- port: `8087:8087`
+- depends_on: `discovery-service`, `postgres`, `workspace-service`, `intelligence-service`
+- healthcheck: `wget -qO- http://localhost:8087/actuator/health | grep -q UP`
+
+구성 분석:
+
+- [brainX_back/Mcp-Service/src/main/resources/application.yaml](/C:/Edu/0_Final_Project/brainX_2/BrainX/brainX_back/Mcp-Service/src/main/resources/application.yaml) 기준으로 Postgres, Eureka, Workspace-Service, Intelligence-Service, MCP OAuth 공개 URL, API key prefix, `JWT_SECRET`, `SERVICE_TOKEN`을 모두 환경 변수로 주입할 수 있다.
+- 같은 `application.yaml`에서 `brainx.oauth.issuer`, `brainx.oauth.resource`, `brainx.oauth.protected-resource-metadata-url`는 각각 `BRAINX_OAUTH_ISSUER`, `BRAINX_MCP_RESOURCE`, `BRAINX_MCP_PROTECTED_RESOURCE_METADATA_URL`를 읽고, 기본 로컬 개발 origin은 `http://localhost:3000`이다.
+- [brainX_back/User-Service/src/main/resources/application.yml](/C:/Edu/0_Final_Project/brainX_2/BrainX/brainX_back/User-Service/src/main/resources/application.yml) 기준으로 User-Service도 MCP OAuth token의 `issuer/resource`를 `BRAINX_OAUTH_ISSUER`, `BRAINX_MCP_RESOURCE`에서 읽는다. 따라서 Mcp-Service와 User-Service는 `JWT_SECRET`뿐 아니라 `issuer/resource` 값도 함께 맞아야 한다.
+- [brainX_back/Mcp-Service/src/main/java/com/brainx/mcp/security/SecurityConfig.java](/C:/Edu/0_Final_Project/brainX_2/BrainX/brainX_back/Mcp-Service/src/main/java/com/brainx/mcp/security/SecurityConfig.java) 기준으로 `/mcp` 인증 실패 시 `WWW-Authenticate`의 `resource_metadata`가 `BRAINX_MCP_PROTECTED_RESOURCE_METADATA_URL`로 내려간다. 이 값이 실제 공개 origin과 다르면 MCP OAuth discovery가 깨진다.
+
+Kubernetes 준비 매니페스트의 연결 방식:
+
+- Eureka: `http://discovery-service:8761/eureka/`
+- Postgres: `host.docker.internal:5432` (DB `brainx_mcp`)
+- Workspace-Service: `http://host.docker.internal:8082`
+- Intelligence-Service: `http://host.docker.internal:8086`
+- Postgres 계정: `postgres-secret`의 `POSTGRES_USER`, `POSTGRES_PASSWORD` (기존 Secret 재사용)
+- Service Token: `gateway-secret`의 `SERVICE_TOKEN` (기존 Secret 재사용)
+- JWT 시크릿: `mcp-service-secret`의 `JWT_SECRET` (신규 Secret)
+- 로컬 공개 origin: `http://localhost:3000`, resource=`http://localhost:3000/mcp`
+
+ConfigMap/Secret 분리:
+
+- 비민감 env(`SERVER_PORT`, `POSTGRES_HOST`/`POSTGRES_PORT`/`MCP_DB_NAME`, Eureka URL/hostname, `PUBLIC_BASE_URL`, `BRAINX_OAUTH_ISSUER`, `BRAINX_MCP_RESOURCE`, `BRAINX_MCP_PROTECTED_RESOURCE_METADATA_URL`, downstream URL, timeout, API key prefix)는 `mcp-service-config` ConfigMap으로 분리해 `envFrom`으로 주입한다.
+- 민감값(Postgres 계정, `SERVICE_TOKEN`, `JWT_SECRET`)만 `secretKeyRef`로 주입한다.
+
+Secret 준비:
+
+```powershell
+Copy-Item .\k8s\secrets\mcp-service-secret.example.yaml .\k8s\secrets\mcp-service-secret.yaml
+```
+
+- `mcp-service-secret.yaml`
+  - `JWT_SECRET`: User-Service, Workspace-Service, Admin-Service, Mcp-Service가 공통으로 쓰는 실제 서명 시크릿
+- example 파일만 Git 추적 대상이며 실제 `mcp-service-secret.yaml`은 `.gitignore`(`k8s/secrets/*.yaml`)로 제외된다.
+
+적용/검증(참고):
+
+```powershell
+kubectl apply -f .\k8s\secrets\mcp-service-secret.yaml
+kubectl apply -f .\k8s\apps\mcp-service.yaml
+kubectl -n brainx port-forward svc/mcp-service 18087:8087
+```
+
+- MCP Health: `http://localhost:18087/actuator/health`
+- MCP Whoami: `http://localhost:18087/api/v1/mcp/whoami`
+
+주의:
+
+- 현재 `k8s/apps/mcp-service-configmap.yaml`의 OAuth 공개 origin은 로컬 검증 기준 `http://localhost:3000`으로 맞췄다. 비로컬/실운영 apply 전에는 User-Service와 Mcp-Service 양쪽에 동일한 실제 공개 origin으로 함께 바꿔야 한다.
+- `JWT_SECRET` 값이 User-Service와 다르면 `/mcp`와 `GET /api/v1/mcp/whoami`의 OAuth access token 검증이 실패한다.
+- `BRAINX_OAUTH_ISSUER` 또는 `BRAINX_MCP_RESOURCE`가 User-Service 발급값과 다르면 서명키가 같아도 token `iss/resource` 검증이 실패한다.
+- `gateway-service`는 아직 `mcp-service -> http://host.docker.internal:8087` 정적 매핑을 사용한다. 따라서 Mcp-Service를 Kubernetes에 적용해도 Gateway 경유 트래픽은 즉시 새 Pod로 넘어가지 않는다.
+- 단계적 전환은 `1) mcp-service` direct 검증 -> `2) gateway-service`의 `mcp-service` 정적 매핑을 `http://mcp-service:8087`로 전환 -> `3) Compose mcp-service` 중단 순서가 안전하다.
+- `host.docker.internal` 경로는 Docker Desktop Kubernetes 로컬 검증에서만 유효하며 다른 Kubernetes 환경에서는 그대로 동작하지 않는다.
 
 ## 후속 전환 순서
 
@@ -327,6 +457,45 @@ Kubernetes 준비 매니페스트의 연결 방식:
 - `Mcp-Service`는 stateless 이지만 Postgres, Workspace, Intelligence, OAuth 설정 의존성이 있어 Gateway 이후가 적절하다.
 - `Workspace-Service`는 핵심 비즈니스 및 데이터 의존성이 커서 후순위가 안전하다.
 - 완전한 Gateway 전환은 결국 Compose 대상 서비스들의 Discovery 전략까지 함께 정리된 뒤에 진행하는 것이 안전하다.
+
+## Monitoring 로컬 검증 메모
+
+현재 `k8s/monitoring/*`은 Docker Desktop 기반 로컬 검증용 준비 자산이다.
+
+- `prometheus-configmap.yaml`의 active scrape 대상은 현재 `brainx` namespace에 Service가 준비된 `user-service`, `gateway-service`, `admin-service`, `workspace-service`, `mcp-service`만 포함한다.
+- `ingestion-service`, `commerce-service`, `intelligence-service`는 아직 Kubernetes Service 매니페스트가 없으므로 scrape 대상에서 계속 제외한다.
+- Grafana admin 계정은 `k8s/secrets/grafana-secret.yaml`에서만 주입하며, 실제 Secret 값은 저장소에 커밋하지 않는다.
+- `k8s/monitoring/prometheus.yaml`, `k8s/monitoring/grafana.yaml`의 `emptyDir` 볼륨은 로컬 검증 전용이다. Pod 재생성 시 Prometheus TSDB, Grafana 상태, 임시 dashboard 파일은 모두 사라진다.
+- 따라서 현재 목적은 "Pod 기동, Service 연결, Prometheus scrape 설정, Grafana datasource 연결"까지의 로컬 검증이며, 운영 보존성은 아직 범위 밖이다.
+
+실제 apply 전 체크리스트:
+
+- `k8s/secrets/grafana-secret.example.yaml`의 키(`GF_SECURITY_ADMIN_USER`, `GF_SECURITY_ADMIN_PASSWORD`)와 `k8s/monitoring/grafana.yaml`의 `secretKeyRef`가 동일한지 확인
+- `brainx` namespace가 먼저 생성되어 있는지 확인
+- `user-service`, `gateway-service`, `admin-service`, `workspace-service`, `mcp-service` Service가 `brainx` namespace에 실제로 존재하는지 확인
+- 각 서비스가 `/actuator/prometheus`를 실제로 노출하는지 런타임에서 확인
+- `k8s/secrets/grafana-secret.yaml` 실제 파일을 example에서 복사해 만들었는지 확인
+- 실제 Secret 파일이 Git 추적 대상에 포함되지 않았는지 확인
+- 로컬 검증 환경이 Docker Desktop Kubernetes + `host.docker.internal` 전제인지 확인
+
+적용 순서 예시:
+
+```powershell
+kubectl apply -f .\k8s\namespace.yaml
+kubectl apply -f .\k8s\monitoring\prometheus-configmap.yaml
+kubectl apply -f .\k8s\monitoring\prometheus.yaml
+kubectl apply -f .\k8s\secrets\grafana-secret.yaml
+kubectl apply -f .\k8s\monitoring\grafana-configmap.yaml
+kubectl apply -f .\k8s\monitoring\grafana.yaml
+```
+
+후속 운영 보완 항목:
+
+- PVC 도입으로 Prometheus TSDB와 Grafana 데이터를 영속화
+- Grafana dashboard JSON/provisioning 자산을 ConfigMap 또는 파일 자산으로 분리
+- Alertmanager 및 알림 채널 구성 추가
+- Prometheus Operator 또는 Helm 기반 배포 전략 검토
+- 운영 환경용 Service/Secret/Ingress 주소 체계로 `host.docker.internal` 의존성 제거
 
 ## Troubleshooting
 

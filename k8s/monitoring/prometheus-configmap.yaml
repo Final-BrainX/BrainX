@@ -1,0 +1,87 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: brainx
+  labels:
+    app: prometheus
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      - job_name: prometheus
+        static_configs:
+          - targets:
+              - localhost:9090
+            labels:
+              application: prometheus
+
+      # Current Kubernetes-prepared BrainX services with matching Service objects.
+      - job_name: user-service
+        metrics_path: /actuator/prometheus
+        static_configs:
+          - targets:
+              - user-service.brainx.svc.cluster.local:8080
+            labels:
+              application: User-Service
+
+      - job_name: gateway-service
+        metrics_path: /actuator/prometheus
+        static_configs:
+          - targets:
+              - gateway-service.brainx.svc.cluster.local:8088
+            labels:
+              application: Gateway-Service
+
+      - job_name: admin-service
+        metrics_path: /actuator/prometheus
+        static_configs:
+          - targets:
+              - admin-service.brainx.svc.cluster.local:8085
+            labels:
+              application: Admin-Service
+
+      - job_name: workspace-service
+        metrics_path: /actuator/prometheus
+        static_configs:
+          - targets:
+              - workspace-service.brainx.svc.cluster.local:8082
+            labels:
+              application: Workspace-Service
+
+      - job_name: mcp-service
+        metrics_path: /actuator/prometheus
+        static_configs:
+          - targets:
+              - mcp-service.brainx.svc.cluster.local:8087
+            labels:
+              application: mcp-service
+
+      # Future Kubernetes migration targets.
+      # Keep these disabled until matching Service objects exist in the same namespace.
+      # - job_name: ingestion-service
+      #   metrics_path: /actuator/prometheus
+      #   static_configs:
+      #     - targets:
+      #         - ingestion-service.brainx.svc.cluster.local:8083
+      #       labels:
+      #         application: ingestion-service
+      #
+      # - job_name: commerce-service
+      #   metrics_path: /actuator/prometheus
+      #   static_configs:
+      #     - targets:
+      #         - commerce-service.brainx.svc.cluster.local:8084
+      #       labels:
+      #         application: Commerce-Service
+      #
+      # - job_name: intelligence-service
+      #   metrics_path: /actuator/prometheus
+      #   static_configs:
+      #     - targets:
+      #         - intelligence-service.brainx.svc.cluster.local:8086
+      #       labels:
+      #         application: intelligence-service

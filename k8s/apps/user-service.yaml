@@ -7,6 +7,14 @@ metadata:
     app: user-service
 spec:
   replicas: 1
+  # 로컬 검증 전용: old/new Pod가 동시에 Postgres 커넥션을 잡아 too many clients가
+  # 나는 것을 줄이기 위해 surge 없이(maxSurge: 0) old Pod를 먼저 내리고 새 Pod를 올린다.
+  # 자세한 배경은 k8s/TROUBLESHOOTING.md 9번 항목 참고.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: user-service
@@ -41,12 +49,20 @@ spec:
                   key: POSTGRES_PASSWORD
             - name: USER_DB_NAME
               value: "brainx_user"
+            # Hikari pool 상한. 로컬 Compose Postgres의 max_connections 한도를
+            # 여러 서비스(Admin/User/Workspace/MCP)가 공유하므로 서비스당 낮게 고정한다.
+            - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+              value: "3"
+            - name: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
+              value: "1"
             - name: REDIS_HOST
               value: host.docker.internal
             - name: REDIS_PORT
               value: "6379"
             - name: REDIS_TIMEOUT
               value: "2s"
+            - name: MANAGEMENT_HEALTH_MAIL_ENABLED
+              value: "false"
             - name: WORKSPACE_SERVICE_BASE_URL
               value: http://host.docker.internal:8082
             - name: SERVICE_TOKEN
@@ -66,6 +82,13 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 18
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness

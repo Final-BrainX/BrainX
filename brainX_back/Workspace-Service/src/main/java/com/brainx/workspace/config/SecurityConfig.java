@@ -32,7 +32,13 @@ public class SecurityConfig {
                 .headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/actuator/health", "/actuator/prometheus", "/h2-console/**").permitAll()
+                        .requestMatchers(
+                                "/actuator/health",
+                                "/actuator/health/readiness",
+                                "/actuator/health/liveness",
+                                "/actuator/prometheus",
+                                "/h2-console/**"
+                        ).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/share-links/*").permitAll()
                         .requestMatchers(
                                 "/api/v1/workspaces", "/api/v1/workspaces/**",
