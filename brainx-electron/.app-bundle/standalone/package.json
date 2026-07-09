@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
+    "test": "node --test \"lib/**/*.test.ts\" \"components/**/*.test.ts\" \"components/**/*.test.tsx\"",
     "generate:intelligence-api-types": "openapi-typescript ../brainX_back/Intelligence-Service/src/main/resources/contracts/knowledge-intelligence.openapi.yaml --default-non-nullable false -o lib/generated/intelligence-openapi.ts"
   },
   "dependencies": {
