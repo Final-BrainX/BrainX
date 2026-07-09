@@ -177,7 +177,7 @@ class WorkspaceNoteEventHandlerTest {
         assertThat(searchIndex.savedDocuments).allSatisfy(document ->
             assertThat(document.documentGroupId()).isEqualTo("group-1"));
         assertThat(searchIndex.savedDocuments.getFirst().excerpt()).contains("Workspace markdown summary source");
-        assertThat(summaryPort.deletedKeys).containsExactly("user-1::note-1");
+        assertThat(summaryPort.deletedKeys).containsExactly("user-1::group-1::note-1");
         assertThat(summaryGenerationRequester.requests).containsExactly("user-1::group-1::note-1");
     }
 
@@ -439,7 +439,7 @@ class WorkspaceNoteEventHandlerTest {
         assertThat(projection.indexedVersion()).isNull();
         assertThat(searchIndex.deletedKeys).containsExactly("user-1::group-1::note-1");
         assertThat(chunkManifestStore.deletedKeys).containsExactly("user-1::group-1::note-1");
-        assertThat(summaryPort.deletedKeys).containsExactly("user-1::note-1");
+        assertThat(summaryPort.deletedKeys).containsExactly("user-1::group-1::note-1");
     }
 
     @Test
@@ -739,6 +739,11 @@ class WorkspaceNoteEventHandlerTest {
         @Override
         public NoteSummary save(NoteSummary summary) {
             return summary;
+        }
+
+        @Override
+        public void deleteByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId) {
+            deletedKeys.add(userId + "::" + documentGroupId + "::" + noteId);
         }
 
         @Override

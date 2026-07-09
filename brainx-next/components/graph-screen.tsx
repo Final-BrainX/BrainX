@@ -32,6 +32,7 @@ import {
   type LinkSuggestion,
 } from "@/lib/link-suggestions";
 import { readPendingCreatedNotes, removePendingCreatedNoteByNoteId } from "@/lib/notes/pending-created-note-cache";
+import { NOTE_VIEW_HISTORY_CHANGED_EVENT, noteViewHistoryStorageKey, readNoteViewHistory } from "@/lib/notes/note-view-history";
 import { createWorkspaceNote, getNote, hasWorkspaceUserIdentity, listWorkspaceNoteDrafts, matchesWorkspaceScope, updateWorkspaceNoteContent, WorkspaceApiError, type NoteCreated } from "@/lib/workspace-api";
 import { graphTimeEffectOpacityByNoteId, isGraphNoteOutsideTimeFilter } from "@/lib/graph-time-effect";
 import { useBrainX } from "@/components/brainx-provider";
@@ -591,6 +592,8 @@ function GraphCanvasFlow({
   const [noteSummaryStates, setNoteSummaryStates] = useState<Record<string, GraphNoteSummaryState>>({});
   const hoverTimeoutRef = useRef<number | null>(null);
   const summaryInFlightRef = useRef<Set<string>>(new Set());
+  const summaryAttemptedHoverIdsRef = useRef<Set<string>>(new Set());
+  const activeHoverNodeIdRef = useRef<string | null>(null);
   const isDraggingRef = useRef(false);
   const bridgeBoxSelectingRef = useRef(false);
   const reactFlowSelectionIdsRef = useRef<Set<string>>(new Set());
@@ -604,6 +607,18 @@ function GraphCanvasFlow({
   const selectionLocked = bridgeSelectionLocked || linkSelectionLocked;
 
   useEffect(() => {
+    const nextHoverId = hovered?.id ?? null;
+    const previousHoverId = activeHoverNodeIdRef.current;
+    if (previousHoverId && previousHoverId !== nextHoverId) {
+      summaryAttemptedHoverIdsRef.current.delete(previousHoverId);
+    }
+    if (!nextHoverId) {
+      summaryAttemptedHoverIdsRef.current.clear();
+    }
+    activeHoverNodeIdRef.current = nextHoverId;
+  }, [hovered?.id]);
+
+  useEffect(() => {
     if (!hovered) return;
     if ((bridgeMode || linkMode) && hovered.availableForAiFeatures !== true) return;
     const noteId = hovered.aiSourceNoteId ?? null;
@@ -611,8 +626,10 @@ function GraphCanvasFlow({
     if (!noteId || !documentGroupId) return;
     const state = noteSummaryStates[hovered.id];
     if (state?.status === "loading" || state?.status === "success" || state?.status === "insufficient") return;
+    if (summaryAttemptedHoverIdsRef.current.has(hovered.id)) return;
     if (summaryInFlightRef.current.has(hovered.id)) return;
 
+    summaryAttemptedHoverIdsRef.current.add(hovered.id);
     summaryInFlightRef.current.add(hovered.id);
     setNoteSummaryStates((current) => ({
       ...current,
@@ -1437,6 +1454,7 @@ function GraphScreenInner() {
   const [timeFilter, setTimeFilter] = useState("전체");
   const [timeEffectEnabled, setTimeEffectEnabled] = useState(false);
   const [timeEffectStrength, setTimeEffectStrength] = useState(TIME_EFFECT_DEFAULT_STRENGTH);
+  const [noteViewHistory, setNoteViewHistory] = useState<Record<string, number>>({});
   const [hiddenClusters, setHiddenClusters] = useState<Partial<Record<ClusterId, boolean>>>({});
   const [bridgeMode, setBridgeMode] = useState(false);
   const [bridgeSelectedIds, setBridgeSelectedIds] = useState<string[]>([]);
@@ -1463,6 +1481,16 @@ function GraphScreenInner() {
   const currentSession = readAuthSession();
   const hasRealLogin = !!currentSession?.accessToken && !isDevAuthSession(currentSession);
   const { currentWorkspaceId, workspaces } = useWorkspace();
+  const noteViewHistoryScope = useMemo(
+    () => ({
+      userId: currentSession?.userId ?? null,
+      documentGroupId: currentWorkspaceId ?? "local",
+    }),
+    [currentSession?.userId, currentWorkspaceId]
+  );
+  const refreshNoteViewHistory = useCallback(() => {
+    setNoteViewHistory(readNoteViewHistory(noteViewHistoryScope));
+  }, [noteViewHistoryScope]);
   // Ticket16: "default" 문자열 대신 현재 선택된 Workspace의 실제 documentGroupId가 있을 때만
   // AI 클러스터링을 활성화한다. 게스트는 AI 기능 호출 자체(10회 한도)는 허용되지만, 실제
   // documentGroupId를 가진 Workspace가 없어 이 요청을 만들 수 없다 — 여기서 막지 않으면
@@ -1479,9 +1507,12 @@ function GraphScreenInner() {
     [aiClusterProjection]
   );
   const notes = graphClusterProjection.notes;
+  const viewedAtByNoteId = useMemo(() => new Map(Object.entries(noteViewHistory)), [noteViewHistory]);
   const timeFadeOpacityById = useMemo(
-    () => timeEffectEnabled ? graphTimeEffectOpacityByNoteId(notes, timeEffectStrength) : new Map<string, number>(),
-    [notes, timeEffectEnabled, timeEffectStrength]
+    () => timeEffectEnabled
+      ? graphTimeEffectOpacityByNoteId(notes, timeEffectStrength, { viewedAtByNoteId })
+      : new Map<string, number>(),
+    [notes, timeEffectEnabled, timeEffectStrength, viewedAtByNoteId]
   );
   // liveEdges가 없으면(게스트, 또는 서버 그래프 자체를 안 쓰는 경로) 지금까지와 동일하게 전부
   // markdown/제목 기반으로 파생한다. liveEdges가 있으면(로그인, 서버 projection) 그 값을 그대로
@@ -1636,6 +1667,26 @@ function GraphScreenInner() {
   useEffect(() => {
     setLinkSelectedIds((current) => current.filter((id) => linkSelectableIdSet.has(id)));
   }, [linkSelectableIdSet]);
+
+  useEffect(() => {
+    refreshNoteViewHistory();
+    const storageKey = noteViewHistoryStorageKey(noteViewHistoryScope);
+    const handleHistoryChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ storageKey?: string }>).detail;
+      if (detail?.storageKey && detail.storageKey !== storageKey) return;
+      refreshNoteViewHistory();
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === storageKey) refreshNoteViewHistory();
+    };
+
+    window.addEventListener(NOTE_VIEW_HISTORY_CHANGED_EVENT, handleHistoryChanged);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener(NOTE_VIEW_HISTORY_CHANGED_EVENT, handleHistoryChanged);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [noteViewHistoryScope, refreshNoteViewHistory]);
 
   const refreshGraph = useCallback(
     async ({

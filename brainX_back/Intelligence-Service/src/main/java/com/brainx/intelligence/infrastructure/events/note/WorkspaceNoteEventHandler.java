@@ -140,7 +140,7 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
             return;
         }
 
-        noteSummaryPort.deleteByUserIdAndNoteId(payload.userId(), payload.noteId());
+        noteSummaryPort.deleteByUserIdAndDocumentGroupIdAndNoteId(payload.userId(), documentGroupId, payload.noteId());
         NoteProjection base = existing.orElseGet(() -> new NoteProjection(
             payload.userId(),
             documentGroupId,
@@ -276,7 +276,7 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
             .deleted(context.eventId(), context.envelope().occurredAt());
         noteProjectionStore.save(updated);
         noteIndexingService.removeIndex(updated, context.eventId());
-        noteSummaryPort.deleteByUserIdAndNoteId(payload.userId(), payload.noteId());
+        noteSummaryPort.deleteByUserIdAndDocumentGroupIdAndNoteId(payload.userId(), documentGroupId, payload.noteId());
     }
 
     private <T> T readPayload(EventProcessingContext context, Class<T> payloadType) {

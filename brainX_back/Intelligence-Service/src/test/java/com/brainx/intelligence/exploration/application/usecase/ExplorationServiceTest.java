@@ -438,7 +438,9 @@ class ExplorationServiceTest {
 
         @Override
         public Optional<NoteSummary> findByUserIdAndNoteId(String userId, String noteId) {
-            return Optional.ofNullable(summaries.get(userId + "::" + noteId));
+            return summaries.values().stream()
+                .filter(summary -> summary.userId().equals(userId) && summary.noteId().equals(noteId))
+                .findFirst();
         }
 
         @Override
@@ -467,13 +469,23 @@ class ExplorationServiceTest {
 
         @Override
         public NoteSummary save(NoteSummary summary) {
-            summaries.put(summary.userId() + "::" + summary.noteId(), summary);
+            summaries.put(key(summary.userId(), summary.documentGroupId(), summary.noteId()), summary);
             return summary;
         }
 
         @Override
+        public void deleteByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId) {
+            summaries.remove(key(userId, documentGroupId, noteId));
+        }
+
+        @Override
         public void deleteByUserIdAndNoteId(String userId, String noteId) {
-            summaries.remove(userId + "::" + noteId);
+            summaries.entrySet().removeIf(entry -> entry.getValue().userId().equals(userId)
+                && entry.getValue().noteId().equals(noteId));
+        }
+
+        private static String key(String userId, String documentGroupId, String noteId) {
+            return userId + "::" + documentGroupId + "::" + noteId;
         }
     }
 }

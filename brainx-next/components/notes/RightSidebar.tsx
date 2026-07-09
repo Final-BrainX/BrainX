@@ -413,6 +413,7 @@ export interface PendingAiRequest {
 type NoteLinkSuggestionStatus = "idle" | "loading" | "success" | "error";
 type NoteLinkAcceptStatus = "saving" | "saved" | "error";
 type NoteSummaryStatus = "idle" | "loading" | "refreshing" | "success" | "insufficient" | "error";
+type SaveStatus = "idle" | "saving" | "saved" | "error";
 type NoteLinkAcceptState = {
   status: NoteLinkAcceptStatus;
   error?: string;
@@ -459,6 +460,8 @@ interface Props {
   onAiRequestHandled?: () => void;
   activeEditor?: NoteEditorHandle | null;
   activeEditorMode?: EditMode;
+  saveStatus?: SaveStatus;
+  onSaveActiveNote?: (contentOverride?: string) => Promise<void>;
   /** 목차 항목 클릭 → 현재 활성 패널의 에디터를 해당 heading으로 스크롤(NotesWorkspace.tsx). */
   onHeadingSelect?: (index: number) => void;
 }
@@ -473,6 +476,8 @@ export default function RightSidebar({
   onAiRequestHandled,
   activeEditor,
   activeEditorMode = "edit",
+  saveStatus = "idle",
+  onSaveActiveNote,
   onHeadingSelect,
 }: Props) {
   const [activeTocId, setActiveTocId] = useState<string | null>(null);
@@ -677,7 +682,8 @@ export default function RightSidebar({
   const activeNoteDocumentGroupIdForLinks = activeNote ? resolveNoteDocumentGroupId(activeNote) : undefined;
   const activeNoteHasServerSource = Boolean(activeNote && activeNote.persisted === true && activeNoteDocumentGroupIdForLinks);
   const activeNotePlainTextLength = activeNote ? notePlainText(activeNote.content).length : 0;
-  const canRefreshNoteSummary = Boolean(activeNote && !USE_MOCK_NOTES && hasAuthenticatedSession && activeNoteHasServerSource && activeNotePlainTextLength >= NOTE_SUMMARY_MIN_CHARS);
+  const isSavingActiveNote = saveStatus === "saving";
+  const canRefreshNoteSummary = Boolean(activeNote && !USE_MOCK_NOTES && hasAuthenticatedSession && activeNoteHasServerSource && !isSavingActiveNote);
   const noteSummaryDisabledReason = !activeNote
     ? "노트를 먼저 열어 주세요."
     : USE_MOCK_NOTES
@@ -688,9 +694,11 @@ export default function RightSidebar({
           ? "노트가 서버에 저장된 뒤 세줄 요약을 생성할 수 있습니다."
           : !activeNoteDocumentGroupIdForLinks
             ? "Workspace 정보가 동기화된 뒤 세줄 요약을 생성할 수 있습니다."
-            : activeNotePlainTextLength < NOTE_SUMMARY_MIN_CHARS
-              ? "요약할 텍스트가 부족합니다."
-              : null;
+            : isSavingActiveNote
+              ? "노트를 저장한 뒤 세줄 요약을 갱신합니다."
+              : activeNotePlainTextLength < NOTE_SUMMARY_MIN_CHARS
+                ? "요약할 텍스트가 부족합니다."
+                : null;
   const canRequestLinkSuggestions = Boolean(activeNote && !USE_MOCK_NOTES && hasAuthenticatedSession && activeNoteHasServerSource);
   const linkSuggestionDisabledReason = !activeNote
     ? "노트를 먼저 열어 주세요."
@@ -733,17 +741,36 @@ export default function RightSidebar({
 
   const handleRefreshNoteSummary = async () => {
     if (!activeNote || !activeNoteDocumentGroupIdForLinks) return;
+    const currentContent = activeEditor?.getHTML() ?? activeNote.content;
+    const currentPlainTextLength = notePlainText(currentContent).length;
     if (!canRefreshNoteSummary) {
       pushToast(noteSummaryDisabledReason ?? "세줄 요약을 생성할 수 없습니다.", "info");
-      if (activeNotePlainTextLength < NOTE_SUMMARY_MIN_CHARS) {
+      if (currentPlainTextLength < NOTE_SUMMARY_MIN_CHARS) {
         setNoteSummaryStatus("insufficient");
         setNoteSummaryError("요약할 텍스트가 부족합니다.");
       }
       return;
     }
+    if (currentPlainTextLength < NOTE_SUMMARY_MIN_CHARS) {
+      setNoteSummaryStatus("insufficient");
+      setNoteSummaryError("요약할 텍스트가 부족합니다.");
+      pushToast("요약할 텍스트가 부족합니다.", "info");
+      return;
+    }
 
     setNoteSummaryStatus("refreshing");
     setNoteSummaryError(null);
+    try {
+      activeEditor?.flushPendingSave();
+      await onSaveActiveNote?.(currentContent);
+    } catch {
+      const message = "노트 저장에 실패해 세줄 요약을 갱신하지 못했습니다.";
+      setNoteSummaryStatus("error");
+      setNoteSummaryError(message);
+      pushToast(message, "err");
+      return;
+    }
+
     try {
       const summary = await generateNoteSummary(activeNote.id, {
         documentGroupId: activeNoteDocumentGroupIdForLinks,

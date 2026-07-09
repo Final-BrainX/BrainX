@@ -18,12 +18,12 @@ public record NoteSummary(
 
     public NoteSummary {
         userId = ExplorationValidation.requireText(userId, "userId");
-        documentGroupId = normalize(documentGroupId);
+        documentGroupId = normalizeIdentifier(documentGroupId);
         noteId = ExplorationValidation.requireText(noteId, "noteId");
         summary = ExplorationValidation.requireText(summary, "summary");
         source = source == null ? SummarySource.EXCERPT : source;
-        markdownHash = normalize(markdownHash);
-        modelId = normalize(modelId);
+        markdownHash = normalizeIdentifier(markdownHash);
+        modelId = normalizeIdentifier(modelId);
     }
 
     public static NoteSummary ai(String userId, String noteId, String summary) {
@@ -43,8 +43,8 @@ public record NoteSummary(
     }
 
     public static NoteSummary excerptFrom(String userId, String noteId, String title, String markdown) {
-        String normalizedMarkdown = normalize(markdown);
-        String normalizedTitle = normalize(title);
+        String normalizedMarkdown = normalizeSummaryText(markdown);
+        String normalizedTitle = normalizeSummaryText(title);
         String sourceText = normalizedMarkdown.isBlank() ? normalizedTitle : normalizedMarkdown;
         if (sourceText.isBlank()) {
             sourceText = EMPTY_SUMMARY;
@@ -66,7 +66,14 @@ public record NoteSummary(
         );
     }
 
-    private static String normalize(String value) {
+    private static String normalizeIdentifier(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim();
+    }
+
+    private static String normalizeSummaryText(String value) {
         if (value == null) {
             return "";
         }

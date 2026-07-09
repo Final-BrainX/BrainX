@@ -19,5 +19,7 @@ public interface NoteSummaryPort {
 
     NoteSummary save(NoteSummary summary);
 
+    void deleteByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId);
+
     void deleteByUserIdAndNoteId(String userId, String noteId);
 }

@@ -70,4 +70,35 @@ class ExplorationJpaAdapterTest {
 
         assertThat(explorationJpaAdapter.findByUserIdAndNoteId("user-1", "note-1")).isEmpty();
     }
+
+    @Test
+    void deleteSummaryByDocumentGroupKeepsOtherGroupsForSameNote() {
+        explorationJpaAdapter.save(NoteSummary.ai(
+            "user-1",
+            "group-1",
+            "note-1",
+            "Group one summary",
+            "hash-1",
+            "gpt-5.4-nano",
+            Instant.parse("2026-07-09T03:00:00Z")
+        ));
+        explorationJpaAdapter.save(NoteSummary.ai(
+            "user-1",
+            "group-2",
+            "note-1",
+            "Group two summary",
+            "hash-2",
+            "gpt-5.4-nano",
+            Instant.parse("2026-07-09T04:00:00Z")
+        ));
+        entityManager.flush();
+
+        explorationJpaAdapter.deleteByUserIdAndDocumentGroupIdAndNoteId("user-1", "group-1", "note-1");
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(explorationJpaAdapter.findByUserIdAndDocumentGroupIdAndNoteId("user-1", "group-1", "note-1")).isEmpty();
+        assertThat(explorationJpaAdapter.findByUserIdAndDocumentGroupIdAndNoteId("user-1", "group-2", "note-1"))
+            .hasValueSatisfying(summary -> assertThat(summary.summary()).isEqualTo("Group two summary"));
+    }
 }

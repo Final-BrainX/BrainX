@@ -118,3 +118,19 @@ test("upsertResolvedCreatedNote does not duplicate an already resolved note", ()
     [{ id: "note_7", title: "사용자 제목" }]
   );
 });
+
+test("upsertResolvedCreatedNote collapses local and resolved copies into one note", () => {
+  const local = { ...note("local-new", "사용자 제목"), content: "아직 반영 전 본문", updatedAt: 5 };
+  const resolved = { ...note("note_7", "서버 제목"), persisted: true, version: 3, updatedAt: 3 };
+  const existing = note("note_1", "기존 노트");
+
+  const result = upsertResolvedCreatedNote([existing, resolved, local], "local-new", resolved, "새 노트7");
+
+  assert.deepEqual(
+    result.map((item) => ({ id: item.id, title: item.title, content: item.content, version: item.version })),
+    [
+      { id: "note_1", title: "기존 노트", content: "", version: 1 },
+      { id: "note_7", title: "사용자 제목", content: "아직 반영 전 본문", version: 3 },
+    ]
+  );
+});

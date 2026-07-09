@@ -61,6 +61,12 @@ public class ExplorationJpaAdapter implements NoteSummaryPort {
 
     @Override
     @Transactional
+    public void deleteByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId) {
+        noteSummaryJpaRepository.deleteByUserIdAndDocumentGroupIdAndNoteId(userId, documentGroupId, noteId);
+    }
+
+    @Override
+    @Transactional
     public void deleteByUserIdAndNoteId(String userId, String noteId) {
         noteSummaryJpaRepository.deleteByUserIdAndNoteId(userId, noteId);
     }

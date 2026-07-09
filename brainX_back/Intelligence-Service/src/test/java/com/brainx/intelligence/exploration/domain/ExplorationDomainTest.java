@@ -3,6 +3,7 @@ package com.brainx.intelligence.exploration.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -93,5 +94,24 @@ class ExplorationDomainTest {
         assertThat(summary.source()).isEqualTo(SummarySource.EXCERPT);
         assertThat(summary.summary()).contains("Heading");
         assertThat(summary.summary()).doesNotContain("#");
+    }
+
+    @Test
+    void noteSummaryPreservesScopedIdentifiersVerbatim() {
+        var generatedAt = Instant.parse("2026-07-09T03:00:00Z");
+        var summary = NoteSummary.ai(
+            "user-1",
+            "dgrp_default_user_1",
+            "note-1",
+            "요약 본문",
+            "sha_abc_def",
+            "gpt-5.4-nano",
+            generatedAt
+        );
+
+        assertThat(summary.documentGroupId()).isEqualTo("dgrp_default_user_1");
+        assertThat(summary.markdownHash()).isEqualTo("sha_abc_def");
+        assertThat(summary.modelId()).isEqualTo("gpt-5.4-nano");
+        assertThat(summary.generatedAt()).isEqualTo(generatedAt);
     }
 }

@@ -62,17 +62,29 @@ export function upsertResolvedCreatedNote(
     persisted: resolvedNote.persisted,
     updatedAt: Math.max(note.updatedAt, resolvedNote.updatedAt),
   });
-  const next = notes.map((note) => {
+  const localNote = notes.find((note) => note.id === localNoteId);
+  const noteToMerge = localNote ?? notes.find((note) => note.id === resolvedNote.id);
+  let insertedResolved = false;
+  const next: MockNote[] = [];
+  for (const note of notes) {
     if (note.id === resolvedNote.id) {
       foundResolved = true;
-      return mergeResolved(note);
+      if (!insertedResolved) {
+        next.push(mergeResolved(noteToMerge ?? note));
+        insertedResolved = true;
+      }
+      continue;
     }
     if (note.id === localNoteId) {
       foundLocal = true;
-      return mergeResolved(note);
+      if (!insertedResolved) {
+        next.push(mergeResolved(noteToMerge ?? note));
+        insertedResolved = true;
+      }
+      continue;
     }
-    return note;
-  });
+    next.push(note);
+  }
 
   if (foundLocal || foundResolved) return next;
   return [{ ...resolvedNote, title: resolvedTitle }, ...next];

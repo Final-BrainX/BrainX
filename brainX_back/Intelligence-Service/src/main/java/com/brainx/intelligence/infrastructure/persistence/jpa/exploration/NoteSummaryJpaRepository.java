@@ -36,5 +36,7 @@ interface NoteSummaryJpaRepository extends JpaRepository<NoteSummaryJpaEntity, S
         String markdownHash
     );
 
+    void deleteByUserIdAndDocumentGroupIdAndNoteId(String userId, String documentGroupId, String noteId);
+
     void deleteByUserIdAndNoteId(String userId, String noteId);
 }
