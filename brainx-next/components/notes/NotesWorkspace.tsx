@@ -2194,10 +2194,17 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       // 롤백 버그가 있었다.
       const targetNoteId =
         openNoteId ?? (isInitialLoad && attachInitialTab && initialTab.kind === "note" ? initialTab.noteId : null);
+      // listNotes/listFolders는 데스크톱 vault 모드에서 로컬 vault 파일을 읽는다 — vault
+      // 안의 파일 하나가 손상/잠금 등으로 안 읽히면 이 호출이 reject될 수 있는데, 그걸
+      // 아래 shouldUseDesktopVault()와 같은 Promise.all에 그대로 묶어두면 vault 읽기
+      // 실패 하나가 "웹 동기화" 버튼(usesDesktopVault)까지 함께 사라지게 만든다(버튼은
+      // 이 Promise.all의 성공 콜백에서만 세팅됨). listWorkspaceNoteDrafts()와 동일하게
+      // 실패 시 빈 목록으로 폴백해, vault 일부가 안 읽혀도 나머지 기능(특히 동기화 버튼)은
+      // 계속 정상 동작하게 한다.
       return Promise.all([
         shouldUseDesktopVault(),
-        listNotes(),
-        listFolders(),
+        listNotes().catch(() => ({ notes: [], totalCount: 0 })),
+        listFolders().catch(() => ({ folders: [] })),
         listWorkspaceNoteDrafts().catch(() => ({ drafts: [] })),
         targetNoteId ? getWorkspaceNoteDraft(targetNoteId).catch(() => null) : Promise.resolve(null),
       ])

@@ -1,5 +1,9 @@
 .next/
 node_modules/
+# Desktop installer binary — served from S3 in deploy environments (see
+# app/download/windows/route.ts); locally synced here only as a dev fallback and
+# must never be committed (GitHub rejects files over 100MB anyway).
+/public/downloads/
 out/
 coverage/
 *.tsbuildinfo

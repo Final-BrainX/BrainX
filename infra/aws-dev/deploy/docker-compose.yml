@@ -39,6 +39,8 @@ services:
       NEXT_PUBLIC_NOTES_USE_MOCK: "false"
       NEXT_PUBLIC_GRAPH_USE_MOCK: "false"
       NEXT_PUBLIC_GRAPH_CLUSTERS_USE_MOCK: "false"
+      AWS_REGION: ${AWS_REGION}
+      BRAINX_DESKTOP_INSTALLER_BUCKET: ${ASSET_BUCKET}
     expose:
       - "3000"
     mem_limit: 1536m

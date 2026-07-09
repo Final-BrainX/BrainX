@@ -21,6 +21,7 @@
   "build": {
     "appId": "com.brainx.desktop",
     "productName": "BrainX",
+    "compression": "maximum",
     "directories": {
       "buildResources": "build",
       "output": "release"

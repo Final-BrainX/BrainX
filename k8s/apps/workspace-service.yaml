@@ -27,7 +27,7 @@ data:
   NEO4J_USERNAME: neo4j
   NEO4J_BACKFILL_ON_STARTUP: "false"
   # --- Kafka (Compose, host.docker.internal 경유) ---
-  SPRING_KAFKA_BOOTSTRAP_SERVERS: host.docker.internal:9092
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: host.docker.internal:9093
   # --- Eureka (Kubernetes discovery-service) ---
   EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://discovery-service:8761/eureka/
   EUREKA_INSTANCE_HOSTNAME: workspace-service

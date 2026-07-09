@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingestion-service
+  namespace: brainx
+  labels:
+    app: ingestion-service
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: ingestion-service
+  template:
+    metadata:
+      labels:
+        app: ingestion-service
+    spec:
+      containers:
+        - name: ingestion-service
+          image: brainx-ingestion-service:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8083
+              name: http
+          envFrom:
+            - configMapRef:
+                name: ingestion-service-config
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secret
+                  key: JWT_SECRET
+            - name: NOTION_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: ingestion-service-secret
+                  key: NOTION_CLIENT_ID
+            - name: NOTION_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ingestion-service-secret
+                  key: NOTION_CLIENT_SECRET
+          volumeMounts:
+            - name: asset-storage
+              mountPath: /app/asset-storage
+          # 현재 SecurityConfig는 /actuator/health 만 permitAll 이라
+          # /actuator/health/readiness, /liveness 는 401 이 될 수 있다.
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: asset-storage
+          persistentVolumeClaim:
+            claimName: ingestion-service-asset-storage
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ingestion-service-asset-storage
+  namespace: brainx
+  labels:
+    app: ingestion-service
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingestion-service
+  namespace: brainx
+  labels:
+    app: ingestion-service
+spec:
+  type: ClusterIP
+  selector:
+    app: ingestion-service
+  ports:
+    - name: http
+      port: 8083
+      targetPort: http
