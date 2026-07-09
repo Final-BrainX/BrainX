@@ -61,10 +61,9 @@ import EmptyNoteStartPage from "./EmptyNoteStartPage";
 import QuickSwitcher from "./QuickSwitcher";
 import NotesExplorer from "./NotesExplorer";
 import RightSidebar, {
-  type AiOutlineNoteCreateRequest,
-  type AiOutlineNoteCreateResult,
   type PendingAiRequest,
 } from "./RightSidebar";
+import ConfirmDialog from "./ConfirmDialog";
 import { moveNoteIntoFolder, reorderNoteRelativeTo, moveFolderUnder, reorderFolderRelativeTo } from "@/lib/notes/folderDnd";
 import { exportNote, uploadAndImportFile, type ExportFormat } from "@/lib/ingestion-api";
 import { ShareLinkModal } from "./ShareLinkModal";
@@ -74,6 +73,14 @@ import { useWorkspace } from "@/components/workspace-provider";
 import { consumePendingNoteClaim, readAuthSession } from "@/lib/auth-api";
 import { isElectronDesktop, type BrainxDesktopVaultSyncPolicy } from "@/lib/desktop-bridge";
 import { getDesktopVaultSyncPolicy, requestDesktopVaultManualSync } from "@/lib/desktop-vault";
+import { AiUsageLimitExceededError, createInlineAssistStream, decideAiSuggestion } from "@/lib/intelligence-api";
+import {
+  AI_OUTLINE_NOTE_TARGET_LENGTH,
+  buildAiOutlineNotePrompt,
+  normalizeAiOutlineNoteTitle,
+  type AiOutlineNoteCreateRequest,
+  type AiOutlineNoteCreateResult,
+} from "@/lib/notes/ai-outline-note";
 
 export type InitialTab = { kind: "note"; noteId: string } | { kind: "start" };
 
@@ -94,12 +101,6 @@ function makeBlankNote(folderId?: string): MockNote {
     version: 1,
     persisted: false,
   };
-}
-
-function normalizeAiOutlineNoteTitle(value: string) {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  if (normalized.length <= 80) return normalized;
-  return normalized.slice(0, 80).trimEnd();
 }
 
 function nextAvailableExplicitNoteTitle(notes: MockNote[], title: string, folderId: string | null | undefined) {
@@ -462,7 +463,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   if (!initRef.current) initRef.current = createInitialPaneState(initialTab);
   const init = initRef.current;
 
-  const { pushToast } = useBrainX();
+  const { openAiUsageLimitModal, pushToast } = useBrainX();
 
   // 툴바 "···" 메뉴
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
@@ -574,6 +575,9 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const [tabMode, setTabMode] = useState<Record<string, EditMode>>({});
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [aiRequest, setAiRequest] = useState<PendingAiRequest | null>(null);
+  const [outlineDialogRequest, setOutlineDialogRequest] = useState<AiActionPayload | null>(null);
+  const [outlineDialogSubmitting, setOutlineDialogSubmitting] = useState(false);
+  const [outlineDialogError, setOutlineDialogError] = useState<string | null>(null);
   const [quickSwitcher, setQuickSwitcher] = useState<QuickSwitcherTarget | null>(null);
   const [draftSaveStatus, setDraftSaveStatus] = useState<SaveStatus>("idle");
   const [manualSaveStatus, setManualSaveStatus] = useState<SaveStatus>("idle");
@@ -598,6 +602,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
   const [desktopSyncPolicy, setDesktopSyncPolicy] = useState<BrainxDesktopVaultSyncPolicy | null>(null);
   const [desktopManualSyncing, setDesktopManualSyncing] = useState(false);
   const aiNonceRef = useRef(0);
+  const outlineRequestAbortRef = useRef<AbortController | null>(null);
   const editorHandlesRef = useRef<Record<string, NoteEditorHandle>>({});
   const [editorHandleRevision, setEditorHandleRevision] = useState(0);
   const hydratedRef = useRef(false);
@@ -2045,11 +2050,20 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     setFolders((prev) => reorderFolderRelativeTo(prev, folderId, referenceFolderId, position) ?? prev);
   }, []);
 
-  /* 버블 툴바의 AI 버튼(요약/개요 생성 등) → 우측 인라인 AI 패널에 요청 전달 */
+  /* 개요 노트는 확인 모달에서 별도로 처리하고, 요약/다시쓰기는 기존 인라인 AI 패널로 보낸다. */
   const handleAiAction = useCallback((payload: AiActionPayload) => {
+    if (payload.type === "outline") {
+      if (payload.text.trim().length < 2) {
+        pushToast("개요 노트 제목으로 쓸 텍스트를 2자 이상 선택해 주세요.", "err");
+        return;
+      }
+      setOutlineDialogError(null);
+      setOutlineDialogRequest(payload);
+      return;
+    }
     aiNonceRef.current += 1;
     setAiRequest({ ...payload, nonce: aiNonceRef.current });
-  }, []);
+  }, [pushToast]);
 
   const handleEditorHandleChange = useCallback((paneId: string, tabId: string, handle: NoteEditorHandle | null) => {
     const key = `${paneId}:${tabId}`;
@@ -2723,6 +2737,7 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
             linked = true;
           } catch (error) {
             linkSkippedReason = "원본 노트의 자동 링크 저장에 실패했습니다. 수동 저장을 다시 시도해 주세요.";
+            console.warn("Failed to save the generated outline wiki link.", error);
             pushToast(error instanceof Error ? error.message : linkSkippedReason, "err");
           }
         }
@@ -2734,12 +2749,9 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     }
 
     setNotes((prev) => [createdNote, ...prev.filter((item) => item.id !== createdNote.id)]);
-    handleAddNoteTab(primaryPaneId, createdNote.id);
-    prevActiveNoteIdRef.current = createdNote.id;
-    window.dispatchEvent(new CustomEvent("brainx:notes-refresh", {
+    window.dispatchEvent(new CustomEvent("brainx:graph-refresh", {
       detail: { noteId: createdNote.id, sourceNoteId: sourceNote.id },
     }));
-    onActiveNoteChange?.(createdNote.id);
 
     return {
       noteId: createdNote.id,
@@ -2751,12 +2763,98 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
     activeEditorHandle,
     activeNoteId,
     currentWorkspaceId,
-    handleAddNoteTab,
-    onActiveNoteChange,
-    primaryPaneId,
-    pushToast,
     saveActiveNoteToBackend,
   ]);
+
+  const cancelOutlineDialog = useCallback(() => {
+    if (outlineDialogSubmitting) return;
+    setOutlineDialogRequest(null);
+    setOutlineDialogError(null);
+  }, [outlineDialogSubmitting]);
+
+  const confirmOutlineDialog = useCallback(async () => {
+    const request = outlineDialogRequest;
+    if (!request || outlineDialogSubmitting) return;
+
+    const selectedText = request.text.trim();
+    const selectedMarkdown = request.selectedMarkdown?.trim() || selectedText;
+    const sourceNote = latestSessionRef.current.notes.find((note) => note.id === request.noteId);
+    if (!sourceNote) {
+      setOutlineDialogError("원본 노트를 찾을 수 없습니다. 확인창을 닫고 다시 선택해 주세요.");
+      return;
+    }
+
+    setOutlineDialogSubmitting(true);
+    setOutlineDialogError(null);
+    const controller = new AbortController();
+    outlineRequestAbortRef.current = controller;
+    let streamedText = "";
+    let suggestionId: string | null = null;
+
+    try {
+      const done = await createInlineAssistStream(
+        {
+          noteId: request.noteId,
+          selectedText,
+          contextBefore: request.contextBefore ?? "",
+          contextAfter: request.contextAfter ?? "",
+          action: "DRAFT",
+          draftPrompt: buildAiOutlineNotePrompt(selectedText, selectedMarkdown, sourceNote.title),
+          targetLength: AI_OUTLINE_NOTE_TARGET_LENGTH,
+          language: "ko",
+        },
+        {
+          signal: controller.signal,
+          onDelta: (delta) => {
+            streamedText += delta;
+          },
+        },
+      );
+      if (!done) throw new Error("AI 개요 작성 완료 응답을 받지 못했습니다. 다시 시도해 주세요.");
+      suggestionId = done.suggestionId;
+      if (!streamedText.trim()) throw new Error("AI가 빈 초안을 반환했습니다. 다시 시도해 주세요.");
+
+      const created = await createGeneratedNoteFromAi({
+        sourceNoteId: request.noteId,
+        title: selectedText,
+        markdown: streamedText,
+        selection: {
+          text: selectedText,
+          selectedMarkdown,
+          range: request.range,
+        },
+      });
+      void decideAiSuggestion(done.suggestionId, { decision: "ACCEPTED" }).catch((error) => {
+        console.warn("Failed to record accepted AI outline suggestion.", error);
+      });
+
+      setOutlineDialogRequest(null);
+      if (created.linked) {
+        pushToast(`개요 노트 "${created.title}"를 만들고 원본에 링크했어요.`, "ok");
+      } else {
+        pushToast(
+          `개요 노트 "${created.title}"는 만들었지만 링크하지 못했습니다. ${created.linkSkippedReason ?? "원본에서 직접 링크해 주세요."}`,
+          "err",
+        );
+      }
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      if (suggestionId) {
+        void decideAiSuggestion(suggestionId, { decision: "REJECTED" }).catch((decisionError) => {
+          console.warn("Failed to record rejected AI outline suggestion.", decisionError);
+        });
+      }
+      if (error instanceof AiUsageLimitExceededError) {
+        openAiUsageLimitModal(error.reason);
+      }
+      setOutlineDialogError(error instanceof Error ? error.message : "개요 노트 생성에 실패했습니다. 다시 시도해 주세요.");
+    } finally {
+      if (outlineRequestAbortRef.current === controller) outlineRequestAbortRef.current = null;
+      setOutlineDialogSubmitting(false);
+    }
+  }, [createGeneratedNoteFromAi, openAiUsageLimitModal, outlineDialogRequest, outlineDialogSubmitting, pushToast]);
+
+  useEffect(() => () => outlineRequestAbortRef.current?.abort(), []);
 
   const handleManualSave = useCallback(() => {
     setManualSaveStatus("saving");
@@ -3273,7 +3371,6 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
                     onNoteSelect={handleNoteClick}
                     pendingAiRequest={aiRequest}
                     onAiRequestHandled={() => setAiRequest(null)}
-                    onCreateAiOutlineNote={createGeneratedNoteFromAi}
                     activeEditor={activeEditorHandle}
                     activeEditorMode={activeEditorMode}
                     saveStatus={combinedSaveStatus}
@@ -3293,6 +3390,20 @@ export default function NotesWorkspace({ initialTab, persistKey, onActiveNoteCha
       </div>
     </SplitThemeContext.Provider>
     </WikiLinkContext.Provider>
+    {outlineDialogRequest && (
+      <ConfirmDialog
+        title="AI 기능으로 개요 노트를 만들겠습니까?"
+        description={`선택한 “${normalizeAiOutlineNoteTitle(outlineDialogRequest.text)}”을 제목으로 짧은 개요 초안을 만듭니다.`}
+        confirmLabel="개요 노트 만들기"
+        submittingLabel="개요 노트 만드는 중…"
+        cancelLabel="취소"
+        danger={false}
+        submitting={outlineDialogSubmitting}
+        error={outlineDialogError}
+        onConfirm={() => { void confirmOutlineDialog(); }}
+        onCancel={cancelOutlineDialog}
+      />
+    )}
     {shareModalOpen && activeNote && (
       <ShareLinkModal note={activeNote} onClose={() => setShareModalOpen(false)} />
     )}

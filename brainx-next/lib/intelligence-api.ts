@@ -2,6 +2,8 @@
 "use client";
 
 import { clearAuthSession, isDevAuthSession, readAuthSession, refreshAuthSessionOnce, type ApiResponse } from "@/lib/auth-api";
+import { isAuthSessionFailureStatus } from "@/lib/auth-http-status";
+import { aiUsageLimitErrorFromMessage } from "@/lib/ai-usage-limit-error";
 import { requestDesktopApiJson } from "@/lib/desktop-api-request";
 import { DEV_USER_ID } from "@/lib/dev-user";
 import type { components } from "@/lib/generated/intelligence-openapi";
@@ -130,40 +132,18 @@ export class IntelligenceAuthRequiredError extends Error {
   }
 }
 
-export type AiUsageLimitReason = "GUEST_AI_CALL_LIMIT_EXCEEDED" | "MONTHLY_CREDIT_LIMIT_EXCEEDED";
-
-// 일반 요청 실패("요청 처리에 실패했습니다")와 구분해서 화면에서 별도로 처리(로그인 유도,
-// 업그레이드 유도 등)할 수 있도록 전용 예외 타입으로 던진다.
-export class AiUsageLimitExceededError extends Error {
-  readonly reason: AiUsageLimitReason;
-
-  constructor(reason: AiUsageLimitReason) {
-    super(
-      reason === "GUEST_AI_CALL_LIMIT_EXCEEDED"
-        ? "게스트로 이용 가능한 AI 사용 횟수를 모두 소모했습니다. 로그인하면 계속 이용할 수 있어요."
-        : "이번 달 AI 크레딧을 모두 소모했습니다. 플랜을 업그레이드하면 계속 이용할 수 있어요."
-    );
-    this.name = "AiUsageLimitExceededError";
-    this.reason = reason;
-  }
-}
+export { AiUsageLimitExceededError, type AiUsageLimitReason } from "@/lib/ai-usage-limit-error";
 
 const INTELLIGENCE_API_BASE_URL = "";
 
-// Intelligence-Service의 entitlement 거부는 400으로 내려오고 메시지에 Commerce-Service가
+// Intelligence-Service의 entitlement 거부는 400/403으로 내려오고 메시지에 Commerce-Service가
 // 내려준 reasonCode가 그대로 붙어 있다("AI capability is not available: GUEST_AI_CALL_LIMIT_EXCEEDED").
 // 모든 AI 호출이 authedRequest/streamRequest를 거치므로 여기서 한 번만 판별하면 각 화면에서
 // 따로 문자열 매칭을 하지 않아도 된다.
-function usageLimitReasonFrom(message: string): AiUsageLimitReason | null {
-  if (message.includes("GUEST_AI_CALL_LIMIT_EXCEEDED")) return "GUEST_AI_CALL_LIMIT_EXCEEDED";
-  if (message.includes("MONTHLY_CREDIT_LIMIT_EXCEEDED")) return "MONTHLY_CREDIT_LIMIT_EXCEEDED";
-  return null;
-}
-
 function throwForFailedResponse(response: ApiResponse<unknown> | null, fallback: string): never {
   const message = response?.message ?? response?.error?.message ?? fallback;
-  const reason = usageLimitReasonFrom(message);
-  if (reason) throw new AiUsageLimitExceededError(reason);
+  const usageLimitError = aiUsageLimitErrorFromMessage(message);
+  if (usageLimitError) throw usageLimitError;
   throw new Error(message);
 }
 
@@ -186,7 +166,7 @@ async function authedRequest<T>(
   const payload = desktopResponse
     ? desktopResponse.payload
     : ((await (response as Response).json().catch(() => null)) as ApiResponse<T> | null);
-  if (response.status === 401 || response.status === 403) {
+  if (isAuthSessionFailureStatus(response.status)) {
     // 액세스 토큰이 만료된 흔한 정상 케이스도 여기 걸리므로, 바로 로그아웃시키기 전에
     // refreshToken으로 한 번 갱신을 시도하고 새 토큰으로 같은 요청을 한 번만 재시도한다.
     if (!retried && readAuthSession()?.refreshToken && (await refreshAuthSessionOnce())) {
@@ -218,7 +198,7 @@ async function streamRequest<TDone>(
     body: JSON.stringify(body),
   });
 
-  if (response.status === 401 || response.status === 403) {
+  if (isAuthSessionFailureStatus(response.status)) {
     // 스트림 바디를 아직 읽기 시작하지 않은 시점이라 안전하게 재시도할 수 있다.
     if (!retried && readAuthSession()?.refreshToken && (await refreshAuthSessionOnce())) {
       return streamRequest<TDone>(path, body, handlers, true);
@@ -414,8 +394,7 @@ function streamErrorFrom(value: unknown): unknown {
         : typeof value === "string"
           ? value
           : "";
-  const reason = usageLimitReasonFrom(message);
-  return reason ? new AiUsageLimitExceededError(reason) : value;
+  return aiUsageLimitErrorFromMessage(message) ?? value;
 }
 
 function parseJson(value: string): unknown {

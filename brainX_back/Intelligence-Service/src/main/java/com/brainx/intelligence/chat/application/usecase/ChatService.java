@@ -106,6 +106,8 @@ public class ChatService implements
     private static final String DRAFT_NOTE_FORMAT_INSTRUCTION = """
         Format draft responses as Markdown for a personal Workspace note.
         The first line must be a level-1 Markdown heading in the exact form "# <title>".
+        Write the title as a concise Korean topic noun phrase of 2 to 8 eojeol.
+        Never repeat the user's question or request as the title, and never use a question mark, interrogative word, or interrogative ending.
         Add one blank line after the title, then write the body.
         Write the body in a personal note-taking tone ready to save as the user's own note, not an explanatory assistant answer.
         """;

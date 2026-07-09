@@ -625,7 +625,7 @@ export async function refreshToken() {
 let pendingRefresh: Promise<boolean> | null = null;
 
 /**
- * API 클라이언트가 401/403을 받았을 때 바로 clearAuthSession()으로 로그아웃시키기 전에
+ * API 클라이언트가 401을 받았을 때 바로 clearAuthSession()으로 로그아웃시키기 전에
  * 한 번 시도하는 액세스 토큰 갱신. refreshToken이 회전형(1회용)이라 동시에 여러 요청이
  * 401을 맞아도 실제 갱신 호출은 한 번만 나가도록 단일 비행(single-flight)으로 묶는다 —
  * 그렇지 않으면 나중에 도착한 요청이 이미 폐기된 refreshToken으로 갱신을 시도해 실패한다.

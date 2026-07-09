@@ -78,13 +78,17 @@ export function sortNotes<T extends { title: string; createdAt: number; updatedA
   notes: T[],
   sortBy: SortOption,
   favorites: Set<string>,
-  direction: SortDirection = DEFAULT_SORT_DIRECTION[sortBy]
+  direction: SortDirection = DEFAULT_SORT_DIRECTION[sortBy],
+  modifiedAtByNoteId?: ReadonlyMap<string, number>
 ): T[] {
   const arr = [...notes];
   const sign = directionSign(direction);
   switch (sortBy) {
     case "modified":
-      return arr.sort((a, b) => (a.updatedAt - b.updatedAt) * sign);
+      return arr.sort((a, b) => (
+        (modifiedAtByNoteId?.get(a.id) ?? a.updatedAt) -
+        (modifiedAtByNoteId?.get(b.id) ?? b.updatedAt)
+      ) * sign);
     case "created":
       return arr.sort((a, b) => (a.createdAt - b.createdAt) * sign);
     case "title":
