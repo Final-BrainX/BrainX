@@ -5,6 +5,7 @@
 ## 결정사항
 
 - v1 provider는 OpenAI Responses API의 hosted `web_search` tool을 streaming 모드로 사용한다.
+- 기본 web search model은 `gpt-5.4-mini`이며, `OPENAI_WEB_SEARCH_MODEL`을 명시하면 해당 값이 우선한다.
 - application code는 `ExternalSearchPort`만 의존하고, provider별 HTTP 호출은 infrastructure adapter가 담당한다.
 - 검색 결과 저장소는 만들지 않는다. `/chat`에서 사용한 웹 출처는 assistant chat message의 `webSources` JSON payload로 저장한다.
 - 독립 external-search public endpoint는 만들지 않는다. public OpenAPI 변경은 chat message 응답의 `webSources` 필드에 한정한다.
@@ -43,7 +44,7 @@ brainx:
     openai:
       api-key: ${OPENAI_API_KEY:}
       base-url: ${OPENAI_BASE_URL:https://api.openai.com}
-      model: ${OPENAI_WEB_SEARCH_MODEL:gpt-5.5}
+      model: ${OPENAI_WEB_SEARCH_MODEL:gpt-5.4-mini}
 ```
 
 `provider=openai`이어도 `OPENAI_API_KEY`가 비어 있으면 `NoOpExternalSearchAdapter`가 등록된다. 로컬과 테스트 환경에서 외부 호출 없이 context load를 유지하기 위한 정책이다. `search-context-size`는 `low | medium | high`를 받으며 blank/unknown 값은 `low`로 정규화한다.
@@ -117,4 +118,4 @@ RAG chat router는 최종 intent route와 별도로 `requiresWebSearch`, `webSea
 - `WEB`: `ExternalSearchPort`
 - `BOTH`: note context와 web answer/source를 함께 prompt context로 구성
 
-provider가 `none`이거나 검색에 실패하면 최신 사실을 추측하지 않고 안내 답변을 저장한다. 검색에 성공하면 노트 citation과 웹 출처를 분리해 저장하고, 프론트는 AI 메시지 아래에 `근거 노트`와 `웹 출처`를 별도 섹션으로 표시한다.
+provider가 `none`이거나 검색에 실패하면 최신 사실을 추측하지 않고 안내 답변을 저장한다. 검색에 성공하면 검색 결과의 `answer`와 `sources`를 최종 채팅 답변 LLM prompt의 context로 전달한다. 따라서 사용자 문체, 대화 이력, 노트/클라이언트 context와 route별 답변 규칙을 적용하는 기존 최종 생성 단계는 유지되며, 순수 최신정보 조회도 같은 단계를 거친다. 생성된 assistant message에는 웹 출처를 `webSources`로 저장하고, 프론트는 AI 메시지 아래에 `근거 노트`와 `웹 출처`를 별도 섹션으로 표시한다.

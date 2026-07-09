@@ -144,7 +144,7 @@ brainx:
     openai:
       api-key: ${OPENAI_API_KEY:}
       base-url: ${OPENAI_BASE_URL:https://api.openai.com}
-      model: ${OPENAI_WEB_SEARCH_MODEL:gpt-5.5}
+      model: ${OPENAI_WEB_SEARCH_MODEL:gpt-5.4-mini}
   ai:
     embedding:
       provider: ${BRAINX_AI_EMBEDDING_PROVIDER:none}

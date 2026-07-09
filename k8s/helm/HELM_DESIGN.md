@@ -367,7 +367,7 @@ services:
       # ChatClient 빈 생성에 필수. 기본값이 "none"이라 없으면 chat/assist 기능이 fallback만 동작.
       SPRING_AI_MODEL_CHAT: openai
       OPENAI_CHAT_MODEL: gpt-5.4-mini
-      OPENAI_WEB_SEARCH_MODEL: gpt-5.5
+      OPENAI_WEB_SEARCH_MODEL: gpt-5.4-mini
       BRAINX_EXTERNAL_SEARCH_PROVIDER: openai
       BRAINX_VECTOR_QDRANT_ENABLED: "true"
       QDRANT_GRPC_PORT: "6334"

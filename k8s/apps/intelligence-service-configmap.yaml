@@ -26,7 +26,7 @@ data:
   # (assist/insight/organization/note-auto-link/connection-bridge가 LLM 없이 fallback만 동작).
   SPRING_AI_MODEL_CHAT: openai
   OPENAI_CHAT_MODEL: gpt-5.4-mini
-  OPENAI_WEB_SEARCH_MODEL: gpt-5.5
+  OPENAI_WEB_SEARCH_MODEL: gpt-5.4-mini
   BRAINX_EXTERNAL_SEARCH_PROVIDER: openai
   BRAINX_EXTERNAL_SEARCH_TIMEOUT: 60s
   BRAINX_EXTERNAL_SEARCH_CONTEXT_SIZE: low

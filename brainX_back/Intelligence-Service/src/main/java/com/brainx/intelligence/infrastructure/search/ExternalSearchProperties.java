@@ -72,7 +72,7 @@ public class ExternalSearchProperties {
 
         private String apiKey = "";
         private URI baseUrl = URI.create("https://api.openai.com");
-        private String model = "gpt-5.5";
+        private String model = "gpt-5.4-mini";
 
         public String getApiKey() {
             return apiKey;
