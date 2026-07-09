@@ -9,6 +9,7 @@ import { useWorkspace } from "@/components/workspace-provider";
 import { isDevAuthSession, readAuthSession } from "@/lib/auth-api";
 import { DEV_USER_ID } from "@/lib/dev-user";
 import { getMyProfile } from "@/lib/user-api";
+import { sanitizeHtml } from "@/lib/safe-html";
 import {
   AI_CLUSTER_MAX_CLUSTERS,
   AI_CLUSTER_MAX_NOTES,
@@ -654,7 +655,7 @@ function UserInsightDashboard({
                 <div className="min-w-0 flex-1">
                   <div className="mb-1 text-[13px] font-semibold" style={{ color: insight.color }}>{insight.tag}</div>
                   {insight.html ? (
-                    <div className="break-words text-[13px] leading-6 text-txt2 [overflow-wrap:anywhere]" dangerouslySetInnerHTML={{ __html: insight.html }} />
+                    <div className="break-words text-[13px] leading-6 text-txt2 [overflow-wrap:anywhere]" dangerouslySetInnerHTML={{ __html: sanitizeHtml(insight.html) }} />
                   ) : (
                     <div className="whitespace-pre-wrap break-words text-[13px] leading-6 text-txt2 [overflow-wrap:anywhere]">{insight.text}</div>
                   )}

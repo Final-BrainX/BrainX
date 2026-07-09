@@ -46,6 +46,8 @@ brainx:
     secret: ${JWT_SECRET:replace_with_at_least_32_byte_secret}
   service-token: ${SERVICE_TOKEN:local-service-token}
   public-base-url: ${PUBLIC_BASE_URL:http://localhost:3000}
+  security:
+    allowed-origins: ${BRAINX_SECURITY_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000,https://brainx.p-e.kr,https://api.brainx.com}
   seed-demo-data: ${SEED_DEMO_DATA:true}
   workspace:
     dev-fallback-enabled: ${WORKSPACE_DEV_FALLBACK_ENABLED:false}
