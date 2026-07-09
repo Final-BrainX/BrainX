@@ -198,6 +198,30 @@ function lastActiveToDateTime(value: string) {
 }
 
 function apiUser(user: typeof mockUsers[number]) {
+  const recentActivityAt = user.lastActiveAt;
+  const sessions = recentActivityAt
+    ? [
+        {
+          sessionId: `${user.id}-session-current`,
+          device: user.device,
+          location: user.location,
+          ipAddress: "121.168.32.104",
+          userAgentHash: "mock-user-agent-hash",
+          lastSeenAt: recentActivityAt,
+          current: user.status === "active"
+        },
+        {
+          sessionId: `${user.id}-session-previous`,
+          device: user.device,
+          location: user.location,
+          ipAddress: "211.45.18.72",
+          userAgentHash: "mock-user-agent-hash-prev",
+          lastSeenAt: new Date(Date.parse(recentActivityAt) - 86_400_000).toISOString(),
+          current: false
+        }
+      ]
+    : [];
+  const lastLogin = sessions[0] ?? null;
   return {
     userId: user.id,
     name: user.name,
@@ -207,36 +231,9 @@ function apiUser(user: typeof mockUsers[number]) {
     noteCount: user.notes,
     storageBytes: storageToBytes(user.storage),
     joinedAt: dateTimeFromShort(user.joined),
-    lastActiveAt: lastActiveToDateTime(user.lastActive),
-    lastLogin: {
-      sessionId: `${user.id}-session-current`,
-      device: user.device,
-      location: user.location,
-      ipAddress: "121.168.32.104",
-      userAgentHash: "mock-user-agent-hash",
-      lastSeenAt: lastActiveToDateTime(user.lastActive) ?? now,
-      current: user.status === "active"
-    },
-    sessions: [
-      {
-        sessionId: `${user.id}-session-current`,
-        device: user.device,
-        location: user.location,
-        ipAddress: "121.168.32.104",
-        userAgentHash: "mock-user-agent-hash",
-        lastSeenAt: lastActiveToDateTime(user.lastActive) ?? now,
-        current: user.status === "active"
-      },
-      {
-        sessionId: `${user.id}-session-previous`,
-        device: user.device,
-        location: user.location,
-        ipAddress: "211.45.18.72",
-        userAgentHash: "mock-user-agent-hash-prev",
-        lastSeenAt: now,
-        current: false
-      }
-    ],
+    lastActiveAt: recentActivityAt,
+    lastLogin,
+    sessions,
     activities: user.activities.map((activity, index) => ({
       activityId: `${user.id}-activity-${index}`,
       type: "USER_ACTIVITY",
