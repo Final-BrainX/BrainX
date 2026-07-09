@@ -18,6 +18,7 @@ $serviceConfigs = [ordered]@{
         Deployment = 'discovery-service'
         Label = 'discovery-service'
         Secrets = @()
+        ConfigMaps = @()
     }
     gateway = @{
         BuildContext = 'brainX_back\Gateway-Service'
@@ -26,6 +27,7 @@ $serviceConfigs = [ordered]@{
         Deployment = 'gateway-service'
         Label = 'gateway-service'
         Secrets = @('gateway-secret')
+        ConfigMaps = @()
     }
     user = @{
         BuildContext = 'brainX_back\User-Service'
@@ -34,6 +36,7 @@ $serviceConfigs = [ordered]@{
         Deployment = 'user-service'
         Label = 'user-service'
         Secrets = @('gateway-secret', 'postgres-secret')
+        ConfigMaps = @()
     }
     workspace = @{
         BuildContext = 'brainX_back\Workspace-Service'
@@ -42,6 +45,7 @@ $serviceConfigs = [ordered]@{
         Deployment = 'workspace-service'
         Label = 'workspace-service'
         Secrets = @('gateway-secret', 'postgres-secret', 'workspace-secret')
+        ConfigMaps = @()
     }
     admin = @{
         BuildContext = 'brainX_back\Admin-Service'
@@ -50,6 +54,7 @@ $serviceConfigs = [ordered]@{
         Deployment = 'admin-service'
         Label = 'admin-service'
         Secrets = @('gateway-secret', 'postgres-secret', 'admin-service-secret')
+        ConfigMaps = @()
     }
     mcp = @{
         BuildContext = 'brainX_back\Mcp-Service'
@@ -58,6 +63,7 @@ $serviceConfigs = [ordered]@{
         Deployment = 'mcp-service'
         Label = 'mcp-service'
         Secrets = @('gateway-secret', 'postgres-secret', 'mcp-service-secret')
+        ConfigMaps = @('k8s\apps\mcp-service-configmap.yaml')
     }
 }
 
@@ -167,10 +173,20 @@ if (-not (Test-Path $manifestPath)) {
     throw "Kubernetes manifest not found: $manifestPath"
 }
 
+$configMapPaths = @($config.ConfigMaps | ForEach-Object { Join-Path $scriptDir $_ })
+foreach ($configMapPath in $configMapPaths) {
+    if (-not (Test-Path $configMapPath)) {
+        throw "ConfigMap manifest not found: $configMapPath"
+    }
+}
+
 Ensure-Namespace
 Assert-SecretsExist -SecretNames $config.Secrets
 
 Invoke-ExternalCommand -FilePath 'docker' -Arguments @('build', '-t', $config.Image, $buildContext)
+foreach ($configMapPath in $configMapPaths) {
+    Invoke-ExternalCommand -FilePath 'kubectl' -Arguments @('apply', '-f', $configMapPath)
+}
 Invoke-ExternalCommand -FilePath 'kubectl' -Arguments @('apply', '-f', $manifestPath)
 Invoke-ExternalCommand -FilePath 'kubectl' -Arguments @('rollout', 'restart', "deployment/$($config.Deployment)", '-n', $namespace)
 Invoke-ExternalCommand -FilePath 'kubectl' -Arguments @('rollout', 'status', "deployment/$($config.Deployment)", '-n', $namespace)

@@ -70,10 +70,74 @@ spec:
                 secretKeyRef:
                   name: gateway-secret
                   key: SERVICE_TOKEN
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secret
+                  key: JWT_SECRET
             - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
               value: http://discovery-service:8761/eureka/
             - name: EUREKA_INSTANCE_HOSTNAME
               value: user-service
+            # 소셜 로그인(Google/Kakao/Naver) 검증용. Secret이 없거나 값이 비어 있어도
+            # optional이라 Pod 기동은 막지 않고, 로컬에서 소셜 로그인을 쓰지 않으면
+            # user-service-oauth-secret 자체를 만들지 않아도 된다. 다만 그 경우
+            # AuthService.authorizeOAuth()는 application.yml의 placeholder 기본값으로
+            # 동작해 실제 소셜 로그인 콜백은 실패한다.
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-oauth-secret
+                  key: GOOGLE_CLIENT_ID
+                  optional: true
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-oauth-secret
+                  key: GOOGLE_CLIENT_SECRET
+                  optional: true
+            - name: GOOGLE_REDIRECT_URI
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-oauth-secret
+                  key: GOOGLE_REDIRECT_URI
+                  optional: true
+            - name: KAKAO_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-oauth-secret
+                  key: KAKAO_CLIENT_ID
+                  optional: true
+            - name: KAKAO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-oauth-secret
+                  key: KAKAO_CLIENT_SECRET
+                  optional: true
+            - name: KAKAO_REDIRECT_URI
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-oauth-secret
+                  key: KAKAO_REDIRECT_URI
+                  optional: true
+            - name: NAVER_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-oauth-secret
+                  key: NAVER_CLIENT_ID
+                  optional: true
+            - name: NAVER_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-oauth-secret
+                  key: NAVER_CLIENT_SECRET
+                  optional: true
+            - name: NAVER_REDIRECT_URI
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-oauth-secret
+                  key: NAVER_REDIRECT_URI
+                  optional: true
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness

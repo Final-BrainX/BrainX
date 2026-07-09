@@ -91,6 +91,8 @@ Copy-Item .\k8s\secrets\workspace-secret.example.yaml .\k8s\secrets\workspace-se
 Copy-Item .\k8s\secrets\mcp-service-secret.example.yaml .\k8s\secrets\mcp-service-secret.yaml
 Copy-Item .\k8s\secrets\admin-service-secret.example.yaml .\k8s\secrets\admin-service-secret.yaml
 Copy-Item .\k8s\secrets\grafana-secret.example.yaml .\k8s\secrets\grafana-secret.yaml
+# 소셜 로그인을 로컬에서 검증할 때만 필요 (선택)
+Copy-Item .\k8s\secrets\user-service-oauth-secret.example.yaml .\k8s\secrets\user-service-oauth-secret.yaml
 ```
 
 ### 3-1. `gateway-secret.yaml`
@@ -102,11 +104,13 @@ Copy-Item .\k8s\secrets\grafana-secret.example.yaml .\k8s\secrets\grafana-secret
 ```yaml
 stringData:
   SERVICE_TOKEN: CHANGE_ME
+  JWT_SECRET: CHANGE_ME_AT_LEAST_32_BYTE_SECRET
 ```
 
 설명:
 
 - `SERVICE_TOKEN`에는 Gateway와 내부 서비스 간 호출에 사용하는 실제 토큰 값을 넣는다.
+- `JWT_SECRET`에는 Gateway-Service와 User-Service가 토큰 서명/검증에 함께 쓰는 32바이트 이상 실제 값을 넣는다. `workspace-secret`, `admin-service-secret`, `mcp-service-secret`의 `JWT_SECRET`과 반드시 같은 값이어야 한다.
 
 ### 3-2. `postgres-secret.yaml`
 
@@ -142,25 +146,34 @@ stringData:
 - `grafana-secret.yaml`
   - `GF_SECURITY_ADMIN_USER`
   - `GF_SECURITY_ADMIN_PASSWORD`
+- `user-service-oauth-secret.yaml` (선택)
+  - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`
+  - `KAKAO_CLIENT_ID`, `KAKAO_CLIENT_SECRET`, `KAKAO_REDIRECT_URI`
+  - `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`, `NAVER_REDIRECT_URI`
 
 현재 기준:
 
+- `gateway-service`, `user-service` 매니페스트는 `gateway-secret`의 `SERVICE_TOKEN`과 `JWT_SECRET`을 함께 참조한다.
 - `workspace-service` 매니페스트는 `workspace-secret`을 참조한다.
 - `mcp-service` 매니페스트는 `mcp-service-secret`을 참조한다.
 - `admin-service` 매니페스트는 `admin-service-secret`을 참조한다.
 - 따라서 `admin-service`를 실제 apply 하기 전에는 example을 복사한 실제 `admin-service-secret.yaml`을 만들고 먼저 apply 해야 한다.
 - `grafana-secret` example은 Grafana 준비용 자산이다.
+- `user-service` 매니페스트는 `user-service-oauth-secret`의 9개 키를 `optional: true`로 참조한다. Secret이 없으면 해당 env는 주입되지 않고 애플리케이션 기본값(placeholder)으로 fallback하며, Pod 기동 자체는 막지 않는다.
 
 ### 3-4. 실제 값을 어디에 입력하는가
 
 - Gateway 토큰: `k8s/secrets/gateway-secret.yaml`의 `stringData.SERVICE_TOKEN`
+- 공유 JWT 시크릿(Gateway/User): `k8s/secrets/gateway-secret.yaml`의 `stringData.JWT_SECRET`
 - Postgres 사용자명: `k8s/secrets/postgres-secret.yaml`의 `stringData.POSTGRES_USER`
 - Postgres 비밀번호: `k8s/secrets/postgres-secret.yaml`의 `stringData.POSTGRES_PASSWORD`
 - Workspace JWT/Neo4j 비밀번호: `k8s/secrets/workspace-secret.yaml`
 - MCP JWT 시크릿: `k8s/secrets/mcp-service-secret.yaml`
-  - `JWT_SECRET`은 User-Service, Workspace-Service, Admin-Service, Mcp-Service가 공통으로 쓰는 동일 값이어야 한다.
+  - `JWT_SECRET`은 Gateway-Service, User-Service, Workspace-Service, Admin-Service, Mcp-Service가 공통으로 쓰는 동일 값이어야 한다.
 - Admin JWT/메일/시드 관리자 값: `k8s/secrets/admin-service-secret.yaml`
 - Grafana admin 계정: `k8s/secrets/grafana-secret.yaml`
+- (선택) User-Service 소셜 로그인: `k8s/secrets/user-service-oauth-secret.yaml`
+  - Google/Kakao/Naver OAuth client ID/secret/redirect URI. optional Secret이라 만들지 않아도 다른 서비스는 정상 기동하며, 이 경우 소셜 로그인만 placeholder 기본값으로 동작해 실패한다.
 
 ### 3-5. Git에 올리면 안 되는 파일
 
@@ -172,6 +185,7 @@ stringData:
 - `k8s/secrets/mcp-service-secret.yaml`
 - `k8s/secrets/admin-service-secret.yaml`
 - `k8s/secrets/grafana-secret.yaml`
+- `k8s/secrets/user-service-oauth-secret.yaml`
 
 커밋 가능한 파일:
 
@@ -181,6 +195,7 @@ stringData:
 - `k8s/secrets/mcp-service-secret.example.yaml`
 - `k8s/secrets/admin-service-secret.example.yaml`
 - `k8s/secrets/grafana-secret.example.yaml`
+- `k8s/secrets/user-service-oauth-secret.example.yaml`
 
 현재 `.gitignore`는 아래 규칙으로 실제 secret 파일을 제외한다.
 
@@ -206,10 +221,13 @@ stringData:
 - namespace 확인
 - Secret 존재 확인
 - Docker 이미지 빌드
+- (서비스별 ConfigMap이 있으면) ConfigMap apply
 - kubectl apply
 - rollout restart
 - rollout status
 - Pod 상태 확인
+
+`mcp`는 `k8s\apps\mcp-service-configmap.yaml`도 함께 apply한다. `mcp-service.yaml` Deployment가 `envFrom`으로 이 ConfigMap을 참조하므로, ConfigMap 없이 Deployment만 apply하면 Pod가 `CreateContainerConfigError`로 멈춘다.
 
 Workspace와 MCP는 현재 매니페스트 준비됨, 실제 apply 검증 전 상태다.
 
@@ -254,6 +272,7 @@ kubectl apply -f .\k8s\secrets\postgres-secret.yaml
 kubectl apply -f .\k8s\apps\discovery-service.yaml
 kubectl apply -f .\k8s\apps\gateway-service.yaml
 kubectl apply -f .\k8s\apps\user-service.yaml
+kubectl apply -f .\k8s\secrets\admin-service-secret.yaml
 kubectl apply -f .\k8s\apps\admin-service.yaml
 ```
 
@@ -518,6 +537,7 @@ git status --ignored
 ## MCP-Service apply 전 체크리스트
 
 - `k8s/apps/mcp-service.yaml`의 `secretKeyRef.name`이 `postgres-secret`, `gateway-secret`, `mcp-service-secret`을 참조하는지 확인
+- `mcp-service.yaml`의 `envFrom`이 참조하는 `mcp-service-config` ConfigMap(`k8s/apps/mcp-service-configmap.yaml`)이 먼저 apply 되어 있는지 확인. `.\k8s.ps1 mcp`는 이 ConfigMap을 자동으로 함께 apply하지만, `kubectl apply -f .\k8s\apps\mcp-service.yaml`을 직접 쓸 때는 ConfigMap을 빠뜨리면 Pod가 `CreateContainerConfigError`로 멈춘다
 - `k8s/apps/mcp-service-configmap.yaml`의 `PUBLIC_BASE_URL`, `BRAINX_OAUTH_ISSUER`, `BRAINX_MCP_RESOURCE`, `BRAINX_MCP_PROTECTED_RESOURCE_METADATA_URL` 네 값이 같은 공개 origin 계열인지 확인
 - 로컬 Docker Desktop 검증이면 위 공개 URL 4개 값이 `http://localhost:3000` 기준과 일치하는지 확인
 - `k8s/secrets/mcp-service-secret.example.yaml`의 키가 `JWT_SECRET`으로 유지되는지 확인

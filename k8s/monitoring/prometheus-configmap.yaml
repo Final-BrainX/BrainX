@@ -52,13 +52,19 @@ data:
             labels:
               application: Workspace-Service
 
-      - job_name: mcp-service
-        metrics_path: /actuator/prometheus
-        static_configs:
-          - targets:
-              - mcp-service.brainx.svc.cluster.local:8087
-            labels:
-              application: mcp-service
+      # mcp-service is intentionally NOT scraped yet: Mcp-Service currently only
+      # exposes management.endpoints.web.exposure.include: health,info and its
+      # SecurityConfig only permits /actuator/health and /actuator/info, so a
+      # /actuator/prometheus target here would just stay down (404/403).
+      # Re-enable once Mcp-Service adds micrometer-registry-prometheus and
+      # exposes/permits /actuator/prometheus.
+      # - job_name: mcp-service
+      #   metrics_path: /actuator/prometheus
+      #   static_configs:
+      #     - targets:
+      #         - mcp-service.brainx.svc.cluster.local:8087
+      #       labels:
+      #         application: mcp-service
 
       # Future Kubernetes migration targets.
       # Keep these disabled until matching Service objects exist in the same namespace.

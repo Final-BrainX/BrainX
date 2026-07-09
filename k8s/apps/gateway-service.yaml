@@ -30,6 +30,11 @@ spec:
                 secretKeyRef:
                   name: gateway-secret
                   key: SERVICE_TOKEN
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secret
+                  key: JWT_SECRET
             - name: EUREKA_CLIENT_ENABLED
               value: "false"
             - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE

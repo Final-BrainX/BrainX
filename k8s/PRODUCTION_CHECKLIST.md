@@ -70,7 +70,7 @@
   - [ ] SealedSecrets (Bitnami)
   - [ ] External Secrets Operator + AWS Secrets Manager / SSM Parameter Store
   - [ ] HashiCorp Vault
-- [ ] **`JWT_SECRET` 공유 범위 확인**: User / Workspace / Admin / MCP 4개 서비스가 동일 값을 공유 → 운영 시크릿 회전(rotation) 시 4개 동시 반영 절차 문서화
+- [ ] **`JWT_SECRET` 공유 범위 확인**: Gateway / User / Workspace / Admin / MCP 5개 서비스가 동일 값을 공유 → 운영 시크릿 회전(rotation) 시 5개 동시 반영 절차 문서화
 - [ ] **`SERVICE_TOKEN`(gateway-secret)** 운영값 신규 발급 (로컬 검증값 재사용 금지)
 - [ ] **Postgres 계정**(`postgres-secret`) 운영 전용 계정/비밀번호로 분리
 - [ ] **Git 이력 유출 점검**: README/SETUP 경고대로, 과거 커밋에 토큰/비밀번호가 들어간 적 있으면 **파일 수정만으로 불충분** → 운영 전 전량 재발급

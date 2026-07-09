@@ -18,8 +18,8 @@ Helm 설계는 아래 "지금 존재하는 리소스"를 그대로 반영하는 
 | 서비스 | 파일 | 구성 리소스 | 포트 | ConfigMap | 참조 Secret | 특이사항 |
 |---|---|---|---|---|---|---|
 | Discovery | `discovery-service.yaml` | Deployment + Service | 8761 | 없음(inline env) | 없음 | Eureka 서버 |
-| Gateway | `gateway-service.yaml` | Deployment + Service | 8088 | 없음(inline env) | `gateway-secret` | Eureka client 비활성, `SPRING_APPLICATION_JSON` 정적 discovery |
-| User | `user-service.yaml` | Deployment + Service | 8080 | 없음(inline env) | `postgres-secret`, `gateway-secret` | `startupProbe` 사용 |
+| Gateway | `gateway-service.yaml` | Deployment + Service | 8088 | 없음(inline env) | `gateway-secret`(`SERVICE_TOKEN`, `JWT_SECRET`) | Eureka client 비활성, `SPRING_APPLICATION_JSON` 정적 discovery |
+| User | `user-service.yaml` | Deployment + Service | 8080 | 없음(inline env) | `postgres-secret`, `gateway-secret`(`SERVICE_TOKEN`, `JWT_SECRET`), `user-service-oauth-secret`(선택) | `startupProbe` 사용 |
 | Admin | `admin-service.yaml` | ConfigMap + Deployment + Service | 8085 | `admin-service-config` (동일 파일 내) | `postgres-secret`, `gateway-secret`, `admin-service-secret` | Kafka 의존 |
 | Workspace | `workspace-service.yaml` | ConfigMap + Deployment + Service | 8082 | `workspace-service-config` (동일 파일 내) | `postgres-secret`, `gateway-secret`, `workspace-secret` | Neo4j 백필, readiness=db+redis |
 | MCP | `mcp-service.yaml` + `mcp-service-configmap.yaml` | Deployment + Service (+ 분리된 ConfigMap 파일) | 8087 | `mcp-service-config` (별도 파일) | `postgres-secret`, `gateway-secret`, `mcp-service-secret` | `startupProbe`, OAuth issuer/resource |
@@ -38,7 +38,7 @@ Helm 설계는 아래 "지금 존재하는 리소스"를 그대로 반영하는 
 | Prometheus | `prometheus.yaml` + `prometheus-configmap.yaml` | Deployment + Service + ConfigMap | 9090 | 없음 | `emptyDir` (휘발) |
 | Grafana | `grafana.yaml` + `grafana-configmap.yaml` | Deployment + Service + ConfigMap | 3000 | `grafana-secret` | `emptyDir` (휘발) |
 
-- Prometheus는 `<svc>.brainx.svc.cluster.local:<port>` static target으로 스크레이프한다. 현재 활성 대상은 user/gateway/admin/workspace/mcp. ingestion/commerce/intelligence는 주석 처리된 미래 대상이다.
+- Prometheus는 `<svc>.brainx.svc.cluster.local:<port>` static target으로 스크레이프한다. 현재 활성 대상은 user/gateway/admin/workspace. mcp는 `/actuator/prometheus`를 아직 노출하지 않아 주석 처리했고, ingestion/commerce/intelligence는 Service 자체가 없어 주석 처리된 미래 대상이다.
 - Grafana는 datasource/dashboard provisioning을 ConfigMap subPath 마운트로 주입한다.
 
 ### 0.3 Secret 인벤토리 (`k8s/secrets/`, example만 Git 추적)
@@ -46,13 +46,14 @@ Helm 설계는 아래 "지금 존재하는 리소스"를 그대로 반영하는 
 | Secret | 키 | 공유 범위 |
 |---|---|---|
 | `postgres-secret` | `POSTGRES_USER`, `POSTGRES_PASSWORD` | User, Admin, Workspace, MCP 공유 |
-| `gateway-secret` | `SERVICE_TOKEN` | Gateway, User, Admin, Workspace, MCP 공유 |
+| `gateway-secret` | `SERVICE_TOKEN`, `JWT_SECRET` | Gateway, User, Admin, Workspace, MCP 공유 (`JWT_SECRET`은 Gateway/User가 참조) |
 | `workspace-secret` | `JWT_SECRET`, `NEO4J_PASSWORD` | Workspace 전용 |
 | `admin-service-secret` | `JWT_SECRET`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `SEED_ADMIN_LOGIN_ID`, `SEED_ADMIN_PASSWORD`, `SEED_ADMIN_NAME` | Admin 전용 |
 | `mcp-service-secret` | `JWT_SECRET` | MCP 전용 |
 | `grafana-secret` | `GF_SECURITY_ADMIN_USER`, `GF_SECURITY_ADMIN_PASSWORD` | Grafana 전용 |
+| `user-service-oauth-secret` (선택) | `GOOGLE_CLIENT_ID`/`SECRET`/`REDIRECT_URI`, `KAKAO_*`, `NAVER_*` | User 전용, 모든 키 `optional: true` |
 
-**핵심 제약**: `postgres-secret`, `gateway-secret`은 여러 서비스가 공유한다. 또한 `JWT_SECRET`은 User/Workspace/Admin/MCP가 **동일한 값**이어야 토큰 검증이 맞는다(`workspace-secret`, `admin-service-secret`, `mcp-service-secret`에 각각 존재하지만 값은 같아야 함). Helm 설계는 이 "공유 Secret" 특성을 반드시 보존해야 한다.
+**핵심 제약**: `postgres-secret`, `gateway-secret`은 여러 서비스가 공유한다. 또한 `JWT_SECRET`은 Gateway/User/Workspace/Admin/MCP가 **동일한 값**이어야 토큰 검증이 맞는다(`gateway-secret`, `workspace-secret`, `admin-service-secret`, `mcp-service-secret`에 각각 존재하지만 값은 같아야 함). Helm 설계는 이 "공유 Secret" 특성을 반드시 보존해야 한다.
 
 ---
 
@@ -167,6 +168,7 @@ services:
       # SPRING_APPLICATION_JSON 은 downstreamHost 로 렌더링 (2.3 참조)
     secretEnv:
       - { name: SERVICE_TOKEN, secret: gateway, key: SERVICE_TOKEN }
+      - { name: JWT_SECRET,    secret: gateway, key: JWT_SECRET }
     probes:
       readiness: { path: /actuator/health, initialDelaySeconds: 30, periodSeconds: 10, timeoutSeconds: 5, failureThreshold: 6 }
       liveness:  { path: /actuator/health, initialDelaySeconds: 60, periodSeconds: 20, timeoutSeconds: 5, failureThreshold: 3 }
@@ -190,6 +192,9 @@ services:
       - { name: POSTGRES_USER,     secret: postgres, key: POSTGRES_USER }
       - { name: POSTGRES_PASSWORD, secret: postgres, key: POSTGRES_PASSWORD }
       - { name: SERVICE_TOKEN,     secret: gateway,  key: SERVICE_TOKEN }
+      - { name: JWT_SECRET,        secret: gateway,  key: JWT_SECRET }
+      # GOOGLE_/KAKAO_/NAVER_* client id/secret/redirect uri는 user-service-oauth-secret에서
+      # optional로 주입 (Secret 없으면 env 자체가 생략되고 애플리케이션 기본값으로 fallback)
     probes:
       startup:   { path: /actuator/health/liveness, periodSeconds: 10, timeoutSeconds: 5, failureThreshold: 18 }
       readiness: { path: /actuator/health/readiness, initialDelaySeconds: 40, periodSeconds: 10, timeoutSeconds: 5, failureThreshold: 6 }

@@ -65,9 +65,11 @@ Copy-Item .\k8s\secrets\postgres-secret.example.yaml .\k8s\secrets\postgres-secr
 
 - `gateway-secret.yaml`
   - `SERVICE_TOKEN`: Gateway, User, Admin 간 내부 호출용 토큰
+  - `JWT_SECRET`: Gateway-Service와 User-Service가 공유하는 서명 시크릿 (Workspace/Admin/MCP의 `JWT_SECRET`과 동일 값이어야 함)
 - `postgres-secret.yaml`
   - `POSTGRES_USER`
   - `POSTGRES_PASSWORD`
+- `admin-service.yaml`을 apply하려면 `admin-service-secret.yaml`도 먼저 만들어 apply해야 한다(아래 "kubectl apply" 순서 참고).
 
 주의:
 
@@ -95,19 +97,21 @@ kubectl apply -f .\k8s\namespace.yaml
 kubectl apply -f .\k8s\secrets\gateway-secret.yaml
 kubectl apply -f .\k8s\secrets\postgres-secret.yaml
 kubectl apply -f .\k8s\apps\discovery-service.yaml
-kubectl apply -f .\k8s\apps\admin-service.yaml
 kubectl apply -f .\k8s\apps\gateway-service.yaml
 kubectl apply -f .\k8s\apps\user-service.yaml
+kubectl apply -f .\k8s\secrets\admin-service-secret.yaml
+kubectl apply -f .\k8s\apps\admin-service.yaml
 ```
 
 권장 순서:
 
 1. `namespace.yaml`
-2. `k8s/secrets/*.yaml`
+2. `k8s/secrets/*.yaml` (Admin은 `admin-service-secret.yaml`이 별도로 필요)
 3. `discovery-service.yaml`
 4. `gateway-service.yaml`
 5. `user-service.yaml`
-6. `admin-service.yaml`
+6. `admin-service-secret.yaml` (Admin 전용, `admin-service.yaml`보다 먼저)
+7. `admin-service.yaml`
 
 ## 리소스 삭제
 
@@ -241,13 +245,16 @@ Kubernetes 준비 매니페스트의 연결 방식:
 - Workspace-Service: `http://host.docker.internal:8082`
 - Postgres credentials: `postgres-secret` 의 `POSTGRES_USER`, `POSTGRES_PASSWORD`
 - Service Token: `gateway-secret` 의 `SERVICE_TOKEN`
+- JWT 시크릿: `gateway-secret` 의 `JWT_SECRET` (Gateway-Service와 공유)
+- 소셜 로그인(선택): `user-service-oauth-secret` 의 Google/Kakao/Naver client ID/secret/redirect URI (모두 `optional: true`)
 
 주의:
 
 - User-Service 는 stateless 애플리케이션이지만, readiness 는 DB 와 Redis 상태에 직접 영향받는다.
 - Workspace-Service 가 내려가 있어도 Pod 가 기동될 수는 있지만, 회원가입/온보딩 직후 default workspace 생성이 실패할 수 있다.
 - `host.docker.internal` 경로는 Docker Desktop Kubernetes 로컬 검증에서는 유효하지만 다른 Kubernetes 환경에서는 그대로 동작하지 않을 수 있다.
-- User-Service 의 Postgres 계정과 `SERVICE_TOKEN`은 각각 `postgres-secret`, `gateway-secret` 에서 주입한다.
+- User-Service 의 Postgres 계정, `SERVICE_TOKEN`, `JWT_SECRET`은 각각 `postgres-secret`, `gateway-secret`에서 주입한다.
+- `user-service-oauth-secret`이 없거나 값이 비어 있으면 Pod 기동은 그대로 되지만, `AuthService.authorizeOAuth()`가 `application.yml`의 placeholder 기본값(`your_google_client_id` 등)으로 동작해 소셜 로그인만 실패한다.
 
 ## Admin-Service 전환 메모
 
@@ -306,7 +313,7 @@ Kubernetes 준비 매니페스트의 연결 방식:
 - Gateway 코드 자체는 Eureka 주소를 Kubernetes Discovery 로 연결할 수 있지만, 그것만으로는 Compose 서비스 라우팅이 보장되지 않는다.
 - 이번 매니페스트는 Eureka 기반 운영 전환이 아니라, Gateway Pod 를 Kubernetes 에서 띄운 뒤 Compose 앱 서비스로 프록시 가능한지 확인하는 로컬 준비 단계다.
 - [brainX_back/Gateway-Service/src/main/resources/application.yml](/C:/Edu/Final_Project/BrainX/brainX_back/Gateway-Service/src/main/resources/application.yml) 의 `lb://서비스명`과 `k8s/apps/gateway-service.yaml` 의 Spring Simple Discovery `instances` key 는 대소문자까지 100% 일치해야 한다.
-- `SERVICE_TOKEN`은 더 이상 매니페스트에 평문으로 두지 않고 `gateway-secret` 에서 주입한다.
+- `SERVICE_TOKEN`, `JWT_SECRET`은 더 이상 매니페스트에 평문으로 두지 않고 `gateway-secret` 에서 주입한다. Gateway의 전역 인증 필터가 `brainx.jwt.secret`으로 Bearer 토큰을 검증하므로, User-Service가 서명하는 토큰과 같은 `JWT_SECRET`이어야 한다.
 - `mcp-service`를 Kubernetes에 먼저 올려도 Gateway가 즉시 그 Pod를 쓰는 것은 아니다. 현재 Gateway 정적 매핑은 여전히 `http://host.docker.internal:8087` 을 바라보므로, Gateway cutover 전까지는 direct `port-forward` 또는 `svc/mcp-service` 기준으로 따로 검증해야 한다.
 - `host.docker.internal` 경로는 Docker Desktop 에서는 유효하지만 모든 Kubernetes 환경에서 동일하게 동작하지 않는다.
 - Compose 의 대상 앱 서비스 중 하나라도 내려가 있으면 해당 라우트만 5xx/fallback 으로 보일 수 있다.
@@ -415,16 +422,19 @@ Copy-Item .\k8s\secrets\mcp-service-secret.example.yaml .\k8s\secrets\mcp-servic
 ```
 
 - `mcp-service-secret.yaml`
-  - `JWT_SECRET`: User-Service, Workspace-Service, Admin-Service, Mcp-Service가 공통으로 쓰는 실제 서명 시크릿
+  - `JWT_SECRET`: Gateway-Service, User-Service, Workspace-Service, Admin-Service, Mcp-Service가 공통으로 쓰는 실제 서명 시크릿
 - example 파일만 Git 추적 대상이며 실제 `mcp-service-secret.yaml`은 `.gitignore`(`k8s/secrets/*.yaml`)로 제외된다.
 
 적용/검증(참고):
 
 ```powershell
 kubectl apply -f .\k8s\secrets\mcp-service-secret.yaml
+kubectl apply -f .\k8s\apps\mcp-service-configmap.yaml
 kubectl apply -f .\k8s\apps\mcp-service.yaml
 kubectl -n brainx port-forward svc/mcp-service 18087:8087
 ```
+
+`mcp-service.yaml`은 `envFrom`으로 `mcp-service-config` ConfigMap을 참조하므로, `mcp-service-configmap.yaml`을 먼저(또는 같이) apply해야 한다. `.\k8s.ps1 mcp`를 쓰면 이 ConfigMap apply까지 자동으로 처리된다.
 
 - MCP Health: `http://localhost:18087/actuator/health`
 - MCP Whoami: `http://localhost:18087/api/v1/mcp/whoami`
@@ -432,7 +442,7 @@ kubectl -n brainx port-forward svc/mcp-service 18087:8087
 주의:
 
 - 현재 `k8s/apps/mcp-service-configmap.yaml`의 OAuth 공개 origin은 로컬 검증 기준 `http://localhost:3000`으로 맞췄다. 비로컬/실운영 apply 전에는 User-Service와 Mcp-Service 양쪽에 동일한 실제 공개 origin으로 함께 바꿔야 한다.
-- `JWT_SECRET` 값이 User-Service와 다르면 `/mcp`와 `GET /api/v1/mcp/whoami`의 OAuth access token 검증이 실패한다.
+- `JWT_SECRET` 값이 User-Service(및 Gateway-Service)와 다르면 `/mcp`와 `GET /api/v1/mcp/whoami`의 OAuth access token 검증이 실패한다.
 - `BRAINX_OAUTH_ISSUER` 또는 `BRAINX_MCP_RESOURCE`가 User-Service 발급값과 다르면 서명키가 같아도 token `iss/resource` 검증이 실패한다.
 - `gateway-service`는 아직 `mcp-service -> http://host.docker.internal:8087` 정적 매핑을 사용한다. 따라서 Mcp-Service를 Kubernetes에 적용해도 Gateway 경유 트래픽은 즉시 새 Pod로 넘어가지 않는다.
 - 단계적 전환은 `1) mcp-service` direct 검증 -> `2) gateway-service`의 `mcp-service` 정적 매핑을 `http://mcp-service:8087`로 전환 -> `3) Compose mcp-service` 중단 순서가 안전하다.
@@ -462,7 +472,8 @@ kubectl -n brainx port-forward svc/mcp-service 18087:8087
 
 현재 `k8s/monitoring/*`은 Docker Desktop 기반 로컬 검증용 준비 자산이다.
 
-- `prometheus-configmap.yaml`의 active scrape 대상은 현재 `brainx` namespace에 Service가 준비된 `user-service`, `gateway-service`, `admin-service`, `workspace-service`, `mcp-service`만 포함한다.
+- `prometheus-configmap.yaml`의 active scrape 대상은 현재 `brainx` namespace에 Service가 준비되고 `/actuator/prometheus`를 실제로 노출하는 `user-service`, `gateway-service`, `admin-service`, `workspace-service`만 포함한다.
+- `mcp-service`는 Service는 있지만 `management.endpoints.web.exposure.include`가 `health,info`뿐이고 `SecurityConfig`도 `/actuator/health`, `/actuator/info`만 허용해 `/actuator/prometheus`를 노출하지 않는다. 그래서 scrape job은 주석 처리로 비활성화해 뒀다. Mcp-Service가 `micrometer-registry-prometheus`를 추가하고 endpoint를 열면 다시 활성화한다.
 - `ingestion-service`, `commerce-service`, `intelligence-service`는 아직 Kubernetes Service 매니페스트가 없으므로 scrape 대상에서 계속 제외한다.
 - Grafana admin 계정은 `k8s/secrets/grafana-secret.yaml`에서만 주입하며, 실제 Secret 값은 저장소에 커밋하지 않는다.
 - `k8s/monitoring/prometheus.yaml`, `k8s/monitoring/grafana.yaml`의 `emptyDir` 볼륨은 로컬 검증 전용이다. Pod 재생성 시 Prometheus TSDB, Grafana 상태, 임시 dashboard 파일은 모두 사라진다.
@@ -472,7 +483,7 @@ kubectl -n brainx port-forward svc/mcp-service 18087:8087
 
 - `k8s/secrets/grafana-secret.example.yaml`의 키(`GF_SECURITY_ADMIN_USER`, `GF_SECURITY_ADMIN_PASSWORD`)와 `k8s/monitoring/grafana.yaml`의 `secretKeyRef`가 동일한지 확인
 - `brainx` namespace가 먼저 생성되어 있는지 확인
-- `user-service`, `gateway-service`, `admin-service`, `workspace-service`, `mcp-service` Service가 `brainx` namespace에 실제로 존재하는지 확인
+- `user-service`, `gateway-service`, `admin-service`, `workspace-service` Service가 `brainx` namespace에 실제로 존재하는지 확인
 - 각 서비스가 `/actuator/prometheus`를 실제로 노출하는지 런타임에서 확인
 - `k8s/secrets/grafana-secret.yaml` 실제 파일을 example에서 복사해 만들었는지 확인
 - 실제 Secret 파일이 Git 추적 대상에 포함되지 않았는지 확인
