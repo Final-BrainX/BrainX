@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import com.brainx.intelligence.settings.application.port.outbound.AiModelCatalogPort;
@@ -63,6 +64,23 @@ class ExternalSearchConfigurationTest {
                 assertThat(context).hasSingleBean(ExternalSearchPort.class);
                 assertThat(context.getBean(ExternalSearchPort.class)).isInstanceOf(OpenAiExternalSearchAdapter.class);
             });
+    }
+
+    @Test
+    void defaultsWebSearchModelToGpt54Mini() {
+        contextRunner
+            .withInitializer(new ConfigDataApplicationContextInitializer())
+            .run(context -> assertThat(context.getBean(ExternalSearchProperties.class).getOpenai().getModel())
+                .isEqualTo("gpt-5.4-mini"));
+    }
+
+    @Test
+    void explicitEnvironmentModelOverridesApplicationDefault() {
+        contextRunner
+            .withInitializer(new ConfigDataApplicationContextInitializer())
+            .withPropertyValues("OPENAI_WEB_SEARCH_MODEL=gpt-explicit-override")
+            .run(context -> assertThat(context.getBean(ExternalSearchProperties.class).getOpenai().getModel())
+                .isEqualTo("gpt-explicit-override"));
     }
 
     private static final class FakeTokenUsagePort implements TokenUsagePort {
