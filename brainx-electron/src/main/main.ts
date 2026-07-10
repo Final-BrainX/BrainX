@@ -78,6 +78,7 @@ const electronProcess = process as NodeJS.Process & {
 };
 
 const WINDOWS_TITLE_BAR_OVERLAY_HEIGHT = 36;
+const WINDOWS_TITLE_BAR_CONTROL_WIDTH = 140;
 
 function getWindowChromeOptions() {
   if (process.platform !== "win32") {
@@ -93,6 +94,35 @@ function getWindowChromeOptions() {
     },
     backgroundColor: "#eef1ff",
   };
+}
+
+function installWindowsTitleBarDragRegion(window: BrowserWindow) {
+  if (process.platform !== "win32") return;
+
+  void window.webContents.executeJavaScript(`
+    (() => {
+      if (document.querySelector('.brainx-desktop-drag-region')) return;
+      if (document.getElementById('brainx-electron-titlebar-drag-region')) return;
+
+      const region = document.createElement('div');
+      region.id = 'brainx-electron-titlebar-drag-region';
+      region.setAttribute('aria-hidden', 'true');
+      region.style.cssText = [
+        'position:fixed',
+        'top:0',
+        'left:0',
+        'right:${WINDOWS_TITLE_BAR_CONTROL_WIDTH}px',
+        'height:${WINDOWS_TITLE_BAR_OVERLAY_HEIGHT}px',
+        'z-index:2147483646',
+        'background:transparent',
+        'user-select:none',
+      ].join(';');
+      region.style.setProperty('-webkit-app-region', 'drag');
+      document.body.appendChild(region);
+    })();
+  `).catch((error: unknown) => {
+    console.warn('[brainx-electron] Failed to install title-bar drag region.', error);
+  });
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -2092,6 +2122,7 @@ async function createMainWindow() {
   attachNavigationPolicy(window);
   hardenContents(window.webContents);
   window.webContents.openDevTools({ mode: "detach" });
+  window.webContents.on("did-finish-load", () => installWindowsTitleBarDragRegion(window));
 
   window.once("ready-to-show", () => window.show());
   window.on("closed", () => {
