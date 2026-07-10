@@ -87,7 +87,7 @@ type StyleProfileBase = {
 const OAUTH_LINK_INTENT_KEY = "brainx_oauth_link_intent_v1";
 const PROVIDERS: SocialProvider[] = ["google", "kakao", "naver"];
 const CONVERSATION_TONE_KEYS = ["speechLevel", "warmth", "directness", "verbosity", "emoji"] as const;
-const WRITING_STYLE_SCALAR_KEYS = ["speechLevel", "defaultAudience", "defaultPurpose", "formality", "informationDensity", "sentenceLength"] as const;
+const WRITING_STYLE_SCALAR_KEYS = ["speechLevel", "formality", "informationDensity", "sentenceLength"] as const;
 type ConversationToneKey = (typeof CONVERSATION_TONE_KEYS)[number];
 type WritingStyleScalarKey = (typeof WRITING_STYLE_SCALAR_KEYS)[number];
 type StylePresetOption = { value: string; label: string };
@@ -397,8 +397,6 @@ function emptyStyleDraft(): StyleDraft {
     },
     writingStyle: {
       speechLevel: "",
-      defaultAudience: "",
-      defaultPurpose: "",
       formality: "",
       informationDensity: "",
       sentenceLength: "",
@@ -480,6 +478,9 @@ function applyManagedStyleValue(target: StyleProfileMap, key: string, value: str
 function stylePayloadFromDraft(base: StyleProfileBase, draft: StyleDraft): StyleProfilePutRequest {
   const conversationTone: StyleProfileMap = { ...base.conversationTone };
   const writingStyle: StyleProfileMap = { ...base.writingStyle };
+
+  delete writingStyle.defaultAudience;
+  delete writingStyle.defaultPurpose;
 
   for (const key of CONVERSATION_TONE_KEYS) {
     applyManagedStyleValue(conversationTone, key, normalizePresetStyleValue(draft.conversationTone[key], conversationToneOptions(key)));

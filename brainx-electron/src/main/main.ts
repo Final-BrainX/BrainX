@@ -105,6 +105,7 @@ function installWindowsTitleBarDragRegion(window: BrowserWindow) {
       if (document.getElementById('brainx-electron-titlebar-drag-region')) return;
 
       const region = document.createElement('div');
+      const host = document.querySelector('.brainx-app-shell') ?? document.body;
       region.id = 'brainx-electron-titlebar-drag-region';
       region.setAttribute('aria-hidden', 'true');
       region.style.cssText = [
@@ -113,12 +114,12 @@ function installWindowsTitleBarDragRegion(window: BrowserWindow) {
         'left:0',
         'right:${WINDOWS_TITLE_BAR_CONTROL_WIDTH}px',
         'height:${WINDOWS_TITLE_BAR_OVERLAY_HEIGHT}px',
-        'z-index:2147483646',
+        'z-index:16',
         'background:transparent',
         'user-select:none',
       ].join(';');
       region.style.setProperty('-webkit-app-region', 'drag');
-      document.body.appendChild(region);
+      host.appendChild(region);
     })();
   `).catch((error: unknown) => {
     console.warn('[brainx-electron] Failed to install title-bar drag region.', error);
