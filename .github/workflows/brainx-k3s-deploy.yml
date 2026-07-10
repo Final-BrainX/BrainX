@@ -1,0 +1,636 @@
+name: BrainX K3s PoC Deploy
+
+# EC2+k3s PoC 전용 수동 배포 workflow.
+# 기존 brainx-dev-deploy.yml(운영 EC2, Docker Compose 기반)과 완전히 분리된 별도 파일이며,
+# 운영 EC2 관련 변수/Secret/Instance ID는 전혀 참조하지 않는다.
+# 설계 근거: k8s/EC2_K3S_MIGRATION_PLAN.md 7장, k8s/EC2_K3S_RUNBOOK.md, k8s/KUSTOMIZE_OVERLAY_DESIGN.md
+#
+# Job 구조:
+#   guard         -> confirm_target/변수/image_tag 검증 (AWS 인증 없음)
+#   build         -> skip_build=false일 때만: 9개 서비스 matrix build/push
+#   check_images  -> skip_build=true일 때만: 9개 repo에서 image_tag 존재만 확인(재빌드/태그 덮어쓰기 없음)
+#   prepare       -> Kustomize 렌더/검증 + 배포 번들 생성 (EC2 미접근, Environment 게이트 없음)
+#   deploy        -> deploy=true일 때만: S3 업로드 + SSM 배포 + rollout + smoke test (environment: k3s-poc)
+#
+# namespace는 이번 PoC 범위에서 "brainx"로 고정한다(k8s/apps/*.yaml이 metadata.namespace: brainx를
+# 하드코딩하고 있어 입력값으로 바꿔도 실제로 반영되지 않기 때문). 멀티 namespace 지원은 범위 밖이며,
+# 지원하려면 Kubernetes 매니페스트/Kustomize 쪽 변경이 먼저 필요하다(이 workflow의 범위 밖).
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "ECR image tag to deploy (e.g. sha-abcdef1). With skip_build=true, this tag must already exist in all 9 ECR repos."
+        required: true
+        type: string
+      skip_build:
+        description: "기존 ECR 이미지를 재사용할지 여부 (true = build 생략, image_tag 존재만 확인 = 정확한 롤백)"
+        required: false
+        default: false
+        type: boolean
+      confirm_target:
+        description: "Type exactly K3S_POC_DEPLOY to allow this run to proceed."
+        required: true
+        type: string
+      deploy:
+        description: "true = SSM으로 실제 배포까지 진행(k3s-poc Environment 승인 필요). false = 빌드/렌더/검증까지만(승인 불필요)."
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: brainx-k3s-deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_K3S_REGION }}
+  AWS_ROLE_TO_ASSUME: ${{ vars.AWS_K3S_ROLE_TO_ASSUME }}
+  AWS_K3S_INSTANCE_ID: ${{ vars.AWS_K3S_INSTANCE_ID }}
+  AWS_K3S_ARTIFACT_BUCKET: ${{ vars.AWS_K3S_ARTIFACT_BUCKET }}
+  AWS_K3S_SSM_PARAMETER_PREFIX: ${{ vars.AWS_K3S_SSM_PARAMETER_PREFIX }}
+  AWS_K3S_GATEWAY_BASE_URL: ${{ vars.AWS_K3S_GATEWAY_BASE_URL }}
+  # PoC 범위 고정값 (GitHub Variable 아님). k8s/apps/*.yaml의 metadata.namespace가 전부 "brainx"로
+  # 하드코딩되어 있어 workflow에서도 동일하게 고정한다. 멀티 namespace 지원은 범위 밖.
+  NAMESPACE: "brainx"
+
+jobs:
+  guard:
+    name: Validate manual trigger
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.resolve.outputs.image_tag }}
+    steps:
+      - name: Enforce confirm_target literal
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.confirm_target }}" != "K3S_POC_DEPLOY" ]; then
+            echo "confirm_target must be exactly 'K3S_POC_DEPLOY'. Refusing to proceed." >&2
+            exit 1
+          fi
+          echo "confirm_target verified."
+
+      - name: Verify required GitHub Variables are set
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            AWS_REGION \
+            AWS_ROLE_TO_ASSUME \
+            AWS_K3S_INSTANCE_ID \
+            AWS_K3S_ARTIFACT_BUCKET \
+            AWS_K3S_SSM_PARAMETER_PREFIX \
+            AWS_K3S_GATEWAY_BASE_URL; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "Missing required GitHub repository variables for this workflow:" >&2
+            printf ' - %s\n' "${missing[@]}" >&2
+            echo "These are k3s-PoC-only variables (AWS_K3S_*) and must never fall back to the existing AWS_DEV_* / AWS_ROLE_TO_ASSUME values used by brainx-dev-deploy.yml." >&2
+            exit 1
+          fi
+          echo "All required GitHub Variables are present."
+
+      - name: Resolve image tag
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          IMAGE_TAG="${{ inputs.image_tag }}"
+          if [ -z "$IMAGE_TAG" ]; then
+            echo "image_tag input is required and cannot be empty." >&2
+            exit 1
+          fi
+          if ! [[ "$IMAGE_TAG" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$ ]]; then
+            echo "image_tag '$IMAGE_TAG' is not a valid Docker tag (allowed: [a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127})." >&2
+            exit 1
+          fi
+
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved image_tag=$IMAGE_TAG (skip_build=${{ inputs.skip_build }})"
+
+  build:
+    name: Build and push ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: guard
+    if: ${{ inputs.skip_build == false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - discovery-service
+          - gateway-service
+          - user-service
+          - workspace-service
+          - admin-service
+          - mcp-service
+          - ingestion-service
+          - commerce-service
+          - intelligence-service
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Resolve build context
+        id: ctx
+        shell: bash
+        env:
+          SERVICE: ${{ matrix.service }}
+        run: |
+          set -euo pipefail
+
+          # Build context / Dockerfile mapping mirrors .github/workflows/brainx-dev-deploy.yml
+          # (that file is read-only reference here, never modified by this workflow).
+          case "$SERVICE" in
+            discovery-service)
+              CONTEXT="brainX_back/Discovery-Service"
+              DOCKERFILE="brainX_back/Discovery-Service/Dockerfile"
+              ;;
+            gateway-service)
+              CONTEXT="brainX_back/Gateway-Service"
+              DOCKERFILE="brainX_back/Gateway-Service/Dockerfile"
+              ;;
+            user-service)
+              CONTEXT="brainX_back/User-Service"
+              DOCKERFILE="brainX_back/User-Service/Dockerfile"
+              ;;
+            workspace-service)
+              CONTEXT="brainX_back/Workspace-Service"
+              DOCKERFILE="brainX_back/Workspace-Service/Dockerfile"
+              ;;
+            admin-service)
+              CONTEXT="brainX_back/Admin-Service"
+              DOCKERFILE="brainX_back/Admin-Service/Dockerfile"
+              ;;
+            mcp-service)
+              CONTEXT="brainX_back/Mcp-Service"
+              DOCKERFILE="brainX_back/Mcp-Service/Dockerfile"
+              ;;
+            ingestion-service)
+              CONTEXT="brainX_back/Ingestion-Service"
+              DOCKERFILE="brainX_back/Ingestion-Service/Dockerfile"
+              ;;
+            commerce-service)
+              CONTEXT="brainX_back/Commerce-Service"
+              DOCKERFILE="brainX_back/Commerce-Service/Dockerfile"
+              ;;
+            intelligence-service)
+              CONTEXT="brainX_back/Intelligence-Service"
+              DOCKERFILE="infra/aws-dev/dockerfiles/intelligence-service.Dockerfile"
+              ;;
+            *)
+              echo "Unknown service: $SERVICE" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "context=$CONTEXT" >> "$GITHUB_OUTPUT"
+          echo "dockerfile=$DOCKERFILE" >> "$GITHUB_OUTPUT"
+
+      - name: Verify ECR repository exists
+        shell: bash
+        env:
+          REPO_NAME: brainx-${{ matrix.service }}
+        run: |
+          set -euo pipefail
+          # Repo name (brainx-<service>, no "-dev-"/"-k3s-" prefix) must match the "name:"/"newName:"
+          # pair in k8s/overlays/dev/kustomization.yaml's images transformer exactly, since that file
+          # is not modified by this workflow.
+          if ! aws ecr describe-repositories --repository-names "$REPO_NAME" --region "$AWS_REGION" >/dev/null 2>&1; then
+            echo "Missing or inaccessible ECR repository: $REPO_NAME" >&2
+            echo "Create it (e.g. 'aws ecr create-repository --repository-name $REPO_NAME --region $AWS_REGION') before running this workflow." >&2
+            echo "This repo is expected to be separate from the existing brainx-dev-* repositories used by brainx-dev-deploy.yml." >&2
+            exit 1
+          fi
+
+      - name: Build and push image
+        shell: bash
+        env:
+          SERVICE: ${{ matrix.service }}
+          DOCKERFILE: ${{ steps.ctx.outputs.dockerfile }}
+          CONTEXT: ${{ steps.ctx.outputs.context }}
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ needs.guard.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+
+          SHA_TAG="sha-${GITHUB_SHA:0:7}"
+          IMAGE_URI="$ECR_REGISTRY/brainx-$SERVICE"
+          CACHE_SCOPE="brainx-k3s-$SERVICE"
+
+          # No explicit --provenance/--sbom flags: matches the existing docker buildx build
+          # invocation in brainx-dev-deploy.yml (buildx defaults, unchanged here).
+          docker buildx build \
+            --progress=plain \
+            --push \
+            -f "$DOCKERFILE" \
+            -t "$IMAGE_URI:$IMAGE_TAG" \
+            -t "$IMAGE_URI:$SHA_TAG" \
+            --cache-from "type=gha,scope=$CACHE_SCOPE" \
+            --cache-to "type=gha,mode=max,scope=$CACHE_SCOPE" \
+            "$CONTEXT"
+
+          echo "Pushed $IMAGE_URI:$IMAGE_TAG and $IMAGE_URI:$SHA_TAG (no 'latest' tag created)."
+
+  check_images:
+    name: Verify existing image ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: guard
+    if: ${{ inputs.skip_build == true }}
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - discovery-service
+          - gateway-service
+          - user-service
+          - workspace-service
+          - admin-service
+          - mcp-service
+          - ingestion-service
+          - commerce-service
+          - intelligence-service
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+
+      - name: Verify image exists in ECR (no rebuild, no tag overwrite)
+        shell: bash
+        env:
+          REPO_NAME: brainx-${{ matrix.service }}
+          IMAGE_TAG: ${{ needs.guard.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          if ! aws ecr describe-images \
+                --repository-name "$REPO_NAME" \
+                --image-ids imageTag="$IMAGE_TAG" \
+                --region "$AWS_REGION" >/dev/null 2>&1; then
+            echo "skip_build=true but no matching image was found: $REPO_NAME:$IMAGE_TAG" >&2
+            echo "This workflow never rebuilds or overwrites tags when skip_build=true." >&2
+            echo "Either push/build this exact tag first, or re-run with skip_build=false." >&2
+            exit 1
+          fi
+          echo "Confirmed existing image: $REPO_NAME:$IMAGE_TAG"
+
+  prepare:
+    name: Render and validate Kustomize bundle
+    runs-on: ubuntu-latest
+    needs:
+      - guard
+      - build
+      - check_images
+    if: always() && needs.guard.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') && (needs.check_images.result == 'success' || needs.check_images.result == 'skipped')
+    env:
+      IMAGE_TAG: ${{ needs.guard.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Install kubectl (for CI-side Kustomize render/validation only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          KUBECTL_VERSION="$(curl -sSL https://dl.k8s.io/release/stable.txt)"
+          curl -sSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/kubectl
+          kubectl version --client=true
+
+      - name: Prepare deploy bundle (copy of k8s/, originals never modified)
+        id: bundle
+        shell: bash
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        run: |
+          set -euo pipefail
+
+          BUNDLE_DIR="$RUNNER_TEMP/brainx-k3s-bundle"
+          rm -rf "$BUNDLE_DIR"
+          mkdir -p "$BUNDLE_DIR"
+
+          # Preserve the relative layout that k8s/base and k8s/overlays/dev depend on
+          # (base references ../namespace.yaml + ../apps/*.yaml; dev overlay references ../../base).
+          cp k8s/namespace.yaml "$BUNDLE_DIR/namespace.yaml"
+          cp -r k8s/apps "$BUNDLE_DIR/apps"
+          cp -r k8s/base "$BUNDLE_DIR/base"
+          mkdir -p "$BUNDLE_DIR/overlays"
+          cp -r k8s/overlays/dev "$BUNDLE_DIR/overlays/dev"
+
+          echo "Substituting <ECR_REGISTRY> / <IMAGE_TAG> placeholders in the COPIED dev overlay only."
+          echo "postgres.internal / redis.internal / kafka.internal / neo4j.internal / qdrant.internal are left untouched (resolved via EC2 CoreDNS/hosts, not by this workflow)."
+          grep -rl -e '<ECR_REGISTRY>' -e '<IMAGE_TAG>' "$BUNDLE_DIR/overlays/dev" | while read -r f; do
+            sed -i "s#<ECR_REGISTRY>#$ECR_REGISTRY#g; s#<IMAGE_TAG>#$IMAGE_TAG#g" "$f"
+          done
+
+          echo "bundle_dir=$BUNDLE_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Validate rendered manifests (Kustomize)
+        shell: bash
+        env:
+          BUNDLE_DIR: ${{ steps.bundle.outputs.bundle_dir }}
+        run: |
+          set -euo pipefail
+
+          RENDERED="$RUNNER_TEMP/rendered.yaml"
+          kubectl kustomize "$BUNDLE_DIR/overlays/dev" --load-restrictor LoadRestrictionsNone > "$RENDERED"
+
+          fail=0
+          for token in '<ECR_REGISTRY>' '<IMAGE_TAG>' 'host.docker.internal'; do
+            if grep -qF -- "$token" "$RENDERED"; then
+              echo "Forbidden token still present in rendered manifests: $token" >&2
+              fail=1
+            fi
+          done
+
+          ACTUAL_NAMESPACES="$(grep -h '^  namespace:' "$RENDERED" | awk '{print $2}' | sort -u | tr '\n' ',' | sed 's/,$//')"
+          if [ "$ACTUAL_NAMESPACES" != "$NAMESPACE" ]; then
+            echo "Rendered manifests target namespace(s) [$ACTUAL_NAMESPACES] but this workflow is fixed to '$NAMESPACE'." >&2
+            echo "k8s/apps/*.yaml hardcode metadata.namespace; this is a regression guard, not a configurable input." >&2
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+
+          echo "Validated: no <ECR_REGISTRY>/<IMAGE_TAG>/host.docker.internal leftovers, namespace matches ($NAMESPACE)."
+          cp "$RENDERED" "$RUNNER_TEMP/rendered-preview.yaml"
+
+      - name: Upload rendered manifest for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: brainx-k3s-rendered-manifest-${{ github.run_id }}
+          path: ${{ runner.temp }}/rendered-preview.yaml
+          retention-days: 14
+
+      - name: Generate remote deploy script
+        shell: bash
+        env:
+          BUNDLE_DIR: ${{ steps.bundle.outputs.bundle_dir }}
+        run: |
+          set -euo pipefail
+          cat > "$BUNDLE_DIR/deploy_remote.sh" <<'REMOTE_SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          : "${NAMESPACE:?NAMESPACE is required}"
+          : "${WORKDIR:?WORKDIR is required}"
+
+          if command -v kubectl >/dev/null 2>&1; then
+            KUBECTL="kubectl"
+          elif command -v k3s >/dev/null 2>&1; then
+            KUBECTL="sudo k3s kubectl"
+          else
+            echo "Neither kubectl nor k3s kubectl found on this instance." >&2
+            exit 1
+          fi
+          echo "Using kubectl binary: $KUBECTL"
+
+          echo "Checking required Secrets exist in namespace $NAMESPACE..."
+          for secret in gateway-secret postgres-secret workspace-secret mcp-service-secret admin-service-secret ingestion-service-secret commerce-service-secret intelligence-service-secret; do
+            if ! $KUBECTL -n "$NAMESPACE" get secret "$secret" >/dev/null 2>&1; then
+              echo "Missing required Secret: $secret (namespace $NAMESPACE)." >&2
+              echo "Create it first (see k8s/EC2_K3S_RUNBOOK.md section 6). Aborting before apply." >&2
+              exit 1
+            fi
+          done
+          echo "All required Secrets present."
+
+          echo "Applying Kustomize overlay from $WORKDIR/overlays/dev ..."
+          if $KUBECTL apply -k "$WORKDIR/overlays/dev" --load-restrictor LoadRestrictionsNone; then
+            echo "kubectl apply -k succeeded."
+          else
+            echo "kubectl apply -k --load-restrictor unsupported/failed; falling back to 'kubectl kustomize | kubectl apply -f -'."
+            $KUBECTL kustomize "$WORKDIR/overlays/dev" --load-restrictor LoadRestrictionsNone | $KUBECTL apply -f -
+          fi
+
+          echo "Waiting for rollouts (per-deployment timeout)..."
+          $KUBECTL -n "$NAMESPACE" rollout status deployment/discovery-service --timeout=180s
+          $KUBECTL -n "$NAMESPACE" rollout status deployment/gateway-service --timeout=240s
+          $KUBECTL -n "$NAMESPACE" rollout status deployment/user-service --timeout=240s
+          $KUBECTL -n "$NAMESPACE" rollout status deployment/workspace-service --timeout=300s
+          $KUBECTL -n "$NAMESPACE" rollout status deployment/admin-service --timeout=240s
+          $KUBECTL -n "$NAMESPACE" rollout status deployment/mcp-service --timeout=240s
+          $KUBECTL -n "$NAMESPACE" rollout status deployment/ingestion-service --timeout=300s
+          $KUBECTL -n "$NAMESPACE" rollout status deployment/commerce-service --timeout=240s
+          $KUBECTL -n "$NAMESPACE" rollout status deployment/intelligence-service --timeout=360s
+
+          echo "All rollouts completed successfully."
+          REMOTE_SCRIPT
+          chmod +x "$BUNDLE_DIR/deploy_remote.sh"
+
+      - name: Package deploy bundle
+        id: package
+        shell: bash
+        env:
+          BUNDLE_DIR: ${{ steps.bundle.outputs.bundle_dir }}
+        run: |
+          set -euo pipefail
+          ARCHIVE="$RUNNER_TEMP/brainx-k3s-deploy-bundle.tgz"
+          tar -czf "$ARCHIVE" -C "$BUNDLE_DIR" .
+          echo "archive_path=$ARCHIVE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload deploy bundle artifact (for the deploy job to consume)
+        uses: actions/upload-artifact@v4
+        with:
+          name: brainx-k3s-deploy-bundle-${{ github.run_id }}
+          path: ${{ steps.package.outputs.archive_path }}
+          retention-days: 1
+
+  deploy:
+    name: Deploy to k3s PoC EC2 via SSM
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: ${{ inputs.deploy == true }}
+    environment: k3s-poc
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+
+      - name: Download deploy bundle artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: brainx-k3s-deploy-bundle-${{ github.run_id }}
+          path: ${{ runner.temp }}/brainx-k3s-bundle-download
+
+      - name: Upload deploy bundle to S3
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="$RUNNER_TEMP/brainx-k3s-bundle-download/brainx-k3s-deploy-bundle.tgz"
+          if [ ! -f "$ARCHIVE" ]; then
+            echo "Downloaded artifact is missing the expected bundle file: $ARCHIVE" >&2
+            exit 1
+          fi
+          ARTIFACT_KEY="k3s-poc/${GITHUB_RUN_ID}/brainx-k3s-deploy-bundle.tgz"
+          aws s3 cp "$ARCHIVE" "s3://$AWS_K3S_ARTIFACT_BUCKET/$ARTIFACT_KEY" --region "$AWS_REGION"
+          echo "ARTIFACT_KEY=$ARTIFACT_KEY" >> "$GITHUB_ENV"
+
+      - name: Run remote deploy through SSM (new EC2 only)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          import os
+
+          run_id = os.environ["GITHUB_RUN_ID"]
+          workdir = f"/tmp/brainx-k3s-deploy-{run_id}"
+
+          exports = {
+              "AWS_REGION": os.environ["AWS_REGION"],
+              "NAMESPACE": os.environ["NAMESPACE"],
+              "SSM_PARAMETER_PREFIX": os.environ["AWS_K3S_SSM_PARAMETER_PREFIX"],
+              "WORKDIR": workdir,
+          }
+
+          commands = [
+              "set -eu",
+              f"rm -rf {workdir} {workdir}.tgz",
+              f"mkdir -p {workdir}",
+              f"aws s3 cp s3://{os.environ['AWS_K3S_ARTIFACT_BUCKET']}/{os.environ['ARTIFACT_KEY']} {workdir}.tgz --region {os.environ['AWS_REGION']}",
+              f"tar -xzf {workdir}.tgz -C {workdir}",
+          ]
+          for key, value in exports.items():
+              commands.append(f"export {key}={json.dumps(value)}")
+          commands.append(f"bash {workdir}/deploy_remote.sh")
+
+          with open("ssm-parameters.json", "w", encoding="utf-8") as fp:
+              json.dump({"commands": commands, "executionTimeout": ["3600"]}, fp)
+          PY
+
+          # Target instance comes ONLY from vars.AWS_K3S_INSTANCE_ID. Never inferred/derived,
+          # never falls back to the production EC2 instance used by brainx-dev-deploy.yml.
+          COMMAND_ID="$(
+            aws ssm send-command \
+              --instance-ids "$AWS_K3S_INSTANCE_ID" \
+              --document-name "AWS-RunShellScript" \
+              --parameters file://ssm-parameters.json \
+              --query "Command.CommandId" \
+              --output text
+          )"
+
+          MAX_ATTEMPTS=240
+          SLEEP_SECONDS=15
+          FINAL_STATUS=""
+
+          for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+            set +e
+            CURRENT_STATUS="$(
+              aws ssm get-command-invocation \
+                --command-id "$COMMAND_ID" \
+                --instance-id "$AWS_K3S_INSTANCE_ID" \
+                --query 'Status' \
+                --output text 2>/dev/null
+            )"
+            STATUS_CODE=$?
+            set -e
+
+            if [ "$STATUS_CODE" -ne 0 ] || [ -z "$CURRENT_STATUS" ] || [ "$CURRENT_STATUS" = "None" ]; then
+              echo "Waiting for SSM command to become visible... ($attempt/$MAX_ATTEMPTS)"
+            else
+              echo "SSM command status: $CURRENT_STATUS ($attempt/$MAX_ATTEMPTS)"
+              case "$CURRENT_STATUS" in
+                Success|Cancelled|TimedOut|Failed|Cancelling)
+                  FINAL_STATUS="$CURRENT_STATUS"
+                  break
+                  ;;
+              esac
+            fi
+
+            sleep "$SLEEP_SECONDS"
+          done
+
+          if [ -z "$FINAL_STATUS" ]; then
+            echo "SSM command did not reach a terminal state within $((MAX_ATTEMPTS * SLEEP_SECONDS)) seconds." >&2
+            exit 1
+          fi
+
+          aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$AWS_K3S_INSTANCE_ID" \
+            --query '{Status:Status,StandardOutputContent:StandardOutputContent,StandardErrorContent:StandardErrorContent}' \
+            --output text
+
+          if [ "$FINAL_STATUS" != "Success" ]; then
+            echo "SSM deploy command finished with status $FINAL_STATUS." >&2
+            exit 1
+          fi
+
+      - name: Smoke test via Gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          check_endpoint() {
+            label="$1"
+            url="$2"
+            for attempt in $(seq 1 24); do
+              status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$url" || true)"
+              echo "$label attempt $attempt -> HTTP $status"
+              case "$status" in
+                2*|3*) return 0 ;;
+              esac
+              sleep 5
+            done
+            echo "$label did not reach a healthy status." >&2
+            return 1
+          }
+
+          BASE="$AWS_K3S_GATEWAY_BASE_URL"
+          # Internal health routes (RewritePath -> /actuator/health) defined in
+          # brainX_back/Gateway-Service/src/main/resources/application.yml and excluded
+          # from JwtAuthenticationGlobalFilter via the "/internal/v1/**" allowlist.
+          check_endpoint "gateway"      "$BASE/actuator/health"
+          check_endpoint "user"         "$BASE/internal/v1/health/user"
+          check_endpoint "workspace"    "$BASE/internal/v1/health/workspace"
+          check_endpoint "ingestion"    "$BASE/internal/v1/health/ingestion"
+          check_endpoint "commerce"     "$BASE/internal/v1/health/commerce"
+          check_endpoint "intelligence" "$BASE/internal/v1/health/intelligence"
+          check_endpoint "mcp"          "$BASE/internal/v1/health/mcp"
+
+      - name: Rollback guidance (on failure)
+        if: failure()
+        shell: bash
+        run: |
+          echo "Deploy, rollout, or smoke test failed. No automatic rollback was performed." >&2
+          echo "Recovery options:" >&2
+          echo "  1) Re-run this workflow (confirm_target=K3S_POC_DEPLOY) with image_tag set to a previously known-good tag and skip_build=true (no rebuild, exact image reused)." >&2
+          echo "  2) On the EC2 (SSM/SSH): kubectl -n $NAMESPACE rollout undo deployment/<service-name>" >&2

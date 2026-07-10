@@ -1,0 +1,15 @@
+# ConfigMap patch (intelligence-service-config). Deployment는 건드리지 않는다.
+# BRAINX_WORKSPACE_BASE_URL은 base에 이미 http://workspace-service:8082로 in-cluster
+# 전환되어 있어 patch 대상이 아니다. BRAINX_COMMERCE_BASE_URL도 동일한 원칙으로 Service DNS화한다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: intelligence-service-config
+  namespace: brainx
+data:
+  SPRING_DATASOURCE_URL: jdbc:postgresql://postgres.internal:5432/intelligence_service
+  REDIS_HOST: redis.internal
+  KAFKA_BOOTSTRAP_SERVERS: kafka.internal:9093
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka.internal:9093
+  QDRANT_HOST: qdrant.internal
+  BRAINX_COMMERCE_BASE_URL: http://commerce-service:8084

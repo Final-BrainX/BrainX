@@ -1,0 +1,10 @@
+# ConfigMap patch (ingestion-service-config). Deployment는 건드리지 않는다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ingestion-service-config
+  namespace: brainx
+data:
+  POSTGRES_HOST: postgres.internal
+  WORKSPACE_SERVICE_URL: http://workspace-service:8082
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka.internal:9093

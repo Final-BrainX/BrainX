@@ -1,5 +1,7 @@
 # BrainX Helm Chart 설계 문서 (HELM_DESIGN)
 
+> **범위: 장기 운영 표준화 후보.** 단기 EC2/k3s PoC는 이 Helm 경로가 아니라 [`../KUSTOMIZE_OVERLAY_DESIGN.md`](../KUSTOMIZE_OVERLAY_DESIGN.md)의 Kustomize overlay로 진행한다. 이 문서의 Helm 전환은 장기 운영 배포 표준화가 필요해질 때 채택 여부를 재검토하는 후보 트랙이다. 단기/장기 전략 정리는 [`../EC2_K3S_MIGRATION_PLAN.md`](../EC2_K3S_MIGRATION_PLAN.md) "10. 배포 도구 전략" 장을 참고.
+>
 > 이 문서는 **설계 문서**다. 실제 Helm Chart 파일(`Chart.yaml`, `values.yaml`, `templates/*`)은
 > 이 문서에서 만들지 않는다. 기존 `k8s/apps`, `k8s/monitoring`, `k8s/secrets` 매니페스트를 삭제하거나
 > `kubectl apply` 하지 않으며, 실제 Secret 값도 작성하지 않는다.

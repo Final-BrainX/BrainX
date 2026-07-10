@@ -1,5 +1,7 @@
 # BrainX Helm Migration 실행 계획 (HELM_MIGRATION)
 
+> **범위: 장기 운영 표준화 후보.** 이 문서가 정의하는 Helm 전환은 단기적으로 진행 중인 EC2/k3s PoC 경로가 아니다. 단기 EC2/k3s PoC는 [`k8s/KUSTOMIZE_OVERLAY_DESIGN.md`](KUSTOMIZE_OVERLAY_DESIGN.md)의 Kustomize overlay가 담당하며, Helm 전환은 그 이후 지속 운영형 배포 표준화가 필요해질 때 채택 여부를 재검토하는 후보 트랙이다. 단기/장기 전략 정리는 [`k8s/EC2_K3S_MIGRATION_PLAN.md`](EC2_K3S_MIGRATION_PLAN.md) "10. 배포 도구 전략" 장을 참고.
+>
 > 이 문서는 **실행 계획 문서**다. 설계 근거·스키마 상세는 [`k8s/helm/HELM_DESIGN.md`](helm/HELM_DESIGN.md)를 따른다.
 > 이 문서는 그 설계를 실제로 옮기는 **작업 순서·명령·판정 기준**만 정의한다.
 >
