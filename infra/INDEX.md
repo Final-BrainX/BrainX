@@ -5,6 +5,7 @@
 ## Core Guides
 
 - [`AGENTS.md`](AGENTS.md): infra 하위 작업의 항상 적용되는 agent 규칙, 검증, worklog 완료 루프.
+- [`DEPLOYMENT_FROM_SCRATCH.md`](DEPLOYMENT_FROM_SCRATCH.md): 새 AWS 계정·새 dev 환경에서 Terraform backend bootstrap부터 SSM, GitHub Variables, 첫 전체 deploy, public 검증까지 수행하는 순서형 가이드.
 - [`aws-dev/README.md`](aws-dev/README.md): AWS 개발환경 전체 배포 가이드. Terraform, GitHub Actions, EC2/SSM, Docker Compose, 도메인, S3 asset bucket, 비용 제어를 포함한다.
 - [`aws-dev/runtime-environment.md`](aws-dev/runtime-environment.md): AWS dev runtime 환경변수/secret 운영 가이드. SSM 재설정, 새 env 추가, `NEXT_PUBLIC_*`, GitHub variables, 팀원 IAM 접근, AI agent 수정 규칙을 포함한다.
 - [`aws-dev/troubleshooting.md`](aws-dev/troubleshooting.md): AWS dev 배포 장애 표준 runbook. GitHub Actions run 겹침, SSM 진단, 복구, 재발방지 concurrency 설정을 포함한다.
