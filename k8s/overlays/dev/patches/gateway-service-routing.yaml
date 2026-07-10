@@ -1,0 +1,18 @@
+# Deployment patch (gateway-service는 ConfigMap 없이 inline env를 쓴다).
+# 9개 서비스 모두 in-cluster Service로 배포되어 있으므로 Gateway의 라우팅 대상은
+# EC2 host placeholder가 아니라 Kubernetes Service DNS(<service>:<port>)를 그대로 쓴다.
+# 포트는 각 서비스 Service 정의(k8s/apps/*.yaml)와 동일하게 유지한다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-service
+  namespace: brainx
+spec:
+  template:
+    spec:
+      containers:
+        - name: gateway-service
+          env:
+            - name: SPRING_APPLICATION_JSON
+              value: >-
+                {"spring":{"cloud":{"discovery":{"client":{"simple":{"instances":{"User-Service":[{"uri":"http://user-service:8080"}],"Workspace-Service":[{"uri":"http://workspace-service:8082"}],"ingestion-service":[{"uri":"http://ingestion-service:8083"}],"Commerce-Service":[{"uri":"http://commerce-service:8084"}],"Admin-Service":[{"uri":"http://admin-service:8085"}],"intelligence-service":[{"uri":"http://intelligence-service:8086"}],"mcp-service":[{"uri":"http://mcp-service:8087"}]}}}}}}}

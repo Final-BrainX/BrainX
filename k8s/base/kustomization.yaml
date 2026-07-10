@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# 기존 k8s/apps/*.yaml, k8s/namespace.yaml을 복제하지 않고 상대경로로 참조만 한다.
+# 원본 파일은 이 kustomization의 대상이 아니며 절대 수정하지 않는다.
+resources:
+  - ../namespace.yaml
+  - ../apps/discovery-service.yaml
+  - ../apps/gateway-service.yaml
+  - ../apps/user-service.yaml
+  - ../apps/admin-service.yaml
+  - ../apps/workspace-service.yaml
+  - ../apps/ingestion-service-configmap.yaml
+  - ../apps/ingestion-service.yaml
+  - ../apps/commerce-service.yaml
+  - ../apps/intelligence-service-configmap.yaml
+  - ../apps/intelligence-service.yaml
+  - ../apps/mcp-service-configmap.yaml
+  - ../apps/mcp-service.yaml
