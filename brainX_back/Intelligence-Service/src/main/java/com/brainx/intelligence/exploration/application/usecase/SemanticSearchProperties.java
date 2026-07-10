@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "brainx.semantic-search")
 public class SemanticSearchProperties {
 
-    private double minScore = 0.35d;
+    private double minScore = 0.20d;
 
     public double getMinScore() {
         return minScore;
