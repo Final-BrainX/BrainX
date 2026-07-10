@@ -90,7 +90,7 @@ brainx:
   assist:
     default-model: ${OPENAI_CHAT_MODEL:gpt-5.4-mini}
   semantic-search:
-    min-score: ${BRAINX_SEMANTIC_SEARCH_MIN_SCORE:0.35}
+    min-score: ${BRAINX_SEMANTIC_SEARCH_MIN_SCORE:0.20}
   clustering:
     default-model: ${OPENAI_CHAT_MODEL:gpt-5.4-mini}
     max-notes: ${BRAINX_CLUSTERING_MAX_NOTES:50}

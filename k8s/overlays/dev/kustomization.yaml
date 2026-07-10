@@ -1,0 +1,55 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# EC2 + k3s PoC 대상 오버레이.
+resources:
+  - ../../base
+
+commonLabels:
+  environment: dev
+
+# 9개 서비스 전부 images 트랜스포머로 일괄 치환한다.
+# <ECR_REGISTRY>, <IMAGE_TAG>는 실제 값이 정해지지 않은 placeholder다.
+# EC2/ECR 준비 후 실제 값(예: 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com, git SHA)으로 교체해야 한다.
+images:
+  - name: brainx-discovery-service
+    newName: <ECR_REGISTRY>/brainx-discovery-service
+    newTag: <IMAGE_TAG>
+  - name: brainx-gateway-service
+    newName: <ECR_REGISTRY>/brainx-gateway-service
+    newTag: <IMAGE_TAG>
+  - name: brainx-user-service
+    newName: <ECR_REGISTRY>/brainx-user-service
+    newTag: <IMAGE_TAG>
+  - name: brainx-admin-service
+    newName: <ECR_REGISTRY>/brainx-admin-service
+    newTag: <IMAGE_TAG>
+  - name: brainx-workspace-service
+    newName: <ECR_REGISTRY>/brainx-workspace-service
+    newTag: <IMAGE_TAG>
+  - name: brainx-ingestion-service
+    newName: <ECR_REGISTRY>/brainx-ingestion-service
+    newTag: <IMAGE_TAG>
+  - name: brainx-commerce-service
+    newName: <ECR_REGISTRY>/brainx-commerce-service
+    newTag: <IMAGE_TAG>
+  - name: brainx-intelligence-service
+    newName: <ECR_REGISTRY>/brainx-intelligence-service
+    newTag: <IMAGE_TAG>
+  - name: brainx-mcp-service
+    newName: <ECR_REGISTRY>/brainx-mcp-service
+    newTag: <IMAGE_TAG>
+
+# discovery-service는 host.docker.internal 의존이 없어 image 치환 외 patch가 없다.
+# ConfigMap patch와 Deployment(inline env) patch를 분리한다:
+#  - gateway-service-routing.yaml / user-service-hosts.yaml : Deployment patch (envFrom 없이 inline env 사용)
+#  - 나머지 6개 : ConfigMap patch (envFrom으로 참조되는 ConfigMap만 수정, Deployment는 건드리지 않음)
+patches:
+  - path: patches/gateway-service-routing.yaml
+  - path: patches/user-service-hosts.yaml
+  - path: patches/workspace-service-config.yaml
+  - path: patches/admin-service-config.yaml
+  - path: patches/ingestion-service-config.yaml
+  - path: patches/intelligence-service-config.yaml
+  - path: patches/mcp-service-config.yaml
+  - path: patches/commerce-service-config.yaml

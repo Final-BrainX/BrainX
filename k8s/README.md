@@ -7,6 +7,12 @@
 - 준비 완료 매니페스트: `Discovery-Service`, `Admin-Service`, `Gateway-Service`, `User-Service`, `Workspace-Service`, `Ingestion-Service`, `Commerce-Service`, `Intelligence-Service`, `Mcp-Service`
 - 목적: 기존 Docker Compose 개발 환경을 유지한 채, Kubernetes 리소스 추가와 로컬 검증 절차를 분리해서 준비
 
+## 배포 도구 전략 (Kustomize vs Helm)
+
+- **단기 EC2+k3s PoC**: [`k8s/KUSTOMIZE_OVERLAY_DESIGN.md`](KUSTOMIZE_OVERLAY_DESIGN.md)의 Kustomize overlay를 사용한다. `k8s/base`, `k8s/overlays/local`, `k8s/overlays/dev`(patches 포함) 구현 완료, `kubectl kustomize` 렌더링 검증 완료, dev overlay `host.docker.internal` 0건 확인 완료. dev overlay는 ECR 이미지 태그·`<EC2_HOST>` 등을 아직 placeholder로 두고 있어 실제 EC2 값 채우기와 `kubectl apply -k`(실행 시 `--load-restrictor LoadRestrictionsNone` 필요) 실제 적용은 남아 있다.
+- **장기 운영형 배포 표준화(후보)**: [`k8s/HELM_MIGRATION.md`](HELM_MIGRATION.md), [`k8s/helm/HELM_DESIGN.md`](helm/HELM_DESIGN.md)의 Helm 전환을 검토한다.
+- 상세 근거와 충돌 방지 원칙은 [`k8s/EC2_K3S_MIGRATION_PLAN.md`](EC2_K3S_MIGRATION_PLAN.md) "10. 배포 도구 전략" 장을 참고.
+
 ## 선정 이유
 
 - `Discovery-Service`는 stateless 서비스다.

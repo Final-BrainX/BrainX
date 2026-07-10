@@ -1,0 +1,20 @@
+# Deployment patch (user-service는 ConfigMap 없이 inline env를 쓴다).
+# POSTGRES_HOST/REDIS_HOST는 인프라 placeholder, WORKSPACE_SERVICE_BASE_URL은
+# in-cluster Service DNS로 바꾼다. 포트는 원본과 동일하게 유지한다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: brainx
+spec:
+  template:
+    spec:
+      containers:
+        - name: user-service
+          env:
+            - name: POSTGRES_HOST
+              value: postgres.internal
+            - name: REDIS_HOST
+              value: redis.internal
+            - name: WORKSPACE_SERVICE_BASE_URL
+              value: http://workspace-service:8082

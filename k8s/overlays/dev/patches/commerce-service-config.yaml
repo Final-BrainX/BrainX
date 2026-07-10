@@ -1,0 +1,9 @@
+# ConfigMap patch (commerce-service-config). Deployment는 건드리지 않는다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: commerce-service-config
+  namespace: brainx
+data:
+  POSTGRES_HOST: postgres.internal
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka.internal:9093

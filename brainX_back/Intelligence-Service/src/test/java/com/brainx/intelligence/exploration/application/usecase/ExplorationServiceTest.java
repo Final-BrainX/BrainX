@@ -133,8 +133,8 @@ class ExplorationServiceTest {
     @Test
     void semanticSearchFiltersLowScoreVectorResultsAndRecordsFilteredCount() {
         ports.searchResults = List.of(
-            new SemanticSearchResult("note-low", "Low", "unrelated", 0.34d, SearchMatchType.SEMANTIC),
-            new SemanticSearchResult("note-threshold", "Threshold", "related", 0.35d, SearchMatchType.SEMANTIC),
+            new SemanticSearchResult("note-low", "Low", "unrelated", 0.19d, SearchMatchType.SEMANTIC),
+            new SemanticSearchResult("note-threshold", "Threshold", "related", 0.20d, SearchMatchType.SEMANTIC),
             new SemanticSearchResult("note-high", "High", "related", 0.80d, SearchMatchType.SEMANTIC)
         );
 
@@ -247,7 +247,7 @@ class ExplorationServiceTest {
                 "note-low",
                 "Low semantic",
                 "low score semantic only",
-                0.20d,
+                0.19d,
                 SearchMatchType.SEMANTIC
             )
         );
@@ -279,7 +279,7 @@ class ExplorationServiceTest {
     void semanticSearchPropertiesDefaultAndValidation() {
         var properties = new SemanticSearchProperties();
 
-        assertThat(properties.getMinScore()).isEqualTo(0.35d);
+        assertThat(properties.getMinScore()).isEqualTo(0.20d);
         properties.setMinScore(0.45d);
         assertThat(properties.getMinScore()).isEqualTo(0.45d);
         assertThatThrownBy(() -> properties.setMinScore(1.01d))
