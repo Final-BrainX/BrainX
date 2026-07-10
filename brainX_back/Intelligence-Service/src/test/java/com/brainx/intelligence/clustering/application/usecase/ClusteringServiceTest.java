@@ -127,6 +127,28 @@ class ClusteringServiceTest {
     }
 
     @Test
+    void clusteringPromptPrefersMergingRelatedSpringSubtopics() {
+        noteSource.notes = List.of(
+            note("note-1", "Spring 테스트", List.of("spring"), List.of("테스트"), "Spring Boot 테스트 전략"),
+            note("note-2", "Spring 보안", List.of("spring"), List.of("Security"), "Spring Security 인증 흐름"),
+            note("note-3", "Spring 데이터", List.of("spring"), List.of("JPA"), "Spring Data JPA 접근 패턴")
+        );
+        chatPort.response = new AiChatResponse(
+            """
+                [{"title":"Spring 개발 전략","summary":"Spring 관련 개발 주제를 묶는다.","noteIds":["note-1","note-2","note-3"],"keywords":["Spring"],"confidence":0.9}]
+                """,
+            null
+        );
+
+        service.requestClusterJob(new ClusterJobCommand("user-1", workspaceScope(), Map.of("maxClusters", 3), null));
+
+        assertThat(chatPort.lastRequest.messages().getFirst().content())
+            .contains("Spring testing, Spring security, and Spring data-access notes belong together")
+            .contains("Avoid over-segmentation to fill the cluster limit")
+            .contains("Prefer clusters with 2 or more notes; merge related singleton themes");
+    }
+
+    @Test
     void idempotencyKeyReturnsExistingJobWithoutSecondModelCall() {
         noteSource.notes = List.of(note("note-1", "Java", List.of(), List.of(), "Spring"));
         chatPort.response = new AiChatResponse(

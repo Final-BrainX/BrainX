@@ -83,6 +83,22 @@ body {
   z-index: 15;
 }
 
+.brainx-desktop-drag-region {
+  display: none;
+}
+
+.brainx-desktop .brainx-desktop-drag-region {
+  display: block;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 140px;
+  height: var(--brainx-desktop-top-inset);
+  -webkit-app-region: drag;
+  user-select: none;
+  z-index: 16;
+}
+
 .brainx-desktop .brainx-app-shell {
   padding-top: var(--brainx-desktop-top-inset);
 }

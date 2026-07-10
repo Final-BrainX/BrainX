@@ -1,6 +1,6 @@
 # 소비 이벤트 구현 체크포인트
 
-이 문서는 최소 체크리스트만 남겨둔 서비스 로컬 메모입니다.
+이 문서는 local AsyncAPI contract 가운데 Intelligence-Service 기본 listener가 실제로 구독·처리하는 범위를 빠르게 확인하기 위한 서비스 로컬 메모입니다. topic, payload, idempotency의 최종 기준은 `src/main/resources/contracts/knowledge-intelligence.asyncapi.yaml`과 상위 AsyncAPI SSOT입니다.
 
 ## 기본 listener에서 구현·구독 중
 
@@ -49,6 +49,4 @@
 
 ## 참고
 
-작업 기준이 되는 요약 문서는 아래입니다.
-
-- [brainX_back/KAFKA_IMPLEMENTATION_SUMMARY.md](../../../KAFKA_IMPLEMENTATION_SUMMARY.md)
+작업 기준이 되는 더 넓은 Kafka 진행 요약은 [brainX_back/KAFKA_IMPLEMENTATION_SUMMARY.md](../../../KAFKA_IMPLEMENTATION_SUMMARY.md)를 확인합니다.

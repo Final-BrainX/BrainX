@@ -132,7 +132,7 @@ PostgreSQL Large Object는 auto-commit mode에서 읽을 수 없으므로 `ChatJ
 이 기능을 수정한 뒤에는 최소 다음 검증을 수행한다.
 
 ```powershell
-python scripts\extract_intelligence_openapi.py
+uv run --no-project --with PyYAML python scripts\extract_intelligence_openapi.py
 npm run generate:intelligence-api-types
 npm run typecheck
 .\gradlew.bat --no-daemon check --console=plain

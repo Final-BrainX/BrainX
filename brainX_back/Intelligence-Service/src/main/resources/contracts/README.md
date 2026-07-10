@@ -11,8 +11,8 @@
 ## Regeneration
 
 ```powershell
-python scripts\extract_intelligence_openapi.py
-python scripts\extract_intelligence_related_contracts.py
+uv run --no-project --with PyYAML python scripts\extract_intelligence_openapi.py
+uv run --no-project --with PyYAML python scripts\extract_intelligence_related_contracts.py
 ```
 
 `brainx-openapi.ssot.yaml`에 merge conflict marker가 남아 있으면 두 스크립트 모두 기본적으로 `--conflict-side right`를 사용한다.

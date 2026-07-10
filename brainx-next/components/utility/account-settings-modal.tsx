@@ -87,7 +87,7 @@ type StyleProfileBase = {
 const OAUTH_LINK_INTENT_KEY = "brainx_oauth_link_intent_v1";
 const PROVIDERS: SocialProvider[] = ["google", "kakao", "naver"];
 const CONVERSATION_TONE_KEYS = ["speechLevel", "warmth", "directness", "verbosity", "emoji"] as const;
-const WRITING_STYLE_SCALAR_KEYS = ["speechLevel", "defaultAudience", "defaultPurpose", "formality", "informationDensity", "sentenceLength"] as const;
+const WRITING_STYLE_SCALAR_KEYS = ["speechLevel", "formality", "informationDensity", "sentenceLength"] as const;
 type ConversationToneKey = (typeof CONVERSATION_TONE_KEYS)[number];
 type WritingStyleScalarKey = (typeof WRITING_STYLE_SCALAR_KEYS)[number];
 type StylePresetOption = { value: string; label: string };
@@ -397,8 +397,6 @@ function emptyStyleDraft(): StyleDraft {
     },
     writingStyle: {
       speechLevel: "",
-      defaultAudience: "",
-      defaultPurpose: "",
       formality: "",
       informationDensity: "",
       sentenceLength: "",
@@ -480,6 +478,9 @@ function applyManagedStyleValue(target: StyleProfileMap, key: string, value: str
 function stylePayloadFromDraft(base: StyleProfileBase, draft: StyleDraft): StyleProfilePutRequest {
   const conversationTone: StyleProfileMap = { ...base.conversationTone };
   const writingStyle: StyleProfileMap = { ...base.writingStyle };
+
+  delete writingStyle.defaultAudience;
+  delete writingStyle.defaultPurpose;
 
   for (const key of CONVERSATION_TONE_KEYS) {
     applyManagedStyleValue(conversationTone, key, normalizePresetStyleValue(draft.conversationTone[key], conversationToneOptions(key)));
@@ -1780,24 +1781,6 @@ function StyleProfilePanel() {
             <div className="px-4 pt-4">
               <SectionLabel>작성 스타일</SectionLabel>
             </div>
-            <StyleFieldRow title="대상 독자" desc="생성 결과물이 기본으로 상정할 독자입니다.">
-              <StyleTextInput
-                label="대상 독자"
-                value={draft.writingStyle.defaultAudience}
-                placeholder="예: general_professional"
-                disabled={saving}
-                onChange={(value) => updateWritingStyle("defaultAudience", value)}
-              />
-            </StyleFieldRow>
-            <StyleFieldRow title="작성 목적" desc="초안과 리포트가 우선할 기본 목적입니다.">
-              <StyleTextInput
-                label="작성 목적"
-                value={draft.writingStyle.defaultPurpose}
-                placeholder="예: explain"
-                disabled={saving}
-                onChange={(value) => updateWritingStyle("defaultPurpose", value)}
-              />
-            </StyleFieldRow>
             {WRITING_STYLE_PRESET_FIELDS.map((field) => (
               <StyleFieldRow key={field.key} title={field.title} desc={field.desc}>
                 <StylePresetInput
@@ -1925,34 +1908,6 @@ function StylePresetInput({
         </label>
       ) : null}
     </div>
-  );
-}
-
-function StyleTextInput({
-  label,
-  value,
-  placeholder,
-  disabled,
-  onChange
-}: {
-  label: string;
-  value: string;
-  placeholder: string;
-  disabled?: boolean;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="block w-full">
-      <span className="sr-only">{label}</span>
-      <input
-        value={value}
-        disabled={disabled}
-        aria-label={label}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-8 w-full rounded-[7px] border border-[#ded8cf] bg-white px-2.5 text-[12px] text-[#36332f] outline-none placeholder:text-[#aaa39a] focus:border-[#6c55f6] focus-visible:ring-2 focus-visible:ring-[#6c55f6]/20 disabled:cursor-not-allowed disabled:opacity-60"
-      />
-    </label>
   );
 }
 

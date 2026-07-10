@@ -84,13 +84,13 @@ Streaming smoke:
 실제 provider 검색 품질은 dev-only helper로 batch capture한다.
 
 ```powershell
-python scripts\capture_external_search_cli.py --run-name 20260626-external-search-quality
+uv run --no-project python scripts\capture_external_search_cli.py --run-name 20260626-external-search-quality
 ```
 
 Streaming event capture:
 
 ```powershell
-python scripts\capture_external_search_cli.py --run-name 20260708-external-search-stream-smoke --stream-events --timeout-seconds 300
+uv run --no-project python scripts\capture_external_search_cli.py --run-name 20260708-external-search-stream-smoke --stream-events --timeout-seconds 300
 ```
 
 When `--stream-events` is set, each scenario also requires stream events, a progress event, a source signal, and a completed event. The report records `streamEventCount`, `firstSourceEvent`, and `completedEvent`.

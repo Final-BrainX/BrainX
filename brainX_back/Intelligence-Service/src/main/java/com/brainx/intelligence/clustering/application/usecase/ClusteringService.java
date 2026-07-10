@@ -815,7 +815,9 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
             - Do not create a "미분류", "기타", "Other", or "Unclassified" cluster unless the note card is nearly empty, corrupted, or impossible to relate to any other note.
             - If maxClusters is too small, merge the closest themes instead of dropping notes.
             - Prefer meaningful data-driven clusters over predefined categories.
-            - Avoid singleton clusters. A cluster with only one note is allowed only when that note has no plausible semantic relation to any other note.
+            - Prefer broader parent-domain clusters when notes share the same core technology or domain. For example, Spring testing, Spring security, and Spring data-access notes belong together unless their content has no meaningful shared purpose or workflow.
+            - Avoid over-segmentation to fill the cluster limit. Split a parent domain only when the resulting groups have a clear semantic boundary that is useful to a reader.
+            - Prefer clusters with at least two notes. A singleton cluster is allowed only when its note has no plausible semantic relation to any other note after considering broader parent domains.
             - If there are enough notes, do not collapse everything into one cluster unless all notes clearly share one central theme.
 
             Each cluster object must contain exactly:
@@ -843,7 +845,8 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
             - Suggested cluster count is around %d, but choose fewer or more if the notes clearly require it.
             - If input note count is 5 or more, return at least 2 clusters unless all notes clearly share one central theme.
             - If returning only 1 cluster for 5 or more notes, the cluster must be highly coherent and confidence should reflect that.
-            - Prefer clusters with 2 or more notes.
+            - Prefer clusters with 2 or more notes; merge related singleton themes into their closest parent-domain cluster.
+            - Do not create extra clusters just to approach the suggested cluster count or the max cluster limit.
             - Do not leave notes unassigned.
             """.formatted(noteCount, maxClusters, softTarget);
     }

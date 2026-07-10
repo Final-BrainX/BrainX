@@ -4,7 +4,7 @@
 
 ## 기준
 
-- 기준일: 2026-07-06
+- 최종 검토일: 2026-07-10
 - 구현 범위: `src/main/java/com/brainx/intelligence`
 - 공개 계약 slice: `src/main/resources/contracts/knowledge-intelligence.openapi.yaml`
 - 생성형 LLM 호출: `AiChatPort` -> `SpringAiAdapter` -> Spring AI `ChatClient`
@@ -61,6 +61,7 @@ LLMOps v1은 UI 없이 backend foundation만 제공한다. 자세한 기준은 `
 `/agent`는 기존 `/chat` UI/API를 대체하지 않는 별도 실험 탭이다. Agent thread/message/action은 `intelligence_agent_threads`, `intelligence_agent_messages`, `intelligence_agent_actions`에 저장한다.
 
 - SSE event는 `delta`, `done`, `error`와 Agent 전용 `action_proposed`, `action_status`, `action_result`를 사용한다.
+- `action_proposed`는 현재 SSE event다. OpenAPI metadata의 `AgentActionProposed`와 달리 local AsyncAPI channel 및 Java Kafka producer는 아직 없으므로, 계약과 runtime이 정렬되기 전에는 broker event로 가정하지 않는다.
 - v1 허용 tool은 `CREATE_NOTE`, `APPEND_NOTE_CONTENT`뿐이다. unknown tool/action은 저장하지 않는다.
 - `CREATE_NOTE`는 승인 후 Workspace internal bulk-create API를 `INTELLIGENCE_AGENT` source로 호출한다.
 - `APPEND_NOTE_CONTENT`는 승인 후 note projection으로 user/documentGroup ownership을 확인하고, Workspace snapshot의 최신 `version`을 baseVersion으로 사용해 internal content patch `APPEND`를 호출한다.

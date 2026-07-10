@@ -12,10 +12,12 @@
 
 ## 입력 정책
 
-- `scope.documentGroupId`: optional, 기본 `default`
+- `scope.documentGroupId`: required, nonblank. 분석할 Workspace document group을 지정한다.
 - `scope.noteIds`: optional. 있으면 해당 note만 분석하고, 하나라도 searchable하지 않으면 `404`
 - `scope.maxNotes`: optional. 기본/상한 `50`
 - `includeLearningRecommendations`: optional. 없으면 `false`
+
+`GET /api/v1/ai/insight-reports/latest`도 필수 `documentGroupId` query parameter로 workspace 범위를 지정한다.
 
 분석 대상은 clustering과 같은 `KnowledgeAnalysisNoteSourcePort` note card다. raw full markdown은 prompt에 넣지 않는다.
 

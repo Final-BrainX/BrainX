@@ -60,6 +60,7 @@ export default function RootLayout({
           <b />
         </div>
         <div className="brainx-app-shell relative z-10 min-h-screen">
+          <div className="brainx-desktop-drag-region" aria-hidden="true" />
           <BrainXProvider>
             <TutorialProvider>
               {children}
