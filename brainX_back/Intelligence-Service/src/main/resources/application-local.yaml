@@ -18,7 +18,16 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.H2Dialect
 
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
 brainx:
+  jwt:
+    secret: ${JWT_SECRET:local_intelligence_jwt_secret_at_least_32_bytes}
+  service-token: ${SERVICE_TOKEN:local-service-token}
   events:
     consumer:
       enabled: true

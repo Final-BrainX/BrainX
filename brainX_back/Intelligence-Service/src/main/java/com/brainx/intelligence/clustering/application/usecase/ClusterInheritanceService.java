@@ -93,7 +93,10 @@ public class ClusterInheritanceService implements InheritClusterUseCase {
         }
 
         NoteSnapshot snapshot = workspaceNotePort.getNoteSnapshot(noteId);
-        if (!userId.equals(snapshot.userId()) || !documentGroupId.equals(snapshot.documentGroupId())) {
+        if (snapshot == null
+            || !noteId.equals(snapshot.noteId())
+            || !userId.equals(snapshot.userId())
+            || !documentGroupId.equals(snapshot.documentGroupId())) {
             throw new ClusteringNotFoundException("Bridge note is not available in the requested workspace.");
         }
         List<KnowledgeAnalysisNote> notes = new ArrayList<>(noteSourcePort.findClusteringSourceNotes(

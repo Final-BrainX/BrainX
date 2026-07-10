@@ -83,7 +83,7 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
             documentGroupId,
             payload.noteId()
         );
-        if (existing.isPresent() && existing.get().stale(version)) {
+        if (existing.isPresent()) {
             return;
         }
 
@@ -191,7 +191,7 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
 
         String title = payload.has("title") ? text(payload, "title") : base.title();
         String folderId = payload.has("folderId") ? text(payload, "folderId") : base.folderId();
-        List<String> tags = payload.has("tags") ? stringList(payload.get("tags")) : base.tags();
+        List<String> tags = payload.hasNonNull("tags") ? stringList(payload.get("tags")) : base.tags();
         Boolean archived = payload.hasNonNull("archived") ? payload.get("archived").asBoolean() : base.archived();
         boolean titleChanged = title != null && !title.equals(base.title());
         NoteProjection updated = base.withMetadata(
@@ -217,33 +217,30 @@ public class WorkspaceNoteEventHandler implements BrainxEventHandler {
         requireText(payload.noteId(), "noteId");
         requireText(payload.userId(), "userId");
         String documentGroupId = requireText(payload.documentGroupId(), "documentGroupId");
+        if (payload.tags() == null) {
+            throw EventProcessingException.nonRetryable("INVALID_PAYLOAD", "tags must be present.");
+        }
 
         NoteProjection base = noteProjectionStore.findByUserIdAndDocumentGroupIdAndNoteId(
                 payload.userId(),
                 documentGroupId,
                 payload.noteId()
             )
-            .orElseGet(() -> new NoteProjection(
-                payload.userId(),
-                documentGroupId,
-                payload.noteId(),
-                "",
-                null,
-                List.of(),
-                0,
-                null,
-                true,
-                false,
-                false,
-                false,
-                context.eventId(),
-                context.envelope().occurredAt()
-            ));
-        NoteProjection updated = base.withTags(payload.tags(), context.eventId(), context.envelope().occurredAt());
-        noteProjectionStore.save(updated);
-        if (updated.searchable()) {
-            noteIndexingService.indexFromSnapshot(updated, updated.version(), updated.markdownHash(), context.eventId(), true, false);
+            .orElseGet(() -> minimalProjection(payload.userId(), documentGroupId, payload.noteId(), context));
+        if (!base.searchable()) {
+            return;
         }
+
+        // The event has no note version. Read the current Workspace snapshot instead of
+        // applying a potentially out-of-order tag payload to the projection.
+        noteIndexingService.indexFromSnapshot(
+            base,
+            base.version(),
+            base.markdownHash(),
+            context.eventId(),
+            true,
+            false
+        );
     }
 
     private void handleNoteTrashed(EventProcessingContext context) {

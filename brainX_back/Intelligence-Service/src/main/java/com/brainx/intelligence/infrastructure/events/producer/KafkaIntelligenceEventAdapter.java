@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -337,7 +338,15 @@ public class KafkaIntelligenceEventAdapter implements ExplorationEventPort, Toke
         envelope.put("idempotencyKey", idempotencyKey);
         envelope.put("payload", payload);
 
-        kafkaTemplate.send(topic, key, toJson(envelope));
+        try {
+            kafkaTemplate.send(topic, key, toJson(envelope))
+                .get();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while publishing BrainX event " + eventType + ".", exception);
+        } catch (ExecutionException exception) {
+            throw new IllegalStateException("Failed to publish BrainX event " + eventType + ".", exception);
+        }
     }
 
     private String toJson(Map<String, Object> envelope) {

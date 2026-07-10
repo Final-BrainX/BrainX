@@ -1,6 +1,7 @@
 package com.brainx.intelligence.infrastructure.persistence.jpa.clustering;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
 import java.util.List;
@@ -16,6 +17,7 @@ import org.springframework.test.context.ActiveProfiles;
 import com.brainx.intelligence.clustering.domain.Cluster;
 import com.brainx.intelligence.clustering.domain.ClusterJob;
 import com.brainx.intelligence.clustering.domain.ClusterJobStatus;
+import com.brainx.intelligence.clustering.domain.ClusteringConflictException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @DataJpaTest
@@ -67,6 +69,32 @@ class ClusterJobJpaAdapterTest {
 
         assertThat(jobs).extracting(ClusterJob::clusterJobId)
             .containsExactly("job-new", "job-old");
+    }
+
+    @Test
+    void duplicateUserIdempotencyKeyIsRejectedBeforeJobExecution() {
+        adapter.save(jobWithIdempotency("job-1", "idem-duplicate"));
+
+        assertThatThrownBy(() -> adapter.save(jobWithIdempotency("job-2", "idem-duplicate")))
+            .isInstanceOf(ClusteringConflictException.class)
+            .hasMessageContaining("idempotency key");
+    }
+
+    private static ClusterJob jobWithIdempotency(String id, String idempotencyKey) {
+        return new ClusterJob(
+            id,
+            "user-1",
+            "group-1",
+            ClusterJobStatus.RUNNING,
+            Map.of("documentGroupId", "group-1"),
+            Map.of("maxClusters", 3),
+            List.of(),
+            "gpt-test",
+            idempotencyKey,
+            null,
+            Instant.parse("2026-07-10T00:00:00Z"),
+            null
+        );
     }
 
     private static ClusterJob job(String id, String userId, String documentGroupId, Instant createdAt) {

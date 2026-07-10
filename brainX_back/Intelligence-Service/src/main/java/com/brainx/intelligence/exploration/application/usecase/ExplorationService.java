@@ -26,6 +26,7 @@ import com.brainx.intelligence.exploration.application.port.outbound.NoteSearchI
 import com.brainx.intelligence.exploration.application.port.outbound.NoteSummaryPort;
 import com.brainx.intelligence.exploration.domain.ExplorationDomainException;
 import com.brainx.intelligence.exploration.domain.ExplorationInsufficientContentException;
+import com.brainx.intelligence.exploration.domain.ExplorationNotFoundException;
 import com.brainx.intelligence.exploration.domain.NoteSummary;
 import com.brainx.intelligence.exploration.domain.SearchMatchType;
 import com.brainx.intelligence.exploration.domain.SemanticSearchQuery;
@@ -36,6 +37,7 @@ import com.brainx.intelligence.llmops.application.service.AiRunRecorder;
 import com.brainx.intelligence.llmops.application.service.PromptRegistryService;
 import com.brainx.intelligence.llmops.application.service.PromptRegistryService.PromptResolution;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
+import com.brainx.intelligence.shared.application.exception.CapabilityForbiddenException;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatMessage;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiRole;
@@ -177,7 +179,7 @@ public class ExplorationService implements SemanticSearchUseCase, GetNoteSummary
             tokenEstimate
         ));
         if (!entitlement.allowed()) {
-            throw new ExplorationDomainException("AI capability is not available: " + entitlement.reasonCode());
+            throw new CapabilityForbiddenException("AI capability is not available: " + entitlement.reasonCode());
         }
     }
 
@@ -244,9 +246,16 @@ public class ExplorationService implements SemanticSearchUseCase, GetNoteSummary
             .orElseGet(() -> {
                 var snapshot = workspaceNotePort.getNoteSnapshot(noteId);
                 if (snapshot == null) {
-                    throw new ExplorationDomainException("Note snapshot is not available: " + noteId);
+                    throw noteNotFound();
                 }
-                return NoteSummary.excerptFrom(userId, noteId, snapshot.title(), snapshot.markdown());
+                requireOwnedSnapshot(userId, noteId, snapshot);
+                return NoteSummary.excerptFrom(
+                    userId,
+                    snapshot.documentGroupId(),
+                    noteId,
+                    snapshot.title(),
+                    snapshot.markdown()
+                );
             });
 
         return toSummaryResult(summary);
@@ -260,10 +269,11 @@ public class ExplorationService implements SemanticSearchUseCase, GetNoteSummary
         ensureProjectionExists(userId, documentGroupId, noteId);
         var snapshot = workspaceNotePort.getNoteSnapshot(noteId);
         if (snapshot == null) {
-            throw new ExplorationDomainException("Note snapshot is not available: " + noteId);
+            throw noteNotFound();
         }
+        requireOwnedSnapshot(userId, noteId, snapshot);
         if (!documentGroupId.equals(snapshot.documentGroupId())) {
-            throw new ExplorationDomainException("Note snapshot documentGroupId does not match request.");
+            throw noteNotFound();
         }
 
         String plainText = plainText(snapshot.markdown());
@@ -294,7 +304,7 @@ public class ExplorationService implements SemanticSearchUseCase, GetNoteSummary
             tokenEstimate
         ));
         if (!entitlement.allowed()) {
-            throw new ExplorationDomainException("AI capability is not available: " + entitlement.reasonCode());
+            throw new CapabilityForbiddenException("AI capability is not available: " + entitlement.reasonCode());
         }
 
         List<AiChatMessage> messages = List.of(
@@ -356,8 +366,22 @@ public class ExplorationService implements SemanticSearchUseCase, GetNoteSummary
         boolean exists = noteIndexStatusPort.findNoteIndexStatuses(userId, documentGroupId, List.of(noteId)).stream()
             .anyMatch(status -> noteId.equals(status.noteId()));
         if (!exists) {
-            throw new ExplorationDomainException("Note projection is not available for documentGroupId.");
+            throw noteNotFound();
         }
+    }
+
+    private static void requireOwnedSnapshot(
+        String userId,
+        String noteId,
+        WorkspaceNotePort.NoteSnapshot snapshot
+    ) {
+        if (!noteId.equals(snapshot.noteId()) || !userId.equals(snapshot.userId())) {
+            throw noteNotFound();
+        }
+    }
+
+    private static ExplorationNotFoundException noteNotFound() {
+        return new ExplorationNotFoundException("Note was not found.");
     }
 
     private static NoteSummaryResult toSummaryResult(NoteSummary summary) {

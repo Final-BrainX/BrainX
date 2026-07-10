@@ -35,6 +35,7 @@ import com.brainx.intelligence.insight.domain.InsightReportStatus;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 @RestController
 @Validated
@@ -57,7 +58,7 @@ public class InsightController {
     @PostMapping("/api/v1/ai/insight-reports")
     public ResponseEntity<ApiSuccessResponse<InsightReportData>> requestInsightReport(
         Principal principal,
-        @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
+        @RequestHeader(name = "Idempotency-Key", required = false) @Size(max = 200) String idempotencyKey,
         @Valid @RequestBody InsightReportCreateRequest request
     ) {
         InsightReport report = requestInsightReportUseCase.requestInsightReport(new InsightReportCommand(

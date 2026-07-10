@@ -5,9 +5,12 @@ import java.util.Optional;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import com.brainx.intelligence.clustering.application.port.outbound.ClusterJobStore;
 import com.brainx.intelligence.clustering.domain.ClusterJob;
+import com.brainx.intelligence.clustering.domain.ClusteringIdempotencyConflictException;
+import com.brainx.intelligence.infrastructure.persistence.jpa.JpaConstraintViolations;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Repository
@@ -23,8 +26,15 @@ public class ClusterJobJpaAdapter implements ClusterJobStore {
 
     @Override
     public ClusterJob save(ClusterJob job) {
-        return repository.save(ClusterJobJpaEntity.fromDomain(job, objectMapper))
-            .toDomain(objectMapper);
+        try {
+            return repository.saveAndFlush(ClusterJobJpaEntity.fromDomain(job, objectMapper))
+                .toDomain(objectMapper);
+        } catch (DataIntegrityViolationException exception) {
+            if (JpaConstraintViolations.causedBy(exception, "uk_cluster_jobs_user_idempotency")) {
+                throw new ClusteringIdempotencyConflictException("The clustering idempotency key is already in use.");
+            }
+            throw exception;
+        }
     }
 
     @Override

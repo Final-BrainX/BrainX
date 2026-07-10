@@ -25,6 +25,7 @@ import com.brainx.intelligence.llmops.domain.PromptVersion;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 @RestController
 @Validated
@@ -112,8 +113,12 @@ public class InternalLlmOpsController {
     }
 
     @PostMapping("/internal/v1/intelligence/llmops/eval-sets")
-    public ApiSuccessResponse<Object> createEvalSet(@Valid @RequestBody EvalSetCreateRequest request) {
-        return ApiSuccessResponse.ok(evalRunnerService.createEvalSet(request.name(), request.description()));
+    public ApiSuccessResponse<EvalSetData> createEvalSet(@Valid @RequestBody EvalSetCreateRequest request) {
+        var evalSet = evalRunnerService.createEvalSet(request.name(), request.description());
+        return ApiSuccessResponse.ok(new EvalSetData(
+            evalSet,
+            evalRunnerService.listScenarios(evalSet.evalSetId())
+        ));
     }
 
     @GetMapping("/internal/v1/intelligence/llmops/eval-sets/{evalSetId}")
@@ -139,8 +144,12 @@ public class InternalLlmOpsController {
     }
 
     @PostMapping("/internal/v1/intelligence/llmops/eval-runs")
-    public ApiSuccessResponse<Object> runEval(@Valid @RequestBody EvalRunCreateRequest request) {
-        return ApiSuccessResponse.ok(evalRunnerService.runEval(request.evalSetId(), request.modelId()));
+    public ApiSuccessResponse<EvalRunData> runEval(@Valid @RequestBody EvalRunCreateRequest request) {
+        var run = evalRunnerService.runEval(request.evalSetId(), request.modelId());
+        return ApiSuccessResponse.ok(new EvalRunData(
+            run,
+            evalRunnerService.listResults(run.evalRunId())
+        ));
     }
 
     @GetMapping("/internal/v1/intelligence/llmops/eval-runs/{evalRunId}")
@@ -179,8 +188,8 @@ public class InternalLlmOpsController {
     }
 
     record EvalScenarioCreateRequest(
-        EvalScenarioType scenarioType,
-        String name,
+        @NotNull EvalScenarioType scenarioType,
+        @NotBlank String name,
         Map<String, Object> input,
         Map<String, Object> validation
     ) {

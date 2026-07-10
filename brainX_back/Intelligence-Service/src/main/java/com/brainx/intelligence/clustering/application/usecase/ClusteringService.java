@@ -11,6 +11,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +34,7 @@ import com.brainx.intelligence.clustering.domain.ClusterJobLatestState;
 import com.brainx.intelligence.clustering.domain.ClusterJobStatus;
 import com.brainx.intelligence.clustering.domain.ClusteringConflictException;
 import com.brainx.intelligence.clustering.domain.ClusteringForbiddenException;
+import com.brainx.intelligence.clustering.domain.ClusteringIdempotencyConflictException;
 import com.brainx.intelligence.clustering.domain.ClusteringNotFoundException;
 import com.brainx.intelligence.settings.application.port.outbound.AiModelSettingsPort;
 import com.brainx.intelligence.settings.application.service.StylePromptCompiler;
@@ -54,6 +57,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @Service
 public class ClusteringService implements RequestClusterJobUseCase, GetClusterJobUseCase, GetLatestClusterJobUseCase {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(ClusteringService.class);
     static final String AI_CLUSTERING_CAPABILITY = "AI_CLUSTERING";
     static final String AI_CLUSTERING_FEATURE_ID = "ai-clustering-chat";
     static final String SOURCE_SNAPSHOT_SCOPE_KEY = "_sourceSnapshot";
@@ -137,7 +141,6 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
     }
 
     @Override
-    @Transactional
     public ClusterJob requestClusterJob(ClusterJobCommand command) {
         String userId = requireText(command.userId(), "userId");
         String idempotencyKey = normalizeNullable(command.idempotencyKey());
@@ -184,7 +187,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
 
         String clusterJobId = UUID.randomUUID().toString();
         Instant now = Instant.now(clock);
-        ClusterJob running = clusterJobStore.save(ClusterJob.running(
+        ClusterJob running = claimRunningJob(ClusterJob.running(
             clusterJobId,
             userId,
             scope.documentGroupId(),
@@ -194,15 +197,17 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
             idempotencyKey,
             now
         ));
-        clusteringEventPort.clusterJobRequested(new ClusterJobRequestedEvent(
-            userId,
-            clusterJobId,
-            publicScope(running.scope()),
-            running.algorithmOptions()
-        ));
-
+        if (!running.clusterJobId().equals(clusterJobId)) {
+            return running;
+        }
         String llmRunId = null;
         try {
+            clusteringEventPort.clusterJobRequested(new ClusterJobRequestedEvent(
+                userId,
+                clusterJobId,
+                publicScope(running.scope()),
+                running.algorithmOptions()
+            ));
             ClusteringAttempt initialAttempt = runClusteringAttempt(
                 userId,
                 modelId,
@@ -234,7 +239,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
                 clusters = clusterResponseParser.parseClusters(clusterJobId, repairAttempt.content(), notes, maxClusters);
             }
             ClusterJob completed = clusterJobStore.save(running.withLlmRunId(llmRunId).completed(clusters, Instant.now(clock)));
-            clusteringEventPort.clusterJobCompleted(new ClusterJobCompletedEvent(
+            publishCompletedEvent(new ClusterJobCompletedEvent(
                 userId,
                 clusterJobId,
                 clusters.size()
@@ -282,7 +287,7 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
         String modelId = resolveModelId(userId);
         String clusterJobId = UUID.randomUUID().toString();
         Instant now = Instant.now(clock);
-        ClusterJob running = clusterJobStore.save(ClusterJob.running(
+        ClusterJob running = claimRunningJob(ClusterJob.running(
             clusterJobId,
             userId,
             scope.documentGroupId(),
@@ -292,21 +297,23 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
             idempotencyKey,
             now
         ));
-        clusteringEventPort.clusterJobRequested(new ClusterJobRequestedEvent(
-            userId,
-            clusterJobId,
-            publicScope(running.scope()),
-            running.algorithmOptions()
-        ));
-
-        if (unassignedNotes.isEmpty()) {
-            ClusterJob completed = clusterJobStore.save(running.completed(existingClusters, Instant.now(clock)));
-            clusteringEventPort.clusterJobCompleted(new ClusterJobCompletedEvent(userId, clusterJobId, existingClusters.size()));
-            return completed;
+        if (!running.clusterJobId().equals(clusterJobId)) {
+            return running;
         }
-
         String llmRunId = null;
         try {
+            clusteringEventPort.clusterJobRequested(new ClusterJobRequestedEvent(
+                userId,
+                clusterJobId,
+                publicScope(running.scope()),
+                running.algorithmOptions()
+            ));
+            if (unassignedNotes.isEmpty()) {
+                ClusterJob completed = clusterJobStore.save(running.completed(existingClusters, Instant.now(clock)));
+                publishCompletedEvent(new ClusterJobCompletedEvent(userId, clusterJobId, existingClusters.size()));
+                return completed;
+            }
+
             ClusteringAttempt fitAttempt = runClusteringAttempt(
                 userId,
                 modelId,
@@ -413,10 +420,37 @@ public class ClusteringService implements RequestClusterJobUseCase, GetClusterJo
                 merged.addAll(newClusters);
             }
             ClusterJob completed = clusterJobStore.save(running.withLlmRunId(llmRunId).completed(merged, Instant.now(clock)));
-            clusteringEventPort.clusterJobCompleted(new ClusterJobCompletedEvent(userId, clusterJobId, merged.size()));
+            publishCompletedEvent(new ClusterJobCompletedEvent(userId, clusterJobId, merged.size()));
             return completed;
         } catch (RuntimeException exception) {
             return clusterJobStore.save(running.withLlmRunId(llmRunId).failed(safeFailureMessage(exception), Instant.now(clock)));
+        }
+    }
+
+    private ClusterJob claimRunningJob(ClusterJob candidate) {
+        try {
+            return clusterJobStore.save(candidate);
+        } catch (ClusteringIdempotencyConflictException exception) {
+            if (candidate.idempotencyKey() == null) {
+                throw exception;
+            }
+            return clusterJobStore.findByUserIdAndIdempotencyKey(
+                    candidate.userId(),
+                    candidate.idempotencyKey()
+                )
+                .orElseThrow(() -> exception);
+        }
+    }
+
+    private void publishCompletedEvent(ClusterJobCompletedEvent event) {
+        try {
+            clusteringEventPort.clusterJobCompleted(event);
+        } catch (RuntimeException exception) {
+            LOGGER.error(
+                "Cluster job completed but completion event publication failed: clusterJobId={}",
+                event.clusterJobId(),
+                exception
+            );
         }
     }
 

@@ -20,6 +20,9 @@ public class BrainxKafkaEventListener {
         groupId = "#{@brainxEventConsumerProperties.groupId}"
     )
     public void onMessage(ConsumerRecord<String, String> record) {
-        dispatcher.dispatch(record.value());
+        EventDispatchResult result = dispatcher.dispatch(record.value());
+        if (result.status() == EventConsumptionStatus.FAILED_NON_RETRYABLE) {
+            throw new NonRetryableEventException(result.eventId());
+        }
     }
 }

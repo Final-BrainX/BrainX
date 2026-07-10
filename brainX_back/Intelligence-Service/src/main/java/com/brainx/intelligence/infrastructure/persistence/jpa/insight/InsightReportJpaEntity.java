@@ -21,9 +21,16 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 
 @Entity
-@Table(name = "intelligence_insight_reports")
+@Table(
+    name = "intelligence_insight_reports",
+    uniqueConstraints = @UniqueConstraint(
+        name = "uk_insight_reports_user_idempotency",
+        columnNames = {"user_id", "idempotency_key"}
+    )
+)
 public class InsightReportJpaEntity {
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {

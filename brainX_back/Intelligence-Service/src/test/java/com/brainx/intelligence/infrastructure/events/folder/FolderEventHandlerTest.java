@@ -79,6 +79,127 @@ class FolderEventHandlerTest {
     }
 
     @Test
+    void renameBeforeCreatedRetriesWithoutLosingOriginalParent() {
+        EventProcessingContext rename = context("evt-rename", "FolderChanged", """
+            {
+              "folderId": "folder-1",
+              "userId": "user-1",
+              "documentGroupId": "group-1",
+              "name": "Renamed"
+            }
+            """);
+
+        assertThatThrownBy(() -> handler.handle(rename))
+            .isInstanceOfSatisfying(EventProcessingException.class, exception -> {
+                assertThat(exception.retryable()).isTrue();
+                assertThat(exception.errorCode()).isEqualTo("FOLDER_PROJECTION_UNAVAILABLE");
+            });
+
+        handler.handle(context("evt-created", "FolderCreated", """
+            {
+              "folderId": "folder-1",
+              "userId": "user-1",
+              "documentGroupId": "group-1",
+              "name": "Original",
+              "parentFolderId": "folder-parent"
+            }
+            """));
+        handler.handle(rename);
+
+        FolderProjection projection = folderProjectionStore.findByFolderId("folder-1").orElseThrow();
+        assertThat(projection.name()).isEqualTo("Renamed");
+        assertThat(projection.parentFolderId()).isEqualTo("folder-parent");
+    }
+
+    @Test
+    void completeMoveBeforeCreatedStoresProjection() {
+        handler.handle(context("evt-move", "FolderChanged", """
+            {
+              "folderId": "folder-1",
+              "userId": "user-1",
+              "documentGroupId": "group-1",
+              "name": "Moved",
+              "parentFolderId": "folder-target",
+              "order": 3
+            }
+            """));
+
+        FolderProjection projection = folderProjectionStore.findByFolderId("folder-1").orElseThrow();
+        assertThat(projection.name()).isEqualTo("Moved");
+        assertThat(projection.parentFolderId()).isEqualTo("folder-target");
+        assertThat(projection.order()).isEqualTo(3);
+    }
+
+    @Test
+    void nullParentFromRenameOnlyEventPreservesCurrentParent() {
+        folderProjectionStore.save(FolderProjection.created(
+            "folder-1",
+            "user-1",
+            "Projects",
+            "folder-parent",
+            "evt-old",
+            NOW
+        ));
+
+        handler.handle(context("evt-root", "FolderChanged", """
+            {
+              "folderId": "folder-1",
+              "userId": "user-1",
+              "documentGroupId": "group-1",
+              "parentFolderId": null
+            }
+            """));
+
+        assertThat(folderProjectionStore.findByFolderId("folder-1").orElseThrow().parentFolderId())
+            .isEqualTo("folder-parent");
+    }
+
+    @Test
+    void blankParentMovesFolderToWorkspaceRoot() {
+        folderProjectionStore.save(FolderProjection.created(
+            "folder-1",
+            "user-1",
+            "Projects",
+            "folder-parent",
+            "evt-old",
+            NOW
+        ));
+
+        handler.handle(context("evt-root", "FolderChanged", """
+            {
+              "folderId": "folder-1",
+              "userId": "user-1",
+              "documentGroupId": "group-1",
+              "parentFolderId": ""
+            }
+            """));
+
+        assertThat(folderProjectionStore.findByFolderId("folder-1").orElseThrow().parentFolderId()).isNull();
+    }
+
+    @Test
+    void lateFolderCreatedDoesNotResurrectDeletedProjection() {
+        folderProjectionStore.save(
+            FolderProjection.created("folder-1", "user-1", "Projects", null, "evt-created", NOW)
+                .deleted("PERMANENT", null, "evt-deleted", NOW.plusSeconds(1))
+        );
+
+        handler.handle(context("evt-created-late", "FolderCreated", """
+            {
+              "folderId": "folder-1",
+              "userId": "user-1",
+              "documentGroupId": "group-1",
+              "name": "Stale name",
+              "parentFolderId": null
+            }
+            """));
+
+        FolderProjection projection = folderProjectionStore.findByFolderId("folder-1").orElseThrow();
+        assertThat(projection.deleted()).isTrue();
+        assertThat(projection.name()).isEqualTo("Projects");
+    }
+
+    @Test
     void folderDeletedTrashPayloadDeletesFoldersAndTrashesNotes() {
         folderProjectionStore.save(FolderProjection.created("folder-1", "user-1", "Projects", null, "evt-old", NOW));
         noteProjectionStore.save(indexedProjection("note-1"));
@@ -130,6 +251,23 @@ class FolderEventHandlerTest {
     }
 
     @Test
+    void emptyFolderDeletionAcceptsEmptyNoteIds() {
+        handler.handle(context("evt-empty", "FolderDeleted", """
+            {
+              "userId": "user-1",
+              "documentGroupId": "group-1",
+              "folderIds": ["folder-empty"],
+              "mode": "trash",
+              "noteIds": []
+            }
+            """));
+
+        FolderProjection projection = folderProjectionStore.findByFolderId("folder-empty").orElseThrow();
+        assertThat(projection.deleted()).isTrue();
+        assertThat(searchIndex.deletedKeys).isEmpty();
+    }
+
+    @Test
     void indexDeleteFalseKeepsProjectionStateWithoutRemovedStatus() {
         searchIndex.mutationApplied = false;
         noteProjectionStore.save(indexedProjection("note-1"));
@@ -166,7 +304,7 @@ class FolderEventHandlerTest {
             .hasMessageContaining("mode must be trash or permanent");
 
         assertThatThrownBy(() -> handler.handle(context("evt-8", "FolderDeleted", """
-            {"userId":"user-1","documentGroupId":"group-1","folderIds":["folder-1"],"mode":"trash","noteIds":[]}
+            {"userId":"user-1","documentGroupId":"group-1","folderIds":["folder-1"],"mode":"trash"}
             """)))
             .isInstanceOf(EventProcessingException.class)
             .hasMessageContaining("noteIds must not be empty");

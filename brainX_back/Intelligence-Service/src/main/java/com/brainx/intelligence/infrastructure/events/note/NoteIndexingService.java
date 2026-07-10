@@ -62,6 +62,7 @@ public class NoteIndexingService {
             }
             throw EventProcessingException.retryable("SNAPSHOT_UNAVAILABLE", "Workspace note snapshot is not available.");
         }
+        validateSnapshotScope(base, snapshot);
         if (snapshot.version() < minimumVersion) {
             throw EventProcessingException.retryable("SNAPSHOT_STALE", "Workspace note snapshot is older than the event.");
         }
@@ -240,6 +241,19 @@ public class NoteIndexingService {
             return base.documentGroupId();
         }
         return snapshot.documentGroupId();
+    }
+
+    private static void validateSnapshotScope(NoteProjection base, NoteSnapshot snapshot) {
+        boolean noteMismatch = !base.noteId().equals(snapshot.noteId());
+        boolean userMismatch = !base.userId().equals(snapshot.userId());
+        boolean documentGroupMismatch = !DocumentGroups.DEFAULT_DOCUMENT_GROUP_ID.equals(base.documentGroupId())
+            && !base.documentGroupId().equals(snapshot.documentGroupId());
+        if (noteMismatch || userMismatch || documentGroupMismatch) {
+            throw EventProcessingException.nonRetryable(
+                "SNAPSHOT_SCOPE_MISMATCH",
+                "Workspace note snapshot does not match the event scope."
+            );
+        }
     }
 
     private static boolean sameValue(String left, String right) {

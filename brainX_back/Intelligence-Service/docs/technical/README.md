@@ -21,6 +21,7 @@
 - [Note Chunking](note-chunking.md): markdown chunk, document group 격리, semantic search dedupe를 확인할 때 읽습니다.
 - [Vectorstore Embedding Model](vectorstore-embedding-model.md): Qdrant와 Voyage embedding model 설정·저장·검색 정책을 확인할 때 읽습니다.
 - [운영 DB DDL](intelligence-operational-db-ddl.md): PostgreSQL schema baseline, 부분 적용 DB 점검, 권장 index를 확인할 때 읽습니다.
+- [AWS 운영 위험 감사](aws-production-risk-audit-2026-07-10.md): IAM, 이벤트 유실, RDS, 단일 EC2, 관측성 위험과 후속 조치를 확인할 때 읽습니다.
 - [Sample Notes RAG CLI](sample-notes-rag-cli.md): `sample_notes` 기반 로컬 RAG 색인·질의·capture를 실행할 때 읽습니다.
 - [Conditional on Bean](conditional-on-bean.md): Spring Boot `@ConditionalOnBean`과 Qdrant adapter 등록 조건을 확인할 때 읽습니다.
 

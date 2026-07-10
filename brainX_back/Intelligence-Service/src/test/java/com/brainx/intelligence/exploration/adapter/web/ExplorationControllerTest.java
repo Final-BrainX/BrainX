@@ -36,6 +36,7 @@ import com.brainx.intelligence.exploration.domain.SearchMatchType;
 import com.brainx.intelligence.exploration.domain.SearchMode;
 import com.brainx.intelligence.exploration.domain.SearchScope;
 import com.brainx.intelligence.exploration.domain.SummarySource;
+import com.brainx.intelligence.exploration.domain.ExplorationNotFoundException;
 import com.brainx.intelligence.infrastructure.security.SecurityConfig;
 import com.brainx.intelligence.infrastructure.web.GlobalApiExceptionHandler;
 
@@ -136,7 +137,7 @@ class ExplorationControllerTest {
             .thenReturn(new SemanticSearchResponse(List.of(), 7, false));
 
         mockMvc.perform(post("/internal/v1/intelligence/semantic-search")
-                .header("X-Service-Token", "local-service-token")
+                .header("X-Service-Token", "test_intelligence_service_token_at_least_32_bytes")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
@@ -259,6 +260,16 @@ class ExplorationControllerTest {
         verify(getNoteSummaryUseCase).getNoteSummary(argThat(query ->
             query.userId().equals("user-1") && query.noteId().equals("note-1")
         ));
+    }
+
+    @Test
+    void getNoteSummaryMapsMissingWorkspaceNoteToNotFound() throws Exception {
+        when(getNoteSummaryUseCase.getNoteSummary(any(GetNoteSummaryQuery.class)))
+            .thenThrow(new ExplorationNotFoundException("Note was not found."));
+
+        mockMvc.perform(get("/api/v1/notes/missing-note/summary").with(user("user-1")))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code").value("NOT_FOUND"));
     }
 
     @Test

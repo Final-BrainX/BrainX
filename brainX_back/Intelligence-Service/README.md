@@ -105,6 +105,12 @@ Windows PowerShell 기준:
 
 배포 환경에서 Workspace 이벤트를 소비해 note projection을 만들려면 `BRAINX_EVENTS_CONSUMER_ENABLED=true`, `KAFKA_BOOTSTRAP_SERVERS`, `SPRING_KAFKA_BOOTSTRAP_SERVERS`, `BRAINX_WORKSPACE_BASE_URL`, `BRAINX_WORKSPACE_SERVICE_TOKEN`이 필요합니다. Workspace internal snapshot API는 `X-Service-Token` 헤더를 사용하므로 `BRAINX_WORKSPACE_SERVICE_TOKEN`은 Workspace-Service의 `SERVICE_TOKEN`과 같아야 합니다.
 
+운영 profile에서는 `JWT_SECRET`과 `SERVICE_TOKEN`이 각각 32 bytes 이상이어야 하며, 누락·placeholder·짧은 값이면 애플리케이션이 시작되지 않습니다. Swagger/OpenAPI endpoint는 기본 비활성이고 `local` profile에서만 기본 활성화됩니다. Workspace 기본 URL은 Workspace-Service 개발 포트인 `http://localhost:8082`이며, JPA는 `open-in-view=false`, Hikari는 인스턴스당 기본 `maximum-pool-size=5`, `minimum-idle=1`을 사용합니다.
+
+Kafka producer는 Kafka의 최종 delivery 결과를 기다려 broker ACK 또는 확정 실패를 호출자에게 전달합니다. producer의 `delivery.timeout.ms`와 `request.timeout.ms`는 각각 `BRAINX_KAFKA_PRODUCER_DELIVERY_TIMEOUT_MS`(기본 `30000`)와 `BRAINX_KAFKA_PRODUCER_REQUEST_TIMEOUT_MS`(기본 `25000`)로 제한하며, 애플리케이션의 더 짧은 별도 timeout으로 아직 진행 중인 발행을 실패로 오판하지 않습니다. 소비 실패는 `BRAINX_EVENTS_CONSUMER_RETRY_INTERVAL`(기본 `1s`)과 `BRAINX_EVENTS_CONSUMER_MAX_ATTEMPTS`(기본 `10`)에 따라 재시도한 뒤 원본 topic과 같은 partition의 `<topic>.dlq`로 보냅니다. payload/handler 검증 같은 비재시도 오류는 즉시 DLQ로 보내며, DLQ publish 자체가 실패하면 원본 처리를 성공으로 간주하지 않습니다. `NoteTagsChanged`는 version이 없으므로 event payload를 projection에 바로 덮지 않고 최신 Workspace snapshot으로 재색인합니다. cluster/insight 완료 결과는 완료 이벤트 발행 실패로 `FAILED` 상태에 되돌아가지 않으며, 알림 실패는 운영 로그와 후속 outbox 개선 대상으로 남깁니다.
+
+클러스터링과 인사이트 요청의 `Idempotency-Key`는 최대 200자입니다. `(user_id, idempotency_key)` DB unique constraint가 동시 요청을 직렬화하고, 충돌한 요청은 먼저 commit된 job/report를 반환합니다. 장시간 LLM 호출은 DB transaction 밖에서 실행해 connection pool을 점유하지 않습니다.
+
 Redis 클라이언트는 `REDIS_HOST`, `REDIS_PORT`, `REDIS_TIMEOUT` 설정을 사용하며, Docker 개발 환경에서는 compose의 `redis` 서비스에 연결합니다. Redis health check는 기본 local 실행을 깨지 않도록 `BRAINX_REDIS_HEALTH_ENABLED`로 켭니다.
 
 운영 DB schema는 Flyway가 `src/main/resources/db/migration`의 migration으로 적용하고, Hibernate는 기본 `ddl-auto=validate`로 entity/schema 불일치만 검증합니다. 로컬 H2 기반 `local`, `test`, `dev-ui` profile은 기존처럼 `create-drop`을 사용하며 Flyway를 끕니다. 운영 DDL 기준과 수동 점검 절차는 `docs/technical/intelligence-operational-db-ddl.md`를 따릅니다.

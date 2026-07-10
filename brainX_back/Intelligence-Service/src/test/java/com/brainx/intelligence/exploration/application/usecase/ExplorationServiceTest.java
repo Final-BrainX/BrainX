@@ -27,6 +27,7 @@ import com.brainx.intelligence.exploration.application.port.outbound.NoteSearchI
 import com.brainx.intelligence.exploration.application.port.outbound.NoteSummaryPort;
 import com.brainx.intelligence.exploration.domain.ExplorationDomainException;
 import com.brainx.intelligence.exploration.domain.ExplorationInsufficientContentException;
+import com.brainx.intelligence.exploration.domain.ExplorationNotFoundException;
 import com.brainx.intelligence.exploration.domain.NoteSearchDocument;
 import com.brainx.intelligence.exploration.domain.NoteSummary;
 import com.brainx.intelligence.exploration.domain.SearchMatchType;
@@ -37,6 +38,7 @@ import com.brainx.intelligence.exploration.domain.SummarySource;
 import com.brainx.intelligence.llmops.application.service.AiRunRecorder;
 import com.brainx.intelligence.llmops.application.service.PromptRegistryService;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
+import com.brainx.intelligence.shared.application.exception.CapabilityForbiddenException;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatResponse;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiTokenUsage;
 import com.brainx.intelligence.shared.application.port.outbound.EntitlementPort;
@@ -82,7 +84,7 @@ class ExplorationServiceTest {
             5,
             List.of()
         )))
-            .isInstanceOf(ExplorationDomainException.class)
+            .isInstanceOf(CapabilityForbiddenException.class)
             .hasMessageContaining("QUOTA_EXHAUSTED");
 
         assertThat(ports.searchRequests).isZero();
@@ -304,9 +306,14 @@ class ExplorationServiceTest {
     void getNoteSummaryFallsBackToWorkspaceExcerptWhenCacheMisses() {
         ports.workspaceSnapshot = new WorkspaceNotePort.NoteSnapshot(
             "note-1",
+            "group-1",
             "Title",
             "# Workspace markdown summary source",
-            Instant.parse("2026-06-19T00:00:00Z")
+            List.of(),
+            null,
+            1,
+            Instant.parse("2026-06-19T00:00:00Z"),
+            "user-1"
         );
 
         var result = service.getNoteSummary(new GetNoteSummaryQuery("user-1", "note-1"));
@@ -314,7 +321,27 @@ class ExplorationServiceTest {
         assertThat(result.noteId()).isEqualTo("note-1");
         assertThat(result.summary()).contains("Workspace markdown summary source");
         assertThat(result.source()).isEqualTo(SummarySource.EXCERPT);
+        assertThat(result.documentGroupId()).isEqualTo("group-1");
         assertThat(ports.workspaceSnapshotRequests).isEqualTo(1);
+    }
+
+    @Test
+    void getNoteSummaryRejectsSnapshotOwnedByAnotherUser() {
+        ports.workspaceSnapshot = new WorkspaceNotePort.NoteSnapshot(
+            "note-1",
+            "group-1",
+            "Private title",
+            "Private markdown",
+            List.of(),
+            null,
+            1,
+            Instant.parse("2026-06-19T00:00:00Z"),
+            "user-2"
+        );
+
+        assertThatThrownBy(() -> service.getNoteSummary(new GetNoteSummaryQuery("user-1", "note-1")))
+            .isInstanceOf(ExplorationNotFoundException.class)
+            .hasMessage("Note was not found.");
     }
 
     @Test
@@ -333,7 +360,8 @@ class ExplorationServiceTest {
             List.of(),
             null,
             3,
-            Instant.parse("2026-07-09T01:00:00Z")
+            Instant.parse("2026-07-09T01:00:00Z"),
+            "user-1"
         );
         when(promptRegistryService.resolve(any(), any()))
             .thenReturn(new PromptRegistryService.PromptResolution("note-summary", "code", "system"));
@@ -381,7 +409,8 @@ class ExplorationServiceTest {
             List.of(),
             null,
             1,
-            Instant.parse("2026-07-09T01:00:00Z")
+            Instant.parse("2026-07-09T01:00:00Z"),
+            "user-1"
         );
 
         assertThatThrownBy(() -> service.generateNoteSummary(new GenerateNoteSummaryCommand(
@@ -409,9 +438,14 @@ class ExplorationServiceTest {
         private List<NoteIndexStatusProjection> indexStatuses = List.of();
         private WorkspaceNotePort.NoteSnapshot workspaceSnapshot = new WorkspaceNotePort.NoteSnapshot(
             "note-1",
+            "default",
             "",
             "",
-            Instant.parse("2026-06-19T00:00:00Z")
+            List.of(),
+            null,
+            0,
+            Instant.parse("2026-06-19T00:00:00Z"),
+            "user-1"
         );
         private final List<TokenUsageRecord> tokenUsageRecords = new ArrayList<>();
         private final List<SemanticSearchPerformedEvent> semanticSearchEvents = new ArrayList<>();

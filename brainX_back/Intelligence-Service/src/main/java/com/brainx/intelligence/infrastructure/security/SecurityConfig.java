@@ -32,9 +32,10 @@ public class SecurityConfig {
     @Bean
     JwtTokenVerifier jwtTokenVerifier(
         ObjectMapper objectMapper,
-        @Value("${brainx.jwt.secret}") String jwtSecret
+        @Value("${brainx.jwt.secret:}") String jwtSecret,
+        Environment environment
     ) {
-        return new JwtTokenVerifier(objectMapper, jwtSecret);
+        return new JwtTokenVerifier(objectMapper, RuntimeSecretValidator.requireJwtSecret(jwtSecret, environment));
     }
 
     @Bean
@@ -54,7 +55,10 @@ public class SecurityConfig {
             || environment.getProperty("brainx.security.dev-auth.enabled", Boolean.class, false);
         boolean devUi = environment.acceptsProfiles(Profiles.of("dev-ui"));
         String devUserId = environment.getProperty("brainx.security.dev-auth.user-id", "dev-test-user");
-        String serviceToken = environment.getProperty("brainx.service-token", "local-service-token");
+        String serviceToken = RuntimeSecretValidator.requireServiceToken(
+            environment.getProperty("brainx.service-token", ""),
+            environment
+        );
 
         http
             .formLogin(AbstractHttpConfigurer::disable)

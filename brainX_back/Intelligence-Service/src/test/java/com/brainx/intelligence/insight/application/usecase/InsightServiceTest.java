@@ -22,6 +22,7 @@ import com.brainx.intelligence.insight.application.port.outbound.InsightEventPor
 import com.brainx.intelligence.insight.application.port.outbound.InsightReportStore;
 import com.brainx.intelligence.insight.domain.InsightConflictException;
 import com.brainx.intelligence.insight.domain.InsightForbiddenException;
+import com.brainx.intelligence.insight.domain.InsightIdempotencyConflictException;
 import com.brainx.intelligence.insight.domain.InsightReport;
 import com.brainx.intelligence.insight.domain.InsightReportLatestState;
 import com.brainx.intelligence.insight.domain.InsightReportStatus;
@@ -164,6 +165,68 @@ class InsightServiceTest {
         assertThat(second.reportId()).isEqualTo(first.reportId());
         assertThat(chatPort.generateCalls).isEqualTo(1);
         assertThat(eventPort.requestedEvents).hasSize(1);
+    }
+
+    @Test
+    void concurrentIdempotencyClaimReturnsCommittedWinnerWithoutModelCall() {
+        noteSource.notes = List.of(note("note-1", "Spring", List.of(), List.of(), "Spring"));
+        InsightReport winner = InsightReport.running(
+            "winner-report",
+            "user-1",
+            "default",
+            workspaceScope(),
+            false,
+            "gpt-test",
+            "same-key",
+            Instant.parse("2026-06-26T00:00:00Z")
+        );
+        store.simulateConcurrentClaim(winner);
+
+        InsightReport returned = service.requestInsightReport(
+            new InsightReportCommand("user-1", workspaceScope(), false, "same-key")
+        );
+
+        assertThat(returned.reportId()).isEqualTo("winner-report");
+        assertThat(chatPort.generateCalls).isZero();
+        assertThat(eventPort.requestedEvents).isEmpty();
+    }
+
+    @Test
+    void synchronousRequestedEventFailureMarksClaimedReportFailed() {
+        noteSource.notes = List.of(note("note-1", "Spring", List.of(), List.of(), "Spring"));
+        eventPort.failRequested = true;
+
+        InsightReport result = service.requestInsightReport(
+            new InsightReportCommand("user-1", workspaceScope(), false, "event-failure-key")
+        );
+
+        assertThat(result.status()).isEqualTo(InsightReportStatus.FAILED);
+        assertThat(result.failureMessage()).contains("event publish failed");
+        assertThat(chatPort.generateCalls).isZero();
+    }
+
+    @Test
+    void completedEventFailureDoesNotOverwriteCompletedReport() {
+        noteSource.notes = List.of(note("note-1", "Spring", List.of(), List.of(), "Spring"));
+        chatPort.response = new AiChatResponse(
+            """
+                {
+                  "summary": "Spring knowledge",
+                  "knowledgeGaps": [],
+                  "recommendations": []
+                }
+                """,
+            null
+        );
+        eventPort.failCompleted = true;
+
+        InsightReport result = service.requestInsightReport(
+            new InsightReportCommand("user-1", workspaceScope(), false, "completed-event-failure")
+        );
+
+        assertThat(result.status()).isEqualTo(InsightReportStatus.COMPLETED);
+        assertThat(result.summary()).isEqualTo("Spring knowledge");
+        assertThat(store.reportsById.get(result.reportId()).status()).isEqualTo(InsightReportStatus.COMPLETED);
     }
 
     @Test
@@ -445,14 +508,26 @@ class InsightServiceTest {
     private static class FakeInsightReportStore implements InsightReportStore {
         private final Map<String, InsightReport> reportsById = new LinkedHashMap<>();
         private final Map<String, InsightReport> reportsByIdempotency = new LinkedHashMap<>();
+        private InsightReport concurrentWinner;
 
         @Override
         public InsightReport save(InsightReport report) {
+            if (concurrentWinner != null && report.idempotencyKey() != null) {
+                InsightReport winner = concurrentWinner;
+                concurrentWinner = null;
+                reportsById.put(winner.reportId(), winner);
+                reportsByIdempotency.put(winner.userId() + "::" + winner.idempotencyKey(), winner);
+                throw new InsightIdempotencyConflictException("Concurrent idempotency claim.");
+            }
             reportsById.put(report.reportId(), report);
             if (report.idempotencyKey() != null) {
                 reportsByIdempotency.put(report.userId() + "::" + report.idempotencyKey(), report);
             }
             return report;
+        }
+
+        private void simulateConcurrentClaim(InsightReport winner) {
+            concurrentWinner = winner;
         }
 
         @Override
@@ -565,14 +640,22 @@ class InsightServiceTest {
     private static class FakeInsightEventPort implements InsightEventPort {
         private final List<InsightReportRequestedEvent> requestedEvents = new ArrayList<>();
         private final List<InsightReportCompletedEvent> completedEvents = new ArrayList<>();
+        private boolean failRequested;
+        private boolean failCompleted;
 
         @Override
         public void insightReportRequested(InsightReportRequestedEvent event) {
+            if (failRequested) {
+                throw new IllegalStateException("event publish failed");
+            }
             requestedEvents.add(event);
         }
 
         @Override
         public void insightReportCompleted(InsightReportCompletedEvent event) {
+            if (failCompleted) {
+                throw new IllegalStateException("completed event publish failed");
+            }
             completedEvents.add(event);
         }
     }

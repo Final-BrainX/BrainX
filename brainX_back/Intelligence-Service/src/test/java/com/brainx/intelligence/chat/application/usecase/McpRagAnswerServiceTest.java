@@ -22,6 +22,7 @@ import com.brainx.intelligence.settings.application.port.outbound.AiModelSetting
 import com.brainx.intelligence.settings.domain.AiModel;
 import com.brainx.intelligence.settings.domain.AiModelSettings;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort;
+import com.brainx.intelligence.shared.application.exception.CapabilityForbiddenException;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatChunk;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatRequest;
 import com.brainx.intelligence.shared.application.port.outbound.AiChatPort.AiChatResponse;
@@ -130,7 +131,7 @@ class McpRagAnswerServiceTest {
             8,
             null
         )))
-            .isInstanceOf(ChatDomainException.class)
+            .isInstanceOf(CapabilityForbiddenException.class)
             .hasMessageContaining("QUOTA_EXHAUSTED");
 
         assertThat(entitlementPort.requests).hasSize(1);

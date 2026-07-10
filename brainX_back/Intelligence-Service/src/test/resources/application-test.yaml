@@ -25,6 +25,15 @@ spring:
         dialect: org.hibernate.dialect.H2Dialect
 
 brainx:
+  jwt:
+    secret: test_intelligence_jwt_secret_at_least_32_bytes
+  service-token: test_intelligence_service_token_at_least_32_bytes
   vector:
     qdrant:
       enabled: false
+
+eureka:
+  client:
+    enabled: false
+    register-with-eureka: false
+    fetch-registry: false

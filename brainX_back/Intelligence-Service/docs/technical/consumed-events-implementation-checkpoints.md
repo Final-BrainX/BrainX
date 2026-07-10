@@ -9,7 +9,7 @@
 - `NoteCreated`: projection을 만들고 snapshot index를 시도하며, snapshot을 읽지 못하면 provisional chunk를 만든다.
 - `NoteContentSaved`: 기존 summary를 지우고 snapshot 재색인 및 summary generation을 요청한다.
 - `NoteMetadataChanged`: projection metadata를 저장하고 필요하면 재색인하거나 index를 제거한다.
-- `NoteTagsChanged`: tag를 저장하고 재색인한다.
+- `NoteTagsChanged`: payload에 version이 없으므로 최신 Workspace snapshot의 tag를 읽어 재색인한다.
 - `NoteTrashed`: projection을 trash 처리하고 index를 제거한다.
 - `NoteDeleted`: projection, index, summary를 삭제 상태로 정리한다.
 
@@ -24,6 +24,12 @@
 - `UserDeletionRequested`
 
 현재 기본 consumer topic과 handler는 위 13개 event를 대상으로 합니다.
+
+## 실패 처리
+
+- retryable 오류는 설정된 횟수만큼 재시도한 뒤 원본 partition과 같은 `<topic>.dlq`로 보낸다.
+- invalid envelope, invalid payload, 미등록 handler 같은 non-retryable 오류는 즉시 DLQ로 보낸다.
+- DLQ publish 실패는 recover 성공으로 처리하지 않아 원본 offset이 조용히 소실되지 않게 한다.
 
 ## 계약에는 있으나 현재 기본 listener 범위 밖
 

@@ -56,7 +56,8 @@ class ScheduledNoteReindexWorkerTest {
             List.of("tag-1"),
             "folder-1",
             1,
-            NOW
+            NOW,
+            "user-1"
         );
 
         int processed = worker.runOnce(NOW);
@@ -95,12 +96,14 @@ class ScheduledNoteReindexWorkerTest {
         projectionStore.save(activeProjection("note-1"));
         workspace.snapshot = new NoteSnapshot(
             "note-1",
+            "default",
             "Snapshot title",
             "retry markdown",
             List.of(),
             null,
             1,
-            NOW
+            NOW,
+            "user-1"
         );
         searchIndex.failOnReplace = true;
 
