@@ -22,6 +22,8 @@ import {
   type AiClusterStatus,
 } from "@/lib/ai-cluster-projection";
 import { mergeNoteIndexStatuses } from "@/lib/note-index-statuses";
+import { graphPreferencesStorageKey, readGraphPreferences, writeGraphPreferences } from "@/lib/graph-preferences";
+import { initialGraphNodePosition } from "@/lib/graph-layout";
 import {
   applyLinkSuggestionToMarkdown,
   filterLinkSuggestions,
@@ -209,7 +211,10 @@ type GraphNode = {
   fy: number | null;
   tx: number | null;
   ty: number | null;
+  stabilizingUntil: number | null;
 };
+
+const NEW_NODE_STABILIZATION_MS = 650;
 
 type GraphControls = {
   zoom: (factor: number) => void;
@@ -314,7 +319,8 @@ function settleLayout(notes: BrainXNote[], iterations = 260) {
       fx: null,
       fy: null,
       tx: null,
-      ty: null
+      ty: null,
+      stabilizingUntil: null,
     };
   });
 
@@ -526,7 +532,7 @@ function bridgeRecommendationToGraphNote(
       recommendation.bridgeReason?.trim() ||
       "선택한 노트 사이를 이어줄 새 문서 주제로 제안되었습니다.",
     tags: BRIDGE_RECOMMENDATION_TAGS,
-    links: [],
+    links: bridgeSourceNotes(sourceNotes).map((note) => note.id),
     searchIndexStatus: "UNKNOWN",
     availableForAiFeatures: false,
     indexedAt: null,
@@ -705,25 +711,25 @@ function GraphCanvasFlow({
 
   // Sync positionsRef with notes to handle async data loading
   useEffect(() => {
-    let added = false;
-    let removed = false;
     const settled = settleLayout(notes);
     const noteIdSet = new Set(notes.map((note) => note.id));
     for (const id of Object.keys(positionsRef.current)) {
       if (!noteIdSet.has(id)) {
         delete positionsRef.current[id];
-        removed = true;
       }
     }
     notes.forEach(note => {
       if (!positionsRef.current[note.id]) {
-        positionsRef.current[note.id] = settled[note.id];
-        added = true;
+        const fallback = settled[note.id];
+        const initial = initialGraphNodePosition(note.id, note.links, positionsRef.current, fallback);
+        positionsRef.current[note.id] = {
+          ...fallback,
+          x: initial.x,
+          y: initial.y,
+          stabilizingUntil: Date.now() + NEW_NODE_STABILIZATION_MS,
+        };
       }
     });
-    if ((added || removed) && controls.current) {
-      controls.current.reheat();
-    }
   }, [notes]);
 
   // Setup GraphControls ref
@@ -882,6 +888,7 @@ function GraphCanvasFlow({
     const step = () => {
       tick++;
       const pos = positionsRef.current;
+      const now = Date.now();
       const isStructured = notes.some(n => pos[n.id] && pos[n.id].tx !== null);
       const runForcePhysics = !isStructured && (tick - 1) % profile.physicsEveryFrames === 0;
 
@@ -904,10 +911,20 @@ function GraphCanvasFlow({
             const repulsion = 2600 / distance2;
             const fx = (dx / distance) * repulsion;
             const fy = (dy / distance) * repulsion;
-            a.vx += fx;
-            a.vy += fy;
-            b.vx -= fx;
-            b.vy -= fy;
+            const aStabilizing = a.stabilizingUntil !== null && a.stabilizingUntil > now;
+            const bStabilizing = b.stabilizingUntil !== null && b.stabilizingUntil > now;
+            if (aStabilizing && !bStabilizing) {
+              a.vx += fx;
+              a.vy += fy;
+            } else if (bStabilizing && !aStabilizing) {
+              b.vx -= fx;
+              b.vy -= fy;
+            } else {
+              a.vx += fx;
+              a.vy += fy;
+              b.vx -= fx;
+              b.vy -= fy;
+            }
           }
         }
 
@@ -922,10 +939,20 @@ function GraphCanvasFlow({
           const force = 0.012 * (distance - target);
           const fx = (dx / distance) * force;
           const fy = (dy / distance) * force;
-          a.vx += fx;
-          a.vy += fy;
-          b.vx -= fx;
-          b.vy -= fy;
+          const aStabilizing = a.stabilizingUntil !== null && a.stabilizingUntil > now;
+          const bStabilizing = b.stabilizingUntil !== null && b.stabilizingUntil > now;
+          if (aStabilizing && !bStabilizing) {
+            a.vx += fx;
+            a.vy += fy;
+          } else if (bStabilizing && !aStabilizing) {
+            b.vx -= fx;
+            b.vy -= fy;
+          } else {
+            a.vx += fx;
+            a.vy += fy;
+            b.vx -= fx;
+            b.vy -= fy;
+          }
         });
       }
 
@@ -950,6 +977,12 @@ function GraphCanvasFlow({
       notes.forEach((note) => {
         const point = pos[note.id];
         if (!point) return;
+
+        if (point.stabilizingUntil !== null && point.stabilizingUntil <= now) {
+          point.stabilizingUntil = null;
+          point.vx = 0;
+          point.vy = 0;
+        }
 
         if (point.tx !== null && point.ty !== null) {
           point.x += (point.tx - point.x) * 0.12;
@@ -1453,7 +1486,7 @@ function GraphScreenInner() {
   const [theme, setTheme] = useState<'2d' | 'universe'>('2d');
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('force');
   const [clusterOn, setClusterOn] = useState(false);
-  const [timeFilter, setTimeFilter] = useState("전체");
+  const [timeFilter, setTimeFilter] = useState<"전체" | "최근 1일" | "최근 1주">("전체");
   const [timeEffectEnabled, setTimeEffectEnabled] = useState(false);
   const [timeEffectStrength, setTimeEffectStrength] = useState(TIME_EFFECT_DEFAULT_STRENGTH);
   const [noteViewHistory, setNoteViewHistory] = useState<Record<string, number>>({});
@@ -1490,6 +1523,18 @@ function GraphScreenInner() {
     }),
     [currentSession?.userId, currentWorkspaceId]
   );
+  const graphPreferencesScope = useMemo(
+    () => ({
+      userId: currentSession?.userId ?? null,
+      documentGroupId: currentWorkspaceId ?? "local",
+    }),
+    [currentSession?.userId, currentWorkspaceId]
+  );
+  const graphPreferencesScopeKey = useMemo(
+    () => graphPreferencesStorageKey(graphPreferencesScope),
+    [graphPreferencesScope]
+  );
+  const [hydratedGraphPreferencesScope, setHydratedGraphPreferencesScope] = useState<string | null>(null);
   const refreshNoteViewHistory = useCallback(() => {
     setNoteViewHistory(readNoteViewHistory(noteViewHistoryScope));
   }, [noteViewHistoryScope]);
@@ -1661,6 +1706,45 @@ function GraphScreenInner() {
     (noteId: string) => notes.find((note) => note.id === noteId)?.aiSourceNoteId ?? noteId,
     [notes]
   );
+
+  useEffect(() => {
+    const preferences = readGraphPreferences(graphPreferencesScope);
+    setTheme(preferences.theme);
+    setLayoutMode(preferences.layoutMode);
+    setClusterOn(preferences.clusterOn);
+    setTimeFilter(preferences.timeFilter);
+    setTimeEffectEnabled(preferences.timeEffectEnabled);
+    setTimeEffectStrength(preferences.timeEffectStrength);
+    setHiddenClusters(preferences.hiddenClusters);
+    setSidebarsLocked(preferences.sidebarsLocked);
+    setHydratedGraphPreferencesScope(graphPreferencesScopeKey);
+  }, [graphPreferencesScope, graphPreferencesScopeKey]);
+
+  useEffect(() => {
+    if (hydratedGraphPreferencesScope !== graphPreferencesScopeKey) return;
+    writeGraphPreferences(graphPreferencesScope, {
+      theme,
+      layoutMode,
+      clusterOn,
+      timeFilter,
+      timeEffectEnabled,
+      timeEffectStrength,
+      hiddenClusters,
+      sidebarsLocked,
+    });
+  }, [
+    clusterOn,
+    graphPreferencesScope,
+    graphPreferencesScopeKey,
+    hiddenClusters,
+    hydratedGraphPreferencesScope,
+    layoutMode,
+    sidebarsLocked,
+    theme,
+    timeEffectEnabled,
+    timeEffectStrength,
+    timeFilter,
+  ]);
 
   useEffect(() => {
     setBridgeSelectedIds((current) => current.filter((id) => bridgeSelectableIdSet.has(id)));
@@ -2181,7 +2265,6 @@ function GraphScreenInner() {
         return { ...note, links: [...note.links, linkId] };
       });
     });
-    controls.current?.reheat();
   };
 
   const acceptLinkSuggestion = async (
@@ -2347,7 +2430,6 @@ function GraphScreenInner() {
         }
         return [graphNote, ...baseNotes];
       });
-      controls.current?.reheat();
       window.dispatchEvent(new CustomEvent("brainx:notes-refresh", { detail: { noteId: created.noteId } }));
       pushToast("징검다리 후보를 새 노트로 저장했어요.", "ok");
     } catch (error) {
@@ -2816,7 +2898,7 @@ function GraphScreenInner() {
           ) : null}
 
           <div className="glass relative z-10 flex items-center gap-0.5 rounded-xl p-1 backdrop-blur-md shadow-sm">
-            {["전체", "최근 1일", "최근 1주"].map((item) => (
+            {(["전체", "최근 1일", "최근 1주"] as const).map((item) => (
               <button
                 key={item}
                 type="button"
