@@ -10,7 +10,8 @@ Set-StrictMode -Version Latest
 # 그대로 사용한다 — 이 스크립트는 run.ps1을 대체하거나 호출하지 않는다.
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$composeFile = Join-Path $scriptDir 'brainX_back\docker-compose.yml'
+$backendDir = Join-Path $scriptDir 'brainX_back'
+$composeFile = Join-Path $backendDir 'docker-compose.yml'
 $infraServices = @('postgres', 'redis', 'kafka', 'neo4j', 'qdrant')
 
 function Assert-CommandExists {
