@@ -10,7 +10,7 @@
 - 실제 Secret 값을 적지 않는다(전부 `<CHANGE_ME>` placeholder).
 - 기존 운영 EC2(`infra/aws-dev`) 관련 명령을 다루지 않는다.
 - GitHub Actions workflow 파일을 만들지 않는다. 최종 결정상 정상 운영 배포는 `workflow_dispatch` 수동 트리거가 기본 전략([EC2_K3S_MIGRATION_PLAN.md](EC2_K3S_MIGRATION_PLAN.md) 7장)이지만, 그 workflow 파일이 실제로 만들어지기 전까지 이 문서는 **사람이 직접 `kubectl`/SSM으로 실행하는 절차**만 다룬다. workflow가 구현된 이후에는 7장 이하 apply 절차 상당 부분이 그 workflow 내부 스크립트로 대체될 예정이다.
-- `host.docker.internal` 완전 제거는 다루지 않는다(후속 작업, [EC2_K3S_MIGRATION_PLAN.md](EC2_K3S_MIGRATION_PLAN.md) 4장 참고). 이 문서는 기존 매니페스트를 그대로 두고, `host.docker.internal`이 새 노드에서도 풀리도록 인프라 레벨에서만 임시 조치한다(5-3절).
+- `host.docker.internal` 완전 제거는 다루지 않는다(후속 작업, [EC2_K3S_MIGRATION_PLAN.md](EC2_K3S_MIGRATION_PLAN.md) 4장 참고). **주의**: 이 항목은 `k8s/apps/*.yaml` 원본(로컬 Docker Desktop 검증용, `host.docker.internal` 사용)에 한정된다. `k8s/overlays/dev`(EC2/k3s 대상)는 이미 `host.docker.internal` 대신 `postgres.internal`/`redis.internal`/`kafka.internal`/`neo4j.internal`/`qdrant.internal` 5개 심볼릭 호스트명을 쓰도록 구현되어 있고, 이 문서는 그 5개 이름이 새 노드에서도 풀리도록 인프라 레벨에서만 임시 조치한다(5-3절).
 - **Kustomize overlay는 구현 완료됐다.** 설계는 [KUSTOMIZE_OVERLAY_DESIGN.md](KUSTOMIZE_OVERLAY_DESIGN.md)에 정리돼 있고, `k8s/base/`, `k8s/overlays/local/`, `k8s/overlays/dev/`(patches 포함) 파일이 실제로 생성되어 `kubectl kustomize` 렌더링 검증까지 끝났다. dev overlay는 ECR image tag와 `<EC2_HOST>` 등 인프라 값을 여전히 placeholder로 두고 있어, 실제 EC2 값 채우기와 `kubectl apply -k` 실행은 아직 하지 않았다. 이 문서(7장)는 그 값 채우기 전까지, 그리고 값 채우기 이후에도 필요 시 기존 `k8s/apps/*.yaml`을 `kubectl apply -f`로 직접 적용하는 절차를 다룬다.
 - **ECR 전환은 더 이상 "다루지 않는" 항목이 아니다.** 이 문서의 기본 이미지 경로는 ECR pull이다(5장). `docker build/save/scp/import`는 ECR 준비가 끝나기 전까지만 쓰는 보조/임시 경로로 격하한다(5-2절).
 
@@ -23,7 +23,7 @@
 2. 보안그룹 포트 오픈
 3. k3s 설치
 4. kubectl 확인 (로컬 → 원격 클러스터)
-5. 이미지 준비 (ECR pull, 기본 경로) + host.docker.internal 임시 조치
+5. 이미지 준비 (ECR pull, 기본 경로) + `.internal` 인프라 호스트(postgres/redis/kafka/neo4j/qdrant.internal) 임시 조치
 6. Secret 적용
 7. 앱 배포 (Discovery → Gateway → User → Admin → Ingestion → Commerce → Intelligence → MCP → Workspace)
 8. health 확인
@@ -197,46 +197,162 @@ rm /tmp/discovery.tar
 
 > 이 경로로 배포한 매니페스트의 `imagePullPolicy`는 `Never` 또는 `IfNotPresent`여야 한다(`Always`면 로컬 import 이미지를 무시하고 외부 레지스트리에서 다시 받으려다 실패한다). ECR 경로(5-1절)로 돌아갈 때는 반드시 이 값을 다시 `IfNotPresent`/`Always`(태그 정책에 맞게)로 되돌린다.
 
-### 5-3. host.docker.internal 임시 조치 (매니페스트는 건드리지 않음)
+### 5-3. `.internal` 인프라 호스트 DNS 조치 (매니페스트는 건드리지 않음)
 
-현재 앱 매니페스트 다수가 `host.docker.internal`로 인프라(Postgres/Redis/Neo4j/Kafka)에 접근한다([EC2_K3S_MIGRATION_PLAN.md](EC2_K3S_MIGRATION_PLAN.md) 4장 옵션 A 채택 전제). EC2 Linux + k3s에는 Docker Desktop 같은 자동 별칭이 없으므로, **같은 EC2 위에 인프라를 Docker Compose로 띄우는 옵션 A**를 그대로 따른다면 아래 중 하나로 해석 가능하게 만든다.
+> ⚠️ **대상 EC2 한정 경고**: 아래 사설 IP는 반드시 **이번에 새로 만든 k3s PoC EC2**의 사설 IP여야 한다. 기존 운영 EC2(`infra/aws-dev`)의 IP/Instance ID를 여기 쓰면 안 된다 — 목적이 다른 두 EC2를 혼동하면 운영 인프라에 원치 않는 트래픽이 흘러갈 수 있다.
+>
+> **로컬(`k8s/overlays/local`, `k8s/apps/*.yaml` 직접 apply) 검증은 이 절차의 대상이 아니다.** 로컬은 Docker Desktop이 `host.docker.internal`을 자동으로 풀어주므로 그대로 둔다(변경 금지).
+
+`k8s/overlays/dev`(EC2/k3s 대상 Kustomize overlay)는 `host.docker.internal`을 쓰지 않는다. 대신 `k8s/overlays/dev/patches/*.yaml`이 Postgres/Redis/Kafka/Neo4j/Qdrant 접근값을 아래 5개 심볼릭 호스트명으로 이미 치환해 두었다([KUSTOMIZE_OVERLAY_DESIGN.md](KUSTOMIZE_OVERLAY_DESIGN.md) 참고, 호스트명 자체는 변경하지 않는다):
+
+| 호스트명 | 대상 인프라 | 포트 |
+| --- | --- | --- |
+| `postgres.internal` | PostgreSQL | 5432 |
+| `redis.internal` | Redis | 6379 |
+| `kafka.internal` | Kafka(`K8S` 리스너) | 9093 |
+| `neo4j.internal` | Neo4j Bolt | 7687 |
+| `qdrant.internal` | Qdrant gRPC | 6334 |
+
+현재 구조(과도기, [EC2_K3S_MIGRATION_PLAN.md](EC2_K3S_MIGRATION_PLAN.md) 4장 옵션 A)에서는 이 인프라 5종이 k3s Pod가 아니라 **같은 EC2 위 Docker Compose**에서 돈다. 따라서 5개 이름 전부를 **같은 사설 IP(그 EC2 자기 자신)** 로 풀어주면 된다 — Pod 입장에서 "다른 서버"가 아니라 "자기가 떠 있는 노드"를 가리키는 것뿐이다.
+
+#### 5-3-1. Compose 인프라 기동
+
+> ⚠️ **`run.ps1`을 쓰지 않는다.** 저장소 루트의 `run.ps1`은 `docker compose ... --profile apps up -d --build`로 9개 앱 서비스 컨테이너까지 전부 띄우는 **로컬 전체 Compose 실행용** 스크립트다. 이 EC2에서는 9개 앱이 이미 k3s Pod로 뜨므로, `run.ps1`을 그대로 실행하면 **같은 서비스가 Compose 컨테이너와 k3s Pod로 중복 기동**된다(포트 바인딩 충돌, 이중 리소스 사용, 어느 쪽이 실제로 응답하는지 혼동 등). `run.ps1` 자체는 로컬 전체 스택 검증용으로 계속 유효하며 이번 변경에서 손대지 않았다.
+>
+> 대신 인프라(Postgres/Redis/Kafka/Neo4j/Qdrant)만 띄우는 **`run-infra.ps1`**(EC2+k3s 과도기 구조 전용, 이번에 추가)을 사용한다. `--profile apps` 없이 저 5개 서비스만 시작하고, 이미지 빌드도 하지 않는다.
 
 ```bash
-# EC2에서 Compose 인프라를 먼저 기동
+# EC2에서 인프라만 기동 (앱 9개는 이미 k3s Pod로 배포되므로 여기서 띄우지 않는다)
 git clone <repository-url> ~/BrainX && cd ~/BrainX && git checkout <branch-name>
-./run.ps1   # 또는 리포지토리의 Linux 대응 실행 스크립트 확인 후 사용
+pwsh ./run-infra.ps1   # PowerShell(pwsh)이 EC2에 없다면 스크립트 내용을 참고해 동등한 셸 명령으로 대체
 ```
 
-CoreDNS에 `host.docker.internal` → EC2 자기 자신(사설 IP)으로 풀리도록 hosts 항목만 추가한다(앱 YAML은 무수정):
+`run-infra.ps1`은 실행 과정에서 `KAFKA_K8S_ADVERTISED_HOST=kafka.internal`을 **이 프로세스(및 그 하위 `docker compose` 호출) 범위에서만** 자동으로 강제 설정한다 — 셸의 영구 환경변수를 바꾸지 않으며, 스크립트가 끝나면 원래 값(있었다면)으로 복원된다. 실행자가 이 값을 직접 설정할 필요가 없고, 실수로 로컬 기본값(`host.docker.internal`)인 채 EC2 인프라를 띄우는 상황 자체가 방지된다. 자세한 배경은 5-3-6절 참고.
+
+#### 5-3-2. EC2 사설 IP 안전하게 확인
+
+**EC2 인스턴스 자기 자신에서** IMDSv2(토큰 기반)로 조회한다. 외부 서비스나 콘솔의 값을 그대로 베껴 쓰지 말고, 실제로 이 노드가 인식하는 사설 IP인지 이 명령으로 확인한다.
+
+```bash
+TOKEN=$(curl -sX PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+curl -sH "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/local-ipv4
+```
+
+출력된 값을 아래 절차의 `<EC2_PRIVATE_IP>`로 사용한다. **기존 운영 EC2가 아니라 지금 이 명령을 실행 중인, 이번에 새로 만든 k3s PoC EC2에서 나온 값인지 다시 한 번 확인한다.**
+
+#### 5-3-3. 적용 전 CoreDNS 백업
+
+기존 `coredns` ConfigMap을 건드리기 전에 반드시 백업부터 남긴다(문제 발생 시 즉시 원복 가능하도록).
+
+```bash
+sudo k3s kubectl -n kube-system get configmap coredns -o yaml \
+  > ~/coredns-configmap.backup.$(date +%Y%m%d-%H%M%S).yaml
+```
+
+#### 5-3-4. CoreDNS customhosts에 5개 이름 등록
 
 ```bash
 sudo k3s kubectl -n kube-system edit configmap coredns
 ```
 
-`Corefile` 안 `.:53 { ... }` 블록에 아래를 추가:
+`Corefile` 안 `.:53 { ... }` 블록에 아래를 추가(기존에 `hosts` 플러그인 블록이 없다면 새로 추가, 있다면 그 안에 파일 경로만 맞춘다):
 
 ```
 hosts /etc/coredns/customhosts {
-    <EC2_PRIVATE_IP> host.docker.internal
     fallthrough
 }
 ```
 
-그리고 실제 파일을 만든다:
+그리고 실제 customhosts 파일에 5개 이름을 **전부 같은 `<EC2_PRIVATE_IP>`** 로 매핑한다:
 
 ```bash
 sudo mkdir -p /var/lib/rancher/k3s/server/manifests
-echo "<EC2_PRIVATE_IP> host.docker.internal" | sudo tee /etc/coredns/customhosts
+cat <<EOF | sudo tee /etc/coredns/customhosts
+<EC2_PRIVATE_IP> postgres.internal
+<EC2_PRIVATE_IP> redis.internal
+<EC2_PRIVATE_IP> kafka.internal
+<EC2_PRIVATE_IP> neo4j.internal
+<EC2_PRIVATE_IP> qdrant.internal
+EOF
 sudo k3s kubectl -n kube-system rollout restart deployment/coredns
+sudo k3s kubectl -n kube-system rollout status deployment/coredns
 ```
 
-확인:
+#### 5-3-5. 검증 (DNS 조회 성공 ≠ 실제 서비스 접속 성공)
+
+> **주의**: 아래 1)이 통과해도 2)가 실패할 수 있다. DNS는 이름을 IP로 바꿔줄 뿐, 그 IP:포트에서 실제로 서비스가 응답하는지는 별도로 확인해야 한다(방화벽, Compose 컨테이너의 listen/bind 설정, 서비스 자체 다운 등으로 2)만 실패하는 경우가 흔하다).
+
+**1) DNS 조회 확인** — 5개 이름 전부 `<EC2_PRIVATE_IP>`로 풀리는지 확인:
 
 ```bash
-sudo k3s kubectl -n brainx run dns-test --rm -it --image=busybox --restart=Never -- nslookup host.docker.internal
+sudo k3s kubectl -n brainx run dns-test --rm -it --image=busybox --restart=Never -- sh -c '
+  for h in postgres.internal redis.internal kafka.internal neo4j.internal qdrant.internal; do
+    echo "== $h =="; nslookup "$h"
+  done'
 ```
 
-이 조치는 임시방편이며, `host.docker.internal` 자체를 제거하는 것은 [EC2_K3S_MIGRATION_PLAN.md](EC2_K3S_MIGRATION_PLAN.md) 4장 범위의 후속 작업이다.
+**2) 실제 포트 접속 확인** — 이름이 풀리는 것과 별개로, 그 IP:포트가 실제로 열려 있고 응답하는지 확인:
+
+```bash
+sudo k3s kubectl -n brainx run tcp-test --rm -it --image=busybox --restart=Never -- sh -c '
+  for target in postgres.internal:5432 redis.internal:6379 kafka.internal:9093 neo4j.internal:7687 qdrant.internal:6334; do
+    host="${target%:*}"; port="${target#*:}"
+    echo "== $target =="; nc -zv -w 3 "$host" "$port"
+  done'
+```
+
+**3) 애플리케이션 Pod 상태 확인** — DNS/TCP가 정상이어도 앱 레벨에서 인증 실패 등이 날 수 있으므로, 실제로 이 5개 호스트를 참조하는 서비스(Workspace/Admin/Ingestion/Commerce/Intelligence/User/MCP)의 rollout과 로그를 함께 확인한다:
+
+```bash
+kubectl -n brainx rollout status deployment/workspace-service
+kubectl -n brainx logs deployment/workspace-service --tail=100
+# 나머지 서비스도 동일하게 반복
+```
+
+**4) Kafka advertised 주소 확인(Metadata 라운드트립) — 1)/2)로는 못 잡는 문제**
+
+> DNS 조회(1)와 단순 TCP 접속(2)은 **최초 bootstrap 연결**만 확인한다. Kafka 클라이언트는 그 다음 Metadata 응답에 담긴 **advertised 주소로 재접속**해 실제 produce/consume를 수행하므로, bootstrap 성공과 실제 통신 성공은 별개다(5-3-6절 참고). 아래 명령으로 그 재접속 단계까지 실제로 확인한다.
+
+Kafka CLI가 포함된 이미지(Compose가 쓰는 것과 동일한 `apache/kafka:3.8.0`)로 임시 Pod를 띄워 확인한다. 정확한 스크립트 경로는 이미지 버전에 따라 다를 수 있으므로, 먼저 Compose 컨테이너에서 경로를 확인한다:
+
+```bash
+docker exec -it brainx-kafka ls /opt/kafka/bin | grep -E 'broker-api-versions|console-producer|console-consumer'
+```
+
+**4-1) Broker API 조회** — bootstrap(`kafka.internal:9093`) 접속 후 Metadata가 돌려준 advertised 주소로 실제 재접속해 응답이 오는지 확인(재접속 대상이 `host.docker.internal` 등으로 잘못 나오면 이 단계에서 그대로 실패/타임아웃한다):
+
+```bash
+kubectl -n brainx run kafka-cli-test --rm -it --image=apache/kafka:3.8.0 --restart=Never -- \
+  /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka.internal:9093
+```
+
+**4-2) Producer/Consumer 라운드트립** — 실제 메시지를 써서 다시 읽어와 완전한 통신을 확인:
+
+```bash
+kubectl -n brainx run kafka-cli-test --rm -it --image=apache/kafka:3.8.0 --restart=Never -- bash -c '
+  echo "brainx-k3s-poc-smoke-test" | /opt/kafka/bin/kafka-console-producer.sh \
+    --bootstrap-server kafka.internal:9093 --topic brainx-k3s-poc-smoke-test &&
+  /opt/kafka/bin/kafka-console-consumer.sh \
+    --bootstrap-server kafka.internal:9093 --topic brainx-k3s-poc-smoke-test \
+    --from-beginning --max-messages 1 --timeout-ms 10000
+'
+```
+
+4-1)과 4-2) 모두 통과해야 "Kafka가 실제로 쓸 수 있는 상태"로 판단한다. 4-1)만 통과하고 4-2)가 실패한다면 advertised 주소는 맞지만 다른 원인(토픽 자동 생성, ACL, 방화벽 등)을 의심한다.
+
+#### 5-3-6. 주의사항 — Compose 인프라 쪽 listen/bind/advertised 설정
+
+CoreDNS가 이름을 풀어줘도, Compose 컨테이너가 **localhost/loopback에만 bind**하고 있으면 k3s Pod(다른 네트워크 네임스페이스)에서는 연결이 거부되거나 타임아웃난다. EC2로 옮기면서 아래를 함께 점검한다.
+
+- **PostgreSQL**: `listen_addresses`가 `localhost`로 제한되어 있지 않은지, Compose가 호스트 인터페이스에 포트를 바인딩하는지 확인.
+- **Redis**: `bind` 설정이 `127.0.0.1`만 허용하지 않는지 확인(필요 시 `protected-mode`/인증 설정과 함께 검토).
+- **Neo4j**: Bolt 리스너가 `0.0.0.0:7687`로 바인딩되어 있는지 확인.
+- **Qdrant**: gRPC 포트(6334)가 컨테이너 외부(호스트)로 노출되어 있는지 확인.
+- **Kafka(★ 가장 흔한 실패 지점)**: `KAFKA_ADVERTISED_LISTENERS`의 `K8S` 리스너 값이 **`kafka.internal:9093`과 정확히 일치**해야 한다. `brainX_back/docker-compose.yml`은 이 호스트명을 `KAFKA_K8S_ADVERTISED_HOST` 환경변수로 분리해 두었다(`K8S://${KAFKA_K8S_ADVERTISED_HOST:-host.docker.internal}:9093`, 기본값은 로컬용 `host.docker.internal`). 5-3-1절의 `run-infra.ps1`이 이 값을 `kafka.internal`로 자동 강제 설정하므로, **`run-infra.ps1`로 인프라를 띄웠다면** advertised 주소는 이미 맞게 렌더링된다. 반대로 이 EC2에서 `run-infra.ps1` 대신 `run.ps1`이나 수동 `docker compose up`을 `KAFKA_K8S_ADVERTISED_HOST` 지정 없이 실행하면 advertised 주소가 다시 `host.docker.internal`로 돌아가 Pod가 최초 연결(9093 포트)에는 성공해도 Kafka가 메타데이터 응답으로 돌려주는 주소를 재해석하지 못해 실패한다 — DNS/TCP 1차 확인(5-3-5절 1·2)만으로는 이 문제를 못 잡으므로, Kafka를 쓰는 서비스(Admin/Workspace/Ingestion/Commerce/Intelligence)는 반드시 5-3-5절 4)의 Kafka CLI 라운드트립 또는 실제 Consumer/Producer 로그까지 확인한다. `:9092`(EXTERNAL 리스너)로 바꾸지 않는다(README.md에 이미 경고된 advertised address 루프백 이슈와 동일 원인).
+
+이 조치는 임시방편이며(같은 EC2 위 Compose 인프라를 전제로 한 옵션 A), 인프라까지 k3s in-cluster로 옮기는 옵션 B 전환이나 `host.docker.internal`/`.internal` 계열 자체를 완전히 없애는 작업은 [EC2_K3S_MIGRATION_PLAN.md](EC2_K3S_MIGRATION_PLAN.md) 4장 범위의 후속 작업이다.
 
 ---
 
@@ -422,7 +538,7 @@ curl.exe http://<EC2_PUBLIC_IP>:30080/actuator/health
 
 - EC2 사이징 문제(메모리/CPU 부족) → 1장 인스턴스 타입부터 재검토
 - 이미지 import 문제 → 5장 절차 자체를 점검(디스크 용량, 파일 전송 무결성)
-- host.docker.internal 조치 실패 → 5-3절 CoreDNS 설정 재확인, 안 되면 옵션 B([EC2_K3S_MIGRATION_PLAN.md](EC2_K3S_MIGRATION_PLAN.md) 4장) 전환을 팀과 논의
+- `.internal` 호스트(postgres/redis/kafka/neo4j/qdrant.internal) 조치 실패 → 5-3절 CoreDNS 설정 재확인, 안 되면 옵션 B([EC2_K3S_MIGRATION_PLAN.md](EC2_K3S_MIGRATION_PLAN.md) 4장) 전환을 팀과 논의
 - Secret/JWT 불일치 → 6장 재확인
 
 ---

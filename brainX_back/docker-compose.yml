@@ -9,7 +9,11 @@ services:
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092,K8S://:29093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9092,K8S://host.docker.internal:9093
+      # K8S 리스너의 advertised 호스트명만 분리한다. 기본값(host.docker.internal)은 로컬
+      # Docker Desktop용이며, EC2+k3s 과도기 구조에서는 run-infra.ps1이 이 값을
+      # kafka.internal로 강제 설정한다(k8s/EC2_K3S_RUNBOOK.md 5-3절 CoreDNS 매핑과 대응).
+      # 포트(9093)/리스너 이름/PROTOCOL_MAP/INTER_BROKER_LISTENER_NAME은 변경하지 않는다.
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9092,K8S://${KAFKA_K8S_ADVERTISED_HOST:-host.docker.internal}:9093
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,K8S:PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT

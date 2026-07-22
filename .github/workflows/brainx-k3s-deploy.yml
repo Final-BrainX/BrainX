@@ -420,7 +420,7 @@ jobs:
           echo "Using kubectl binary: $KUBECTL"
 
           echo "Checking required Secrets exist in namespace $NAMESPACE..."
-          for secret in gateway-secret postgres-secret workspace-secret mcp-service-secret admin-service-secret ingestion-service-secret commerce-service-secret intelligence-service-secret; do
+          for secret in gateway-secret postgres-secret workspace-secret mcp-service-secret admin-service-secret ingestion-service-secret commerce-service-secret intelligence-service-secret user-service-oauth-secret; do
             if ! $KUBECTL -n "$NAMESPACE" get secret "$secret" >/dev/null 2>&1; then
               echo "Missing required Secret: $secret (namespace $NAMESPACE)." >&2
               echo "Create it first (see k8s/EC2_K3S_RUNBOOK.md section 6). Aborting before apply." >&2
