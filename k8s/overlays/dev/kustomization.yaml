@@ -4,6 +4,7 @@ kind: Kustomization
 # EC2 + k3s PoC 대상 오버레이.
 resources:
   - ../../base
+  - gateway-ingress.yaml
 
 commonLabels:
   environment: dev
@@ -53,3 +54,12 @@ patches:
   - path: patches/intelligence-service-config.yaml
   - path: patches/mcp-service-config.yaml
   - path: patches/commerce-service-config.yaml
+  # ECR private registry 인증: 모든 Deployment에 imagePullSecrets 주입.
+  # ecr-pull-secret은 deploy_remote.sh가 매 배포 시 자동 생성/갱신한다.
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: add
+        path: /spec/template/spec/imagePullSecrets
+        value:
+          - name: ecr-pull-secret

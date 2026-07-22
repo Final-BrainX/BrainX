@@ -442,6 +442,18 @@ jobs:
           done
           echo "All required Secrets present."
 
+          echo "Creating/updating ECR image pull secret for private registry access..."
+          : "${AWS_REGION:?AWS_REGION is required for ECR authentication}"
+          AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          ECR_TOKEN="$(aws ecr get-login-password --region "$AWS_REGION")"
+          $KUBECTL -n "$NAMESPACE" create secret docker-registry ecr-pull-secret \
+            --docker-server="$ECR_REGISTRY" \
+            --docker-username=AWS \
+            --docker-password="$ECR_TOKEN" \
+            --dry-run=client -o yaml | $KUBECTL apply -f -
+          echo "ECR pull secret ready (valid ~12h, refreshed on every deploy)."
+
           echo "Applying Kustomize overlay from $WORKDIR/overlays/dev ..."
           if $KUBECTL apply -k "$WORKDIR/overlays/dev" --load-restrictor LoadRestrictionsNone; then
             echo "kubectl apply -k succeeded."
