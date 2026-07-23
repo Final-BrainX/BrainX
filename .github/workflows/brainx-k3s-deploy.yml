@@ -66,9 +66,14 @@ jobs:
     steps:
       - name: Enforce confirm_target literal
         shell: bash
+        env:
+          # workflow_dispatch string inputs are never interpolated directly into a run: body
+          # (that would let arbitrary shell metacharacters in the input execute as code).
+          # Pass through env: and read as a quoted shell variable instead.
+          CONFIRM_TARGET: ${{ inputs.confirm_target }}
         run: |
           set -euo pipefail
-          if [ "${{ inputs.confirm_target }}" != "K3S_POC_DEPLOY" ]; then
+          if [ "$CONFIRM_TARGET" != "K3S_POC_DEPLOY" ]; then
             echo "confirm_target must be exactly 'K3S_POC_DEPLOY'. Refusing to proceed." >&2
             exit 1
           fi
@@ -102,10 +107,14 @@ jobs:
       - name: Resolve image tag
         id: resolve
         shell: bash
+        env:
+          # Same reasoning as the confirm_target step above: never splice a workflow_dispatch
+          # string input directly into the run: body. IMAGE_TAG_INPUT is only ever read as "$IMAGE_TAG_INPUT".
+          IMAGE_TAG_INPUT: ${{ inputs.image_tag }}
         run: |
           set -euo pipefail
 
-          IMAGE_TAG="${{ inputs.image_tag }}"
+          IMAGE_TAG="$IMAGE_TAG_INPUT"
           if [ -z "$IMAGE_TAG" ]; then
             echo "image_tag input is required and cannot be empty." >&2
             exit 1
@@ -420,6 +429,10 @@ jobs:
           echo "Using kubectl binary: $KUBECTL"
 
           echo "Checking required Secrets exist in namespace $NAMESPACE..."
+          # user-service-oauth-secret is intentionally excluded: k8s/apps/user-service.yaml marks
+          # every key from this Secret as secretKeyRef.optional: true, so the base PoC deployment
+          # and health checks do not require it. It's only needed to test Google/Kakao/Naver login
+          # end-to-end (see k8s/EC2_K3S_RUNBOOK.md 6-1).
           for secret in gateway-secret postgres-secret workspace-secret mcp-service-secret admin-service-secret ingestion-service-secret commerce-service-secret intelligence-service-secret; do
             if ! $KUBECTL -n "$NAMESPACE" get secret "$secret" >/dev/null 2>&1; then
               echo "Missing required Secret: $secret (namespace $NAMESPACE)." >&2
@@ -428,6 +441,18 @@ jobs:
             fi
           done
           echo "All required Secrets present."
+
+          echo "Creating/updating ECR image pull secret for private registry access..."
+          : "${AWS_REGION:?AWS_REGION is required for ECR authentication}"
+          AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          ECR_TOKEN="$(aws ecr get-login-password --region "$AWS_REGION")"
+          $KUBECTL -n "$NAMESPACE" create secret docker-registry ecr-pull-secret \
+            --docker-server="$ECR_REGISTRY" \
+            --docker-username=AWS \
+            --docker-password="$ECR_TOKEN" \
+            --dry-run=client -o yaml | $KUBECTL apply -f -
+          echo "ECR pull secret ready (valid ~12h, refreshed on every deploy)."
 
           echo "Applying Kustomize overlay from $WORKDIR/overlays/dev ..."
           if $KUBECTL apply -k "$WORKDIR/overlays/dev" --load-restrictor LoadRestrictionsNone; then
@@ -482,6 +507,51 @@ jobs:
         with:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+
+      - name: Verify SSM target instance identity and tags (safety guard)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Fixed tag contract (k8s/EC2_K3S_RUNBOOK.md section 1). Not a GitHub Variable on
+          # purpose: this is a constant safety check, not a per-run configurable value.
+          REQUIRED_TAG_ENV_KEY="BrainXEnvironment"
+          REQUIRED_TAG_ENV_VALUE="k3s-poc"
+          REQUIRED_TAG_TARGET_KEY="BrainXDeploymentTarget"
+          REQUIRED_TAG_TARGET_VALUE="true"
+
+          DESCRIBE_JSON="$(aws ec2 describe-instances \
+            --instance-ids "$AWS_K3S_INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --output json)"
+
+          RESERVATION_COUNT="$(echo "$DESCRIBE_JSON" | jq '.Reservations | length')"
+          if [ "$RESERVATION_COUNT" != "1" ]; then
+            echo "AWS_K3S_INSTANCE_ID ($AWS_K3S_INSTANCE_ID) did not resolve to exactly one instance in this AWS account/region ($AWS_REGION)." >&2
+            exit 1
+          fi
+
+          INSTANCE_STATE="$(echo "$DESCRIBE_JSON" | jq -r '.Reservations[0].Instances[0].State.Name')"
+          if [ "$INSTANCE_STATE" != "running" ]; then
+            echo "Target instance $AWS_K3S_INSTANCE_ID is not running (state: $INSTANCE_STATE). Refusing to send SSM command." >&2
+            exit 1
+          fi
+
+          ENV_TAG_VALUE="$(echo "$DESCRIBE_JSON" | jq -r --arg k "$REQUIRED_TAG_ENV_KEY" '.Reservations[0].Instances[0].Tags[]? | select(.Key==$k) | .Value')"
+          TARGET_TAG_VALUE="$(echo "$DESCRIBE_JSON" | jq -r --arg k "$REQUIRED_TAG_TARGET_KEY" '.Reservations[0].Instances[0].Tags[]? | select(.Key==$k) | .Value')"
+
+          if [ "$ENV_TAG_VALUE" != "$REQUIRED_TAG_ENV_VALUE" ]; then
+            echo "Target instance $AWS_K3S_INSTANCE_ID is missing required tag ${REQUIRED_TAG_ENV_KEY}=${REQUIRED_TAG_ENV_VALUE} (found: '${ENV_TAG_VALUE:-<none>}')." >&2
+            echo "This tag identifies a genuine k3s PoC instance. It must never match the existing production EC2 — refusing to proceed." >&2
+            exit 1
+          fi
+
+          if [ "$TARGET_TAG_VALUE" != "$REQUIRED_TAG_TARGET_VALUE" ]; then
+            echo "Target instance $AWS_K3S_INSTANCE_ID is missing required tag ${REQUIRED_TAG_TARGET_KEY}=${REQUIRED_TAG_TARGET_VALUE} (found: '${TARGET_TAG_VALUE:-<none>}')." >&2
+            exit 1
+          fi
+
+          echo "Verified: $AWS_K3S_INSTANCE_ID is running and carries ${REQUIRED_TAG_ENV_KEY}=${REQUIRED_TAG_ENV_VALUE}, ${REQUIRED_TAG_TARGET_KEY}=${REQUIRED_TAG_TARGET_VALUE}."
 
       - name: Download deploy bundle artifact
         uses: actions/download-artifact@v4
